@@ -149,6 +149,10 @@ resolution that is actually wired into the build (driver format tables +
 detection are handled automatically through the sensor registers and IPA JSON
 configuration.
 
+**Note:** `1920x1080` is compiled into several of the drivers but is **not
+usable on the ESP32-P4** (a 1080p RGB565 frame is ~4 MB and the memory/bandwidth
+budget cannot sustain it). Use the smaller resolutions below.
+
 ### OV5647 (MIPI 2-lane, 5 MP)
 
 Raspberry Pi Camera v1 type sensor. RAW output converted to RGB565 by the ISP.
@@ -160,7 +164,7 @@ Native formats from `ov5647.c` (all compiled):
 | 800 × 800 | 50 | RAW8 | native |
 | 800 × 1280 | 50 | RAW8 | native (portrait) |
 | 1280 × 960 | 45 | RAW10 | native, binning |
-| 1920 × 1080 | 30 | RAW10 | native (1080P) |
+| 1920 × 1080 | 30 | RAW10 | native (1080P) — not usable on ESP32-P4 (memory) |
 
 ```yaml
 esp_cam_sensor:
@@ -183,7 +187,7 @@ Native formats from `ov02c10.c` (RAW10, all compiled):
 | 800 × 600 | 30 | SVGA 4:3 — 25% horizontal crop |
 | 480 × 640 | 30 | portrait (270° rotation handled by LVGL) |
 | 1288 × 728 | 30 | near HD 16:9, full sensor downscaled by the ISP |
-| 1920 × 1080 | 30 | 1080P — full sensor, 100% FOV |
+| 1920 × 1080 | 30 | 1080P, full sensor — not usable on ESP32-P4 (memory) |
 
 > **Note:** `960x540` is disabled (persistent watchdog) — use `800x600` or `1288x728`.
 
@@ -230,7 +234,7 @@ Resolutions enabled through the `CONFIG_CAMERA_SC2336_*` flags in
 | 800 × 800 | 30 | RAW8 / RAW10 |
 | 1024 × 600 | 30 | RAW8 |
 | 1280 × 720 | 30 | RAW10 |
-| 1920 × 1080 | 30 | RAW10 |
+| 1920 × 1080 | 30 | RAW10 (not usable on ESP32-P4, memory) |
 
 ```yaml
 esp_cam_sensor:
