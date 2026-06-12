@@ -1415,15 +1415,25 @@ void MipiDSICamComponent::stop_streaming() {
   this->current_buffer_index_ = -1;
   portEXIT_CRITICAL(&this->buffer_mutex_);
 
+  // The PPA output buffer (image_buffer_) is a separate allocation that may
+  // transiently alias a V4L2 slot during frame processing. Capture it first,
+  // skip it in the V4L2 free loop, then free it exactly once: this frees the
+  // separate PPA buffer (previously leaked on every stop) without risking a
+  // double-free if a slot still aliases it.
+  uint8_t *ppa_buffer = this->image_buffer_;
+
   for (int i = 0; i < NUM_BUFFERS; i++) {
-    if (this->simple_buffers_[i].data != nullptr) {
+    if (this->simple_buffers_[i].data != nullptr &&
+        this->simple_buffers_[i].data != ppa_buffer) {
       heap_caps_free(this->simple_buffers_[i].data);
-      this->simple_buffers_[i].data = nullptr;
-      this->simple_buffers_[i].allocated = false;
     }
+    this->simple_buffers_[i].data = nullptr;
+    this->simple_buffers_[i].allocated = false;
   }
 
-  // Reset legacy pointer
+  if (ppa_buffer != nullptr) {
+    heap_caps_free(ppa_buffer);
+  }
   this->image_buffer_ = nullptr;
 
   // 4. Cleanup PPA si activé
