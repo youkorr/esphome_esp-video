@@ -31,15 +31,10 @@ external_components:
       url: https://github.com/youkorr/esphome_esp-video
     components: [esp_video, esp_cam_sensor, lvgl_camera_display]
     refresh: 0s
-
-  # Custom LVGL 9.5 — REQUIRED by lvgl_camera_display (PPA acceleration)
-  - source:
-      type: git
-      url: https://github.com/youkorr/lvgl_9.5
-      ref: main
-    components: [lvgl, image, font]
-    refresh: always
 ```
+
+`lvgl_camera_display` uses the **official** ESPHome `lvgl` component — just add
+`lvgl:` to your configuration as usual. No LVGL fork is needed.
 
 > **Note:** The `mipi_dsi` component (ESP32-P4 MIPI-DSI display interface) is now
 > **integrated natively into ESPHome** — no external component is needed.
@@ -47,10 +42,12 @@ external_components:
 > **Note:** These components target the **ESP32-P4** (`esp32` + `esp-idf` framework).
 > PSRAM is mandatory for the video buffers.
 
-> **Mandatory LVGL dependency.** `lvgl_camera_display` copies frames into an
-> LVGL `canvas` using the **PPA** hardware accelerator. This requires the
-> **LVGL 9.5** fork (`https://github.com/youkorr/lvgl_9.5`, MIT licensed) — the
-> official ESPHome `lvgl` component does not provide `use_ppa`.
+> **LVGL requirement.** `lvgl_camera_display` feeds frames into an LVGL `canvas`
+> using **standard LVGL 9 APIs** (`lv_canvas_set_draw_buf`, zero-copy). It needs
+> **ESPHome 2026.4 or newer**, where the official `lvgl` component ships
+> **LVGL 9.5** with native **PPA** acceleration on the ESP32-P4 — so the previous
+> `youkorr/lvgl_9.5` fork (which only existed to provide `use_ppa`) is **no
+> longer required**. On older ESPHome releases you still need that fork.
 
 ### 1. I²C bus
 
