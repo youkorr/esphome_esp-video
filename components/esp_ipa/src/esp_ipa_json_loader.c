@@ -103,7 +103,27 @@ static esp_err_t parse_ccm_from_json(cJSON *sensor_root, esp_ipa_ccm_config_t *c
     cJSON *table = cJSON_GetObjectItem(ccm, "table");
     if (!table || !cJSON_IsArray(table) || cJSON_GetArraySize(table) == 0) return ESP_ERR_INVALID_ARG;
 
-    cJSON *ccm_entry = cJSON_GetArrayItem(table, 0);
+    // This simplified loader pushes ONE static CCM to the ISP (no runtime
+    // color-temperature interpolation like Espressif's full IPA). Picking
+    // table[0] is wrong: Espressif anchors entry 0 at a very low CT with a
+    // near-identity matrix (-> washed-out), and some forks put an aggressive
+    // low-CT matrix there (-> green tint). Select the entry whose color_temp is
+    // closest to a typical indoor/daylight white (~5000K) instead, which gives
+    // correct, saturated colors without a tint. This is a parse-time choice; the
+    // matrix itself is applied by the ISP hardware (zero CPU cost).
+    const int target_ct = 5000;
+    int n = cJSON_GetArraySize(table);
+    cJSON *ccm_entry = NULL;
+    int best_diff = 1000000;
+    for (int e = 0; e < n; e++) {
+        cJSON *cand = cJSON_GetArrayItem(table, e);
+        if (!cand) continue;
+        cJSON *ct = cJSON_GetObjectItem(cand, "color_temp");
+        int ctv = (ct && cJSON_IsNumber(ct)) ? ct->valueint : 0;
+        int diff = ctv > target_ct ? ctv - target_ct : target_ct - ctv;
+        if (diff < best_diff) { best_diff = diff; ccm_entry = cand; }
+    }
+    if (!ccm_entry) ccm_entry = cJSON_GetArrayItem(table, 0);
     if (!ccm_entry) return ESP_ERR_INVALID_ARG;
 
     cJSON *color_temp = cJSON_GetObjectItem(ccm_entry, "color_temp");
@@ -247,13 +267,20 @@ esp_err_t esp_ipa_load_json_config(const char *sensor_name, esp_ipa_json_config_
         json_data = sc202cs_ipa_config_json_start;
         json_size = sc202cs_ipa_config_json_size;
         ESP_LOGI(TAG, "Using SC202CS JSON (%zu bytes) [M5Stack Tab5]", json_size);
-        // The default SC202CS tuning shipped by Espressif's esp_cam_sensor
-        // produces a green tint on the Tab5. Match the official M5Tab5
-        // user-demo behaviour: don't push any IPA tuning to the ISP.
-        // Set ESP_IPA_FORCE_SC202CS_TUNING=1 (or CONFIG_ ...=y) to override.
-#if !(defined(CONFIG_ESP_IPA_FORCE_SC202CS_TUNING) || defined(ESP_IPA_FORCE_SC202CS_TUNING))
-        ESP_LOGW(TAG, "SC202CS: skipping all ISP IPA stages by default to avoid green tint.");
-        ESP_LOGW(TAG, "         Set ESP_IPA_FORCE_SC202CS_TUNING=y to opt back in.");
+        // Color tuning (CCM + AWB) is applied to the ISP by default. It runs
+        // entirely on the ESP32-P4 ISP HARDWARE (one-shot V4L2 controls at init),
+        // so it costs no CPU/PSRAM on the video path and does not affect fps.
+        //
+        // The old green tint was NOT inherent to the tuning: it came from a
+        // mis-edited JSON (an aggressive low-CT CCM forced into table[0] and AWB
+        // ranges copied from the OV02C10). With the official AWB ranges restored
+        // and the CCM now chosen near ~5000K (see parse_ccm_from_json), applying
+        // the tuning fixes the washed-out look without the tint.
+        //
+        // Set ESP_IPA_DISABLE_SC202CS_TUNING=y to fall back to no tuning (the
+        // old washed-out behaviour) if a particular board needs it.
+#if defined(CONFIG_ESP_IPA_DISABLE_SC202CS_TUNING) || defined(ESP_IPA_DISABLE_SC202CS_TUNING)
+        ESP_LOGW(TAG, "SC202CS: ISP IPA tuning disabled by config -> colors will look washed out.");
         g_skip_all_for_sensor = 1;
 #endif
     } else {
