@@ -65,14 +65,32 @@ no core affinity.
 
 ## 4. Consuming the UVC stream
 
-Enabling UVC makes the camera **available** as a V4L2 device (`/dev/videoN`).
+Enabling UVC makes the camera **available** as a V4L2 device (`/dev/videoN`,
+first UVC camera = `/dev/video40`). The USB-Host stack is installed by
+`esp_video` itself (`init_usb_host_lib = true`) — there is **no separate ESPHome
+`usb_host` component to add**, and you must not install one elsewhere or the USB
+Host Lib install will fail (see §6).
 
-> **Current limitation:** the `esp_cam_sensor` component (the one referenced by
-> `face2face`'s `camera_id:`) is **MIPI-CSI specific** — it does not drive the UVC
-> node directly. To consume a UVC stream you need a consumer that opens
-> `/dev/videoN` (V4L2: `VIDIOC_REQBUFS` / `VIDIOC_QBUF` / `VIDIOC_DQBUF`).
-> The "select the camera by path" integration on the `esp_cam_sensor` /
-> `face2face` side is still to be done — open an issue if you need it.
+To actually expose the UVC stream, use a consumer that opens `/dev/videoN`:
+
+- **Home Assistant** — the **`esp_video_camera`** component publishes the UVC
+  stream as a native HA `camera` entity. Just set `device: uvc`:
+
+  ```yaml
+  esp_video:
+    i2c_id: bsp_bus
+    enable_uvc: true        # brings up the USB host + UVC driver
+
+  esp_video_camera:
+    name: "USB Camera"
+    device: uvc             # /dev/video40 (uvc1..uvc9 for additional cameras)
+    resolution: "1280x720"
+    max_framerate: 15
+  ```
+
+> **Note:** the `esp_cam_sensor` component (the one referenced by `face2face`'s
+> `camera_id:`) is **MIPI-CSI specific** — it does not drive the UVC node. Use
+> `esp_video_camera` (above) to consume a UVC camera.
 
 ---
 
@@ -94,8 +112,9 @@ V4L2 device.
 |---------|------|
 | Build: errors on `usb/uvc_host.h` or `uvc_esp_video.h` | `usb_host_uvc` version mismatch — adjust `ref="2.4.1"` in `components/esp_video/__init__.py`. |
 | Camera not detected | Check Host/OTG mode and the camera's VBUS (5 V) power. |
-| `Failed to install USB Host driver` | Another component already installed the USB Host Lib, or the port is not in host mode. |
-| No image in `face2face` | Expected for now: the UVC node is not yet consumed by `esp_cam_sensor` (see §4). |
+| `Failed to install USB Host driver` | Another component already installed the USB Host Lib (do **not** add a separate `usb_host` component — `esp_video` owns it), or the port is not in host mode. |
+| No image in Home Assistant | Use `esp_video_camera` with `device: uvc` to consume `/dev/video40` (see §4). Check the camera negotiates **MJPEG**. |
+| No image in `face2face` | The UVC node is not consumed by `esp_cam_sensor` (MIPI-CSI only); use `esp_video_camera` instead (see §4). |
 
 ---
 
