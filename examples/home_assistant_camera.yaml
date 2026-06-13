@@ -1,0 +1,80 @@
+# =============================================================================
+# Exemple : caméra ESP32-P4 exposée à Home Assistant via esp_video_camera
+# =============================================================================
+# Le capteur MIPI est AUTO-DÉTECTÉ (SC202CS / OV5647 / OV02C10 / SC2336) :
+# rien à déclarer côté capteur. La caméra apparaît directement dans Home
+# Assistant via l'API native (aucun serveur web nécessaire).
+#
+# Pour une caméra USB-UVC, voir le bloc commenté en bas de fichier.
+# Requiert ESPHome >= 2025.5.
+# =============================================================================
+
+esphome:
+  name: esp32p4-camera
+
+esp32:
+  board: esp32-p4-function-ev-board
+  framework:
+    type: esp-idf
+
+logger:
+
+# --- API native : c'est ICI que l'entité caméra est publiée vers HA ----------
+api:
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+# --- Composants externes -----------------------------------------------------
+external_components:
+  - source:
+      type: git
+      url: https://github.com/youkorr/esphome_esp-video
+    components: [esp_video, esp_video_camera]
+    refresh: 0s
+
+# --- Bus / mémoire -----------------------------------------------------------
+i2c:
+  - id: bsp_bus
+    sda: GPIO31
+    scl: GPIO32
+    frequency: 400kHz
+
+psram:
+  mode: hex
+  speed: 200MHz
+
+# --- Pipeline vidéo (capteur auto-détecté) -----------------------------------
+esp_video:
+  i2c_id: bsp_bus
+  xclk_pin: GPIO36           # ou -1 / NO_CLOCK si oscillateur sur le PCB
+  xclk_freq: 24000000        # 24 MHz typique
+  enable_jpeg: true          # REQUIS pour device: jpeg (encodeur JPEG matériel)
+  enable_isp: true           # pipeline ISP (RAW -> RGB)
+  use_heap_allocator: true   # buffers en PSRAM
+
+# --- Caméra Home Assistant ---------------------------------------------------
+esp_video_camera:
+  name: "ESP32-P4 Camera"
+  device: jpeg               # jpeg | uvc / uvc0..uvc9 | csi | /dev/videoN
+  resolution: auto           # auto = natif capteur ; ou 720P, 1080P, "1280x720"
+  jpeg_quality: 10           # 1-63 (encodeur JPEG matériel)
+  max_framerate: 10          # images/s envoyées à Home Assistant
+
+
+# =============================================================================
+# VARIANTE : caméra USB-UVC (caméra USB externe sur le port USB-OTG)
+# =============================================================================
+# Remplace les deux blocs ci-dessus par :
+#
+# esp_video:
+#   i2c_id: bsp_bus
+#   enable_uvc: true         # démarre l'hôte USB + le driver UVC
+#
+# esp_video_camera:
+#   name: "USB Camera"
+#   device: uvc              # /dev/video40 (1re caméra UVC) ; uvc1..uvc9 ensuite
+#   resolution: "1280x720"   # l'UVC respecte le mode demandé
+#   max_framerate: 15
+# =============================================================================
