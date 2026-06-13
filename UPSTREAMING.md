@@ -45,6 +45,36 @@ real hardware, then contribute the missing pieces to DT-art1's framework. The
 phased plan below stays as a fallback if the maintainers prefer an `esp_video`
 backend, but treat it as Plan B.
 
+### Decision: keep `esp_video` — pitch it as a *platform*, not a competing framework
+
+We want to **keep the `esp_video` stack** because it has real advantages over a
+hand-rolled pipeline. The way to reconcile "keep `esp_video`" with "get it
+upstream" is to plug it into ESPHome's **existing `camera` component** as an
+**alternative platform/backend** (subclassing `camera::Camera`), the same way
+`esp32_camera` and the modular MIPI framework are platforms. `esp_video_camera`
+already does exactly this, so it is architecturally compatible — not a rival.
+
+**Advantages of `esp_video` to lead the upstream pitch with:**
+
+- Built on Espressif's **official** V4L2 framework (`esp-video-components`),
+  maintained by Espressif and tracking new sensors / ISP features.
+- Full **ISP + IPA**: auto white balance, CCM, JSON-tunable image pipeline →
+  better image quality than a minimal pipeline.
+- Hardware **JPEG** *and* **H.264** encoders (V4L2 M2M devices).
+- **USB-UVC** host support (external USB cameras) — not in the official framework.
+- Broad, **auto-detected** sensor set: SC202CS, OV5647, OV02C10, **SC2336**, …
+  (incl. sensors the official framework does not cover yet).
+- **PPA** hardware transforms (crop / resize / rotate / mirror).
+- Standard **V4L2** interface → multiple consumers (HA camera, LVGL, detection)
+  off one pipeline.
+- Shares the ESPHome **I²C** bus (no SCCB conflict).
+
+**Implication:** the goal is *coexistence*, not replacement. Open the §5 issue
+framed as "an `esp_video`-backed camera platform alongside the existing
+framework", leading with the advantages above (especially ISP/IPA quality,
+H.264, USB-UVC and the extra sensors). Keep all three core components; they plug
+into the official `camera` component rather than re-implementing it.
+
 ---
 
 ## 0. Hard rules ESPHome enforces (and how we meet them)
@@ -191,11 +221,15 @@ Each phase = one ESPHome PR + one `esphome-docs` PR.
 
 ## 5. Draft text for the upstream discussion issue
 
-> **Title:** ESP32-P4 camera support via Espressif `esp_video` (MIPI-CSI + USB-UVC)
+> **Title:** An `esp_video`-backed camera platform for ESP32-P4 (ISP/IPA, H.264, USB-UVC), alongside the existing MIPI framework
 >
-> **Body:** I'd like to contribute ESP32-P4 camera support to ESPHome, built on
-> Espressif's managed `esp_video` / `esp_cam_sensor` components (V4L2 on P4).
-> Proposed in two phases:
+> **Body:** Following the modular camera framework in #7639, I'd like to add an
+> **`esp_video`-backed camera platform** for ESP32-P4 — *complementing*, not
+> replacing it — plugging into the existing `camera` component
+> (`camera::Camera`). It is built on Espressif's official `esp-video-components`
+> (V4L2) and brings: full **ISP + IPA** image tuning, hardware **JPEG and H.264**,
+> **USB-UVC** host cameras, and extra auto-detected sensors (**SC2336**,
+> **OV02C10**) on top of OV5647/SC202CS. Proposed in two phases:
 >
 > **Phase 1 — the functional core (three interdependent components, landed
 > together; nothing works without all three):**
