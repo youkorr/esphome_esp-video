@@ -437,24 +437,15 @@ lvgl_camera_display:
 | `yolo11_detection_id` | – | YOLO11 detection overlay |
 | `pedestrian_detection_id` | – | Pedestrian detection overlay |
 
-### LVGL configuration (LVGL 9.5)
+### LVGL configuration (official LVGL 9.5)
 
-The `lvgl` block must use the **LVGL 9.5** fork with PPA acceleration. This fork
-adds the following options:
-
-| Option | Description |
-|--------|-------------|
-| `use_ppa` | Enable PPA hardware acceleration for display blits (required by the camera canvas). |
-| `use_ppa_img` | Use the PPA accelerator for image widgets (hardware blit/scale of images). |
-| `fps_benchmark` | Log the rendered frames-per-second for benchmarking. |
-| `perf_monitor` | Enable the LVGL performance monitor overlay (CPU / FPS). |
+Use the **official** ESPHome `lvgl` component (ESPHome ≥ 2026.4, LVGL 9.5 with
+native PPA on the ESP32-P4). No fork and no PPA option are needed — the previous
+fork-only keys `use_ppa`, `use_ppa_img`, `fps_benchmark` and `perf_monitor`
+**must be removed** (they are not valid in the official component):
 
 ```yaml
 lvgl:
-  use_ppa: true               # PPA hardware acceleration (LVGL 9.5 fork)
-  use_ppa_img: true           # PPA acceleration for image widgets
-  fps_benchmark: true         # log rendered FPS
-  perf_monitor: true          # on-screen performance monitor
   byte_order: little_endian
   displays:
     - main_display
@@ -488,10 +479,6 @@ triggers are possible: the `lvgl` `on_idle` (the method used in production), a
 
 ```yaml
 lvgl:
-  use_ppa: true
-  use_ppa_img: true
-  fps_benchmark: true
-  perf_monitor: true
   byte_order: little_endian
   displays:
     - main_display

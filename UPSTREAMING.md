@@ -100,6 +100,18 @@ It feeds the camera's RGB565 PSRAM buffer into the canvas **zero-copy** (pointer
 swap) and lets LVGL render/flush it. PPA was only ever a *global* LVGL render
 optimization (now in mainline), not a call made by this component.
 
+**Compatibility audit (static, done):**
+- ✅ The official `lvgl` provides a **`canvas`** widget (`widgets/canvas.py`),
+  same widget typing as the fork → the `id(canvas)` → `configure_canvas()`
+  wiring is unchanged.
+- ✅ Every LVGL symbol the component uses is **standard LVGL 9.5** public API
+  (`lv_draw_buf_init`, `lv_draw_buf_set_flag`, `lv_canvas_set_draw_buf`,
+  `lv_image_set_src`, `lv_obj_check_type`/`lv_canvas_class`, `lv_obj_invalidate`).
+- ❌ Only YAML change required: **remove** the fork-only `lvgl:` keys
+  `use_ppa`, `use_ppa_img`, `fps_benchmark`, `perf_monitor` (not valid in the
+  official component). Valid keys used (`byte_order`, `displays`,
+  `touchscreens`, `pages`, `on_idle`) are all official.
+
 **Work to do (small):**
 - Depend on the **official** `lvgl` (drop the fork); require **ESPHome ≥ 2026.4**.
 - English translation + `tests/` + docs page.
