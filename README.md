@@ -154,7 +154,8 @@ esp_cam_sensor:
 
 #### Generic resolution aliases
 
-Valid for all sensors (passed to the native driver):
+These aliases are just shorthands mapped to dimensions, then passed to the
+driver:
 
 | Alias | Dimensions |
 |-------|------------|
@@ -162,7 +163,13 @@ Valid for all sensors (passed to the native driver):
 | `VGA` / `480P` | 640 × 480 |
 | `720P` | 1280 × 720 |
 | `1080P` | 1920 × 1080 |
-| `"WxH"` | free dimensions (e.g. `"800x600"`) |
+| `"WxH"` | explicit dimensions (e.g. `"800x600"`) |
+
+> **An alias (or `WxH`) only works if the chosen sensor actually exposes that
+> format** — see the per-sensor tables below, which are the source of truth. A
+> resolution that isn't a native/custom format of the sensor is rejected at
+> startup (`VIDIOC_S_FMT failed`). For example the OV5647 has no native 720P,
+> and the SC202CS has neither VGA nor 1080P.
 
 ## Supported sensors and resolutions
 
@@ -222,8 +229,9 @@ esp_cam_sensor:
 
 ### SC202CS (MIPI 1-lane, 2 MP)
 
-Native 1600 × 1200 sensor with 2×2 binning. Formats from `sc202cs.c`
-(all compiled):
+Native 1600 × 1200 sensor. **No hardware binning** — the sub-resolutions are
+centered crops / windowed reads of the array (so they show a narrower field of
+view, not a downscaled full frame). Formats from `sc202cs.c` (all compiled):
 
 | Resolution | FPS | Format | Notes |
 |------------|-----|--------|-------|
