@@ -7,7 +7,7 @@ Ce composant initialise ESP-Video en utilisant le bus I2C d'ESPHome.
 
 import esphome.codegen as cg
 import esphome.config_validation as cv
-from esphome.components import i2c
+from esphome.components import i2c, esp32
 from esphome.const import CONF_ID, CONF_I2C_ID
 from esphome.core import CORE
 import os
@@ -23,6 +23,7 @@ ESPVideoComponent = esp_video_ns.class_("ESPVideoComponent", cg.Component)
 # Configuration
 CONF_ENABLE_JPEG = "enable_jpeg"
 CONF_ENABLE_ISP = "enable_isp"
+CONF_ENABLE_UVC = "enable_uvc"
 CONF_USE_HEAP_ALLOCATOR = "use_heap_allocator"
 CONF_XCLK_PIN = "xclk_pin"
 CONF_XCLK_FREQ = "xclk_freq"
@@ -63,6 +64,11 @@ CONFIG_SCHEMA = cv.All(
         cv.Required(CONF_I2C_ID): cv.use_id(i2c.I2CBus),
         cv.Optional(CONF_ENABLE_JPEG, default=True): cv.boolean,
         cv.Optional(CONF_ENABLE_ISP, default=True): cv.boolean,
+        # USB-UVC host: enables plugging an external USB (UVC) camera into the
+        # ESP32-P4 USB OTG port. Off by default (MIPI-CSI only). When true, the
+        # USB host stack + UVC host driver are compiled in and started, and a
+        # connected UVC camera is enumerated as a /dev/videoN V4L2 device.
+        cv.Optional(CONF_ENABLE_UVC, default=False): cv.boolean,
         cv.Optional(CONF_USE_HEAP_ALLOCATOR, default=True): cv.boolean,
         # XCLK pin accepte: "GPIO36", 36, -1, ou "NO_CLOCK"
         cv.Optional(CONF_XCLK_PIN, default="GPIO36"): cv.Any(cv.string, cv.int_range(min=-1, max=48)),
@@ -128,6 +134,14 @@ async def to_code(config):
     cg.add(var.set_xclk_pin(cg.RawExpression(f"static_cast<gpio_num_t>({xclk_pin})")))
     cg.add(var.set_xclk_freq(xclk_freq))
     cg.add(var.set_enable_xclk_init(config[CONF_ENABLE_XCLK_INIT]))
+    cg.add(var.set_enable_uvc(config[CONF_ENABLE_UVC]))
+
+    # USB-UVC host: pull Espressif's USB Host UVC driver (native 2.x API, P4
+    # support) which also provides the esp_private/uvc_esp_video.h glue the
+    # esp_video UVC device driver builds against. Only when enabled, so MIPI-only
+    # builds don't grow the USB host stack.
+    if config[CONF_ENABLE_UVC]:
+        esp32.add_idf_component(name="espressif/usb_host_uvc", ref="2.4.1")
 
     # Logs silencieux sauf erreurs
     logging.debug(f"[ESP-Video] I2C bus: '{config[CONF_I2C_ID]}'")
@@ -248,6 +262,10 @@ async def to_code(config):
             "-DCONFIG_ESP_VIDEO_ENABLE_ISP_PIPELINE_CONTROLLER=1",
             "-DESP_VIDEO_ISP_ENABLED=1",  # Pour esp_video_component.cpp
         ])
+
+    # USB-UVC host video device (external USB camera on the P4 USB OTG port)
+    if config[CONF_ENABLE_UVC]:
+        flags.append("-DCONFIG_ESP_VIDEO_ENABLE_USB_UVC_VIDEO_DEVICE=1")
 
     # Allocateur mémoire
     if config[CONF_USE_HEAP_ALLOCATOR]:

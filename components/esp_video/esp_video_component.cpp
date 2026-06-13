@@ -236,6 +236,25 @@ void ESPVideoComponent::setup() {
   esp_video_init_config_t video_config = {};
   video_config.csi = &csi_config;
 
+#if CONFIG_ESP_VIDEO_ENABLE_USB_UVC_VIDEO_DEVICE
+  // USB-UVC host: when enabled (enable_uvc: true), also bring up the USB host
+  // stack + UVC host driver so an external USB camera shows up as a /dev/videoN
+  // device. Allocated on the stack; esp_video_init copies what it needs.
+  esp_video_init_usb_uvc_config_t uvc_config = {};
+  if (this->enable_uvc_) {
+    uvc_config.uvc.uvc_dev_num = 1;           // one USB camera
+    uvc_config.uvc.task_stack = 4096;
+    uvc_config.uvc.task_priority = 5;
+    uvc_config.uvc.task_affinity = -1;        // no core affinity
+    uvc_config.usb.init_usb_host_lib = true;  // esp_video owns the USB host lib
+    uvc_config.usb.task_stack = 4096;
+    uvc_config.usb.task_priority = 5;
+    uvc_config.usb.task_affinity = -1;
+    video_config.usb_uvc = &uvc_config;
+    ESP_LOGI(TAG, "USB-UVC host enabled: external USB cameras will appear as /dev/videoN");
+  }
+#endif
+
   // CRITICAL: ESP32-P4 camera hardware must be initialized on core 0
   // If ESPHome runs on core 1, we must create a task on core 0 to call esp_video_init()
   // ESP_LOGI(TAG, "Current core: %d", xPortGetCoreID());

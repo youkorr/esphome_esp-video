@@ -61,6 +61,11 @@ esp_video_sources = [
     "src/device/esp_video_csi_device.c",
     "src/device/esp_video_jpeg_device.c",
     "src/device/esp_video_isp_device.c",
+    # USB-UVC host device driver. The file is wholly #if-guarded on
+    # CONFIG_ESP_VIDEO_ENABLE_USB_UVC_VIDEO_DEVICE, so listing it here is safe
+    # for MIPI-only builds (it compiles to an empty unit) and active only when
+    # enable_uvc: true is set in the ESPHome config.
+    "src/device/esp_video_usb_uvc_device.c",
     "src/esp_video_isp_pipeline.c",
     "src/esp_video_isp_stubs.c",
 ]

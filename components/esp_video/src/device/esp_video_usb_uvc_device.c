@@ -7,6 +7,13 @@
 // #undef LOG_LOCAL_LEVEL
 // #define LOG_LOCAL_LEVEL ESP_LOG_DEBUG
 
+// This whole translation unit (and its USB-Host-UVC includes) only exists when
+// the USB-UVC video device is enabled (enable_uvc: true in the ESPHome config,
+// which defines this flag and pulls the espressif/usb_host_uvc component).
+// Guarded so the file can be listed unconditionally in the build without
+// breaking MIPI-only builds that don't have the UVC host headers.
+#if CONFIG_ESP_VIDEO_ENABLE_USB_UVC_VIDEO_DEVICE
+
 #include <string.h>
 #include "esp_log.h"
 #include "esp_heap_caps.h"
@@ -636,3 +643,5 @@ esp_err_t esp_video_uninstall_usb_uvc_driver(void)
 
     return uvc_host_uninstall();
 }
+
+#endif /* CONFIG_ESP_VIDEO_ENABLE_USB_UVC_VIDEO_DEVICE */
