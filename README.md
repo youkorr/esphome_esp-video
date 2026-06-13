@@ -11,6 +11,7 @@ the **ESP32-P4** with the MIPI-CSI interface).
 | `esp_video` | Video pipeline (CSI / DVP / ISP / JPEG) built on Espressif's `esp_video` framework. Must always be present. |
 | `esp_cam_sensor` | Camera sensor drivers + hardware transforms (PPA: crop / resize / rotation / mirror). |
 | `lvgl_camera_display` | LVGL widget that displays the live camera stream on a `canvas`, with optional detection overlays. |
+| `esp_video_camera` | Exposes the stream to **Home Assistant** as a native `camera` entity (no web server needed). Works with every MIPI sensor and with USB-UVC. |
 
 These three components work together:
 
@@ -163,6 +164,59 @@ Valid for all sensors (passed to the native driver):
 | `720P` | 1280 × 720 |
 | `1080P` | 1920 × 1080 |
 | `"WxH"` | free dimensions (e.g. `"800x600"`) |
+
+### 4. Home Assistant camera: `esp_video_camera`
+
+Expose the stream to Home Assistant as a **native API `camera` entity** — it
+shows up directly in Home Assistant (no `web_server`, no extra integration).
+It captures JPEG frames from the `esp_video` pipeline, so it works with **every**
+auto-detected MIPI-CSI sensor (SC202CS, OV5647, OV02C10, SC2336…) **and** with a
+USB-UVC camera.
+
+```yaml
+# The native API must be enabled for the entity to appear in Home Assistant.
+api:
+
+esp_video:
+  i2c_id: bsp_bus
+  enable_jpeg: true          # REQUIRED for device: jpeg (hardware JPEG encoder)
+  # enable_uvc: true         # only if you use a USB-UVC camera (device: uvc)
+
+esp_video_camera:
+  name: "ESP32-P4 Camera"
+  device: jpeg               # jpeg (MIPI sensors) | uvc / uvc0..uvc9 | csi | /dev/videoN
+  jpeg_quality: 10           # 1–63, hardware JPEG encoder only
+  max_framerate: 10          # cap the frames pushed to Home Assistant
+```
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `name` | device name | Entity name shown in Home Assistant |
+| `device` | `jpeg` | Frame source: `jpeg` = hardware JPEG encoder (`/dev/video10`, all MIPI sensors); `uvc`/`uvc0`..`uvc9` = USB-UVC camera; `csi` = `/dev/video0`; or an explicit `/dev/videoN` |
+| `jpeg_quality` | `10` | JPEG quality 1–63 (hardware encoder only) |
+| `max_framerate` | `10` | Maximum frames per second delivered to Home Assistant |
+
+> **Notes**
+> - `device: jpeg` requires `enable_jpeg: true` in `esp_video`. `device: uvc`
+>   requires `enable_uvc: true` and a USB-UVC camera that outputs MJPEG.
+> - The ESP32-P4 has a single CSI pipeline: using `esp_video_camera` with
+>   `device: jpeg` and the LVGL `lvgl_camera_display` (which reads the CSI stream)
+>   at the same time is not supported — pick one consumer of the camera.
+> - The component opens the V4L2 device and starts streaming only on demand
+>   (when Home Assistant opens the stream), then stops when no client is watching.
+> - Requires ESPHome **2025.5 or newer** (the native `camera` component API).
+
+To add it to your `external_components`, include `esp_video_camera` in the
+`components:` list:
+
+```yaml
+external_components:
+  - source:
+      type: git
+      url: https://github.com/youkorr/esphome_esp-video
+    components: [esp_video, esp_video_camera]
+    refresh: 0s
+```
 
 ## Supported sensors and resolutions
 
