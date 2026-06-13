@@ -13,6 +13,40 @@ phased PR plan, and the text to open the upstream discussion.
 
 ---
 
+## ⚠️ Important reality check (2026-06) — ESPHome already has a camera framework
+
+Before reworking this stack for upstream, note that ESPHome **already merged** a
+**"Modular Camera Framework with MIPI-CSI support"** for ESP32-P4
+([PR #7639](https://github.com/esphome/esphome/pull/7639), merged 2025-11-24, by
+**DT-art1**, a `camera` codeowner). It already provides, **in official ESPHome**:
+
+- MIPI-CSI camera on ESP32-P4, hardware **JPEG** encoding, **ISP**;
+- a Home Assistant **camera** entity;
+- tested sensors: **OV5647, SC202CS, OV2710** + classic ESP32 cameras.
+
+Crucially it does **not** use Espressif's `esp_video` — it is a custom modular
+pipeline. Espressif's `esp-video-components` (esp_video + esp_cam_sensor +
+esp_ipa) remains the *only* official Espressif camera path, but ESPHome
+deliberately chose a different architecture.
+
+**Consequence for this plan:** upstreaming this `esp_video`-based stack as a
+**parallel** framework is likely to be **rejected as redundant**. The productive
+path is to **extend the existing official framework** where it falls short, not
+replace it. The unique value of this repo that the official framework does *not*
+cover today:
+
+- sensors not yet supported upstream: **SC2336**, **OV02C10**;
+- **USB-UVC** cameras;
+- the **LVGL canvas** live-view consumer (verify whether the official framework
+  feeds an LVGL canvas).
+
+**Recommended next step:** do a gap analysis (official framework vs this repo) on
+real hardware, then contribute the missing pieces to DT-art1's framework. The
+phased plan below stays as a fallback if the maintainers prefer an `esp_video`
+backend, but treat it as Plan B.
+
+---
+
 ## 0. Hard rules ESPHome enforces (and how we meet them)
 
 | Rule | Consequence for us |
