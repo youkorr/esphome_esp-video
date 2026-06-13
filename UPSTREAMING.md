@@ -40,7 +40,7 @@ The closest to ready. It mirrors the existing `esp32_camera` component: a
 - Add `tests/test.esp32-p4-idf.yaml` (compile test).
 - `CODEOWNERS` entry + docs page.
 
-No architectural blocker. **This is Phase 1.**
+No architectural blocker. **This is Phase 2** (built on the Phase 1 core).
 
 ---
 
@@ -75,9 +75,9 @@ open and drive the single CSI pipeline.
 - `imlib` drawing: drop from the upstream version (or gate behind an option) —
   it is an OpenMV import that upstream will not want vendored.
 
-This is **Phase 2** and needs the maintainers to agree on the layering before
-coding. Drop `mirror`/`rotation`/`crop` PPA features from the first PR if they
-slow review; add them back later.
+This is part of the **Phase 1 core** and needs the maintainers to agree on the
+layering before coding. Drop `mirror`/`rotation`/`crop` PPA features from the
+first PR if they slow review; add them back later.
 
 ---
 
@@ -120,22 +120,36 @@ optimization (now in mainline), not a call made by this component.
   workaround — confirm the zero-copy canvas feed is unaffected, since our buffer
   is the camera buffer, not an LVGL-allocated draw buffer.
 
-So `lvgl_camera_display` is upstreamable on top of the Phase 2 frame source; no
+So `lvgl_camera_display` is upstreamable as part of the **Phase 1 core** (§4); no
 fork, no PPA-blit rewrite needed.
 
 ---
 
 ## 4. Phased PR plan
 
+**Phase 1 is the functional core: `esp_video` + `esp_cam_sensor` +
+`lvgl_camera_display` must go together — without all three, nothing captures or
+displays.** These three are interdependent (`esp_video` brings up the pipeline,
+`esp_cam_sensor` configures the sensor and provides frames, `lvgl_camera_display`
+shows them), so they are developed and landed as **one coordinated set**.
+`esp_video_camera` (the Home Assistant entity) is an add-on built **on top** and
+comes after.
+
 1. **Phase 0 — discussion.** Open an issue on `esphome/esphome` (text in §5) to
-   get maintainer buy-in for ESP32-P4 `esp_video` camera support and the
-   layering in §2.
-2. **Phase 1 — `esp_video_camera`.** Managed deps, English, `tests/`, docs page.
-   Self-contained, lands first.
-3. **Phase 2 — `esp_video` core + `esp_cam_sensor`.** The layered pipeline/sensor
-   component (§2). Lands after the §0 design is agreed.
-4. **Phase 3 — `lvgl_camera_display`.** On the **official** `lvgl` (ESPHome
-   ≥ 2026.4, no fork — §3), on top of Phase 2's frame source.
+   get maintainer buy-in for ESP32-P4 `esp_video` support and the component
+   layering (§2).
+2. **Phase 1 — core stack (the three foundational components):**
+   - `esp_video` — pipeline init via managed `espressif/esp_video` (no vendoring).
+   - `esp_cam_sensor` — sensor config + frame provider via managed
+     `espressif/esp_cam_sensor` (drop the vendored drivers, `imlib`, etc.).
+   - `lvgl_camera_display` — LVGL canvas consumer on the **official** `lvgl`
+     (ESPHome ≥ 2026.4, no fork — §3).
+
+   All three: English, `tests/`, docs pages, `CODEOWNERS`. Coordinated set
+   (one branch; may be split into reviewable PRs but landed together since they
+   are non-functional apart).
+3. **Phase 2 — `esp_video_camera`.** The Home Assistant `camera` entity, built on
+   the Phase 1 pipeline. Managed deps, English, `tests/`, docs page.
 
 Each phase = one ESPHome PR + one `esphome-docs` PR.
 
@@ -147,14 +161,19 @@ Each phase = one ESPHome PR + one `esphome-docs` PR.
 >
 > **Body:** I'd like to contribute ESP32-P4 camera support to ESPHome, built on
 > Espressif's managed `esp_video` / `esp_cam_sensor` components (V4L2 on P4).
-> Proposed in phases:
-> 1. `esp_video_camera`: a `camera::Camera` platform that serves JPEG/MJPEG from
->    the hardware JPEG encoder (any auto-detected MIPI sensor) or a USB-UVC
->    camera, to the native API — analogous to `esp32_camera`.
-> 2. A core `esp_video` component that owns the CSI pipeline + sensor config and
->    exposes frames to consumers.
-> 3. An LVGL canvas consumer for on-device live view, using the official `lvgl`
->    component (ESPHome 2026.4+ ships LVGL 9.5 + PPA — no fork).
+> Proposed in two phases:
+>
+> **Phase 1 — the functional core (three interdependent components, landed
+> together; nothing works without all three):**
+> 1. `esp_video`: brings up the P4 camera pipeline (CSI / ISP / JPEG).
+> 2. `esp_cam_sensor`: sensor configuration + frame provider.
+> 3. `lvgl_camera_display`: LVGL canvas live view, on the official `lvgl`
+>    component (ESPHome 2026.4+ ships LVGL 9.5 + PPA — no fork needed).
+>
+> **Phase 2 — on top of the core:**
+> 4. `esp_video_camera`: a `camera::Camera` platform serving JPEG/MJPEG (hardware
+>    JPEG encoder for any auto-detected MIPI sensor, or a USB-UVC camera) to the
+>    native API — analogous to `esp32_camera`.
 >
 > All third-party code pulled via the IDF component manager (no vendored blobs).
 > Looking for guidance on the component layering before I open the PRs.
@@ -163,12 +182,12 @@ Each phase = one ESPHome PR + one `esphome-docs` PR.
 
 ## 6. Status checklist
 
-- [ ] §0 issue opened on `esphome/esphome`
-- [ ] Phase 1: `esp_video_camera` upstream-ready branch
-- [ ] Phase 1: docs page drafted
-- [ ] Phase 2: layering agreed with maintainers
-- [ ] Phase 2: `esp_video` + `esp_cam_sensor` reworked onto managed components
-- [ ] Phase 3: `lvgl_camera_display` on official `lvgl` (ESPHome ≥ 2026.4), validated on hardware
+- [ ] §0 issue opened on `esphome/esphome` (layering agreed with maintainers)
+- [ ] Phase 1 core — `esp_video`: pipeline on managed `espressif/esp_video` (no vendoring)
+- [ ] Phase 1 core — `esp_cam_sensor`: on managed `espressif/esp_cam_sensor` (drop vendored drivers/imlib)
+- [ ] Phase 1 core — `lvgl_camera_display`: on official `lvgl` (ESPHome ≥ 2026.4), validated on hardware
+- [ ] Phase 1 core — English, `tests/`, docs pages, `CODEOWNERS` for the three
+- [ ] Phase 2 — `esp_video_camera`: Home Assistant entity on top of the core
 
 > Note: the current external-component versions in this repo stay as-is and keep
 > working for users while the upstream phases proceed.
