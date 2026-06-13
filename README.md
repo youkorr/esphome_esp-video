@@ -77,6 +77,7 @@ esp_video:
   xclk_freq: 24000000       # 1 to 40 MHz (24 MHz typical)
   enable_jpeg: true         # hardware JPEG encoder
   enable_isp: true          # ISP pipeline (RAW → RGB565)
+  enable_uvc: false         # USB-UVC host (external USB camera) — see below
   use_heap_allocator: true  # allocate buffers in PSRAM
 ```
 
@@ -87,6 +88,7 @@ esp_video:
 | `xclk_freq` | `24000000` | XCLK frequency (1–40 MHz) |
 | `enable_jpeg` | `true` | Enable the hardware JPEG encoder |
 | `enable_isp` | `true` | Enable the ISP (RAW → RGB565 conversion) |
+| `enable_uvc` | `false` | USB-UVC host: support an external USB camera on the P4 USB-OTG port (see [USB-UVC](#usb-uvc-external-usb-camera)) |
 | `use_heap_allocator` | `true` | Place video buffers in PSRAM |
 | `enable_xclk_init` | `false` | Generate XCLK via LEDC (non-M5Stack boards) |
 
@@ -95,6 +97,27 @@ esp_video:
 > never sets — so `/dev/video11` is not created. There is no `enable_h264`
 > option (it would be rejected during validation). Only **ISP** and **hardware
 > JPEG** are active.
+
+#### USB-UVC (external USB camera)
+
+Set `enable_uvc: true` to plug an external **USB (UVC) camera** into the
+ESP32-P4 USB-OTG port, in addition to (or instead of) a MIPI-CSI sensor. It is
+**off by default** — MIPI-CSI-only builds are unchanged and pay no overhead.
+
+```yaml
+esp_video:
+  i2c_id: bsp_bus
+  enable_uvc: true   # external USB camera on the P4 USB-OTG port
+```
+
+When enabled, the USB host stack + Espressif's `usb_host_uvc` driver are compiled
+in and started, and a connected UVC camera is enumerated as a `/dev/videoN` V4L2
+device. Requires the USB port in host/OTG mode with VBUS power for the camera.
+
+> Full details, prerequisites and troubleshooting:
+> [`components/esp_video/README_USB_UVC.md`](components/esp_video/README_USB_UVC.md).
+> Note: the UVC node is not yet consumed by `esp_cam_sensor` (which is MIPI-CSI
+> specific) — a consumer opening `/dev/videoN` is still required.
 
 ### 3. Sensor: `esp_cam_sensor`
 
@@ -218,6 +241,13 @@ esp_cam_sensor:
   pixel_format: "RGB565"
   framerate: 30
 ```
+
+> **Color tuning (SC202CS).** The ISP color correction matrix (CCM) is applied on
+> the **hardware ISP** at init (zero per-frame CPU cost). The loader selects the
+> CCM closest to a ~5000K (daylight) white point, which fixes the washed-out look
+> without the green tint earlier builds had. To skip all SC202CS color tuning
+> (fall back to the flat/washed-out image), set
+> `ESP_IPA_DISABLE_SC202CS_TUNING=y` in `sdkconfig_options`.
 
 ### SC2336 (MIPI 1/2-lane, 2 MP)
 
