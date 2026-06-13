@@ -4,6 +4,7 @@
 
 #include "esp_heap_caps.h"
 
+#include <cstdio>
 #include <cstring>
 #include <fcntl.h>
 #include <unistd.h>
@@ -195,6 +196,57 @@ void ESPVideoCamera::update_capture_state_() {
   // L'arrêt est géré dans loop() après livraison de la dernière frame.
 }
 
+bool ESPVideoCamera::parse_resolution_(const std::string &res, uint32_t &width, uint32_t &height) {
+  if (res.empty() || res == "auto")
+    return false;  // Pas de résolution imposée
+  if (res == "QVGA") { width = 320; height = 240; return true; }
+  if (res == "VGA" || res == "480P") { width = 640; height = 480; return true; }
+  if (res == "720P") { width = 1280; height = 720; return true; }
+  if (res == "1080P") { width = 1920; height = 1080; return true; }
+  unsigned int w = 0, h = 0;
+  if (sscanf(res.c_str(), "%ux%u", &w, &h) == 2 && w > 0 && h > 0) {
+    width = w;
+    height = h;
+    return true;
+  }
+  return false;
+}
+
+void ESPVideoCamera::configure_format_() {
+  uint32_t width = 0, height = 0;
+  bool force_res = parse_resolution_(this->resolution_, width, height);
+
+  // Lire le format courant, ajuster, puis ré-appliquer (best-effort).
+  // - UVC : on demande explicitement du MJPEG (+ résolution si fournie).
+  // - JPEG matériel : on n'impose la résolution que si elle est demandée ;
+  //   sinon on garde la résolution native du capteur auto-détecté.
+  if (!this->is_hw_jpeg_ || force_res) {
+    struct v4l2_format fmt;
+    memset(&fmt, 0, sizeof(fmt));
+    fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    if (ioctl(this->fd_, VIDIOC_G_FMT, &fmt) == 0) {
+      if (!this->is_hw_jpeg_)
+        fmt.fmt.pix.pixelformat = V4L2_PIX_FMT_MJPEG;
+      if (force_res) {
+        fmt.fmt.pix.width = width;
+        fmt.fmt.pix.height = height;
+      }
+      fmt.fmt.pix.field = V4L2_FIELD_NONE;
+      if (ioctl(this->fd_, VIDIOC_S_FMT, &fmt) < 0)
+        ESP_LOGW(TAG, "VIDIOC_S_FMT (résolution best-effort) a échoué: %s", strerror(errno));
+    }
+  }
+
+  // Qualité JPEG (encodeur matériel uniquement).
+  if (this->is_hw_jpeg_) {
+    struct v4l2_control ctrl;
+    memset(&ctrl, 0, sizeof(ctrl));
+    ctrl.id = V4L2_CID_JPEG_COMPRESSION_QUALITY;
+    ctrl.value = this->jpeg_quality_;
+    ioctl(this->fd_, VIDIOC_S_CTRL, &ctrl);  // best-effort
+  }
+}
+
 bool ESPVideoCamera::start_capture_() {
   if (this->streaming_)
     return true;
@@ -207,23 +259,8 @@ bool ESPVideoCamera::start_capture_() {
     return false;
   }
 
-  // Qualité JPEG (encodeur matériel uniquement).
-  if (this->is_hw_jpeg_) {
-    struct v4l2_control ctrl;
-    memset(&ctrl, 0, sizeof(ctrl));
-    ctrl.id = V4L2_CID_JPEG_COMPRESSION_QUALITY;
-    ctrl.value = this->jpeg_quality_;
-    ioctl(this->fd_, VIDIOC_S_CTRL, &ctrl);  // best-effort
-  } else {
-    // Pour une caméra UVC, demander explicitement du MJPEG si possible.
-    struct v4l2_format fmt;
-    memset(&fmt, 0, sizeof(fmt));
-    fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-    if (ioctl(this->fd_, VIDIOC_G_FMT, &fmt) == 0) {
-      fmt.fmt.pix.pixelformat = V4L2_PIX_FMT_MJPEG;
-      ioctl(this->fd_, VIDIOC_S_FMT, &fmt);  // best-effort
-    }
-  }
+  // Format (résolution / MJPEG) et qualité JPEG.
+  this->configure_format_();
 
   // Allouer des buffers en MMAP.
   struct v4l2_requestbuffers req;
@@ -306,6 +343,7 @@ void ESPVideoCamera::dump_config() {
   ESP_LOGCONFIG(TAG, "ESP-Video Camera (Home Assistant):");
   ESP_LOGCONFIG(TAG, "  Name: %s", this->get_name().c_str());
   ESP_LOGCONFIG(TAG, "  Source: %s (%s)", this->device_.c_str(), this->resolved_device_.c_str());
+  ESP_LOGCONFIG(TAG, "  Resolution: %s", this->resolution_.c_str());
   if (this->is_hw_jpeg_)
     ESP_LOGCONFIG(TAG, "  JPEG quality: %d", this->jpeg_quality_);
   ESP_LOGCONFIG(TAG, "  Max framerate: %.1f fps", this->max_framerate_);

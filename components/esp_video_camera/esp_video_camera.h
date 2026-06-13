@@ -78,6 +78,7 @@ class ESPVideoCamera : public camera::Camera {
 
   // Configuration -------------------------------------------------------------
   void set_device(const std::string &device) { this->device_ = device; }
+  void set_resolution(const std::string &resolution) { this->resolution_ = resolution; }
   void set_jpeg_quality(int quality) { this->jpeg_quality_ = quality; }
   void set_max_framerate(float fps) {
     this->max_framerate_ = fps;
@@ -88,11 +89,14 @@ class ESPVideoCamera : public camera::Camera {
   bool start_capture_();
   void stop_capture_();
   void update_capture_state_();
+  void configure_format_();
+  static bool parse_resolution_(const std::string &res, uint32_t &width, uint32_t &height);
 
   // Configuration
   std::string device_{"jpeg"};
   std::string resolved_device_;
   bool is_hw_jpeg_{false};
+  std::string resolution_{"auto"};
   int jpeg_quality_{10};
   float max_framerate_{10.0f};
   uint32_t min_interval_ms_{100};

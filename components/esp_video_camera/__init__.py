@@ -23,8 +23,27 @@ esp_video_camera_ns = cg.esphome_ns.namespace("esp_video_camera")
 ESPVideoCamera = esp_video_camera_ns.class_("ESPVideoCamera", cg.Component, cg.EntityBase)
 
 CONF_DEVICE = "device"
+CONF_RESOLUTION = "resolution"
 CONF_JPEG_QUALITY = "jpeg_quality"
 CONF_MAX_FRAMERATE = "max_framerate"
+
+_RESOLUTION_ALIASES = ("QVGA", "VGA", "480P", "720P", "1080P")
+
+
+def validate_resolution(value):
+    """Accepte "auto", un alias (QVGA/VGA/480P/720P/1080P) ou un format "WxH"."""
+    value = cv.string(value)
+    if value.lower() == "auto":
+        return "auto"
+    if value.upper() in _RESOLUTION_ALIASES:
+        return value.upper()
+    parts = value.lower().split("x")
+    if len(parts) == 2 and parts[0].isdigit() and parts[1].isdigit():
+        return f"{int(parts[0])}x{int(parts[1])}"
+    raise cv.Invalid(
+        f"resolution '{value}' invalide. Utilisez 'auto', un alias "
+        "(QVGA/VGA/480P/720P/1080P) ou 'LARGEURxHAUTEUR' (ex: '1280x720')."
+    )
 
 
 def validate_device(value):
@@ -48,6 +67,7 @@ CONFIG_SCHEMA = (
         {
             cv.GenerateID(): cv.declare_id(ESPVideoCamera),
             cv.Optional(CONF_DEVICE, default="jpeg"): validate_device,
+            cv.Optional(CONF_RESOLUTION, default="auto"): validate_resolution,
             cv.Optional(CONF_JPEG_QUALITY, default=10): cv.int_range(min=1, max=63),
             cv.Optional(CONF_MAX_FRAMERATE, default=10): cv.float_range(min=0.1, max=60.0),
         }
@@ -65,5 +85,6 @@ async def to_code(config):
     await cg.register_component(var, config)
 
     cg.add(var.set_device(config[CONF_DEVICE]))
+    cg.add(var.set_resolution(config[CONF_RESOLUTION]))
     cg.add(var.set_jpeg_quality(config[CONF_JPEG_QUALITY]))
     cg.add(var.set_max_framerate(config[CONF_MAX_FRAMERATE]))
