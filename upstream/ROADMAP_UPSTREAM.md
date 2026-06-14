@@ -2,7 +2,7 @@
 
 Notes de plan pour faire entrer (ou non) les composants dans ESPHome upstream.
 
-## ⚠️ Mise à jour 2026-06-14 — vérification contre esp_video 2.2.0 (sans hardware)
+## ⚠️ Mise à jour 2026-06-14 — vérification + réécriture contre esp_video 2.2.0 (sans hardware)
 
 Vérifié en lisant la source officielle `espressif/esp-video-components` (master).
 
@@ -19,19 +19,20 @@ Vérifié en lisant la source officielle `espressif/esp-video-components` (maste
   c'est `..._AUTO_DETECT_MIPI_INTERFACE_SENSOR`. Les `CONFIG_ESP_VIDEO_ENABLE_*`
   sont confirmées présentes.
 
-### 🔴 À FAIRE — le chemin JPEG → Home Assistant est architecturalement faux
+### 🟡 Pipeline JPEG → Home Assistant — RÉÉCRIT (M2M), à valider sur P4
 - `/dev/video10` (JPEG) est un device **M2M** (memory-to-memory), pas une capture simple.
-- Le code actuel fait une capture simple sur `/dev/video10` → **ne marchera pas**.
-- Flux correct (exemple officiel `esp_video/examples/image_storage/sd_card`) :
-  1. **`/dev/video0`** (capteur/ISP) : `VIDIOC_S_FMT` (width/height = **résolution**,
-     pixelformat **RGB565**) ; REQBUFS/MMAP ; capture la frame brute.
-  2. **`/dev/video10`** (JPEG M2M) : OUTPUT = RGB565 (REQBUFS USERPTR, on QBUF la
-     frame brute), CAPTURE = JPEG (REQBUFS MMAP, on DQBUF le JPEG).
-- **La résolution se règle sur `/dev/video0`** (pas sur l'encodeur JPEG).
-- Le chemin **UVC / MJPEG** (`device: uvc` ou `/dev/videoN` qui sort du MJPEG) est,
-  lui, une capture simple — le code actuel est OK pour ce cas.
-- ⚠️ Ce pipeline n'a JAMAIS existé dans le code prouvé de ce dépôt (qui sort du
-  RGB565 vers LVGL, pas du JPEG vers HA). **Doit être validé sur ESP32-P4.**
+  L'ancien code (capture simple sur `/dev/video10`) ne pouvait pas marcher.
+- **Réécrit** d'après l'exemple officiel `esp_video/examples/image_storage/sd_card` :
+  - `device: jpeg` → 2 devices : capture **RGB565** sur `/dev/video0` (capteur/ISP),
+    puis on **donne** chaque frame à la file OUTPUT de l'encodeur (USERPTR) et on **lit**
+    le JPEG sur sa file CAPTURE (MMAP). fd JPEG ouvert **bloquant** (DQBUF attend l'encode).
+  - `device: uvc` / `/dev/videoN` → capture simple inchangée (sort déjà du MJPEG).
+  - **Résolution** réglée sur `/dev/video0` (le bon device), taille négociée relue et
+    passée au format OUTPUT de l'encodeur. → le choix `resolution:` agit vraiment.
+- ✅ Passe tout le statique (clang-format, ci-custom, ruff, import).
+- ⚠️ **Non compilé / non exécuté ici** : le handshake M2M (ordre QBUF/DQBUF entre les
+  2 files) doit être validé sur une **vraie ESP32-P4**. Code architecturalement juste,
+  mais pas prouvé fonctionnel.
 
 ---
 
@@ -39,7 +40,7 @@ Vérifié en lisant la source officielle `espressif/esp-video-components` (maste
 
 | Fonctionnalité | Cible | Statut |
 |---|---|---|
-| Caméra → Home Assistant (`esp_video_camera`, JPEG) | upstream | 🟡 PR ouverte, test config-only |
+| Caméra → Home Assistant (`esp_video_camera`, JPEG) | upstream | 🟡 PR ouverte, pipeline M2M réécrit, test config-only |
 | Drivers capteurs (SC202CS/OV5647/SC2336) | upstream (dépendance de esp_video) | 🟢 |
 | OV02C10 | external (driver custom) | 🔴 pas upstream — à contribuer à esp_cam_sensor d'abord |
 | `esp_cam_sensor` (contrôle direct + PPA) | 2e PR séparée, plus tard | ⚪ |
@@ -51,9 +52,10 @@ Vérifié en lisant la source officielle `espressif/esp-video-components` (maste
 - CI : verte (lint/clang-tidy/config). Test = **config-only** (`validate.esp32-p4-idf.yaml`).
 
 ## Étapes restantes (nécessitent une vraie ESP32-P4)
-1. Implémenter le pipeline JPEG M2M correct (ci-dessus) et le tester.
-2. `esphome compile` du test ; rebasculer `validate.` → `test.` une fois OK.
-3. Corriger doc + description de PR (enlever OV02C10).
+1. `esphome compile` du test → valider la compilation et **le handshake M2M JPEG**.
+2. Corriger les détails runtime du pipeline M2M si besoin (ordre des files, buffers).
+3. Rebasculer `validate.` → `test.` une fois la compilation OK.
+4. Corriger doc + description de PR (enlever OV02C10).
 
 ## Règle d'or
 - **Rien n'est perdu** : esp_cam_sensor / lvgl_camera_display / OV02C10 restent
