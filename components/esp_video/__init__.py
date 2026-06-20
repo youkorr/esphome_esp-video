@@ -9,7 +9,6 @@ import esphome.codegen as cg
 import esphome.config_validation as cv
 from esphome.components import i2c, esp32
 from esphome.const import CONF_ID, CONF_I2C_ID
-from esphome.core import CORE
 import os
 import logging
 
@@ -76,20 +75,12 @@ CONFIG_SCHEMA = cv.All(
         # Enable XCLK initialization via LEDC (for non-M5Stack boards)
         cv.Optional(CONF_ENABLE_XCLK_INIT, default=False): cv.boolean,
     }).extend(cv.COMPONENT_SCHEMA),
+    cv.only_with_esp_idf,
     validate_esp_video_config
 )
 
 
 async def to_code(config):
-    # -----------------------------------------------------------------------
-    # Vérification du framework (CRITICAL: faire ça en premier)
-    # -----------------------------------------------------------------------
-    if not CORE.using_esp_idf:
-        raise cv.Invalid(
-            "ESP-Video nécessite le framework esp-idf. "
-            "Ajoutez 'framework: type: esp-idf' dans votre configuration."
-        )
-
     # ============================================================================
     # AUTO-DOWNLOAD DES DÉPENDANCES (comme LVGL 9.4 avec cg.add_library)
     # ============================================================================
