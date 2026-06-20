@@ -411,21 +411,31 @@ esp_err_t esp_video_init(const esp_video_init_config_t *config)
                 .skip_phy_setup = false,
                 .intr_flags = ESP_INTR_FLAG_LEVEL1,
             };
-            if (usb_host_install(&host_config) != ESP_OK) {
-                ESP_LOGE(TAG, "Failed to install USB Host driver");
-                return ESP_FAIL;
-            }
-
-            usb_task_created = xTaskCreatePinnedToCore(
-                                   usb_lib_task,
-                                   "usb_lib",
-                                   config->usb_uvc->usb.task_stack,
-                                   NULL,
-                                   config->usb_uvc->usb.task_priority,
-                                   &usb_lib_task_handler,
-                                   task_affinity);
-            if (usb_task_created != pdTRUE) {
-                ESP_LOGE(TAG, "Failed to create USB host library task");
+            // The USB Host Library can only be installed once per system.
+            // Another component (e.g. ESPHome's usb_host) may already own it,
+            // so tolerate ESP_ERR_INVALID_STATE and share the existing stack
+            // instead of failing. When we share it, the owner pumps the library
+            // events, so we must NOT start our own usb_lib daemon task (it would
+            // race the owner and uninstall the host lib on NO_CLIENTS).
+            esp_err_t host_install_ret = usb_host_install(&host_config);
+            if (host_install_ret == ESP_OK) {
+                usb_task_created = xTaskCreatePinnedToCore(
+                                       usb_lib_task,
+                                       "usb_lib",
+                                       config->usb_uvc->usb.task_stack,
+                                       NULL,
+                                       config->usb_uvc->usb.task_priority,
+                                       &usb_lib_task_handler,
+                                       task_affinity);
+                if (usb_task_created != pdTRUE) {
+                    ESP_LOGE(TAG, "Failed to create USB host library task");
+                    return ESP_FAIL;
+                }
+            } else if (host_install_ret == ESP_ERR_INVALID_STATE) {
+                ESP_LOGW(TAG, "USB Host already installed by another component; "
+                              "UVC will share the existing host stack");
+            } else {
+                ESP_LOGE(TAG, "Failed to install USB Host driver: %s", esp_err_to_name(host_install_ret));
                 return ESP_FAIL;
             }
         }

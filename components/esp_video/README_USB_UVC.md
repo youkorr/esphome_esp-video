@@ -28,8 +28,16 @@ When `enable_uvc: true`:
    support) is pulled in automatically — it also provides the
    `esp_private/uvc_esp_video.h` glue the driver depends on.
 2. The **USB-Host stack** and the **UVC driver** are installed at startup by
-   `esp_video_init()` (esp_video owns the USB Host Lib: `init_usb_host_lib = true`).
-3. A connected UVC camera is **enumerated as a V4L2 device**: `/dev/videoN`.
+   `esp_video_init()`. esp_video tries to install the USB Host Library itself,
+   but the library can only be installed once per system: if another component
+   (e.g. ESPHome's `usb_host`) has **already** installed it, esp_video detects
+   this (`ESP_ERR_INVALID_STATE`) and **shares the existing stack** instead of
+   failing — it then skips its own host-lib daemon task and lets the owner pump
+   the host-lib events. So UVC works both standalone and alongside other USB
+   components.
+3. A connected UVC camera is **enumerated as a V4L2 device** (`/dev/videoN`).
+   The UVC driver registers an asynchronous connection callback, so the camera
+   is **auto-detected on hotplug** — whether or not it is plugged in at boot.
 
 | Option | Default | Notes |
 |--------|---------|-------|
@@ -83,6 +91,11 @@ Enabling UVC makes the camera **available** as a V4L2 device (`/dev/videoN`).
 [esp_video_init] Installing USB Host
 [esp_video_init] USB Host installed
 ```
+If the USB Host stack was already installed by another component, you'll see a
+warning instead and esp_video shares it:
+```
+[esp_video_init] USB Host already installed by another component; UVC will share the existing host stack
+```
 When the camera is plugged in, the UVC driver enumerates it and creates the
 V4L2 device.
 
@@ -94,7 +107,8 @@ V4L2 device.
 |---------|------|
 | Build: errors on `usb/uvc_host.h` or `uvc_esp_video.h` | `usb_host_uvc` version mismatch — adjust `ref="2.4.1"` in `components/esp_video/__init__.py`. |
 | Camera not detected | Check Host/OTG mode and the camera's VBUS (5 V) power. |
-| `Failed to install USB Host driver` | Another component already installed the USB Host Lib, or the port is not in host mode. |
+| `Failed to install USB Host driver` | A real install error (not a double-install — that case is handled by sharing). Check the port is in host mode. |
+| `USB Host already installed by another component` | Informational, not an error: esp_video is sharing an existing USB Host stack (e.g. ESPHome's `usb_host`). |
 | No image in `face2face` | Expected for now: the UVC node is not yet consumed by `esp_cam_sensor` (see §4). |
 
 ---
