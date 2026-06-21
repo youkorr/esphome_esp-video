@@ -132,7 +132,12 @@ async def to_code(config):
     # esp_video UVC device driver builds against. Only when enabled, so MIPI-only
     # builds don't grow the USB host stack.
     if config[CONF_ENABLE_UVC]:
-        esp32.add_idf_component(name="espressif/usb_host_uvc", ref="2.4.1")
+        # Match Espressif's official esp-video pairing (idf_component.yml pins
+        # usb_host_uvc "2.5.*"). 2.5.x provides the esp_video binding API our
+        # vendored driver uses (uvc_host_buf_info_get, driver event callback,
+        # user-provided frame buffers) plus UVC reliability fixes (URB size
+        # calc, MJPEG SOI corruption checks, bulk frame reconstruction).
+        esp32.add_idf_component(name="espressif/usb_host_uvc", ref="2.5.*")
 
         # The UVC device driver (esp_video_usb_uvc_device.c) and esp_video_init.c
         # include "usb/uvc_host.h" and "esp_private/uvc_esp_video.h", which live
