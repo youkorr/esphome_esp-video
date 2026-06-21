@@ -41,6 +41,16 @@ idf_component_register(SRCS ${srcs}
 # This is safe for all sensors - the code detects sensor type at runtime
 idf_component_optional_requires(PRIVATE "esp_ipa")
 
+# USB-UVC host support (enable_uvc: true).
+# When UVC is enabled, esp_video_init.c includes "usb/usb_host.h" (from the core
+# IDF "usb" component) and the UVC device driver includes "usb/uvc_host.h" /
+# "esp_private/uvc_esp_video.h" (from the "espressif/usb_host_uvc" managed
+# component pulled by __init__.py). Without these in REQUIRES the pure ESP-IDF
+# build fails with "usb/usb_host.h: No such file or directory".
+# optional_requires only adds them when the components are actually present, so
+# MIPI-only builds (UVC off, usb_host_uvc not pulled) are unaffected.
+idf_component_optional_requires(PRIVATE "usb" "usb_host_uvc")
+
 # Disable the MIPI-CSI driver "backup buffer" allocation.
 # The CSI driver normally allocates a full-frame DMA-capable buffer as a
 # fallback when no user buffer is queued in time. For larger resolutions
