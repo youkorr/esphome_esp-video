@@ -246,12 +246,28 @@ void ESPVideoComponent::setup() {
     uvc_config.uvc.task_stack = 4096;
     uvc_config.uvc.task_priority = 5;
     uvc_config.uvc.task_affinity = -1;        // no core affinity
-    uvc_config.usb.init_usb_host_lib = true;  // esp_video owns the USB host lib
+    // USB host ownership.
+    //  * manage_usb_host_ = true  -> esp_video installs and owns the USB Host
+    //    Library and runs its own daemon task. Self-contained: works without
+    //    any other USB component, but esp_video monopolises the host (no clean
+    //    coexistence with other USB devices, host memory always allocated).
+    //  * manage_usb_host_ = false -> an external owner (ESPHome's usb_host
+    //    component) installs the host library and pumps its events. esp_video
+    //    only registers the UVC class-driver client, so enumeration/init and
+    //    teardown follow the USB device connect/disconnect on the shared host.
+    //    This is the correct integration for coexistence, for freeing host
+    //    memory when no camera is present, and for hot-swapping USB devices.
+    uvc_config.usb.init_usb_host_lib = this->manage_usb_host_;
     uvc_config.usb.task_stack = 4096;
     uvc_config.usb.task_priority = 5;
     uvc_config.usb.task_affinity = -1;
     video_config.usb_uvc = &uvc_config;
-    ESP_LOGI(TAG, "USB-UVC host enabled: external USB cameras will appear as /dev/videoN");
+    if (this->manage_usb_host_) {
+      ESP_LOGI(TAG, "USB-UVC enabled (esp_video owns the USB host): cameras appear as /dev/videoN");
+    } else {
+      ESP_LOGI(TAG, "USB-UVC enabled (host owned by ESPHome usb_host): UVC client registered, "
+                    "enumeration follows USB connect/disconnect");
+    }
   }
 #endif
 

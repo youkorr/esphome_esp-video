@@ -42,10 +42,63 @@ When `enable_uvc: true`:
 | Option | Default | Notes |
 |--------|---------|-------|
 | `enable_uvc` | `false` | `true` = compile and start the USB-UVC host. |
+| `manage_usb_host` | `true` | `true` = esp_video owns the USB Host Library. `false` = hand ownership to ESPHome's `usb_host` component (recommended for coexistence — see §1.1). |
 
 Internal parameters applied (in `esp_video_component.cpp`, adjustable if needed):
 number of UVC cameras = 1, host/UVC tasks with 4096-byte stacks, priority 5,
 no core affinity.
+
+---
+
+## 1.1 USB host ownership — who owns the bus
+
+A UVC camera lives on the **USB Host bus**, which can have **exactly one owner**
+(one `usb_host_install` + one event loop). There are two integration models:
+
+### Self-contained (default, `manage_usb_host: true`)
+
+esp_video installs and owns the USB Host Library and runs its own daemon task.
+Simplest for a single USB camera with nothing else on the bus. Downsides — the
+ones to be aware of:
+
+- esp_video **monopolises** the host bus: cleanly sharing it with other USB
+  devices (storage, HID, a second USB component) is not possible.
+- the host stack is **allocated for the whole runtime**, even with no camera
+  plugged in.
+
+The old `ESP_ERR_INVALID_STATE` "share the stack" fallback only papers over the
+case where someone else got there first — it is **not** a substitute for proper
+ownership.
+
+### usb_host-managed (recommended, `manage_usb_host: false`)
+
+ESPHome's [`usb_host`](https://esphome.io/components/usb_host.html) component
+owns the host library and pumps its events. esp_video registers **only** the UVC
+class-driver client, so:
+
+- **Coexistence:** other USB devices share the same host bus.
+- **Memory:** the host stack/buffers are owned by `usb_host`, and the UVC frame
+  buffers are allocated on connect — not held when no camera is present.
+- **Hot-swap:** enumeration/init and teardown follow the USB device
+  **connect/disconnect** events on the shared host, so cameras can be
+  plugged/unplugged and swapped at runtime.
+
+```yaml
+# Let ESPHome's usb_host own the bus
+usb_host:
+
+esp_video:
+  i2c_id: bsp_bus
+  xclk_pin: GPIO36
+  enable_uvc: true
+  manage_usb_host: false   # <-- esp_video registers only the UVC client
+```
+
+> Why not just rely on the ESP-IDF example? Espressif's esp-video UVC example
+> assumes a **dedicated, always-present** camera that owns the bus — it does not
+> model multi-device coexistence or hot-swap. On ESPHome, where the USB bus is
+> shared and devices come and go, the `usb_host`-managed model is the correct
+> integration.
 
 ---
 
@@ -87,9 +140,13 @@ Enabling UVC makes the camera **available** as a V4L2 device (`/dev/videoN`).
 ## 5. Expected startup logs
 
 ```
-[esp_video] USB-UVC host enabled: external USB cameras will appear as /dev/videoN
+# manage_usb_host: true (default)
+[esp_video] USB-UVC enabled (esp_video owns the USB host): cameras appear as /dev/videoN
 [esp_video_init] Installing USB Host
 [esp_video_init] USB Host installed
+
+# manage_usb_host: false (usb_host-managed)
+[esp_video] USB-UVC enabled (host owned by ESPHome usb_host): UVC client registered, enumeration follows USB connect/disconnect
 ```
 If the USB Host stack was already installed by another component, you'll see a
 warning instead and esp_video shares it:
@@ -105,7 +162,8 @@ V4L2 device.
 
 | Symptom | Hint |
 |---------|------|
-| Build: errors on `usb/uvc_host.h` or `uvc_esp_video.h` | `usb_host_uvc` version mismatch — adjust `ref="2.4.1"` in `components/esp_video/__init__.py`. |
+| Build: errors on `usb/uvc_host.h` or `uvc_esp_video.h` | `usb_host_uvc` version mismatch — adjust `ref="2.5.*"` in `components/esp_video/__init__.py` (Espressif's esp-video pairs this driver with `usb_host_uvc 2.5.*`). |
+| `manage_usb_host: false` but the camera never enumerates | No host owner present — add a `usb_host:` block so the USB Host Library is installed. |
 | Camera not detected | Check Host/OTG mode and the camera's VBUS (5 V) power. |
 | `Failed to install USB Host driver` | A real install error (not a double-install — that case is handled by sharing). Check the port is in host mode. |
 | `USB Host already installed by another component` | Informational, not an error: esp_video is sharing an existing USB Host stack (e.g. ESPHome's `usb_host`). |

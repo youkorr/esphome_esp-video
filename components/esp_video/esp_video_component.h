@@ -36,6 +36,7 @@ class ESPVideoComponent : public Component {
   void set_xclk_freq(uint32_t freq) { this->xclk_freq_ = freq; }
   void set_enable_xclk_init(bool enable) { this->enable_xclk_init_ = enable; }
   void set_enable_uvc(bool enable) { this->enable_uvc_ = enable; }
+  void set_manage_usb_host(bool manage) { this->manage_usb_host_ = manage; }
 
  protected:
   bool initialized_{false};
@@ -44,6 +45,9 @@ class ESPVideoComponent : public Component {
   uint32_t xclk_freq_{24000000};         // Default 24MHz for MIPI-CSI sensors
   bool enable_xclk_init_{false};         // Enable XCLK initialization via LEDC (for non-M5Stack boards)
   bool enable_uvc_{false};               // Start the USB-UVC host (external USB camera)
+  bool manage_usb_host_{true};           // true: esp_video owns the USB host lib;
+                                         // false: an external owner (ESPHome usb_host)
+                                         //        owns it and drives connect/disconnect
 };
 
 }  // namespace esp_video

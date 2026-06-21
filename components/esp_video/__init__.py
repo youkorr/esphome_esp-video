@@ -23,6 +23,7 @@ ESPVideoComponent = esp_video_ns.class_("ESPVideoComponent", cg.Component)
 CONF_ENABLE_JPEG = "enable_jpeg"
 CONF_ENABLE_ISP = "enable_isp"
 CONF_ENABLE_UVC = "enable_uvc"
+CONF_MANAGE_USB_HOST = "manage_usb_host"
 CONF_USE_HEAP_ALLOCATOR = "use_heap_allocator"
 CONF_XCLK_PIN = "xclk_pin"
 CONF_XCLK_FREQ = "xclk_freq"
@@ -68,6 +69,13 @@ CONFIG_SCHEMA = cv.All(
         # USB host stack + UVC host driver are compiled in and started, and a
         # connected UVC camera is enumerated as a /dev/videoN V4L2 device.
         cv.Optional(CONF_ENABLE_UVC, default=False): cv.boolean,
+        # USB host ownership for UVC. By default esp_video installs and owns the
+        # USB Host Library itself (self-contained, single-camera). Set this to
+        # false to hand ownership to ESPHome's `usb_host` component: esp_video
+        # then only registers the UVC class-driver client, so it coexists with
+        # other USB devices, releases host memory when no camera is present, and
+        # follows USB connect/disconnect. Requires a `usb_host:` block.
+        cv.Optional(CONF_MANAGE_USB_HOST, default=True): cv.boolean,
         cv.Optional(CONF_USE_HEAP_ALLOCATOR, default=True): cv.boolean,
         # XCLK pin accepte: "GPIO36", 36, -1, ou "NO_CLOCK"
         cv.Optional(CONF_XCLK_PIN, default="GPIO36"): cv.Any(cv.string, cv.int_range(min=-1, max=48)),
@@ -126,6 +134,7 @@ async def to_code(config):
     cg.add(var.set_xclk_freq(xclk_freq))
     cg.add(var.set_enable_xclk_init(config[CONF_ENABLE_XCLK_INIT]))
     cg.add(var.set_enable_uvc(config[CONF_ENABLE_UVC]))
+    cg.add(var.set_manage_usb_host(config[CONF_MANAGE_USB_HOST]))
 
     # USB-UVC host: pull Espressif's USB Host UVC driver (native 2.x API, P4
     # support) which also provides the esp_private/uvc_esp_video.h glue the
