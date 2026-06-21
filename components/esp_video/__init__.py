@@ -134,6 +134,23 @@ async def to_code(config):
     if config[CONF_ENABLE_UVC]:
         esp32.add_idf_component(name="espressif/usb_host_uvc", ref="2.4.1")
 
+        # The UVC device driver (esp_video_usb_uvc_device.c) and esp_video_init.c
+        # include "usb/uvc_host.h" and "esp_private/uvc_esp_video.h", which live
+        # in the managed component's include dir. The managed component is only
+        # fetched at build time, so its path is not on the default search path:
+        # add it explicitly (PlatformIO expands ${PROJECT_DIR}).
+        cg.add_build_flag(
+            "-I${PROJECT_DIR}/managed_components/espressif__usb_host_uvc/include"
+        )
+
+        # Many UVC cameras expose configuration descriptors larger than the IDF
+        # default control-transfer buffer (256 B), which makes enumeration fail.
+        # Match the reference UVC components and raise it so big-descriptor
+        # cameras enumerate reliably.
+        esp32.add_idf_sdkconfig_option(
+            "CONFIG_USB_HOST_CONTROL_TRANSFER_MAX_SIZE", 2048
+        )
+
     # Logs silencieux sauf erreurs
     logging.debug(f"[ESP-Video] I2C bus: '{config[CONF_I2C_ID]}'")
     if has_ext_clock:
