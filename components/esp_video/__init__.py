@@ -7,6 +7,7 @@ Ce composant initialise ESP-Video en utilisant le bus I2C d'ESPHome.
 
 import esphome.codegen as cg
 import esphome.config_validation as cv
+import esphome.final_validate as fv
 from esphome.components import i2c, esp32
 from esphome.const import CONF_ID, CONF_I2C_ID
 import os
@@ -23,6 +24,7 @@ ESPVideoComponent = esp_video_ns.class_("ESPVideoComponent", cg.Component)
 CONF_ENABLE_JPEG = "enable_jpeg"
 CONF_ENABLE_ISP = "enable_isp"
 CONF_ENABLE_UVC = "enable_uvc"
+CONF_MANAGE_USB_HOST = "manage_usb_host"
 CONF_USE_HEAP_ALLOCATOR = "use_heap_allocator"
 CONF_XCLK_PIN = "xclk_pin"
 CONF_XCLK_FREQ = "xclk_freq"
@@ -68,6 +70,13 @@ CONFIG_SCHEMA = cv.All(
         # USB host stack + UVC host driver are compiled in and started, and a
         # connected UVC camera is enumerated as a /dev/videoN V4L2 device.
         cv.Optional(CONF_ENABLE_UVC, default=False): cv.boolean,
+        # manage_usb_host: qui possède la pile USB Host ?
+        #   true  (défaut) -> esp_video l'installe lui-même (init_usb_host_lib=true).
+        #   false          -> le composant ESPHome `usb_host` la possède ; esp_video
+        #                     s'y greffe (coexistence / hot-swap). Dans ce cas un bloc
+        #                     `usb_host:` est OBLIGATOIRE (vérifié en validation finale),
+        #                     sinon l'install UVC échoue silencieusement au runtime.
+        cv.Optional(CONF_MANAGE_USB_HOST, default=True): cv.boolean,
         cv.Optional(CONF_USE_HEAP_ALLOCATOR, default=True): cv.boolean,
         # XCLK pin accepte: "GPIO36", 36, -1, ou "NO_CLOCK"
         cv.Optional(CONF_XCLK_PIN, default="GPIO36"): cv.Any(cv.string, cv.int_range(min=-1, max=48)),
@@ -78,6 +87,26 @@ CONFIG_SCHEMA = cv.All(
     cv.only_with_esp_idf,
     validate_esp_video_config
 )
+
+
+def _final_validate_usb_host(config):
+    """Garde-fou (#4): `manage_usb_host: false` n'a de sens que si un autre
+    composant possède la pile USB Host. Sans bloc `usb_host:`, `uvc_host_install`
+    échouerait silencieusement au runtime — on transforme ça en erreur de config."""
+    if config.get(CONF_ENABLE_UVC) and not config.get(CONF_MANAGE_USB_HOST, True):
+        full_config = fv.full_config.get()
+        if "usb_host" not in full_config:
+            raise cv.Invalid(
+                "esp_video: `manage_usb_host: false` exige qu'un composant `usb_host:` "
+                "soit présent dans la configuration (il possède la pile USB Host que "
+                "esp_video doit partager pour la caméra UVC). Ajoutez un bloc `usb_host:`, "
+                "ou repassez sur `manage_usb_host: true` pour qu'esp_video gère lui-même "
+                "la pile USB Host."
+            )
+    return config
+
+
+FINAL_VALIDATE_SCHEMA = _final_validate_usb_host
 
 
 async def to_code(config):
@@ -126,6 +155,7 @@ async def to_code(config):
     cg.add(var.set_xclk_freq(xclk_freq))
     cg.add(var.set_enable_xclk_init(config[CONF_ENABLE_XCLK_INIT]))
     cg.add(var.set_enable_uvc(config[CONF_ENABLE_UVC]))
+    cg.add(var.set_manage_usb_host(config[CONF_MANAGE_USB_HOST]))
 
     # USB-UVC host: pull Espressif's USB Host UVC driver (native 2.x API, P4
     # support) which also provides the esp_private/uvc_esp_video.h glue the

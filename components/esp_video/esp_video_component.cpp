@@ -246,12 +246,16 @@ void ESPVideoComponent::setup() {
     uvc_config.uvc.task_stack = 4096;
     uvc_config.uvc.task_priority = 5;
     uvc_config.uvc.task_affinity = -1;        // no core affinity
-    uvc_config.usb.init_usb_host_lib = true;  // esp_video owns the USB host lib
+    // init_usb_host_lib: true -> esp_video installe/possède la pile USB Host.
+    // false -> une autre pile (composant ESPHome `usb_host`) la possède et pompe
+    // ses événements ; esp_video s'y greffe (coexistence/hot-swap).
+    uvc_config.usb.init_usb_host_lib = this->manage_usb_host_;
     uvc_config.usb.task_stack = 4096;
     uvc_config.usb.task_priority = 5;
     uvc_config.usb.task_affinity = -1;
     video_config.usb_uvc = &uvc_config;
-    ESP_LOGI(TAG, "USB-UVC host enabled: external USB cameras will appear as /dev/videoN");
+    ESP_LOGI(TAG, "USB-UVC host enabled (manage_usb_host=%s): external USB cameras will appear as /dev/videoN",
+             this->manage_usb_host_ ? "true" : "false");
   }
 #endif
 
