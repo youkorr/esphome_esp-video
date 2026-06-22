@@ -59,6 +59,15 @@ def validate_esp_video_config(config):
     return config
 
 
+# Compat ESPHome: cv.only_with_esp_idf a été retiré des versions récentes
+# d'ESPHome (2026.x). On le réutilise s'il existe, sinon on retombe sur un
+# no-op (le composant impose déjà esp-idf via DEPENDENCIES=["esp32"] + framework).
+_only_with_esp_idf = getattr(cv, "only_with_esp_idf", None)
+if _only_with_esp_idf is None:
+    def _only_with_esp_idf(value):
+        return value
+
+
 CONFIG_SCHEMA = cv.All(
     cv.Schema({
         cv.GenerateID(): cv.declare_id(ESPVideoComponent),
@@ -84,7 +93,7 @@ CONFIG_SCHEMA = cv.All(
         # Enable XCLK initialization via LEDC (for non-M5Stack boards)
         cv.Optional(CONF_ENABLE_XCLK_INIT, default=False): cv.boolean,
     }).extend(cv.COMPONENT_SCHEMA),
-    cv.only_with_esp_idf,
+    _only_with_esp_idf,
     validate_esp_video_config
 )
 
