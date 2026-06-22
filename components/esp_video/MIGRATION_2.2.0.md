@@ -1,10 +1,48 @@
-# Migration esp_video 1.x → 2.2.0 (WIP — branche `claude/esp-video-2.2.0-migration`)
+# Migration esp_video 1.x → 2.2.0 (branche `claude/esp-video-2.2.0-migration`)
 
-⚠️ **État : travail en cours, NON compilé/validé.** Cette branche vendoré le cœur
-upstream `esp_video` 2.2.0 par-dessus la couche ESPHome du fork. Elle **nécessite
-un cycle de build réel** (pas de toolchain ESP32-P4 dans l'environnement où elle a
-été préparée) et très probablement plusieurs rounds de correction. Ne pas merger
-sans build vert.
+✅ **BUILD VERT VÉRIFIÉ** sur ESP32-P4 / ESP-IDF 5.5.4 (toolchain GCC 14.2,
+`esphome compile` → *Successfully compiled program*, RAM 5.2 %, Flash 27.4 %).
+
+Stack migré : **esp_video 2.2.0** + **esp_ipa 2.1.0** + **esp_cam_sensor** (fork
+aligné 2.2.0) + esp_sccb_intf, en préservant tes capteurs (dont **ov02c10**, absent
+de l'upstream) et la couche ESPHome.
+
+## Corrections appliquées pour le build vert
+
+- **esp_video core** : `xclk_pin/xclk_freq` retirés de la config CSI (supprimés en
+  2.2.0) ; registre de détection capteurs itéré via le mécanisme tableau du fork ;
+  dépendance `cmake_utilities` supprimée (liaisons directes esp_ipa/isp/jpeg) ;
+  `ESP_VIDEO_VER_*` / `ESP_IPA_VER_*` définis en flags globaux.
+- **esp_cam_sensor (fork, conservé)** : enum `esp_cam_sensor_pixformat_t` aligné 2.2.0
+  (`RGB565_LE/BE`, `YUV422_UYVY/YUYV`). Capteurs + formats custom + ov02c10 intacts.
+- **esp_ipa → 2.1.0** : overlay headers + lib précompilée **versionnée par IDF**
+  (`lib/esp32p4/v5.5/libesp_ipa.a` sélectionnée selon l'IDF). Pipeline ISP = version
+  **upstream 2.2.0** (cohérente avec esp_ipa 2.1.0). Stubs JSON/detect youkorr
+  obsolètes retirés.
+- **esp_ipa detect (section linker)** : la 2.1.0 auto-enregistre les algos IPA dans
+  une section `.esp_ipa_detect` bracketée par `__esp_ipa_detect_array_start/end`
+  (normalement via `linker.lf`/SURROUND, non traité dans le build SCons). Reproduit
+  par un **fragment linker généré** (`esp_video_build.py`) + `-u` sur les 9 algos
+  (ian/adn/awb/acc/agc/aen/af/atc/ext).
+- **usb_uvc** : corps de `esp_video_usb_uvc_device.c` (2.2.0) re-gardé derrière
+  `CONFIG_ESP_VIDEO_ENABLE_USB_UVC_VIDEO_DEVICE` (compile à vide si `enable_uvc:false`).
+
+## RESTE À VALIDER / réconciliation tuning
+
+- **Tuning couleur IPA (JSON youkorr)** : l'ancien chargeur JSON (`esp_ipa_json_loader`
+  + `embedded_*_ipa_config_json.c`) est retiré ; la 2.1.0 charge ses configs via sa
+  propre API (`esp_ipa_pipeline_create`). Les algos IPA tournent avec leurs réglages
+  par défaut 2.1.0 — **tes CCM/tuning custom ne sont pas encore réinjectés** (à
+  ré-exprimer au format 2.1.0). Le build est vert, mais les couleurs sont à revalider
+  sur matériel.
+- **enable_uvc:true** : non build-testé ici (composant managé `usb_host_uvc` bloqué
+  par l'allowlist registre) ; le corps UVC est gardé et compilera quand `usb_host_uvc`
+  sera dispo (environnement de ton ami).
+- Warning linker bénin : *INSERT statement … incompatible with
+  --enable-non-contiguous-regions* (le firmware est bien généré).
+
+---
+### (Historique) ⚠️ État initial : non compilé
 
 ## Fait dans cette branche
 

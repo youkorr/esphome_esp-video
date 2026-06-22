@@ -352,7 +352,9 @@ async def to_code(config):
     # MIGRATION esp_video 2.2.0: ESP_VIDEO_VER_{MAJOR,MINOR,PATCH} étaient générés par
     # cu_pkg_define_version() (cmake_utilities, indisponible hors registre). On les
     # définit en flags globaux pour esp_video_ioctl.c (VIDIOC_QUERYCAP).
-    for flag in ("-DESP_VIDEO_VER_MAJOR=2", "-DESP_VIDEO_VER_MINOR=2", "-DESP_VIDEO_VER_PATCH=0"):
+    for flag in ("-DESP_VIDEO_VER_MAJOR=2", "-DESP_VIDEO_VER_MINOR=2", "-DESP_VIDEO_VER_PATCH=0",
+                 # esp_ipa 2.1.0 (version.c) — même mécanisme cu_pkg_define_version retiré
+                 "-DESP_IPA_VER_MAJOR=2", "-DESP_IPA_VER_MINOR=1", "-DESP_IPA_VER_PATCH=0"):
         cg.add_build_flag(flag)
 
     # -----------------------------------------------------------------------

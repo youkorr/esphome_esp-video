@@ -15,6 +15,13 @@
 #include "freertos/task.h"
 #include "freertos/semphr.h"
 
+/* [YOUKORR/ESPHome] esp_video_build.py compile ce fichier inconditionnellement.
+ * En 2.2.0 les includes USB ne sont plus gardés en amont, donc on garde tout le
+ * corps derrière CONFIG_ESP_VIDEO_ENABLE_USB_UVC_VIDEO_DEVICE : compile à vide pour
+ * un build MIPI-only (enable_uvc:false), actif uniquement quand enable_uvc:true
+ * (qui tire usb_host_uvc, fournissant usb/uvc_host.h + esp_private/uvc_esp_video.h). */
+#if CONFIG_ESP_VIDEO_ENABLE_USB_UVC_VIDEO_DEVICE
+
 #include "usb/usb_host.h"
 #include "usb/uvc_host.h"
 #include "esp_private/uvc_esp_video.h"
@@ -782,3 +789,5 @@ esp_err_t esp_video_uninstall_usb_uvc_driver(void)
 
     return uvc_host_uninstall();
 }
+
+#endif /* CONFIG_ESP_VIDEO_ENABLE_USB_UVC_VIDEO_DEVICE */

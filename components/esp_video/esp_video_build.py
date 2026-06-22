@@ -59,7 +59,11 @@ esp_video_sources = [
     "src/esp_video.c",
     "src/esp_video_cam.c",
     "src/device/esp_video_csi_device.c",
-    "src/device/esp_video_jpeg_device.c",
+    # MIGRATION 2.2.0: fichiers nouveaux/renommés du cœur upstream
+    "src/device/esp_video_csi_format.c",        # 2.2.0 (nouveau)
+    "src/device/esp_video_device_common.c",     # 2.2.0 (nouveau)
+    "src/device/esp_video_jpeg_enc_device.c",   # 2.2.0 (ex esp_video_jpeg_device.c)
+    "src/device/esp_video_jpeg_dec_device.c",   # 2.2.0 (nouveau)
     "src/device/esp_video_isp_device.c",
     # USB-UVC host device driver. The file is wholly #if-guarded on
     # CONFIG_ESP_VIDEO_ENABLE_USB_UVC_VIDEO_DEVICE, so listing it here is safe
@@ -67,7 +71,9 @@ esp_video_sources = [
     # enable_uvc: true is set in the ESPHome config.
     "src/device/esp_video_usb_uvc_device.c",
     "src/esp_video_isp_pipeline.c",
-    "src/esp_video_isp_stubs.c",
+    # NOTE 2.2.0: esp_video_isp_stubs.c (stub youkorr couplé aux anciens internes
+    # esp_video_csi_state_t) retiré — le pipeline ISP upstream 2.2.0 + esp_ipa 2.1.0
+    # fournissent leur propre intégration ISP.
 ]
 
 # Ajouter le chemin d'include private_include de esp_video
@@ -131,9 +137,12 @@ if os.path.exists(esp_cam_sensor_dir):
 # ========================================================================
 esp_ipa_dir = os.path.join(parent_components_dir, "esp_ipa")
 esp_ipa_sources = [
-    "src/version.c",              # Config IPA custom (5 IPAs: AWB, denoise, sharpen, gamma, CC - PAS AGC)
-    "src/esp_ipa_detect_stubs.c", # Detection array
-    "src/esp_ipa_json_loader.c",  # JSON IPA parser pour charger configs OV02C10/OV5647/SC202CS
+    "src/version.c",
+    # MIGRATION 2.1.0: esp_ipa_detect_stubs.c (tableau manuel, anciens symboles) et
+    # esp_ipa_json_loader.c (chargeur JSON youkorr, header retiré en 2.1.0) sont
+    # OBSOLÈTES : le tableau de détection IPA est désormais fourni par le fragment
+    # linker (.esp_ipa_detect / __esp_ipa_detect_array_*) à partir de libesp_ipa.a 2.1.0,
+    # et le chargement des configs passe par l'API esp_ipa 2.1.0 (esp_ipa_pipeline_create).
 ]
 
 if os.path.exists(esp_ipa_dir):
@@ -330,12 +339,62 @@ if sources_to_add:
     # Maintenant linker avec libesp_ipa.a pour les fonctions IPA internes
     # Le linker utilisera notre version.o de libesp_video_full.a (déjà Prepend ci-dessus)
     # avant de chercher dans libesp_ipa.a
-    esp_ipa_lib_dir = os.path.join(parent_components_dir, "esp_ipa", "lib/esp32p4")
-    if os.path.exists(esp_ipa_lib_dir):
+    # MIGRATION 2.1.0: la lib esp_ipa précompilée est désormais rangée par version
+    # d'ESP-IDF (lib/esp32p4/{v5.4-,v5.5,v6.0+}/libesp_ipa.a). On sélectionne le bon
+    # sous-dossier selon l'IDF du build (défaut v5.5), avec repli sur le premier dispo.
+    esp_ipa_lib_base = os.path.join(parent_components_dir, "esp_ipa", "lib/esp32p4")
+    esp_ipa_lib_dir = None
+    if os.path.isdir(esp_ipa_lib_base):
+        try:
+            import re as _re
+            idf_ver = os.environ.get("IDF_VERSION") or os.environ.get("ESP_IDF_VERSION") or ""
+            m = _re.match(r"(\d+)\.(\d+)", idf_ver)
+            if m:
+                major, minor = int(m.group(1)), int(m.group(2))
+                cand = "v6.0+" if major >= 6 else ("v5.5" if (major, minor) >= (5, 5) else "v5.4-")
+            else:
+                cand = "v5.5"  # défaut: ESP-IDF 5.5.x
+        except Exception:
+            cand = "v5.5"
+        # Chemin candidat, sinon repli sur n'importe quel sous-dossier versionné, sinon la base
+        if os.path.exists(os.path.join(esp_ipa_lib_base, cand, "libesp_ipa.a")):
+            esp_ipa_lib_dir = os.path.join(esp_ipa_lib_base, cand)
+        elif os.path.exists(os.path.join(esp_ipa_lib_base, "libesp_ipa.a")):
+            esp_ipa_lib_dir = esp_ipa_lib_base
+        else:
+            import glob as _glob
+            found = _glob.glob(os.path.join(esp_ipa_lib_base, "*", "libesp_ipa.a"))
+            if found:
+                esp_ipa_lib_dir = os.path.dirname(found[0])
+    if esp_ipa_lib_dir:
         env.Append(LIBPATH=[esp_ipa_lib_dir])
         env.Append(LIBS=["esp_ipa"])
-    else:
-        pass
+        print(f"[ESP-Video Build] libesp_ipa.a: {esp_ipa_lib_dir}")
+
+        # MIGRATION esp_ipa 2.1.0: les algorithmes IPA sont auto-enregistrés via une
+        # section ".esp_ipa_detect" bracketée par __esp_ipa_detect_array_start/end.
+        # En amont c'est le linker.lf (SURROUND) qui crée ces symboles, mais il n'est
+        # pas traité dans ce build SCons. On le reproduit avec un fragment de linker
+        # (INSERT) + on force l'inclusion des 9 algos (sinon retirés par garbage-collect).
+        ipa_modules = ("ian", "adn", "awb", "acc", "agc", "aen", "af", "atc", "ext")
+        for m in ipa_modules:
+            env.Append(LINKFLAGS=["-Wl,-u,__esp_ipa_detect_fn_esp_ipa_%s" % m])
+        frag_path = os.path.join(script_dir, "esp_ipa_detect_section.ld")
+        try:
+            with open(frag_path, "w") as f:
+                f.write(
+                    "SECTIONS\n{\n"
+                    "  .esp_ipa_detect :\n  {\n"
+                    "    __esp_ipa_detect_array_start = .;\n"
+                    "    KEEP(*(SORT(.esp_ipa_detect*)))\n"
+                    "    __esp_ipa_detect_array_end = .;\n"
+                    "  }\n"
+                    "} INSERT AFTER .flash.rodata;\n"
+                )
+            env.Append(LINKFLAGS=["-Wl,-T," + frag_path])
+            print(f"[ESP-Video Build] esp_ipa detect section fragment: {frag_path}")
+        except Exception as _e:
+            print(f"[ESP-Video Build] WARN: fragment linker esp_ipa non écrit: {_e}")
 else:
     pass
 
