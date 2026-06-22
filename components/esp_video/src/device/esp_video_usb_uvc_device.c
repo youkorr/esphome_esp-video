@@ -1,18 +1,11 @@
 /*
- * SPDX-FileCopyrightText: 2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2025-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: ESPRESSIF MIT
  */
 
 // #undef LOG_LOCAL_LEVEL
 // #define LOG_LOCAL_LEVEL ESP_LOG_DEBUG
-
-// This whole translation unit (and its USB-Host-UVC includes) only exists when
-// the USB-UVC video device is enabled (enable_uvc: true in the ESPHome config,
-// which defines this flag and pulls the espressif/usb_host_uvc component).
-// Guarded so the file can be listed unconditionally in the build without
-// breaking MIPI-only builds that don't have the UVC host headers.
-#if CONFIG_ESP_VIDEO_ENABLE_USB_UVC_VIDEO_DEVICE
 
 #include <string.h>
 #include "esp_log.h"
@@ -42,12 +35,11 @@
 #define UVC_DEVICE_INIT_TASK_STACK_SIZE (3 * 1024)
 #define UVC_DEVICE_INIT_TASK_PRIORITY   5
 
-#define UVC_DEVICE_FRAME_COUNT          3
+#define UVC_DEVICE_URB_SIZE             CONFIG_USB_UVC_VIDEO_DEVICE_URB_SIZE
 
-#define UVC_DEVICE_URB_SIZE             (10 * 1024)
-#define UVC_DEVICE_URB_NUM              (4)
-
-#define UVC_INIT_TIMEOUT_MS             (10 * 1000)
+#define UVC_INIT_TIMEOUT_MS             CONFIG_USB_UVC_INIT_TIMEOUT_MS
+#define UVC_INIT_MAX_PHYSICAL_DEVICES   6
+#define UVC_INIT_MAX_STREAMS_PER_DEVICE 6
 
 #define UVC_INTERVAL_DENOMINATOR        (10 * 1000 * 1000)
 
@@ -59,6 +51,10 @@ struct uvc_video {
     uint32_t frame_info_num;
     uvc_host_frame_info_t *frame_info;
     uint8_t *frame_info_fmt_index;
+
+    /* Current Configuration */
+    enum uvc_host_stream_format uvc_stream_format;
+    uint32_t interval;
 
     SemaphoreHandle_t ready_sem;
 };
@@ -78,21 +74,38 @@ struct uvc_device_init_task_args {
 static const char *TAG = "usb_uvc_device";
 static struct uvc_video_core *s_uvc_video_core = NULL;
 
-static uint32_t uvc_to_v4l2_format(enum uvc_host_stream_format uvc_format)
+static uint32_t uvc_to_v4l2_format(enum uvc_host_stream_format uvc_format, uint8_t *bpp_ptr)
 {
+    uint32_t bpp = 0;
+    uint32_t v4l2_format = 0;
+
     switch (uvc_format) {
     case UVC_VS_FORMAT_YUY2:
-        return V4L2_PIX_FMT_YUYV;
+        bpp = 2;
+        v4l2_format = V4L2_PIX_FMT_YUYV;
+        break;
     case UVC_VS_FORMAT_MJPEG:
-        return V4L2_PIX_FMT_JPEG;
+        bpp = 1;
+        v4l2_format = V4L2_PIX_FMT_JPEG;
+        break;
     case UVC_VS_FORMAT_H264:
-        return V4L2_PIX_FMT_H264;
+        bpp = 1;
+        v4l2_format = V4L2_PIX_FMT_H264;
+        break;
     case UVC_VS_FORMAT_H265:
-        return V4L2_PIX_FMT_HEVC;
+        bpp = 1;
+        v4l2_format = V4L2_PIX_FMT_HEVC;
+        break;
     default:
         ESP_LOGE(TAG, "Unsupported pixel format %d", uvc_format);
         return 0; // Invalid format
     }
+
+    if (bpp_ptr) {
+        *bpp_ptr = bpp;
+    }
+
+    return v4l2_format;
 }
 
 static esp_err_t v4l2_to_uvc_format(uint32_t v4l2_format, enum uvc_host_stream_format *uvc_format)
@@ -119,21 +132,14 @@ static esp_err_t v4l2_to_uvc_format(uint32_t v4l2_format, enum uvc_host_stream_f
 static bool uvc_frame_callback(const uvc_host_frame_t *frame, void *user_ctx)
 {
     struct esp_video *video = (struct esp_video *)user_ctx;
-    struct esp_video_buffer_element *element;
+    struct esp_video_buffer *buffer = CAPTURE_VIDEO_BUF(video);
 
-    element = CAPTURE_VIDEO_GET_QUEUED_ELEMENT(video);
-    if (element) {
-        if (frame->data_len > ELEMENT_SIZE(element)) {
-            CAPTURE_VIDEO_SKIP_BUF(video, ELEMENT_BUFFER(element));
-            ESP_EARLY_LOGE(TAG, "Frame data length is greater than element buffer size");
-            return false;
-        }
+    CAPTURE_VIDEO_DONE_BUF(video, frame->data, frame->data_len);
 
-        memcpy(ELEMENT_BUFFER(element), frame->data, frame->data_len);
-        CAPTURE_VIDEO_DONE_BUF(video, ELEMENT_BUFFER(element), frame->data_len);
-    }
+    struct esp_video_buffer_element *element = esp_video_buffer_get_element_by_buffer(buffer, frame->data);
+    element->priv_data = (void *)frame;
 
-    return true;
+    return false;
 }
 
 static void uvc_event_callback(const uvc_host_stream_event_data_t *event, void *user_ctx)
@@ -148,18 +154,14 @@ static void uvc_event_callback(const uvc_host_stream_event_data_t *event, void *
 
         ESP_LOGD(TAG, "Device disconnected, dev_addr = %d, stream_index = %d", device->dev_addr, device->stream_index);
 
-        // Marquer le device comme déconnecté AVANT de libérer la mémoire : toutes
-        // les autres opérations (enum/get/set format) court-circuitent sur
-        // dev_addr == 0, ce qui évite tout accès au buffer libéré.
+        // Marquer le device déconnecté AVANT de libérer (les autres ops bailent sur dev_addr==0).
         device->dev_addr = 0;
         device->stream_index = 0;
         device->frame_info_num = 0;
 
-        // Libérer frame_info ici : sur un hot-swap (débranchement puis rebranchement),
-        // le slot uvc_video est réutilisé et uvc_video_init() refait un malloc() sans
-        // libérer l'ancien pointeur -> fuite. uvc_video_deinit() ne s'en charge pas non
-        // plus car il court-circuite désormais sur dev_addr == 0. (frame_info_fmt_index
-        // pointe à l'intérieur de la même allocation.)
+        // Libérer frame_info ici : au hot-swap, le slot est réutilisé et uvc_video_init()
+        // refait un malloc() sans libérer l'ancien pointeur -> fuite. deinit() ne s'en
+        // charge pas non plus (il bail sur dev_addr==0).
         if (device->frame_info) {
             free(device->frame_info);
             device->frame_info = NULL;
@@ -230,13 +232,55 @@ static esp_err_t uvc_video_init(struct esp_video *video)
 {
     esp_err_t ret;
     struct uvc_video *device = VIDEO_PRIV_DATA(struct uvc_video *, video);
+    struct uvc_video_core *core = s_uvc_video_core;
 
-    ESP_RETURN_ON_FALSE((xSemaphoreTake(device->ready_sem, UVC_INIT_TIMEOUT_MS / portTICK_PERIOD_MS) == pdPASS), ESP_ERR_NOT_FOUND,
-                        TAG, "Failed to take UVC device ready semaphore");
+    /* Check if UVC devices are already enumerated before waiting on semaphore */
+    uint8_t dev_addr_list[UVC_INIT_MAX_PHYSICAL_DEVICES] = {0};
+    int num_of_devices = 0;
+    int detected_uvc_count = 0;
+
+    usb_host_device_addr_list_fill(sizeof(dev_addr_list), dev_addr_list, &num_of_devices);
+
+    /* Check each USB device to see if it's a UVC device */
+    for (int i = 0; i < num_of_devices; i++) {
+        for (int stream_idx = 0; stream_idx < UVC_INIT_MAX_STREAMS_PER_DEVICE; stream_idx++) {
+            size_t frame_list_size = 0;
+            /* Try to get frame list - if successful, it's a UVC device with this stream */
+            if (uvc_host_get_frame_list(dev_addr_list[i], stream_idx, NULL, &frame_list_size) == ESP_OK) {
+                if (frame_list_size > 0) {
+                    detected_uvc_count++;
+                    /* Try to assign this device to an available slot */
+                    portENTER_CRITICAL(&core->lock);
+                    for (int j = 0; j < core->uvc_video_num; j++) {
+                        struct uvc_video *uvc_dev = &core->uvc_video[j];
+                        if (uvc_dev->dev_addr == 0) {
+                            uvc_dev->dev_addr = dev_addr_list[i];
+                            uvc_dev->stream_index = stream_idx;
+                            uvc_dev->frame_info_num = frame_list_size;
+                            break;
+                        }
+                    }
+                    portEXIT_CRITICAL(&core->lock);
+                }
+                /* Found a valid stream for this device, move to next device
+                 * Note: currently only support one stream per device */
+                break;
+            }
+        }
+    }
+
+    /* If all expected UVC devices are already detected, no need to wait */
+    if (detected_uvc_count >= core->uvc_video_num) {
+        ESP_LOGI(TAG, "All UVC devices already enumerated");
+    } else {
+        ESP_LOGI(TAG, "Waiting for UVC device to be enumerated...");
+        ESP_RETURN_ON_FALSE((xSemaphoreTake(device->ready_sem, UVC_INIT_TIMEOUT_MS / portTICK_PERIOD_MS) == pdPASS), ESP_ERR_NOT_FOUND,
+                            TAG, "Failed to take UVC device ready semaphore");
+    }
+
     ESP_GOTO_ON_FALSE(device->dev_addr, ESP_ERR_NOT_FOUND, fail0, TAG, "UVC device=%p is not connected", device);
 
-    // Garde défensive : libérer une éventuelle allocation résiduelle (hot-swap où
-    // la déconnexion précédente n'aurait pas libéré) avant d'en allouer une nouvelle.
+    // Garde défensive : libérer une allocation résiduelle (hot-swap) avant d'en refaire une.
     if (device->frame_info) {
         free(device->frame_info);
         device->frame_info = NULL;
@@ -270,46 +314,6 @@ static esp_err_t uvc_video_init(struct esp_video *video)
     }
 #endif
 
-    uvc_host_stream_config_t stream_config = {
-        .event_cb = uvc_event_callback,
-        .frame_cb = uvc_frame_callback,
-        .user_ctx = video,
-        .usb = {
-            .dev_addr = device->dev_addr,
-            .vid = UVC_HOST_ANY_VID,
-            .pid = UVC_HOST_ANY_PID,
-            .uvc_stream_index = device->stream_index,
-        },
-        .vs_format = {
-            .h_res = device->frame_info[0].h_res,
-            .v_res = device->frame_info[0].v_res,
-            .fps = 10 * 1000 * 1000 / device->frame_info[0].default_interval,
-            .format = device->frame_info[0].format,
-        },
-        .advanced = {
-            .number_of_frame_buffers = UVC_DEVICE_FRAME_COUNT,
-            .frame_size = 0,
-            .frame_heap_caps = FRAME_MEM_CAPS,
-            .number_of_urbs = UVC_DEVICE_URB_NUM,
-            .urb_size = UVC_DEVICE_URB_SIZE,
-        },
-    };
-
-    uvc_host_stream_hdl_t stream_hdl = NULL;
-    ESP_GOTO_ON_ERROR(uvc_host_stream_open(&stream_config, 0, &stream_hdl), fail1, TAG, "Failed to open UVC stream");
-
-    uvc_host_stream_format_t uvc_format;
-    uvc_host_buf_info_t uvc_buf_info;
-    ESP_GOTO_ON_ERROR(uvc_host_stream_format_get(stream_hdl, &uvc_format), fail2, TAG, "Failed to get UVC format");
-    ESP_GOTO_ON_ERROR(uvc_host_buf_info_get(stream_hdl, &uvc_buf_info), fail2, TAG, "Failed to get UVC buffer info");
-
-    uint32_t v4l2_format = uvc_to_v4l2_format(uvc_format.format);
-
-    CAPTURE_VIDEO_SET_FORMAT(video, uvc_format.h_res, uvc_format.v_res, v4l2_format);
-    CAPTURE_VIDEO_SET_BUF_INFO(video, uvc_buf_info.dwMaxVideoFrameSize, 4, FRAME_MEM_CAPS);
-
-    device->stream_hdl = stream_hdl;
-
     /*
      * Build a mapping table from UVC format index to V4L2 format index
      */
@@ -338,10 +342,24 @@ static esp_err_t uvc_video_init(struct esp_video *video)
         v4l2_fmt_index++;
     }
 
+    uint8_t bpp = 0;
+    uvc_host_frame_info_t *frame_info = &device->frame_info[0];
+
+    struct v4l2_format format = {
+        .type = V4L2_BUF_TYPE_VIDEO_CAPTURE,
+        .fmt.pix = {
+            .width = frame_info->h_res,
+            .height = frame_info->v_res,
+            .pixelformat = uvc_to_v4l2_format(frame_info->format, &bpp),
+        },
+    };
+    ESP_GOTO_ON_ERROR(esp_video_config_buffer(video, &format, FRAME_MEM_CAPS), fail1, TAG, "failed to configure stream buffer");
+
+    device->uvc_stream_format = frame_info->format;
+    device->interval = frame_info->default_interval;
+
     return ESP_OK;
 
-fail2:
-    uvc_host_stream_close(stream_hdl);
 fail1:
     free(device->frame_info);
     device->frame_info = NULL;
@@ -352,22 +370,93 @@ fail0:
 
 static esp_err_t uvc_video_start(struct esp_video *video, uint32_t type)
 {
+    esp_err_t ret = ESP_OK;
+    struct esp_video_buffer *buffer = CAPTURE_VIDEO_BUF(video);
+    struct esp_video_buffer_info *info = &buffer->info;
+    int buffer_count = info->count;
+    uint8_t *buffer_array[buffer_count];
     struct uvc_video *device = VIDEO_PRIV_DATA(struct uvc_video *, video);
 
     ESP_RETURN_ON_FALSE(device->dev_addr, ESP_ERR_NOT_FOUND, TAG, "UVC device=%p is not connected", device);
 
-    ESP_RETURN_ON_ERROR(uvc_host_stream_start(device->stream_hdl), TAG, "Failed to start UVC stream");
+    for (int i = 0; i < buffer_count; i++) {
+        buffer->element[i].priv_data = NULL;
+        buffer_array[i] = buffer->element[i].buffer;
+    }
+
+    uvc_host_stream_config_t stream_config = {
+        .event_cb = uvc_event_callback,
+        .frame_cb = uvc_frame_callback,
+        .user_ctx = video,
+        .usb = {
+            .dev_addr = device->dev_addr,
+            .vid = UVC_HOST_ANY_VID,
+            .pid = UVC_HOST_ANY_PID,
+            .uvc_stream_index = device->stream_index,
+        },
+        .vs_format = {
+            .h_res = device->frame_info[0].h_res,
+            .v_res = device->frame_info[0].v_res,
+            .fps = (float)UVC_INTERVAL_DENOMINATOR / (float)device->frame_info[0].default_interval,
+            .format = device->frame_info[0].format,
+        },
+        .advanced = {
+            .number_of_frame_buffers = info->count,
+            .frame_size = info->size,
+            .frame_heap_caps = info->caps,
+            .number_of_urbs = buffer_count,
+            .user_frame_buffers = buffer_array,
+            .urb_size = UVC_DEVICE_URB_SIZE,
+        },
+    };
+
+    device->stream_hdl = NULL;
+    ESP_GOTO_ON_ERROR(uvc_host_stream_open(&stream_config, 0, &device->stream_hdl), fail0, TAG, "Failed to open UVC stream");
+
+    uvc_host_stream_format_t uvc_format = {
+        .h_res = CAPTURE_VIDEO_GET_FORMAT_WIDTH(video),
+        .v_res = CAPTURE_VIDEO_GET_FORMAT_HEIGHT(video),
+        .fps = (float)UVC_INTERVAL_DENOMINATOR / (float)device->interval,
+        .format = device->uvc_stream_format,
+    };
+    ESP_GOTO_ON_ERROR(uvc_host_stream_format_select(device->stream_hdl, &uvc_format), fail1, TAG, "Failed to set UVC format");
+    ESP_GOTO_ON_ERROR(uvc_host_stream_start(device->stream_hdl), fail1, TAG, "Failed to start UVC stream");
 
     return ESP_OK;
+
+fail1:
+    uvc_host_stream_close(device->stream_hdl);
+    device->stream_hdl = NULL;
+fail0:
+    return ret;
 }
 
 static esp_err_t uvc_video_stop(struct esp_video *video, uint32_t type)
 {
+    struct esp_video_buffer_element *element;
     struct uvc_video *device = VIDEO_PRIV_DATA(struct uvc_video *, video);
+    struct esp_video_buffer *buffer = CAPTURE_VIDEO_BUF(video);
+    int buffer_count = CAPTURE_VIDEO_BUF_COUNT(video);
 
     ESP_RETURN_ON_FALSE(device->dev_addr, ESP_ERR_NOT_FOUND, TAG, "UVC device=%p is not connected", device);
 
     ESP_RETURN_ON_ERROR(uvc_host_stream_stop(device->stream_hdl), TAG, "Failed to stop UVC stream");
+
+    /**
+     * Free all cached frames to avoid UVC stream stop failed
+     */
+    while ((element = esp_video_get_done_element(video, V4L2_BUF_TYPE_VIDEO_CAPTURE)) != NULL) {
+        uvc_host_frame_return(device->stream_hdl, (uvc_host_frame_t *)element->priv_data);
+    }
+
+    ESP_RETURN_ON_ERROR(uvc_host_stream_close(device->stream_hdl), TAG, "Failed to close UVC stream");
+
+    /**
+     * Clear the private data of the buffer elements, so will not be passed to the UVC stream in the function uvc_video_notify.
+     */
+    for (int i = 0; i < buffer_count; i++) {
+        buffer->element[i].priv_data = NULL;
+    }
 
     return ESP_OK;
 }
@@ -377,9 +466,6 @@ static esp_err_t uvc_video_deinit(struct esp_video *video)
     struct uvc_video *device = VIDEO_PRIV_DATA(struct uvc_video *, video);
 
     ESP_RETURN_ON_FALSE(device->dev_addr, ESP_ERR_NOT_FOUND, TAG, "UVC device=%p is not connected", device);
-
-    ESP_RETURN_ON_ERROR(uvc_host_stream_close(device->stream_hdl), TAG, "Failed to close UVC stream");
-    device->stream_hdl = NULL;
 
     free(device->frame_info);
     device->frame_info = NULL;
@@ -403,7 +489,7 @@ static esp_err_t uvc_video_enum_format(struct esp_video *video, uint32_t type, u
 
     for (int i = 0; i < device->frame_info_num; i++) {
         if (device->frame_info_fmt_index[i] == index) {
-            *pixel_format = uvc_to_v4l2_format(device->frame_info[i].format);
+            *pixel_format = uvc_to_v4l2_format(device->frame_info[i].format, NULL);
             ret = ESP_OK;
             break;
         }
@@ -423,35 +509,44 @@ static esp_err_t uvc_video_set_format(struct esp_video *video, const struct v4l2
 
     uint32_t width = GET_FORMAT_WIDTH(format);
     uint32_t height = GET_FORMAT_HEIGHT(format);
-    float fps = 0;
+    uint32_t interval = 0;
+    bool found = false;
     for (int i = 0; i < device->frame_info_num; i++) {
         if (device->frame_info[i].format == uvc_stream_format) {
             if (device->frame_info[i].h_res == width && device->frame_info[i].v_res == height) {
-                fps = (double)UVC_INTERVAL_DENOMINATOR / (double)device->frame_info[i].default_interval;
+                interval = device->frame_info[i].default_interval;
+                found = true;
                 break;
             }
         }
     }
 
-    uvc_host_stream_format_t f = {
-        .h_res = GET_FORMAT_WIDTH(format),
-        .v_res = GET_FORMAT_HEIGHT(format),
-        .fps = fps,
-        .format = uvc_stream_format,
-    };
-    ESP_RETURN_ON_ERROR(uvc_host_stream_format_select(device->stream_hdl, &f), TAG, "Failed to set UVC format");
+    if (!found) {
+        return ESP_ERR_INVALID_ARG;
+    }
 
-    uvc_host_buf_info_t uvc_buf_info;
-    ESP_RETURN_ON_ERROR(uvc_host_buf_info_get(device->stream_hdl, &uvc_buf_info), TAG, "Failed to get UVC buffer info");
+    ESP_RETURN_ON_ERROR(esp_video_config_buffer(video, format, FRAME_MEM_CAPS), TAG, "failed to configure stream buffer");
 
-    CAPTURE_VIDEO_SET_FORMAT(video, f.h_res, f.v_res, GET_FORMAT_PIXEL_FORMAT(format));
-    CAPTURE_VIDEO_SET_BUF_INFO(video, uvc_buf_info.dwMaxVideoFrameSize, 4, FRAME_MEM_CAPS);
+    device->uvc_stream_format = uvc_stream_format;
+    device->interval = interval;
 
     return ESP_OK;
 }
 
 static esp_err_t uvc_video_notify(struct esp_video *video, enum esp_video_event event, void *arg)
 {
+    struct uvc_video *device = VIDEO_PRIV_DATA(struct uvc_video *, video);
+
+    if (event == ESP_VIDEO_BUFFER_VALID) {
+        struct esp_video_buffer_element *element = CAPTURE_VIDEO_GET_QUEUED_ELEMENT(video);
+        if (element) {
+            uvc_host_frame_t *frame = (uvc_host_frame_t *)element->priv_data;
+            if (frame) {
+                ESP_RETURN_ON_ERROR(uvc_host_frame_return(device->stream_hdl, frame), TAG, "Failed to return UVC frame");
+            }
+        }
+    }
+
     return ESP_OK;
 }
 
@@ -459,36 +554,57 @@ static esp_err_t uvc_video_set_parm(struct esp_video *video, struct v4l2_streamp
 {
     struct uvc_video *device = VIDEO_PRIV_DATA(struct uvc_video *, video);
     struct v4l2_fract *time_per_frame = &stream_parm->parm.capture.timeperframe;
-    float fps = (float)time_per_frame->denominator / (float)time_per_frame->numerator;
 
     ESP_RETURN_ON_FALSE(time_per_frame->numerator > 0 && time_per_frame->denominator > 0, ESP_ERR_INVALID_ARG, TAG, "Invalid time per frame");
     ESP_RETURN_ON_FALSE(device->dev_addr, ESP_ERR_NOT_FOUND, TAG, "UVC device=%p is not connected", device);
 
-    uvc_host_stream_format_t f = {
-        .h_res = 0,  // 0 means do not change resolution
-        .v_res = 0,
-        .fps = fps,
-        .format = 0, // 0 means do not change format
-    };
+    bool found = false;
+    uint32_t width = CAPTURE_VIDEO_GET_FORMAT_WIDTH(video);
+    uint32_t height = CAPTURE_VIDEO_GET_FORMAT_HEIGHT(video);
+    uint32_t interval = (float)UVC_INTERVAL_DENOMINATOR / (float)time_per_frame->denominator * time_per_frame->numerator;
 
-    ESP_RETURN_ON_ERROR(uvc_host_stream_format_select(device->stream_hdl, &f), TAG, "Failed to set UVC format");
+    for (int i = 0; i < device->frame_info_num; i++) {
+        uvc_host_frame_info_t *frame_info = &device->frame_info[i];
+
+        if ((frame_info->format == device->uvc_stream_format) &&
+                (frame_info->h_res == width) &&
+                (frame_info->v_res == height)) {
+            if (!frame_info->interval_type) {
+                if (interval <= frame_info->interval_max && interval >= frame_info->interval_min) {
+                    if (!((interval - frame_info->interval_min) % frame_info->interval_step)) {
+                        found = true;
+                        break;
+                    }
+                }
+            } else {
+                for (int j = 0; j < frame_info->interval_type; j++) {
+                    if (interval == frame_info->interval[j]) {
+                        found = true;
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    if (!found) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    device->interval = interval;
 
     return ESP_OK;
 }
 
 static esp_err_t uvc_video_get_parm(struct esp_video *video, struct v4l2_streamparm *stream_parm, struct esp_video_stream *stream)
 {
-    uvc_host_stream_format_t uvc_format;
     struct uvc_video *device = VIDEO_PRIV_DATA(struct uvc_video *, video);
     struct v4l2_fract *time_per_frame = &stream_parm->parm.capture.timeperframe;
 
     ESP_RETURN_ON_FALSE(device->dev_addr, ESP_ERR_NOT_FOUND, TAG, "UVC device=%p is not connected", device);
 
-    ESP_RETURN_ON_ERROR(uvc_host_stream_format_get(device->stream_hdl, &uvc_format), TAG, "Failed to get UVC format");
-    ESP_RETURN_ON_FALSE(uvc_format.fps > 0.0, ESP_ERR_INVALID_ARG, TAG, "Invalid FPS");
-
-    time_per_frame->numerator   = UVC_INTERVAL_DENOMINATOR;
-    time_per_frame->denominator = UVC_INTERVAL_DENOMINATOR * uvc_format.fps;
+    time_per_frame->numerator   = device->interval;
+    time_per_frame->denominator = UVC_INTERVAL_DENOMINATOR;
 
     return ESP_OK;
 }
@@ -666,5 +782,3 @@ esp_err_t esp_video_uninstall_usb_uvc_driver(void)
 
     return uvc_host_uninstall();
 }
-
-#endif /* CONFIG_ESP_VIDEO_ENABLE_USB_UVC_VIDEO_DEVICE */

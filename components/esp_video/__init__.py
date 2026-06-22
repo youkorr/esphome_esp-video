@@ -157,12 +157,18 @@ async def to_code(config):
     cg.add(var.set_enable_uvc(config[CONF_ENABLE_UVC]))
     cg.add(var.set_manage_usb_host(config[CONF_MANAGE_USB_HOST]))
 
+    # MIGRATION esp_video 2.2.0: le CMakeLists upstream utilise
+    # idf_component_optional_requires(), une macro fournie par le composant managé
+    # `espressif/cmake_utilities`. Sans lui, la configuration CMake d'esp_video échoue.
+    esp32.add_idf_component(name="espressif/cmake_utilities", ref="0.*")
+
     # USB-UVC host: pull Espressif's USB Host UVC driver (native 2.x API, P4
     # support) which also provides the esp_private/uvc_esp_video.h glue the
     # esp_video UVC device driver builds against. Only when enabled, so MIPI-only
     # builds don't grow the USB host stack.
+    # esp_video 2.2.0 requires usb_host_uvc 2.5.* (bumped from 2.4.1).
     if config[CONF_ENABLE_UVC]:
-        esp32.add_idf_component(name="espressif/usb_host_uvc", ref="2.4.1")
+        esp32.add_idf_component(name="espressif/usb_host_uvc", ref="2.5.0")
 
     # Logs silencieux sauf erreurs
     logging.debug(f"[ESP-Video] I2C bus: '{config[CONF_I2C_ID]}'")

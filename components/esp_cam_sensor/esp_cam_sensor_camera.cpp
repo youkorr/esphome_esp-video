@@ -1571,8 +1571,11 @@ bool MipiDSICamComponent::start_streaming_uvc_() {
       chosen = V4L2_PIX_FMT_YUYV;  // préféré
       break;
     }
-    if (fmtdesc.pixelformat == V4L2_PIX_FMT_MJPEG && chosen == 0) {
-      chosen = V4L2_PIX_FMT_MJPEG;  // repli, on continue de chercher YUYV
+    // esp_video 2.2.0 expose le MJPEG des caméras UVC en V4L2_PIX_FMT_JPEG
+    // (les versions antérieures utilisaient V4L2_PIX_FMT_MJPEG) — on accepte les deux.
+    if ((fmtdesc.pixelformat == V4L2_PIX_FMT_MJPEG || fmtdesc.pixelformat == V4L2_PIX_FMT_JPEG) &&
+        chosen == 0) {
+      chosen = fmtdesc.pixelformat;  // repli, on continue de chercher YUYV
     }
   }
   if (chosen == 0) {
@@ -1581,7 +1584,7 @@ bool MipiDSICamComponent::start_streaming_uvc_() {
     return false;
   }
 #if !UVC_HW_JPEG_DECODE
-  if (chosen == V4L2_PIX_FMT_MJPEG) {
+  if (chosen == V4L2_PIX_FMT_MJPEG || chosen == V4L2_PIX_FMT_JPEG) {
     ESP_LOGE(TAG, "UVC: la caméra ne fournit que du MJPEG mais le décodage matériel est désactivé");
     ESP_LOGE(TAG, "UVC: ajoutez -DUVC_ENABLE_MJPEG_DECODE dans build_flags, ou utilisez une caméra YUYV");
     cleanup();
@@ -1786,7 +1789,8 @@ bool MipiDSICamComponent::convert_uvc_frame_(const uint8_t *src, size_t src_len,
   }
 
 #if UVC_HW_JPEG_DECODE
-  if (this->uvc_capture_fourcc_ == V4L2_PIX_FMT_MJPEG) {
+  if (this->uvc_capture_fourcc_ == V4L2_PIX_FMT_MJPEG ||
+      this->uvc_capture_fourcc_ == V4L2_PIX_FMT_JPEG) {
     // Décodage MJPEG → RGB565 via le moteur JPEG matériel de l'ESP32-P4.
     // Opt-in / expérimental : selon la version d'ESP-IDF, le buffer de sortie
     // peut nécessiter un alignement particulier (jpeg_alloc_decoder_mem).

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2024 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2024-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: ESPRESSIF MIT
  */
@@ -27,7 +27,6 @@
 #include "esp_video_isp_ioctl.h"
 #include "esp_video_device_internal.h"
 #include "esp_ipa.h"
-#include "esp_ipa_json_loader.h"
 #include "esp_cam_sensor.h"
 
 #define ISP_METADATA_BUFFER_COUNT   2
@@ -142,8 +141,6 @@ static void print_stats_info(const esp_ipa_stats_t *stats)
         ESP_LOGD(TAG, "Sharpen high frequency pixel maximum value: %d", stats->sharpen_stats.value);
     }
 
-    // AF (Auto Focus) not available in current esp_ipa API version
-    #if 0
     if (stats->flags & IPA_STATS_FLAGS_AF) {
         const esp_ipa_stats_af_t *af_stats = stats->af_stats;
 
@@ -153,7 +150,6 @@ static void print_stats_info(const esp_ipa_stats_t *stats)
             ESP_LOGD(TAG, "  luminance[%2d]:  %"PRIu32, i, af_stats[i].luminance);
         }
     }
-    #endif
 
     ESP_LOGD(TAG, "");
 #endif
@@ -340,21 +336,39 @@ static void config_sharpen(esp_video_isp_t *isp, esp_ipa_metadata_t *metadata)
 
 static void config_gamma(esp_video_isp_t *isp, esp_ipa_metadata_t *metadata)
 {
-    struct v4l2_ext_controls controls;
-    struct v4l2_ext_control control[1];
-    esp_video_isp_gamma_t gamma;
-
     if (metadata->flags & IPA_METADATA_FLAGS_GAMMA) {
+        struct v4l2_ext_controls controls;
+        struct v4l2_ext_control control[1];
+        esp_video_isp_gamma_ext_t gamma = {0};
+        esp_ipa_gamma_t *ipa_gamma = &metadata->gamma;
+
         gamma.enable = true;
-        for (int i = 0; i < ISP_GAMMA_CURVE_POINTS_NUM; i++) {
-            gamma.points[i].x = metadata->gamma.x[i];
-            gamma.points[i].y = metadata->gamma.y[i];
+        if (ipa_gamma->flags & IPA_GAMMA_FLAGS_RED) {
+            for (int i = 0; i < ISP_GAMMA_CURVE_POINTS_NUM; i++) {
+                gamma.red_points[i].x = ipa_gamma->red.x[i];
+                gamma.red_points[i].y = ipa_gamma->red.y[i];
+            }
+            gamma.flags |= ESP_VIDEO_ISP_GAMMA_EXT_FLAG_RED;
+        }
+        if (ipa_gamma->flags & IPA_GAMMA_FLAGS_GREEN) {
+            for (int i = 0; i < ISP_GAMMA_CURVE_POINTS_NUM; i++) {
+                gamma.green_points[i].x = ipa_gamma->green.x[i];
+                gamma.green_points[i].y = ipa_gamma->green.y[i];
+            }
+            gamma.flags |= ESP_VIDEO_ISP_GAMMA_EXT_FLAG_GREEN;
+        }
+        if (ipa_gamma->flags & IPA_GAMMA_FLAGS_BLUE) {
+            for (int i = 0; i < ISP_GAMMA_CURVE_POINTS_NUM; i++) {
+                gamma.blue_points[i].x = ipa_gamma->blue.x[i];
+                gamma.blue_points[i].y = ipa_gamma->blue.y[i];
+            }
+            gamma.flags |= ESP_VIDEO_ISP_GAMMA_EXT_FLAG_BLUE;
         }
 
         controls.ctrl_class = V4L2_CID_USER_CLASS;
         controls.count      = 1;
         controls.controls   = control;
-        control[0].id       = V4L2_CID_USER_ESP_ISP_GAMMA;
+        control[0].id       = V4L2_CID_USER_ESP_ISP_GAMMA_EXT;
         control[0].p_u8     = (uint8_t *)&gamma;
         if (ioctl(isp->isp_fd, VIDIOC_S_EXT_CTRLS, &controls) != 0) {
             ESP_LOGE(TAG, "failed to set GAMMA");
@@ -443,6 +457,18 @@ static void config_exposure_and_gain(esp_video_isp_t *isp, esp_ipa_metadata_t *m
     int32_t gain_index = -1;
     struct v4l2_ext_controls controls;
     struct v4l2_ext_control control[1];
+
+    /**
+     * If the gain or exposure is not supported by the sensor, clear the flag bit of the metadata
+     */
+    if (!isp->sensor_attr.gain && (metadata->flags & IPA_METADATA_FLAGS_GN)) {
+        ESP_LOGW(TAG, "IPA requested gain control but sensor doesn't support it, clearing flag");
+        metadata->flags &= ~IPA_METADATA_FLAGS_GN;
+    }
+    if (!isp->sensor_attr.exposure && (metadata->flags & IPA_METADATA_FLAGS_ET)) {
+        ESP_LOGW(TAG, "IPA requested exposure control but sensor doesn't support it, clearing flag");
+        metadata->flags &= ~IPA_METADATA_FLAGS_ET;
+    }
 
     if (metadata->flags & IPA_METADATA_FLAGS_GN) {
         int ret;
@@ -605,8 +631,7 @@ static void config_exposure_and_gain(esp_video_isp_t *isp, esp_ipa_metadata_t *m
             isp->prev_gain_index = gain_index;
         }
     } else {
-        if ((metadata->flags & IPA_METADATA_FLAGS_ET) &&
-                isp->sensor_attr.exposure) {
+        if (metadata->flags & IPA_METADATA_FLAGS_ET) {
             controls.ctrl_class = V4L2_CID_CAMERA_CLASS;
             controls.count      = 1;
             controls.controls   = control;
@@ -620,8 +645,7 @@ static void config_exposure_and_gain(esp_video_isp_t *isp, esp_ipa_metadata_t *m
             }
         }
 
-        if ((metadata->flags & IPA_METADATA_FLAGS_GN) &&
-                isp->sensor_attr.gain) {
+        if (metadata->flags & IPA_METADATA_FLAGS_GN) {
             controls.ctrl_class = V4L2_CID_USER_CLASS;
             controls.count      = 1;
             controls.controls   = control;
@@ -664,8 +688,6 @@ static void config_lsc(esp_video_isp_t *isp, esp_ipa_metadata_t *metadata)
 }
 #endif
 
-// AE target level not available in current esp_ipa API version
-#if 0
 static void config_sensor_ae_target_level(esp_video_isp_t *isp, esp_ipa_metadata_t *metadata)
 {
     struct v4l2_ext_controls controls;
@@ -685,10 +707,7 @@ static void config_sensor_ae_target_level(esp_video_isp_t *isp, esp_ipa_metadata
         }
     }
 }
-#endif
 
-// AWB, SR, AF config functions not available in current esp_ipa API version
-#if 0
 static void config_awb(esp_video_isp_t *isp, esp_ipa_metadata_t *metadata)
 {
     struct v4l2_ext_controls controls;
@@ -758,7 +777,6 @@ static void config_af(esp_video_isp_t *isp, esp_ipa_metadata_t *metadata)
         }
     }
 }
-#endif
 
 #if CONFIG_ESP_VIDEO_ISP_PIPELINE_CONTROL_CAMERA_MOTOR
 static void config_motor_position(esp_video_isp_t *isp, esp_ipa_metadata_t *metadata)
@@ -796,9 +814,37 @@ static void config_motor_position(esp_video_isp_t *isp, esp_ipa_metadata_t *meta
 }
 #endif
 
+#if ESP_VIDEO_ISP_DEVICE_BLC
+static void config_blc(esp_video_isp_t *isp, esp_ipa_metadata_t *metadata)
+{
+    if (metadata->flags & IPA_METADATA_FLAGS_BLC) {
+        struct v4l2_ext_controls controls;
+        struct v4l2_ext_control control[1];
+        esp_video_isp_blc_t blc;
+        esp_ipa_blc_t *ipa_blc = &metadata->blc;
+
+        blc.enable = true;
+        blc.stretch_enable = ipa_blc->stretch;
+        blc.top_left_offset = ipa_blc->top_left_chan_offset;
+        blc.top_right_offset = ipa_blc->top_right_chan_offset;
+        blc.bottom_left_offset = ipa_blc->bottom_left_chan_offset;
+        blc.bottom_right_offset = ipa_blc->bottom_right_chan_offset;
+
+        controls.ctrl_class = V4L2_CID_USER_CLASS;
+        controls.count      = 1;
+        controls.controls   = control;
+        control[0].id       = V4L2_CID_USER_ESP_ISP_BLC;
+        control[0].p_u8     = (uint8_t *)&blc;
+        if (ioctl(isp->isp_fd, VIDIOC_S_EXT_CTRLS, &controls) != 0) {
+            ESP_LOGE(TAG, "failed to set BLC");
+        }
+    }
+}
+#endif
+
 static void config_isp_and_camera(esp_video_isp_t *isp, esp_ipa_metadata_t *metadata)
 {
-    // config_statistics_region(isp, metadata);  // Disabled - not available in current API
+    config_statistics_region(isp, metadata);
 
     if (!isp->sensor_attr.awb) {
         config_white_balance(isp, metadata);
@@ -813,10 +859,12 @@ static void config_isp_and_camera(esp_video_isp_t *isp, esp_ipa_metadata_t *meta
 #if ESP_VIDEO_ISP_DEVICE_LSC
     config_lsc(isp, metadata);
 #endif
-    // config_awb(isp, metadata);  // Disabled - not available in current API
-    // config_af(isp, metadata);  // Disabled - not available in current API
-
-    // config_sensor_ae_target_level(isp, metadata);  // Disabled - not available in current API
+    config_awb(isp, metadata);
+    config_af(isp, metadata);
+#if ESP_VIDEO_ISP_DEVICE_BLC
+    config_blc(isp, metadata);
+#endif
+    config_sensor_ae_target_level(isp, metadata);
     config_exposure_and_gain(isp, metadata);
 #if CONFIG_ESP_VIDEO_ISP_PIPELINE_CONTROL_CAMERA_MOTOR
     config_motor_position(isp, metadata);
@@ -849,6 +897,21 @@ static void isp_stats_to_ipa_stats(esp_video_isp_stats_t *isp_stat, esp_ipa_stat
         ipa_awb->sum_g = isp_awb->sum_g;
         ipa_awb->sum_b = isp_awb->sum_b;
         ipa_stats->flags |= IPA_STATS_FLAGS_AWB;
+#if ESP_VIDEO_ISP_DEVICE_AWB_SUBWIN
+        if (isp_stat->flags & ESP_VIDEO_ISP_STATS_FLAG_AWB_SUBWIN) {
+            const isp_awb_subwin_stat_result_t *sw = &isp_awb->subwin_result;
+            for (int xi = 0; xi < ISP_AWB_SUBWIN_X_NUM; xi++) {
+                for (int yj = 0; yj < ISP_AWB_SUBWIN_Y_NUM; yj++) {
+                    esp_ipa_stats_awb_t *cell = &ipa_stats->awb_subwin[xi][yj];
+                    cell->counted = sw->white_patch_num[xi][yj];
+                    cell->sum_r   = sw->sum_r[xi][yj];
+                    cell->sum_g   = sw->sum_g[xi][yj];
+                    cell->sum_b   = sw->sum_b[xi][yj];
+                }
+            }
+            ipa_stats->flags |= IPA_STATS_FLAGS_AWB_SUBWIN;
+        }
+#endif
     }
 
     if (isp_stat->flags & ESP_VIDEO_ISP_STATS_FLAG_HIST) {
@@ -869,8 +932,6 @@ static void isp_stats_to_ipa_stats(esp_video_isp_stats_t *isp_stat, esp_ipa_stat
         ipa_stats->flags |= IPA_STATS_FLAGS_SHARPEN;
     }
 
-    // AF stats not available in current esp_ipa API version
-    #if 0
     if (isp_stat->flags & ESP_VIDEO_ISP_STATS_FLAG_AF) {
         esp_ipa_stats_af_t *ipa_af = ipa_stats->af_stats;
         isp_af_result_t *isp_af = &isp_stat->af.af_result;
@@ -881,7 +942,6 @@ static void isp_stats_to_ipa_stats(esp_video_isp_stats_t *isp_stat, esp_ipa_stat
         }
         ipa_stats->flags |= IPA_STATS_FLAGS_AF;
     }
-    #endif
 }
 
 static void get_sensor_state(esp_video_isp_t *isp, int index)
@@ -891,6 +951,9 @@ static void get_sensor_state(esp_video_isp_t *isp, int index)
 
     if (isp->sensor_attr.awb) {
         isp->isp_stats[index]->flags &= ~ESP_VIDEO_ISP_STATS_FLAG_AWB;
+#if ESP_VIDEO_ISP_DEVICE_AWB_SUBWIN
+        isp->isp_stats[index]->flags &= ~ESP_VIDEO_ISP_STATS_FLAG_AWB_SUBWIN;
+#endif
     }
 
     memset(&format, 0, sizeof(struct v4l2_format));
@@ -927,6 +990,9 @@ static void get_sensor_state(esp_video_isp_t *isp, int index)
                     isp_awb_stat_result_t *awb = &isp->isp_stats[index]->awb.awb_result;
 
                     isp->isp_stats[index]->flags |= ESP_VIDEO_ISP_STATS_FLAG_AWB;
+#if ESP_VIDEO_ISP_DEVICE_AWB_SUBWIN
+                    isp->isp_stats[index]->flags &= ~ESP_VIDEO_ISP_STATS_FLAG_AWB_SUBWIN;
+#endif
                     awb->white_patch_num = 1;
                     awb->sum_r = sensor_stats.wb_avg.red_avg;
                     awb->sum_g = sensor_stats.wb_avg.green_avg;
@@ -1041,16 +1107,17 @@ static esp_err_t init_cam_dev(const esp_video_isp_config_t *config, esp_video_is
         ESP_LOGD(TAG, "  max:     %0.4f", isp->sensor.max_gain);
         ESP_LOGD(TAG, "  step:    %0.4f", isp->sensor.step_gain);
         ESP_LOGD(TAG, "  current: %0.4f", isp->sensor.cur_gain);
-
-        // WORKAROUND SC202CS: Limiter le gain max à 16x
-        // Le sensor retourne parfois des valeurs énormes (63x) qui causent saturation/bruit
-        // Limiter à 16x pour meilleur rapport signal/bruit
-        if (isp->sensor.max_gain > 16.0f) {
-            ESP_LOGW(TAG, " Limiting max_gain from %0.4f to 16.0 (SC202CS optimal)", isp->sensor.max_gain);
-            isp->sensor.max_gain = 16.0f;
-        }
     } else {
         ESP_LOGD(TAG, "V4L2_CID_GAIN is not supported");
+
+        /**
+         * If the gain is not supported by the sensor, set the default value to 1.0 for esp_ipa
+         */
+
+        isp->sensor.cur_gain = 1.0;
+        isp->sensor.min_gain = 1.0;
+        isp->sensor.max_gain = 1.0;
+        isp->sensor_attr.gain = 0;
     }
 
     qctrl.id = V4L2_CID_EXPOSURE;
@@ -1086,6 +1153,15 @@ static esp_err_t init_cam_dev(const esp_video_isp_config_t *config, esp_video_is
         ESP_LOGD(TAG, "  current: %"PRIi32, control[0].value);
     } else {
         ESP_LOGD(TAG, "V4L2_CID_EXPOSURE is not supported");
+
+        /**
+         * If the exposure is not supported by the sensor, set the default value to 1 for esp_ipa
+         */
+
+        isp->sensor.cur_exposure = 1;
+        isp->sensor.min_exposure = 1;
+        isp->sensor.max_exposure = 1;
+        isp->sensor_attr.exposure = 0;
     }
 
     qctrl.id = V4L2_CID_CAMERA_STATS;
@@ -1132,13 +1208,10 @@ static esp_err_t init_cam_dev(const esp_video_isp_config_t *config, esp_video_is
         ret = ioctl(fd, VIDIOC_G_EXT_CTRLS, &controls);
         ESP_GOTO_ON_FALSE(ret == 0, ESP_ERR_NOT_SUPPORTED, fail_0, TAG, "failed to get AE target level");
 
-        // AE target level fields not available in current esp_ipa_sensor_t
-        #if 0
         isp->sensor.min_ae_target_level = qctrl.minimum;
         isp->sensor.max_ae_target_level = qctrl.maximum;
         isp->sensor.step_ae_target_level = qctrl.step;
         isp->sensor.cur_ae_target_level = control[0].value;
-        #endif
 
         ESP_LOGD(TAG, "AE target level:");
         ESP_LOGD(TAG, "  min:     %"PRIi64, qctrl.minimum);
@@ -1254,11 +1327,8 @@ static esp_err_t init_isp_dev(const esp_video_isp_config_t *config, esp_video_is
         ESP_GOTO_ON_FALSE(ret == 0, ESP_FAIL, fail_0, TAG, "failed to queue buffer");
     }
 
-    // NOTE: Pour ESPHome/PlatformIO, le streaming est contrôlé manuellement par l'utilisateur
-    // Ne pas démarrer automatiquement le streaming ici - l'utilisateur appellera VIDIOC_STREAMON quand nécessaire
-    // ret = ioctl(fd, VIDIOC_STREAMON, &type);
-    // ESP_GOTO_ON_FALSE(ret == 0, ESP_FAIL, fail_0, TAG, "failed to start stream");
-    ESP_LOGI(TAG, "ISP metadata buffers initialized - streaming controlled by user");
+    ret = ioctl(fd, VIDIOC_STREAMON, &type);
+    ESP_GOTO_ON_FALSE(ret == 0, ESP_FAIL, fail_0, TAG, "failed to start stream");
 
     isp->isp_fd = fd;
 
@@ -1297,16 +1367,8 @@ esp_err_t esp_video_isp_pipeline_init(const esp_video_isp_config_t *config)
     isp = calloc(1, sizeof(esp_video_isp_t));
     ESP_RETURN_ON_FALSE(isp, ESP_ERR_NO_MEM, TAG, "failed to malloc isp");
 
-    // Enable IPA debug logging to verify algorithm loading
-    esp_ipa_pipeline_set_log(true);
-
-    // Create IPA pipeline from config
-    ESP_GOTO_ON_ERROR(esp_ipa_pipeline_create(config->ipa_config->ipa_nums, config->ipa_config->ipa_names, &isp->ipa_pipeline),
+    ESP_GOTO_ON_ERROR(esp_ipa_pipeline_create(config->ipa_config, &isp->ipa_pipeline),
                       fail_0, TAG, "failed to create IPA pipeline");
-
-    // Print loaded IPA algorithms for verification
-    ESP_LOGW(TAG, "IPA Pipeline created - verifying loaded algorithms:");
-    esp_ipa_pipeline_print(isp->ipa_pipeline);
 
     ESP_GOTO_ON_ERROR(init_cam_dev(config, isp), fail_1, TAG, "failed to initialize camera device");
     ESP_GOTO_ON_ERROR(init_isp_dev(config, isp), fail_2, TAG, "failed to initialize ISP device");
@@ -1314,28 +1376,7 @@ esp_err_t esp_video_isp_pipeline_init(const esp_video_isp_config_t *config)
     metadata.flags = 0;
     ESP_GOTO_ON_ERROR(esp_ipa_pipeline_init(isp->ipa_pipeline, &isp->sensor, &metadata),
                       fail_3, TAG, "failed to initialize IPA pipeline");
-    ESP_LOGI(TAG, "IPA Pipeline initialized successfully");
     config_isp_and_camera(isp, &metadata);
-
-    // Load and apply JSON IPA configuration if sensor name is provided
-    if (config->sensor_name) {
-        ESP_LOGI(TAG, "Loading JSON IPA configuration for sensor '%s'...", config->sensor_name);
-        esp_ipa_json_config_t ipa_json_config = {0};
-
-        if (esp_ipa_load_json_config(config->sensor_name, &ipa_json_config) == ESP_OK) {
-            ESP_LOGI(TAG, "  JSON IPA config loaded successfully, applying to ISP...");
-
-            // Use the already-opened ISP file descriptor
-            if (esp_ipa_apply_json_to_isp(isp->isp_fd, &ipa_json_config) == ESP_OK) {
-                ESP_LOGI(TAG, "  JSON IPA configuration applied successfully!");
-                ESP_LOGI(TAG, "     Color correction and image quality improvements are now active");
-            } else {
-                ESP_LOGW(TAG, "  Failed to apply JSON IPA configuration to ISP");
-            }
-        } else {
-            ESP_LOGD(TAG, "  No JSON IPA config for '%s' (normal for non-OV02C10/OV5647/SC2336 sensors)", config->sensor_name);
-        }
-    }
 
     /**
      * If CONFIG_ISP_PIPELINE_CONTROLLER_TASK_STACK_USE_PSRAM is enabled, the ISP controller task stack
@@ -1398,15 +1439,8 @@ esp_err_t esp_video_isp_pipeline_deinit(void)
 
     ESP_RETURN_ON_FALSE(s_esp_video_isp, ESP_FAIL, TAG, "ISP controller is not initialized");
 
-    // Best-effort STREAMOFF: some integrations keep streaming user-controlled
-    // and never call STREAMON on the META device, so STREAMOFF here returns
-    // an error. Log and continue so the task is deleted, fds are closed and
-    // s_esp_video_isp is cleared - otherwise a subsequent re-init leaks the
-    // old pipeline.
     ret = ioctl(isp->isp_fd, VIDIOC_STREAMOFF, &type);
-    if (ret != 0) {
-        ESP_LOGW(TAG, "VIDIOC_STREAMOFF returned %d during deinit (META stream may not be active) - continuing", errno);
-    }
+    ESP_RETURN_ON_FALSE(ret == 0, ESP_FAIL, TAG, "failed to stop stream");
     vTaskDelay(ISP_METADATA_BUFFER_COUNT * 50 / portTICK_PERIOD_MS);
 
     vTaskDelete(isp->task_handler);

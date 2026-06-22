@@ -24,6 +24,7 @@ extern "C" {
 #define STREAM_PARAM(s)                     (&(s)->param)
 
 #define STREAM_BUFFER_SIZE(s)               (STREAM_BUF_INFO(s)->size)
+#define STREAM_BUFFER_COUNT(s)              (STREAM_BUF_INFO(s)->count)
 
 #define SET_BUF_INFO(bi, s, a, c)           \
 {                                           \
@@ -56,6 +57,12 @@ extern "C" {
 #define GET_FORMAT_PIXEL_FORMAT(_fmt)                                   \
     ((_fmt)->fmt.pix.pixelformat)
 
+#define GET_RECT_WIDTH(_rect)                                           \
+    ((_rect)->width)
+
+#define GET_RECT_HEIGHT(_rect)                                          \
+    ((_rect)->height)
+
 #define SET_STREAM_BUF_INFO(st, s, a, c)                                \
     SET_BUF_INFO(STREAM_BUF_INFO(st), s, a, c)
 
@@ -77,10 +84,18 @@ extern "C" {
 #define GET_STREAM_FORMAT_PIXEL_FORMAT(st)                              \
     GET_FORMAT_PIXEL_FORMAT(STREAM_FORMAT(st))
 
+#define GET_STREAM_RECT_WIDTH(st)                                     \
+    GET_RECT_WIDTH(STREAM_RECT(st))
+
+#define GET_STREAM_RECT_HEIGHT(st)                                    \
+    GET_RECT_HEIGHT(STREAM_RECT(st))
+
 /* video capture operations */
 
 #define CAPTURE_VIDEO_STREAM(v)             ((v)->stream)
 #define CAPTURE_VIDEO_BUF_SIZE(v)           STREAM_BUFFER_SIZE(CAPTURE_VIDEO_STREAM(v))
+#define CAPTURE_VIDEO_BUF_COUNT(v)          STREAM_BUFFER_COUNT(CAPTURE_VIDEO_STREAM(v))
+#define CAPTURE_VIDEO_BUF(v)                (CAPTURE_VIDEO_STREAM(v)->buffer)
 
 #define CAPTURE_VIDEO_DONE_BUF(v, b, n)     esp_video_done_buffer(v, V4L2_BUF_TYPE_VIDEO_CAPTURE, b, n)
 #define CAPTURE_VIDEO_SKIP_BUF(v, b)        esp_video_skip_buffer(v, V4L2_BUF_TYPE_VIDEO_CAPTURE, b)
@@ -105,6 +120,14 @@ extern "C" {
 #define CAPTURE_VIDEO_GET_FORMAT_PIXEL_FORMAT(v)                        \
     GET_STREAM_FORMAT_PIXEL_FORMAT(CAPTURE_VIDEO_STREAM(v))
 
+#define CAPTURE_VIDEO_GET_RECT(v)                                       \
+    STREAM_RECT(CAPTURE_VIDEO_STREAM(v))
+
+#define CAPTURE_VIDEO_GET_RECT_WIDTH(v)                                 \
+    GET_STREAM_RECT_WIDTH(CAPTURE_VIDEO_STREAM(v))
+
+#define CAPTURE_VIDEO_GET_RECT_HEIGHT(v)                                \
+    GET_STREAM_RECT_HEIGHT(CAPTURE_VIDEO_STREAM(v))
 
 #define CAPTURE_VIDEO_SET_FORMAT(v, w, h, f)                            \
 {                                                                       \

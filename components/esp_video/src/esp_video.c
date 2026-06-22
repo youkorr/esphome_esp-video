@@ -15,6 +15,8 @@
 #include "esp_video_vfs.h"
 #include "esp_video_device.h"
 #include "esp_cam_sensor.h"
+#include "esp_video_ioctl.h"
+#include "esp_private/esp_cache_private.h"
 
 #include "freertos/portmacro.h"
 
@@ -37,6 +39,7 @@
 struct esp_video_format_desc_map {
     uint32_t pixel_format;
     char desc_string[30];
+    uint8_t bpp;
 };
 
 static _lock_t s_video_lock;
@@ -45,34 +48,55 @@ static const char *TAG = "esp_video";
 
 static const struct esp_video_format_desc_map esp_video_format_desc_maps[] = {
     {
-        V4L2_PIX_FMT_SBGGR8, "RAW8 BGGR",
+        V4L2_PIX_FMT_SBGGR8, "RAW8 BGGR", 8
     },
     {
-        V4L2_PIX_FMT_SBGGR10, "RAW10 BGGR",
+        V4L2_PIX_FMT_SBGGR10, "RAW10 BGGR", 10
     },
     {
-        V4L2_PIX_FMT_SBGGR12, "RAW12 BGGR",
+        V4L2_PIX_FMT_SBGGR12, "RAW12 BGGR", 12
     },
     {
-        V4L2_PIX_FMT_RGB565, "RGB 5-6-5",
+        V4L2_PIX_FMT_RGB565, "RGB 5-6-5 LE", 16
     },
     {
-        V4L2_PIX_FMT_RGB24,  "RGB 8-8-8",
+        V4L2_PIX_FMT_BGR565, "BGR 5-6-5 LE", 16
     },
     {
-        V4L2_PIX_FMT_YUV420, "YUV 4:2:0",
+        V4L2_PIX_FMT_RGB565X, "RGB 5-6-5 BE", 16
     },
     {
-        V4L2_PIX_FMT_YUV422P, "YVU 4:2:2 planar"
+        V4L2_PIX_FMT_RGB24, "RGB 8-8-8", 24
     },
     {
-        V4L2_PIX_FMT_YUYV,  "YUV 4:2:2 packed",
+        V4L2_PIX_FMT_BGR24, "BGR 8-8-8", 24
     },
     {
-        V4L2_PIX_FMT_JPEG,   "JPEG"
+        V4L2_PIX_FMT_YUV420, "YUV 4:2:0", 12
     },
     {
-        V4L2_PIX_FMT_GREY,   "Grey 8"
+        V4L2_PIX_FMT_UYVY, "YUV 4:2:2 UYVY", 16
+    },
+    {
+        V4L2_PIX_FMT_VYUY, "YUV 4:2:2 VYUY", 16
+    },
+    {
+        V4L2_PIX_FMT_YUYV, "YUV 4:2:2 YUYV", 16
+    },
+    {
+        V4L2_PIX_FMT_YVYU, "YUV 4:2:2 YVYU", 16
+    },
+    {
+        V4L2_PIX_FMT_YUV444, "YUV 4:4:4", 24
+    },
+    {
+        V4L2_PIX_FMT_JPEG, "JPEG", 8
+    },
+    {
+        V4L2_PIX_FMT_H264, "H264", 8
+    },
+    {
+        V4L2_PIX_FMT_GREY, "Grey 8", 8
     },
 };
 
@@ -88,6 +112,30 @@ const char *esp_video_usb_uvc_device_name[] = {
     ESP_VIDEO_USB_UVC_NAME(8),
     ESP_VIDEO_USB_UVC_NAME(9),
 };
+
+static void esp_video_release_stream_buffer(struct esp_video_stream *stream)
+{
+    if (!stream) {
+        return;
+    }
+
+    /* Reset queue state before destroying buffer storage. */
+    TAILQ_INIT(&stream->queued_list);
+    TAILQ_INIT(&stream->done_list);
+
+    if (stream->ready_sem) {
+        vSemaphoreDelete(stream->ready_sem);
+        stream->ready_sem = NULL;
+    }
+
+    if (stream->buffer) {
+        esp_video_buffer_destroy(stream->buffer);
+        stream->buffer = NULL;
+    }
+
+    stream->started = false;
+    stream->buf_info.count = 0;
+}
 
 /**
  * @brief Get pixel format description string
@@ -517,6 +565,8 @@ exit_0:
         video->reference--;
     } else {
         *video_ret = video;
+
+        video->dqbuf_timeout_ticks = portMAX_DELAY;
     }
     xSemaphoreGive(video->mutex);
 
@@ -563,17 +613,7 @@ esp_err_t esp_video_close(struct esp_video *video)
                 int stream_count = video->caps & V4L2_CAP_VIDEO_M2M ? 2 : 1;
 
                 for (int i = 0; i < stream_count; i++) {
-                    struct esp_video_stream *stream = &video->stream[i];
-
-                    if (stream->ready_sem) {
-                        vSemaphoreDelete(stream->ready_sem);
-                        stream->ready_sem = NULL;
-                    }
-
-                    if (stream->buffer) {
-                        esp_video_buffer_destroy(stream->buffer);
-                        stream->buffer = NULL;
-                    }
+                    esp_video_release_stream_buffer(&video->stream[i]);
                 }
 
                 video->inited = 0;
@@ -823,6 +863,10 @@ esp_err_t esp_video_setup_buffer(struct esp_video *video, uint32_t type, uint32_
     if (!stream) {
         return ESP_ERR_INVALID_ARG;
     }
+    if (stream->started) {
+        ESP_LOGW(TAG, "Cannot setup buffers while stream is started");
+        return ESP_ERR_INVALID_STATE;
+    }
 
     /* buffer_size is configured when setting format */
 
@@ -833,18 +877,10 @@ esp_err_t esp_video_setup_buffer(struct esp_video *video, uint32_t type, uint32_
         return ESP_ERR_INVALID_STATE;
     }
 
+    esp_video_release_stream_buffer(stream);
+
     info->count = count;
     info->memory_type = memory_type;
-
-    if (stream->ready_sem) {
-        vSemaphoreDelete(stream->ready_sem);
-        stream->ready_sem = NULL;
-    }
-
-    if (stream->buffer) {
-        esp_video_buffer_destroy(stream->buffer);
-        stream->buffer = NULL;
-    }
 
     stream->ready_sem = xSemaphoreCreateCounting(info->count, 0);
     if (!stream->ready_sem) {
@@ -860,6 +896,35 @@ esp_err_t esp_video_setup_buffer(struct esp_video *video, uint32_t type, uint32_
         return ESP_ERR_NO_MEM;
     }
 
+    return ESP_OK;
+}
+
+/**
+ * @brief Release video buffer.
+ *
+ * @param video Video object
+ * @param type  Video stream type
+ *
+ * @return
+ *      - ESP_OK on success
+ *      - Others if failed
+ */
+esp_err_t esp_video_release_buffer(struct esp_video *video, uint32_t type)
+{
+    struct esp_video_stream *stream;
+
+    CHECK_VIDEO_OBJ(video);
+
+    stream = esp_video_get_stream(video, type);
+    if (!stream) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (stream->started) {
+        ESP_LOGW(TAG, "Cannot release buffers while stream is started");
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    esp_video_release_stream_buffer(stream);
     return ESP_OK;
 }
 
@@ -1068,7 +1133,6 @@ esp_err_t IRAM_ATTR esp_video_done_buffer(struct esp_video *video, uint32_t type
  */
 esp_err_t esp_video_queue_element(struct esp_video *video, uint32_t type, struct esp_video_buffer_element *element)
 {
-    uint32_t val = type;
     struct esp_video_stream *stream;
 
     stream = esp_video_get_stream(video, type);
@@ -1087,7 +1151,7 @@ esp_err_t esp_video_queue_element(struct esp_video *video, uint32_t type, struct
     portEXIT_CRITICAL_SAFE(&video->stream_lock);
 
     if (video->ops->notify) {
-        video->ops->notify(video, ESP_VIDEO_BUFFER_VALID, &val);
+        video->ops->notify(video, ESP_VIDEO_BUFFER_VALID, element);
     }
 
     return ESP_OK;
@@ -1151,9 +1215,17 @@ esp_err_t esp_video_queue_element_index_buffer(struct esp_video *video, uint32_t
     info = &stream->buffer->info;
 
     if ((info->memory_type != V4L2_MEMORY_USERPTR) ||
-            (((uintptr_t)buffer) % info->align_size) ||
-            (size < info->size)) {
+            (((uintptr_t)buffer) % info->align_size)) {
         return ESP_ERR_INVALID_ARG;
+    }
+
+    /**
+     * For video output, the buffer is read only and maybe the size of the buffer is random, such JPEG decoder or H264 decoder, so we don't need to check the size.
+     */
+    if (V4L2_BUF_TYPE_VIDEO_OUTPUT != type) {
+        if (size < info->size) {
+            return ESP_ERR_INVALID_ARG;
+        }
     }
 
     if (info->caps & MALLOC_CAP_SPIRAM) {
@@ -1979,6 +2051,23 @@ void IRAM_ATTR esp_video_skip_buffer(struct esp_video *video, uint32_t type, uin
     portEXIT_CRITICAL_SAFE(&video->stream_lock);
 }
 
+static enum v4l2_buf_type esp_video_default_buf_type(struct esp_video *video)
+{
+    if (video->caps & V4L2_CAP_VIDEO_CAPTURE) {
+        return V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    }
+    if (video->caps & V4L2_CAP_VIDEO_OUTPUT) {
+        return V4L2_BUF_TYPE_VIDEO_OUTPUT;
+    }
+    if (video->caps & V4L2_CAP_VIDEO_M2M) {
+        return V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    }
+    if (video->caps & V4L2_CAP_META_CAPTURE) {
+        return V4L2_BUF_TYPE_META_CAPTURE;
+    }
+    return (enum v4l2_buf_type)0;
+}
+
 /**
  * @brief Enumerate video frame sizes
  *
@@ -1995,7 +2084,7 @@ esp_err_t esp_video_enum_framesizes(struct esp_video *video, struct v4l2_frmsize
 
     CHECK_VIDEO_OBJ(video);
 
-    stream = esp_video_get_stream(video, frmsize->type);
+    stream = esp_video_get_stream(video, esp_video_default_buf_type(video));
     if (!stream) {
         return ESP_ERR_INVALID_ARG;
     }
@@ -2030,7 +2119,7 @@ esp_err_t esp_video_enum_frameintervals(struct esp_video *video, struct v4l2_frm
 
     CHECK_VIDEO_OBJ(video);
 
-    stream = esp_video_get_stream(video, frmival->type);
+    stream = esp_video_get_stream(video, esp_video_default_buf_type(video));
     if (!stream) {
         return ESP_ERR_INVALID_ARG;
     }
@@ -2045,6 +2134,144 @@ esp_err_t esp_video_enum_frameintervals(struct esp_video *video, struct v4l2_frm
         ESP_LOGD(TAG, "video->ops->enum_frameintervals=NULL");
         return ESP_ERR_NOT_SUPPORTED;
     }
+
+    return ESP_OK;
+}
+
+/**
+ * @brief Configure video stream buffer by given V4L2 format
+ *
+ * @param video     Video object
+ * @param format    Video format pointer
+ * @param frame_caps Frame buffer capabilities
+ *
+ * @return ESP_OK on success or others if failed
+ */
+esp_err_t esp_video_config_buffer(struct esp_video *video, const struct v4l2_format *format, uint32_t frame_caps)
+{
+    size_t alignments;
+    uint32_t buf_size;
+    const struct v4l2_pix_format *pix = &format->fmt.pix;
+    struct esp_video_stream *stream = esp_video_get_stream(video, format->type);
+
+    if (!stream) {
+        ESP_LOGE(TAG, "type=%" PRIu32 ", stream is not found", format->type);
+        return ESP_ERR_INVALID_ARG;
+    }
+
+#if CONFIG_SPIRAM
+    ESP_RETURN_ON_ERROR(esp_cache_get_alignment(frame_caps, &alignments), TAG, "failed to get cache alignment");
+#else
+    alignments = 4;
+#endif
+    ESP_LOGD(TAG, "alignments=%zu", alignments);
+
+    uint8_t bpp = 0;
+    for (int i = 0; i < ARRAY_SIZE(esp_video_format_desc_maps); i++) {
+        if (esp_video_format_desc_maps[i].pixel_format == pix->pixelformat) {
+            bpp = esp_video_format_desc_maps[i].bpp;
+            break;
+        }
+    }
+    if (bpp == 0) {
+        ESP_LOGE(TAG, "Unsupported pixel format: " V4L2_FMT_STR, V4L2_FMT_STR_ARG(pix->pixelformat));
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+
+    if (pix->pixelformat == V4L2_PIX_FMT_JPEG || pix->pixelformat == V4L2_PIX_FMT_H264) {
+        /**
+         * When output format is JPEG or H264, try to use the sizeimage if it is larger than 0.
+         * If the sizeimage is not set, use the width, height and bpp to calculate the sizeimage.
+         */
+
+        if (pix->sizeimage > 0) {
+            buf_size = pix->sizeimage;
+        } else {
+            buf_size = pix->width * pix->height * bpp / 8;
+        }
+    } else {
+        /**
+         * When output format is not JPEG or H264, use the sizeimage if it is not less than the required size.
+         * If the sizeimage is not set, use the width, height and bpp to calculate the sizeimage.
+         */
+        buf_size = pix->width * pix->height * bpp / 8;
+        if (pix->sizeimage >= buf_size) {
+            buf_size = pix->sizeimage;
+        }
+    }
+
+    /**
+     * Align the buffer size to the alignment size.
+     * This is to ensure that the buffer size is a multiple of the alignment size.
+     */
+    buf_size = ESP_VIDEO_ALIGN(buf_size, alignments);
+
+    SET_STREAM_FORMAT_PIXEL_FORMAT(stream, pix->pixelformat);
+    SET_STREAM_FORMAT_WIDTH(stream, pix->width);
+    SET_STREAM_FORMAT_HEIGHT(stream, pix->height);
+    SET_STREAM_FORMAT_PIXEL_FORMAT(stream, pix->pixelformat);
+    stream->format.type = format->type;
+    SET_STREAM_BUF_INFO(stream, buf_size, alignments, frame_caps);
+
+    return ESP_OK;
+}
+
+/**
+ * @brief Set DQBUF timeout
+ *
+ * @param video     Video object
+ * @param timeout   Timeout value, consider the FreeRTOS total timeout limit is portMAX_DELAY, so the too
+ *                  long timeout value will be treated as portMAX_DELAY
+ *
+ * @return
+ *      - ESP_OK on success
+ *      - Others if failed
+ */
+esp_err_t esp_video_set_dqbuf_timeout(struct esp_video *video, const struct timeval *timeout)
+{
+    TickType_t ticks;
+    uint64_t timeout_ms;
+    uint64_t total_ticks;
+
+    CHECK_VIDEO_OBJ(video);
+    if (!timeout) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    timeout_ms = timeout->tv_sec * 1000 + timeout->tv_usec / 1000;
+    total_ticks = pdMS_TO_TICKS(timeout_ms);
+
+    if (total_ticks >= portMAX_DELAY) {
+        ticks = portMAX_DELAY;
+    } else {
+        ticks = (TickType_t)total_ticks;
+    }
+    video->dqbuf_timeout_ticks = ticks;
+
+    return ESP_OK;
+}
+
+/**
+ * @brief Get DQBUF timeout
+ *
+ * @param video     Video object
+ * @param timeout   Timeout value
+ *
+ * @return
+ *      - ESP_OK on success
+ *      - Others if failed
+ */
+esp_err_t esp_video_get_dqbuf_timeout(struct esp_video *video, struct timeval *timeout)
+{
+    CHECK_VIDEO_OBJ(video);
+
+    uint64_t timeout_ms = pdTICKS_TO_MS(video->dqbuf_timeout_ticks);
+    if (!timeout) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    timeout->tv_sec = timeout_ms / 1000;
+    timeout->tv_usec = (timeout_ms % 1000) * 1000;
 
     return ESP_OK;
 }

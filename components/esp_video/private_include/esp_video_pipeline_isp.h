@@ -21,7 +21,6 @@ typedef struct esp_video_isp_config {
     const char *isp_dev;                /*!< ISP video device name */
     const char *cam_dev;                /*!< Camera interface video device name, such as "/dev/video0"(MIPI-CSI) */
     const esp_ipa_config_t *ipa_config; /*!< IPA configuration */
-    const char *sensor_name;            /*!< Sensor name for JSON IPA loading (e.g., "OV02C10") */
 } esp_video_isp_config_t;
 
 /**

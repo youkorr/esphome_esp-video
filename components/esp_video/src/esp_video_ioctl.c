@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2024 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2024-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: ESPRESSIF MIT
  */
@@ -11,7 +11,6 @@
 #include "esp_video.h"
 #include "esp_video_vfs.h"
 #include "esp_video_ioctl_internal.h"
-#include "esp_video_version.h"
 
 #define BUF_OFF(type, element_index)        (((uint32_t)type << 24) + element_index)
 #define BUF_OFF_2_INDEX(buf_off)            ((buf_off) & 0x00ffffff)
@@ -83,12 +82,12 @@ static esp_err_t esp_video_ioctl_reqbufs(struct esp_video *video, struct v4l2_re
 {
     esp_err_t ret;
 
-    if ((req_bufs->memory != V4L2_MEMORY_MMAP) &&
-            (req_bufs->memory != V4L2_MEMORY_USERPTR) ) {
-        return ESP_ERR_INVALID_ARG;
+    if (req_bufs->count == 0) {
+        return esp_video_release_buffer(video, req_bufs->type);
     }
 
-    if (req_bufs->count == 0) {
+    if ((req_bufs->memory != V4L2_MEMORY_MMAP) &&
+            (req_bufs->memory != V4L2_MEMORY_USERPTR) ) {
         return ESP_ERR_INVALID_ARG;
     }
 
@@ -176,9 +175,9 @@ static esp_err_t esp_video_ioctl_qbuf(struct esp_video *video, struct v4l2_buffe
 static esp_err_t esp_video_ioctl_dqbuf(struct esp_video *video, struct v4l2_buffer *vbuf)
 {
     esp_err_t ret;
-    uint32_t ticks = portMAX_DELAY;
     struct esp_video_buffer_info info;
     struct esp_video_buffer_element *element;
+    uint32_t ticks = video->dqbuf_timeout_ticks;
 
     ret = esp_video_get_buffer_info(video, vbuf->type, &info);
     if (ret != ESP_OK) {
@@ -287,6 +286,16 @@ static inline esp_err_t esp_video_ioctl_enum_frameintervals(struct esp_video *vi
     return esp_video_enum_frameintervals(video, frmival);
 }
 
+static inline esp_err_t esp_video_ioctl_set_dqbuf_timeout(struct esp_video *video, const struct timeval *timeout)
+{
+    return esp_video_set_dqbuf_timeout(video, timeout);
+}
+
+static inline esp_err_t esp_video_ioctl_get_dqbuf_timeout(struct esp_video *video, struct timeval *timeout)
+{
+    return esp_video_get_dqbuf_timeout(video, timeout);
+}
+
 esp_err_t esp_video_ioctl(struct esp_video *video, int cmd, va_list args)
 {
     esp_err_t ret = ESP_OK;
@@ -379,6 +388,12 @@ esp_err_t esp_video_ioctl(struct esp_video *video, int cmd, va_list args)
         break;
     case VIDIOC_ENUM_FRAMEINTERVALS:
         ret = esp_video_ioctl_enum_frameintervals(video, (struct v4l2_frmivalenum *)arg_ptr);
+        break;
+    case VIDIOC_S_DQBUF_TIMEOUT:
+        ret = esp_video_ioctl_set_dqbuf_timeout(video, (struct timeval *)arg_ptr);
+        break;
+    case VIDIOC_G_DQBUF_TIMEOUT:
+        ret = esp_video_ioctl_get_dqbuf_timeout(video, (struct timeval *)arg_ptr);
         break;
     default:
         ret = ESP_ERR_INVALID_ARG;

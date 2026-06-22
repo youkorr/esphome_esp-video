@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2024 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2024-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: ESPRESSIF MIT
  */
@@ -29,6 +29,9 @@ extern "C" {
 #define VIDIOC_S_MOTOR_FMT  _IOWR('V',  BASE_VIDIOC_PRIVATE + 4, esp_cam_motor_format_t)
 #define VIDIOC_G_MOTOR_FMT  _IOWR('V',  BASE_VIDIOC_PRIVATE + 5, esp_cam_motor_format_t)
 
+#define VIDIOC_S_DQBUF_TIMEOUT  _IOWR('V',  BASE_VIDIOC_PRIVATE + 6, struct timeval)
+#define VIDIOC_G_DQBUF_TIMEOUT  _IOWR('V',  BASE_VIDIOC_PRIVATE + 7, struct timeval)
+
 #define V4L2_CID_CAMERA_AE_LEVEL        (V4L2_CID_CAMERA_CLASS_BASE + 40)
 #define V4L2_CID_CAMERA_STATS           (V4L2_CID_CAMERA_CLASS_BASE + 41)
 #define V4L2_CID_CAMERA_GROUP           (V4L2_CID_CAMERA_CLASS_BASE + 42)
@@ -42,6 +45,11 @@ extern "C" {
  * other fields are not supported.
  */
 #define V4L2_CTRL_CLASS_ESP_CAM_IOCTL   (0x00a70000)
+
+/**
+ * @brief BGR565 format for JPEG decoder video device.
+ */
+#define V4L2_PIX_FMT_BGR565             v4l2_fourcc('B', 'G', 'R', 'P')
 
 #ifdef __cplusplus
 }
