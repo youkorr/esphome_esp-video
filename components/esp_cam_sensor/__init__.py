@@ -3,6 +3,8 @@ import esphome.config_validation as cv
 from esphome.components import i2c
 from esphome.const import CONF_ID
 from esphome import automation
+import os
+import logging
 
 # Dépendances requises
 DEPENDENCIES = ["esp_video"]
@@ -163,6 +165,29 @@ async def to_code(config):
             rgb_config[CONF_GREEN_GAIN],
             rgb_config[CONF_BLUE_GAIN]
         ))
+
+    # -----------------------------------------------------------------------
+    # Filet de sécurité include dirs.
+    # esp_cam_sensor_camera.cpp inclut des headers d'esp_video (esp_video_init.h,
+    # esp_video_device.h, sys/mman.h vendu par esp_video, linux/videodev2.h),
+    # tous situés dans components/esp_video/include/. Normalement esp_video
+    # (DEPENDENCIES) ajoute déjà ces `-I` globalement, mais on les ré-ajoute ici
+    # pour ne pas dépendre de l'ordre/scoping du to_code d'esp_video — sinon la
+    # compilation échoue sur `sys/mman.h: No such file` avant le code métier.
+    # -----------------------------------------------------------------------
+    _this_dir = os.path.dirname(__file__)
+    _components_dir = os.path.dirname(_this_dir)
+    for _rel in ["esp_video/include", "esp_video/private_include",
+                 "esp_cam_sensor/include", "esp_ipa/include", "esp_sccb_intf/include"]:
+        _inc = os.path.abspath(os.path.join(_components_dir, _rel))
+        if os.path.isdir(_inc):
+            cg.add_build_flag(f"-I{_inc}")
+            logging.info(f"[esp_cam_sensor] include dir: {_inc}")
+        elif _rel == "esp_video/include":
+            logging.error(
+                f"[esp_cam_sensor] MISSING required include dir: {_inc} "
+                f"(la compilation va échouer sur esp_video_init.h / sys/mman.h)"
+            )
 
     # Build flags pour ESP32-P4 avec ESP-IDF 5.x
     cg.add_build_flag("-DBOARD_HAS_PSRAM")

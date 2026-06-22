@@ -180,45 +180,65 @@ async def to_code(config):
 
     # -----------------------------------------------------------------------
     # Ajout des répertoires include
+    #
+    # NOTE BUILD: les .cpp wrappers ESPHome (esp_video_component.cpp,
+    # esp_cam_sensor_camera.cpp) sont compilés dans le composant `src` d'ESPHome
+    # et n'ont PAS automatiquement accès aux dossiers `include/` de ces
+    # composants (contrairement à un vrai composant IDF qui exporte INCLUDE_DIRS).
+    # On ajoute donc les `-I` à la main. esp_video/include contient des headers
+    # CRITIQUES, dont le sys/mman.h vendu par esp_video (l'IDF n'en fournit pas
+    # pour le mmap V4L2) et esp_video_init.h. Si ces `-I` manquent, la
+    # compilation échoue sur `sys/mman.h: No such file` / `esp_video_init.h: No
+    # such file` AVANT même d'atteindre le code métier.
     # -----------------------------------------------------------------------
-    includes_found = False
+    added_includes = []
 
-    # esp_video
-    esp_video_includes = ["include", "private_include", "src"]
-    for inc in esp_video_includes:
-        inc_path = os.path.join(component_dir, inc)
-        if os.path.exists(inc_path):
+    def _add_include(base_dir, sub, required=False):
+        inc_path = os.path.abspath(os.path.join(base_dir, sub))
+        if os.path.isdir(inc_path):
             cg.add_build_flag(f"-I{inc_path}")
-            includes_found = True
+            added_includes.append(inc_path)
+            logging.info(f"[ESP-Video] include dir: {inc_path}")
+            return True
+        if required:
+            logging.error(
+                f"[ESP-Video] MISSING required include dir: {inc_path} "
+                f"(la compilation des wrappers ESPHome va échouer sur les headers "
+                f"esp_video/sys/mman.h). Vérifiez la structure du composant."
+            )
+        return False
+
+    # esp_video (CRITIQUE: include doit toujours être présent)
+    _add_include(component_dir, "include", required=True)
+    _add_include(component_dir, "private_include")
+    _add_include(component_dir, "src")
 
     # esp_cam_sensor
     esp_cam_sensor_dir = os.path.join(parent_components_dir, "esp_cam_sensor")
-    if os.path.exists(esp_cam_sensor_dir):
-        for inc in ["include", "sensor/ov5647/include", "sensor/sc202cs/include", "sensor/ov02c10/include", "src", "src/driver_spi", "src/driver_cam"]:
-            inc_path = os.path.join(esp_cam_sensor_dir, inc)
-            if os.path.exists(inc_path):
-                cg.add_build_flag(f"-I{inc_path}")
-                includes_found = True
+    for inc in ["include", "sensor/ov5647/include", "sensor/sc202cs/include",
+                "sensor/ov02c10/include", "src", "src/driver_spi", "src/driver_cam"]:
+        _add_include(esp_cam_sensor_dir, inc)
 
     # esp_ipa
     esp_ipa_dir = os.path.join(parent_components_dir, "esp_ipa")
-    if os.path.exists(esp_ipa_dir):
-        for inc in ["include", "src"]:
-            inc_path = os.path.join(esp_ipa_dir, inc)
-            if os.path.exists(inc_path):
-                cg.add_build_flag(f"-I{inc_path}")
-                includes_found = True
+    for inc in ["include", "src"]:
+        _add_include(esp_ipa_dir, inc)
 
     # esp_sccb_intf
     esp_sccb_intf_dir = os.path.join(parent_components_dir, "esp_sccb_intf")
-    if os.path.exists(esp_sccb_intf_dir):
-        for inc in ["include", "interface", "sccb_i2c/include"]:
-            inc_path = os.path.join(esp_sccb_intf_dir, inc)
-            if os.path.exists(inc_path):
-                cg.add_build_flag(f"-I{inc_path}")
-                includes_found = True
+    for inc in ["include", "interface", "sccb_i2c/include"]:
+        _add_include(esp_sccb_intf_dir, inc)
 
-    if not includes_found:
+    # Garde-fou : vérifier que les headers réellement requis sont atteignables.
+    _critical_headers = ["esp_video_init.h", "esp_video_device.h", "sys/mman.h"]
+    for header in _critical_headers:
+        if not any(os.path.isfile(os.path.join(d, header)) for d in added_includes):
+            logging.error(
+                f"[ESP-Video] header introuvable sur les chemins d'include: '{header}'. "
+                f"Chemins ajoutés: {added_includes or '(aucun)'}"
+            )
+
+    if not added_includes:
         logging.warning(
             "[ESP-Video] No include directories found! "
             "Check ESP-Video component structure."
