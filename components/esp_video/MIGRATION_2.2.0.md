@@ -76,8 +76,42 @@ sans build vert.
    `ov02c10_custom_formats.h`) : référencent des structs `esp_cam_sensor` — à
    revérifier si esp_cam_sensor est migré ensuite.
 
+## Conclusions empiriques de compilation (ESP32-P4, ESP-IDF 5.5.4)
+
+La branche a été **réellement compilée** (toolchain GCC 14.2) en itérant sur les erreurs.
+Corrections appliquées au cœur esp_video 2.2.0 :
+
+1. `esp_video_component.cpp` : `esp_video_init_csi_config_t` n'a plus `xclk_pin`/`xclk_freq`
+   en 2.2.0 (lignes retirées — ignorées en MIPI-CSI de toute façon).
+2. `esp_video_init.c` : itération du registre de détection capteurs adaptée au mécanisme
+   **tableau** du fork (`__esp_cam_sensor_detect_fn_array_start[]`) au lieu du `&start`
+   linker-section de l'upstream.
+3. `CMakeLists.txt` + `__init__.py` : suppression de la dépendance **cmake_utilities**
+   (retirée de github, indisponible hors registre) — liaison directe d'esp_ipa/
+   esp_driver_isp/esp_driver_jpeg + `ESP_VIDEO_VER_{MAJOR,MINOR,PATCH}` définis en flags.
+
+**BLOCAGE DE FOND (prouvé au build) — sous-système ISP/IPA non portable tel quel :**
+
+- `esp_video_isp_pipeline.c` **2.2.0** appelle l'**API esp_ipa 2.1.0** (`esp_ipa_stats_af_t`,
+  `esp_ipa_gamma_t.{flags,red,green,blue}`, `IPA_STATS_FLAGS_AF`, `IPA_METADATA_FLAGS_*`,
+  `esp_ipa_awb_range_t`, `esp_ipa_pipeline_create`…) — **absente du fork esp_ipa** (~40 erreurs).
+- À l'inverse, le `esp_video_isp_pipeline.c` **youkorr** exige des champs/types **internes
+  youkorr** absents du cœur 2.2.0 : `esp_video_isp_config_t.sensor_name`,
+  `esp_video_csi_state_t`, `bypass_isp`, et tout `esp_video_isp_stubs.c`.
+
+Autrement dit : la couche de tuning youkorr (pipeline ISP + esp_ipa + formats capteurs,
+dont **ov02c10 qui n'existe PAS dans l'upstream 2.2.0**) est **tissée dans les internes
+d'esp_video**. Une migration 2.2.0 **complète** = **réécrire** le contrôleur de pipeline
+ISP sur l'API esp_ipa 2.1.0 + ré-ajouter ov02c10 et les formats custom sur l'esp_cam_sensor
+2.2.0 restructuré. C'est une **réécriture** de la couche fork, pas un portage.
+
+**Recommandation** : la branche `claude/usb-uvc-consumer-integration-gnbflf` (cœur
+esp_video **1.x** + fork) **compile** (build ESP32-P4 vert vérifié) et reste la base
+fonctionnelle. La 2.2.0 n'apporte surtout que le support IDF 6.0 ; or le fork compile déjà
+sur IDF 5.5.4. À réécrire seulement si IDF 6.0 devient indispensable.
+
 ## Réversibilité
 
 Tout est isolé sur `claude/esp-video-2.2.0-migration`. La branche
-`claude/usb-uvc-consumer-integration-gnbflf` (UVC + fix includes) n'est pas
-touchée et reste la base stable.
+`claude/usb-uvc-consumer-integration-gnbflf` (UVC + fix includes, **build vérifié**)
+n'est pas touchée et reste la base stable.

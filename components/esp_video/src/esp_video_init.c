@@ -912,7 +912,11 @@ esp_err_t esp_video_init_with_flags(const esp_video_init_config_t *config, uint3
     }
 #endif
 
-    for (esp_cam_sensor_detect_fn_t *p = &__esp_cam_sensor_detect_fn_array_start; p < &__esp_cam_sensor_detect_fn_array_end; ++p) {
+    /* [YOUKORR/ESPHome] Le fork esp_cam_sensor expose __esp_cam_sensor_detect_fn_array_start
+       comme un vrai tableau (esp_cam_sensor_detect_stubs.c), car PlatformIO/ESPHome ne
+       supporte pas le placement par section linker d'IDF. On itère sur le tableau (qui
+       décroît en pointeur) jusqu'au sentinelle _end, au lieu du &start de l'upstream. */
+    for (esp_cam_sensor_detect_fn_t *p = __esp_cam_sensor_detect_fn_array_start; p < &__esp_cam_sensor_detect_fn_array_end; ++p) {
 #if CONFIG_ESP_VIDEO_ENABLE_MIPI_CSI_VIDEO_DEVICE
         if (flags & ESP_VIDEO_INIT_FLAGS_MIPI_CSI) {
             if (!(s_video_device_inited_flags & ESP_VIDEO_INIT_FLAGS_MIPI_CSI) && p->port == ESP_CAM_SENSOR_MIPI_CSI && config->csi != NULL) {

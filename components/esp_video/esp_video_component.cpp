@@ -225,13 +225,11 @@ void ESPVideoComponent::setup() {
   csi_config.reset_pin = (gpio_num_t)-1;  // Pas de pin de reset
   csi_config.pwdn_pin = (gpio_num_t)-1;   // Pas de pin de power-down
 
-  // NOTE: xclk_pin and xclk_freq are NOT used by esp_video_init() for MIPI-CSI!
-  // XCLK initialization only happens for DVP sensors in esp_video_init.c.
-  // For MIPI-CSI, XCLK must be initialized BEFORE calling esp_video_init(),
-  // which we did above using init_xclk_ledc().
-  // Setting these fields here for documentation/completeness only:
-  csi_config.xclk_pin = this->xclk_pin_;      // IGNORED for MIPI-CSI
-  csi_config.xclk_freq = this->xclk_freq_;    // IGNORED for MIPI-CSI
+  // NOTE (migration esp_video 2.2.0): esp_video_init_csi_config_t n'a plus de
+  // champs xclk_pin/xclk_freq (ils étaient de toute façon IGNORÉS pour le MIPI-CSI).
+  // Pour le MIPI-CSI, le XCLK est initialisé AVANT esp_video_init() via init_xclk_ledc().
+  (void) this->xclk_pin_;
+  (void) this->xclk_freq_;
 
   esp_video_init_config_t video_config = {};
   video_config.csi = &csi_config;

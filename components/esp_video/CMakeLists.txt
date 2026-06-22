@@ -68,41 +68,32 @@ idf_component_register(SRCS ${srcs}
                        PRIV_REQUIRES ${priv_requires}
                        REQUIRES ${requires})
 
-include(package_manager)
-cu_pkg_define_version(${CMAKE_CURRENT_LIST_DIR})
+# [YOUKORR/ESPHome] cu_pkg_define_version() (cmake_utilities) générait normalement
+# ESP_VIDEO_VER_{MAJOR,MINOR,PATCH} (utilisés par esp_video_ioctl.c VIDIOC_QUERYCAP).
+# cmake_utilities étant indisponible hors registre, on définit la version 2.2.0 ici.
+target_compile_definitions(${COMPONENT_LIB} PRIVATE
+    ESP_VIDEO_VER_MAJOR=2
+    ESP_VIDEO_VER_MINOR=2
+    ESP_VIDEO_VER_PATCH=0)
 
+# [YOUKORR/ESPHome] La 2.2.0 upstream utilise cmake_utilities
+# (include(package_manager) / cu_pkg_define_version / idf_component_optional_requires),
+# composant managé indisponible hors registre Espressif. On lie directement les
+# composants nécessaires (esp_ipa est local ; esp_driver_isp/jpeg sont intégrés à l'IDF).
 if(CONFIG_ESP_VIDEO_ENABLE_ISP_PIPELINE_CONTROLLER)
-    idf_component_optional_requires(PRIVATE "esp_ipa")
+    target_link_libraries(${COMPONENT_LIB} PRIVATE idf::esp_ipa)
 endif()
 
 if(CONFIG_IDF_TARGET_ESP32P4)
     if(CONFIG_ESP_VIDEO_ENABLE_ISP)
-        # Supply the header files to applications
-        idf_component_optional_requires(PUBLIC "esp_driver_isp")
+        target_link_libraries(${COMPONENT_LIB} PUBLIC idf::esp_driver_isp)
     endif()
 
     if(CONFIG_ESP_VIDEO_ENABLE_H264_VIDEO_DEVICE)
-        idf_component_optional_requires(PRIVATE "esp_h264")
-    endif()
-
-    if(CONFIG_ESP_VIDEO_ENABLE_SWAP_SHORT_PERF_LOG)
-        idf_component_optional_requires(PRIVATE "esp_timer")
-    endif()
-
-    if(CONFIG_ESP_VIDEO_ENABLE_BITSCRAMBLER)
-        idf_component_optional_requires(PRIVATE "esp_driver_bitscrambler")
-
-        if(CONFIG_ESP_VIDEO_ENABLE_SWAP_SHORT)
-            target_bitscrambler_add_src("src/data_reprocessing/esp32p4/esp_video_swap_short.bsasm")
-        endif()
-
-        if(CONFIG_ESP_VIDEO_ENABLE_SWAP_BYTE)
-            target_bitscrambler_add_src("src/data_reprocessing/esp32p4/esp_video_swap_byte.bsasm")
-        endif()
+        target_link_libraries(${COMPONENT_LIB} PRIVATE idf::esp_h264)
     endif()
 endif()
 
 if(CONFIG_ESP_VIDEO_ENABLE_HW_JPEG_ENC_VIDEO_DEVICE OR CONFIG_ESP_VIDEO_ENABLE_HW_JPEG_DEC_VIDEO_DEVICE)
-    # Supply the header files to applications
-    idf_component_optional_requires(PUBLIC "esp_driver_jpeg")
+    target_link_libraries(${COMPONENT_LIB} PUBLIC idf::esp_driver_jpeg)
 endif()

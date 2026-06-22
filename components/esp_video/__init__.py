@@ -166,10 +166,11 @@ async def to_code(config):
     cg.add(var.set_enable_uvc(config[CONF_ENABLE_UVC]))
     cg.add(var.set_manage_usb_host(config[CONF_MANAGE_USB_HOST]))
 
-    # MIGRATION esp_video 2.2.0: le CMakeLists upstream utilise
-    # idf_component_optional_requires(), une macro fournie par le composant managé
-    # `espressif/cmake_utilities`. Sans lui, la configuration CMake d'esp_video échoue.
-    esp32.add_idf_component(name="espressif/cmake_utilities", ref="0.*")
+    # MIGRATION esp_video 2.2.0: le CMakeLists upstream utilisait cmake_utilities
+    # (idf_component_optional_requires / cu_pkg_define_version). Ce composant managé
+    # est indisponible hors registre Espressif ; on a donc patché le CMakeLists pour
+    # lier directement esp_ipa / esp_driver_isp / esp_driver_jpeg (cf. CMakeLists.txt),
+    # et on n'a plus besoin de tirer cmake_utilities.
 
     # USB-UVC host: pull Espressif's USB Host UVC driver (native 2.x API, P4
     # support) which also provides the esp_private/uvc_esp_video.h glue the
@@ -346,6 +347,12 @@ async def to_code(config):
     ]
 
     for flag in extra_flags:
+        cg.add_build_flag(flag)
+
+    # MIGRATION esp_video 2.2.0: ESP_VIDEO_VER_{MAJOR,MINOR,PATCH} étaient générés par
+    # cu_pkg_define_version() (cmake_utilities, indisponible hors registre). On les
+    # définit en flags globaux pour esp_video_ioctl.c (VIDIOC_QUERYCAP).
+    for flag in ("-DESP_VIDEO_VER_MAJOR=2", "-DESP_VIDEO_VER_MINOR=2", "-DESP_VIDEO_VER_PATCH=0"):
         cg.add_build_flag(flag)
 
     # -----------------------------------------------------------------------
