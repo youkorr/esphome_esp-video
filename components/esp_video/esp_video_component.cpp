@@ -77,7 +77,7 @@ static void esp_video_init_task_core0(void *param) {
  * @return ESP_OK on success, error code otherwise
  */
 static esp_err_t init_xclk_ledc(gpio_num_t gpio_num, uint32_t freq_hz) {
-  ESP_LOGI(TAG, "🔧 Initializing XCLK via LEDC on GPIO%d @ %u Hz", gpio_num, freq_hz);
+  ESP_LOGI(TAG, "🔧 Initializing XCLK via LEDC on GPIO%d @ %u Hz", gpio_num, (unsigned) freq_hz);
 
   // Configure LEDC timer for XCLK generation (matching M5Stack's implementation)
   ledc_timer_config_t timer_conf = {};
@@ -110,7 +110,7 @@ static esp_err_t init_xclk_ledc(gpio_num_t gpio_num, uint32_t freq_hz) {
   }
 
   ESP_LOGI(TAG, "XCLK initialized successfully via LEDC");
-  ESP_LOGI(TAG, "   GPIO%d now outputs %u Hz clock signal", gpio_num, freq_hz);
+  ESP_LOGI(TAG, "   GPIO%d now outputs %u Hz clock signal", gpio_num, (unsigned) freq_hz);
   ESP_LOGI(TAG, "   Sensor can now respond on I2C during detection");
 
   return ESP_OK;
@@ -192,7 +192,7 @@ void ESPVideoComponent::setup() {
   // M5Stack Tab5 BSP already initializes XCLK, so this should be disabled for M5Stack
   if (this->enable_xclk_init_ && this->xclk_pin_ != (gpio_num_t)-1) {
     ESP_LOGI(TAG, "🔧 Initializing XCLK for non-M5Stack board (GPIO%d @ %u Hz)",
-             this->xclk_pin_, this->xclk_freq_);
+             this->xclk_pin_, (unsigned) this->xclk_freq_);
 
     esp_err_t xclk_ret = init_xclk_ledc(this->xclk_pin_, this->xclk_freq_);
     if (xclk_ret != ESP_OK) {

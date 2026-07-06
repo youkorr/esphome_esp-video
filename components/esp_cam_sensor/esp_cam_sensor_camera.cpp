@@ -205,7 +205,22 @@ static bool jpeg_apply_quality_(int quality) {
   ctrl.id = V4L2_CID_JPEG_COMPRESSION_QUALITY;
   ctrl.value = quality;
 
-  (void)safe_ioctl_(fd, VIDIOC_S_CTRL, &ctrl, "VIDIOC_S_CTRL(JPEG_QUALITY)");
+  // The JPEG quality control is optional: several sensor/encoder paths (e.g.
+  // OV5647) don't expose V4L2_CID_JPEG_COMPRESSION_QUALITY and return EINVAL
+  // (or ENOTTY). That is harmless — the encoder just keeps its default
+  // quality — so don't call safe_ioctl_() here (it would log an ESP_LOGE and
+  // scare users). Do the ioctl directly and only warn on unexpected errors.
+  int r;
+  do {
+    r = ioctl(fd, VIDIOC_S_CTRL, &ctrl);
+  } while (r == -1 && errno == EINTR);
+  if (r < 0) {
+    if (errno == EINVAL || errno == ENOTTY) {
+      ESP_LOGD(TAG, "JPEG quality control not supported by this encoder - using default");
+    } else {
+      ESP_LOGW(TAG, "Could not set JPEG quality: errno=%d (%s)", errno, strerror(errno));
+    }
+  }
 
   close_fd_(fd);
   return true;
