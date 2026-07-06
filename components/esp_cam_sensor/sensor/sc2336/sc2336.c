@@ -1439,7 +1439,10 @@ static const int sc2336_dvp_format_index[] = {
 static int get_sc2336_dvp_actual_format_index(void)
 {
     int default_index = CONFIG_CAMERA_SC2336_DVP_IF_FORMAT_INDEX_DEFAULT;
-    for (size_t i = 0; i < ARRAY_SIZE(sc2336_dvp_format_index); i++) {
+    // Signed index + signed bound: sc2336_dvp_format_index[] is empty when no
+    // DVP format is enabled (this fork uses SC2336 over MIPI-CSI), and a
+    // size_t "i < 0" comparison would trip -Wtype-limits.
+    for (int i = 0; i < (int) ARRAY_SIZE(sc2336_dvp_format_index); i++) {
         if (sc2336_dvp_format_index[i] == default_index) {
             return i;
         }
@@ -1731,7 +1734,10 @@ static esp_err_t sc2336_query_support_formats(esp_cam_sensor_device_t *dev, esp_
 #if CONFIG_SOC_LCDCAM_CAM_SUPPORTED
     if (dev->sensor_port == ESP_CAM_SENSOR_DVP) {
         formats->count = ARRAY_SIZE(sc2336_format_info_dvp);
-        formats->format_array = &sc2336_format_info_dvp[0];
+        // Bare array name (not &arr[0]): sc2336_format_info_dvp[] is empty when
+        // no DVP format is enabled, and &arr[0] on a zero-length array trips
+        // -Warray-bounds. count is 0 here, so the pointer is never dereferenced.
+        formats->format_array = sc2336_format_info_dvp;
     }
 #endif
     return ESP_OK;
