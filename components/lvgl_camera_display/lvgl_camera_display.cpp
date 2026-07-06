@@ -242,28 +242,39 @@ void LVGLCameraDisplay::update_canvas_() {
   esp_cache_msync(img_data, frame_size,
                   ESP_CACHE_MSYNC_FLAG_DIR_M2C | ESP_CACHE_MSYNC_FLAG_TYPE_DATA);
 
-  // Optional: draw detection results if configured
+  // Optional: draw detection results if configured. Track whether anything
+  // actually wrote into the frame so we can skip the (expensive, full-frame)
+  // cache write-back below when no overlay was drawn.
+  bool overlay_drawn = false;
 #ifdef USE_FACE_DETECTION
   if (this->face_detection_ != nullptr) {
     this->face_detection_->draw_on_frame(img_data, width, height);
+    overlay_drawn = true;
   }
 #endif
 #ifdef USE_YOLO11_DETECTION
   if (this->yolo11_detection_ != nullptr) {
     this->yolo11_detection_->draw_on_frame(img_data, width, height);
+    overlay_drawn = true;
   }
 #endif
 #ifdef USE_PEDESTRIAN_DETECTION
   if (this->pedestrian_detection_ != nullptr) {
     this->pedestrian_detection_->draw_on_frame(img_data, width, height);
+    overlay_drawn = true;
   }
 #endif
 
   // ESP32-P4: Flush CPU cache to PSRAM after detection drawing.
   // Without this, PPA/DMA reads stale data from PSRAM (see LVGL PR #9162).
-  uint32_t buf_size_bytes = width * height * 2;
-  esp_cache_msync(img_data, buf_size_bytes,
-                  ESP_CACHE_MSYNC_FLAG_DIR_C2M | ESP_CACHE_MSYNC_FLAG_TYPE_DATA);
+  // Only needed when an overlay actually modified the buffer with the CPU;
+  // otherwise the CPU wrote nothing and flushing the whole frame is wasted
+  // work (a full-frame msync every frame).
+  if (overlay_drawn) {
+    uint32_t buf_size_bytes = width * height * 2;
+    esp_cache_msync(img_data, buf_size_bytes,
+                    ESP_CACHE_MSYNC_FLAG_DIR_C2M | ESP_CACHE_MSYNC_FLAG_TYPE_DATA);
+  }
 
   // Detect widget type on first update
   if (this->first_update_) {
