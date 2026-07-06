@@ -38,7 +38,13 @@ target_compile_definitions(${COMPONENT_LIB} PUBLIC
     CONFIG_CAMERA_SC202CS=1
     CONFIG_CAMERA_SC202CS_AUTO_DETECT=1
     CONFIG_CAMERA_SC202CS_AUTO_DETECT_MIPI_INTERFACE_SENSOR=1
-    CONFIG_CAMERA_SC202CS_MIPI_IF_FORMAT_INDEX_DEFAULT=0
+    # Probe/default format = index 1 = 1280x720 (the sensor's native default,
+    # see sc202cs.c). Index 0 is the 800x600 centered-crop mode; forcing 0 here
+    # made the sensor probe at 800x600 so a 1280x720 request was rejected by
+    # csi_video ("format width or height is invalid"). 800x600 still works: the
+    # component applies sc202cs_custom_format_800x600 via VIDIOC_S_SENSOR_FMT
+    # when that resolution is requested, so this only sets the fallback.
+    CONFIG_CAMERA_SC202CS_MIPI_IF_FORMAT_INDEX_DEFAULT=1
     CONFIG_CAMERA_SC202CS_ABSOLUTE_GAIN_LIMIT=63008
     CONFIG_CAMERA_SC202CS_ANA_GAIN_PRIORITY=0
     CONFIG_CAMERA_SC202CS_DIG_GAIN_PRIORITY=1
