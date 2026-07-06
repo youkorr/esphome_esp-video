@@ -26,7 +26,8 @@ list(APPEND srcs
     "src/embedded_ov5647_ipa_config_json.c"
     "src/embedded_ov02c10_ipa_config_json.c"
     "src/embedded_sc202cs_ipa_config_json.c"
-    "src/embedded_sc2336_ipa_config_json.c")
+    "src/embedded_sc2336_ipa_config_json.c"
+    "src/embedded_sc2356_ipa_config_json.c")
 
 idf_component_register(SRCS ${srcs}
                        INCLUDE_DIRS ${include_dirs}

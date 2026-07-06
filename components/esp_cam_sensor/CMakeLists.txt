@@ -7,12 +7,14 @@ set(srcs "src/esp_cam_sensor.c"
          "sensor/ov5647/ov5647.c"
          "sensor/sc202cs/sc202cs.c"
          "sensor/sc2336/sc2336.c"
+         "sensor/sc2356/sc2356.c"
          "sensor/ov02c10/ov02c10.c")
 
 set(include_dirs "include"
                  "sensor/ov5647/include"
                  "sensor/sc202cs/include"
                  "sensor/sc2336/include"
+                 "sensor/sc2356/include"
                  "sensor/ov02c10/include")
 
 set(priv_include_dirs "src"
@@ -21,6 +23,7 @@ set(priv_include_dirs "src"
                       "sensor/ov5647/private_include"
                       "sensor/sc202cs/include/private_include"
                       "sensor/sc2336/include/private_include"
+                      "sensor/sc2356/private_include"
                       "sensor/ov02c10/private_include")
 
 set(requires "esp_driver_i2c" "esp_driver_gpio" "esp_driver_ledc" "esp_driver_cam" "esp_sccb_intf" "esp_driver_spi")
@@ -94,9 +97,25 @@ target_compile_definitions(${COMPONENT_LIB} PUBLIC
     CONFIG_CAMERA_SC2336_MIPI_RAW10_640X480_50FPS=1
 )
 
+# SC2356 configuration (Seeed reTerminal-D1001). Shares SCCB address 0x36 with
+# SC202CS/SC2336; each detect() reads its own sensor ID so co-registration is
+# fine. Formats in sc2356_format_info[] are unconditional, so only the default
+# index needs to be set: index 0 = 1280x720 RAW8 (the driver's default).
+target_compile_definitions(${COMPONENT_LIB} PUBLIC
+    CONFIG_CAMERA_SC2356=1
+    CONFIG_CAMERA_SC2356_AUTO_DETECT=1
+    CONFIG_CAMERA_SC2356_AUTO_DETECT_MIPI_INTERFACE_SENSOR=1
+    CONFIG_CAMERA_SC2356_MIPI_IF_FORMAT_INDEX_DEFAULT=0
+    CONFIG_CAMERA_SC2356_ABSOLUTE_GAIN_LIMIT=63008
+    CONFIG_CAMERA_SC2356_ANA_GAIN_PRIORITY=0
+    CONFIG_CAMERA_SC2356_DIG_GAIN_PRIORITY=1
+    CONFIG_CAMERA_SC2356_MAX_SUPPORT=1
+)
+
 # Force linker to include sensor detection functions (prevent optimization)
 # These symbols are defined via ESP_CAM_SENSOR_DETECT_FN macro in sensor source files
 target_link_libraries(${COMPONENT_LIB} INTERFACE "-u esp_cam_sensor_detect_fn_sc202cs_detect_1")
 target_link_libraries(${COMPONENT_LIB} INTERFACE "-u esp_cam_sensor_detect_fn_ov5647_detect_1")
 target_link_libraries(${COMPONENT_LIB} INTERFACE "-u esp_cam_sensor_detect_fn_ov02c10_detect_1")
 target_link_libraries(${COMPONENT_LIB} INTERFACE "-u esp_cam_sensor_detect_fn_sc2336_detect_1")
+target_link_libraries(${COMPONENT_LIB} INTERFACE "-u esp_cam_sensor_detect_fn_sc2356_detect_1")

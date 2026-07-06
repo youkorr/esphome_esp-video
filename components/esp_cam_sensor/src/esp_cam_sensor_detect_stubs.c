@@ -13,6 +13,7 @@
 #include "sc202cs.h"
 #include "ov02c10.h"
 #include "sc2336.h"
+#include "sc2356.h"
 
 /**
  * @brief Camera sensor detection array - ESPHome/PlatformIO implementation
@@ -76,6 +77,12 @@ esp_cam_sensor_detect_fn_t __esp_cam_sensor_detect_fn_array_start[] = {
         .detect = (esp_cam_sensor_device_t *(*)(void *))sc2336_detect,
         .port = ESP_CAM_SENSOR_MIPI_CSI,
         .sccb_addr = SC2336_SCCB_ADDR
+    },
+    // Sensor 4: SC2356 (Seeed reTerminal-D1001, I2C addr 0x36)
+    {
+        .detect = (esp_cam_sensor_device_t *(*)(void *))sc2356_detect,
+        .port = ESP_CAM_SENSOR_MIPI_CSI,
+        .sccb_addr = SC2356_SCCB_ADDR
     },
 };
 
