@@ -126,6 +126,21 @@ static esp_cam_sensor_xclk_handle_t s_spi_xclk_handle[ESP_VIDEO_SPI_XCLK_NUM]; /
 #endif /* CONFIG_ESP_VIDEO_ENABLE_SPI_VIDEO_DEVICE */
 static const char *TAG = "esp_video_init";
 
+/* Preferred sensor name (from the ESPHome `sensor_type`), used to disambiguate
+ * sensors that share a SCCB address and chip ID (e.g. SC202CS vs SC2356, both
+ * PID 0xEB52 at 0x36). Set via esp_video_set_preferred_sensor() before
+ * esp_video_init(); empty means "accept the first detected sensor". */
+static char s_preferred_sensor[24] = {0};
+
+void esp_video_set_preferred_sensor(const char *name)
+{
+    if (name && name[0]) {
+        strlcpy(s_preferred_sensor, name, sizeof(s_preferred_sensor));
+    } else {
+        s_preferred_sensor[0] = '\0';
+    }
+}
+
 #if CONFIG_ESP_VIDEO_ENABLE_USB_UVC_VIDEO_DEVICE
 static void usb_lib_task(void *arg)
 {
@@ -496,6 +511,19 @@ esp_err_t esp_video_init(const esp_video_init_config_t *config)
 
             ESP_LOGE(TAG, "  Sensor detection SUCCEEDED! cam_dev->name=%s, cam_dev->id.pid=0x%x",
                      cam_dev->name ? cam_dev->name : "NULL", cam_dev->id.pid);
+
+            /* Disambiguate sensors that share the same chip ID (SC202CS/SC2356,
+             * both PID 0xEB52 at 0x36). If the user picked a specific sensor via
+             * ESPHome `sensor_type`, skip a match with a different name so the
+             * next detect function (the intended driver) gets a chance. */
+            if (s_preferred_sensor[0] && cam_dev->name &&
+                strcasecmp(cam_dev->name, s_preferred_sensor) != 0) {
+                ESP_LOGW(TAG, "  Detected '%s' but '%s' was selected (sensor_type) - skipping, trying next driver",
+                         cam_dev->name, s_preferred_sensor);
+                esp_cam_sensor_del_dev(cam_dev);
+                destroy_sccb_device(cfg.sccb_handle, sccb_mark, &config->csi->sccb_config);
+                continue;
+            }
 
             ESP_LOGW(TAG, "  Sensor detected successfully: %s (addr 0x%x)",
                      cam_dev->name ? cam_dev->name : "unknown", p->sccb_addr);

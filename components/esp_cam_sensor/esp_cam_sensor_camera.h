@@ -21,6 +21,11 @@ typedef struct {
 
 #endif
 
+// Provided by the esp_video component (C). Lets the detection in
+// esp_video_init() prefer the user-selected sensor when two drivers share a
+// chip ID (SC202CS vs SC2356, both PID 0xEB52 at address 0x36).
+extern "C" void esp_video_set_preferred_sensor(const char *name);
+
 namespace esphome {
 namespace esp_cam_sensor {
 
@@ -38,7 +43,12 @@ class MipiDSICamComponent : public Component {
   float get_setup_priority() const override { return setup_priority::DATA; }
   void dump_config() override;
 
-  void set_sensor_type(const std::string &s) { sensor_name_ = s; }
+  void set_sensor_type(const std::string &s) {
+    sensor_name_ = s;
+    // Runs before App.setup() (and thus before esp_video_init()), so the
+    // detection loop can honor this choice when SC202CS/SC2356 share a chip ID.
+    esp_video_set_preferred_sensor(s.c_str());
+  }
   void set_i2c_id(int id) { i2c_id_ = id; i2c_bus_name_.clear(); }
   void set_i2c_id(const std::string &bus_name) {
     i2c_bus_name_ = bus_name;

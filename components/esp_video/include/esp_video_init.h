@@ -227,6 +227,22 @@ esp_err_t esp_video_deinit(void);
  */
 esp_err_t esp_video_reconfigure_isp_pipeline(const char *sensor_name);
 
+/**
+ * @brief Select which sensor esp_video_init() should bind to when several
+ *        drivers share the same SCCB address and chip ID.
+ *
+ * Some sensors are electrically indistinguishable: SC202CS and SC2356 are the
+ * same silicon (PID 0xEB52 at address 0x36), so auto-detection cannot tell
+ * them apart and would always pick whichever driver is first in the detection
+ * array. Call this with the name chosen by the user (the ESPHome
+ * `sensor_type`, case-insensitive, e.g. "SC2356") BEFORE esp_video_init(): a
+ * detected sensor whose name differs from this preference is skipped so the
+ * intended driver is used. Pass NULL/"" to disable the preference (default).
+ *
+ * @param[in] name Preferred sensor name, or NULL to accept the first detected.
+ */
+void esp_video_set_preferred_sensor(const char *name);
+
 #ifdef __cplusplus
 }
 #endif
