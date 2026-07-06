@@ -1,16 +1,11 @@
 menu "Espressif Camera Sensors Configurations"
 
-    rsource "sensors/bf3925/Kconfig.bf3925"
-    rsource "sensors/gc0308/Kconfig.gc0308"
-    rsource "sensors/gc2145/Kconfig.gc2145"
-    rsource "sensors/ov2640/Kconfig.ov2640"
-    rsource "sensors/ov2710/Kconfig.ov2710"
-    rsource "sensors/ov5645/Kconfig.ov5645"
-    rsource "sensors/ov5647/Kconfig.ov5647"
-    rsource "sensors/sc030iot/Kconfig.sc030iot"
-    rsource "sensors/sc035hgs/Kconfig.sc035hgs"
-    rsource "sensors/sc101iot/Kconfig.sc101iot"
-    rsource "sensors/sc202cs/Kconfig.sc202cs"
-    rsource "sensors/sc2336/Kconfig.sc2336"
-    
+    # MIGRATION ESPHome 2026.7 (IDF natif): esp_cam_sensor est un vrai composant IDF,
+    # son Kconfig est donc traité. Le fork n'embarque que 4 capteurs, rangés sous
+    # sensor/ (singulier). On ne référence que ceux réellement présents.
+    rsource "sensor/ov5647/Kconfig.ov5647"
+    rsource "sensor/sc202cs/Kconfig.sc202cs"
+    rsource "sensor/sc2336/Kconfig.sc2336"
+    rsource "sensor/ov02c10/Kconfig.ov02c10"
+
 endmenu

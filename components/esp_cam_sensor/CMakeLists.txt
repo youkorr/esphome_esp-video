@@ -1,6 +1,7 @@
 set(srcs "src/esp_cam_sensor.c"
          "src/esp_cam_motor.c"
          "src/esp_cam_sensor_xclk.c"
+         "src/esp_cam_sensor_detect_stubs.c"
          "src/driver_spi/spi_slave.c"
          "src/driver_cam/esp_cam_ctlr_spi_cam.c"
          "sensor/ov5647/ov5647.c"
@@ -22,7 +23,7 @@ set(priv_include_dirs "src"
                       "sensor/sc2336/include/private_include"
                       "sensor/ov02c10/private_include")
 
-set(requires "esp_driver_i2c" "esp_driver_gpio" "esp_driver_ledc" "esp_driver_cam")
+set(requires "esp_driver_i2c" "esp_driver_gpio" "esp_driver_ledc" "esp_driver_cam" "esp_sccb_intf" "esp_driver_spi")
 set(priv_requires "spi_flash" "driver")
 
 idf_component_register(SRCS ${srcs}
@@ -73,6 +74,7 @@ target_compile_definitions(${COMPONENT_LIB} PUBLIC
     CONFIG_CAMERA_SC2336_AUTO_DETECT=1
     CONFIG_CAMERA_SC2336_AUTO_DETECT_MIPI_INTERFACE_SENSOR=1
     CONFIG_CAMERA_SC2336_MIPI_IF_FORMAT_INDEX_DEFAULT=0
+    CONFIG_CAMERA_SC2336_DVP_IF_FORMAT_INDEX_DEFAULT=0
     CONFIG_CAMERA_SC2336_CSI_LINESYNC_ENABLE=0
     CONFIG_CAMERA_SC2336_ABSOLUTE_GAIN_LIMIT=63008
     CONFIG_CAMERA_SC2336_ANA_GAIN_PRIORITY=0

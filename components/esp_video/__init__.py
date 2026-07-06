@@ -166,6 +166,18 @@ async def to_code(config):
     cg.add(var.set_enable_uvc(config[CONF_ENABLE_UVC]))
     cg.add(var.set_manage_usb_host(config[CONF_MANAGE_USB_HOST]))
 
+    # ESPHome 2026.7+ (build ESP-IDF natif, sans PlatformIO) : le script SCons
+    # esp_video_build.py ne tourne plus et cg.add_build_flag("-I...") ne se propage
+    # plus (seuls -D/-W passent). On enregistre donc esp_video / esp_cam_sensor /
+    # esp_ipa / esp_sccb_intf comme de VRAIS composants ESP-IDF locaux : leurs
+    # CMakeLists compilent le cœur et exposent leurs include dirs, et le composant
+    # `src` d'ESPHome (qui contient les wrappers .cpp) en hérite via idf_component.yml.
+    _components_dir = os.path.dirname(component_dir)
+    for _idf_comp in ("esp_sccb_intf", "esp_ipa", "esp_cam_sensor", "esp_video"):
+        _cpath = os.path.join(_components_dir, _idf_comp)
+        if os.path.isdir(_cpath):
+            esp32.add_idf_component(name=_idf_comp, path=_cpath)
+
     # USB-UVC host: pull Espressif's USB Host UVC driver (native 2.x API, P4
     # support) which also provides the esp_private/uvc_esp_video.h glue the
     # esp_video UVC device driver builds against. Only when enabled, so MIPI-only
