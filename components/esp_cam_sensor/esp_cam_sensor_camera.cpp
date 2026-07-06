@@ -910,6 +910,17 @@ bool MipiDSICamComponent::start_streaming() {
     } else if (width == 1920 && height == 1080) {
       custom_format = &ov02c10_format_1920x1080_raw10_30fps;
       ESP_LOGI(TAG, "Using NATIVE format: 1920x1080 RAW10 @ 30fps (1080P - Full Sensor)");
+    } else if (width == 1288 && height == 728) {
+      // 1288x728 is the driver's default format index. Historically we skipped
+      // VIDIOC_S_SENSOR_FMT here ("native, no custom format needed") and relied
+      // on the sensor being pre-programmed at probe time. That assumption no
+      // longer holds: probe only sets cur_format (the pointer), it does not
+      // write the 1288x728 register array to the sensor, so the sensor never
+      // actually streams and VIDIOC_DQBUF stays EAGAIN forever (black screen).
+      // Apply the format explicitly, exactly like every other OV02C10 mode.
+      // It matches the boot-time ISP pipeline format, so no ISP re-init needed.
+      custom_format = &ov02c10_format_1288x728_raw10_30fps;
+      ESP_LOGI(TAG, "Using NATIVE format: 1288x728 RAW10 @ 30fps (HD - default index)");
     }
 
     // Appliquer le format custom via VIDIOC_S_SENSOR_FMT
