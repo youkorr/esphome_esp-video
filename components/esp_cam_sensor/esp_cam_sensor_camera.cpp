@@ -587,8 +587,8 @@ bool MipiDSICamComponent::capture_snapshot_to_file(const std::string &path) {
   }
 
   ESP_LOGI(TAG, "Format actuel: %ux%u, fourcc=0x%08X, sizeimage=%u",
-           fmt.fmt.pix.width, fmt.fmt.pix.height,
-           fmt.fmt.pix.pixelformat, fmt.fmt.pix.sizeimage);
+           (unsigned) fmt.fmt.pix.width, (unsigned) fmt.fmt.pix.height,
+           (unsigned) fmt.fmt.pix.pixelformat, (unsigned) fmt.fmt.pix.sizeimage);
 
   // 3. Demander 2 buffers en mode MMAP
   struct v4l2_requestbuffers req;
@@ -604,7 +604,7 @@ bool MipiDSICamComponent::capture_snapshot_to_file(const std::string &path) {
     return false;
   }
 
-  ESP_LOGI(TAG, "%u buffers alloués", req.count);
+  ESP_LOGI(TAG, "%u buffers alloués", (unsigned) req.count);
 
   // 4. Mapper et queuer les buffers
   struct {
@@ -643,7 +643,7 @@ bool MipiDSICamComponent::capture_snapshot_to_file(const std::string &path) {
       return false;
     }
 
-    ESP_LOGI(TAG, "Buffer[%u] mappé: %u octets @ %p", i, buf.length, buffers[i].start);
+    ESP_LOGI(TAG, "Buffer[%u] mappé: %u octets @ %p", i, (unsigned) buf.length, buffers[i].start);
 
     // Mettre le buffer dans la queue
     if (ioctl(fd, VIDIOC_QBUF, &buf) < 0) {
@@ -698,7 +698,7 @@ bool MipiDSICamComponent::capture_snapshot_to_file(const std::string &path) {
   }
 
   ESP_LOGI(TAG, "Frame capturée: %u octets (buffer index=%u, sequence=%u)",
-           buf.bytesused, buf.index, buf.sequence);
+           (unsigned) buf.bytesused, (unsigned) buf.index, (unsigned) buf.sequence);
 
   // 7. Créer le répertoire si nécessaire
   std::string dir = path.substr(0, path.find_last_of('/'));
@@ -727,7 +727,7 @@ bool MipiDSICamComponent::capture_snapshot_to_file(const std::string &path) {
 
   if (written != buf.bytesused) {
     ESP_LOGW(TAG, "Écriture incomplète (%u / %u octets)",
-             (unsigned)written, buf.bytesused);
+             (unsigned)written, (unsigned) buf.bytesused);
   }
 
   // 9. Arrêter le streaming
@@ -846,7 +846,7 @@ bool MipiDSICamComponent::start_streaming() {
         }
       }
     } else {
-      ESP_LOGE(TAG, "No native OV5647 format matches %ux%u. Supported sizes:", width, height);
+      ESP_LOGE(TAG, "No native OV5647 format matches %ux%u. Supported sizes:", (unsigned) width, (unsigned) height);
       for (size_t i = 0; i < format_count; i++) {
         ESP_LOGE(TAG, "  - %ux%u @ %ufps (%s)",
                  natives[i].width, natives[i].height, natives[i].fps, natives[i].name);
@@ -930,12 +930,12 @@ bool MipiDSICamComponent::start_streaming() {
         ESP_LOGE(TAG, "Custom format not supported, falling back to standard format");
       } else {
         ESP_LOGI(TAG, "Custom format applied successfully!");
-        ESP_LOGI(TAG, "   Sensor registers configured for native %ux%u", width, height);
+        ESP_LOGI(TAG, "   Sensor registers configured for native %ux%u", (unsigned) width, (unsigned) height);
         // Update width/height to match format's actual output dimensions
         // (important for rotated formats where output != input)
         width = custom_format->width;
         height = custom_format->height;
-        ESP_LOGI(TAG, "   Actual output dimensions after rotation: %ux%u", width, height);
+        ESP_LOGI(TAG, "   Actual output dimensions after rotation: %ux%u", (unsigned) width, (unsigned) height);
       }
     }
   }
@@ -987,7 +987,7 @@ bool MipiDSICamComponent::start_streaming() {
       break;
     }
     if (frmsize.type == V4L2_FRMSIZE_TYPE_DISCRETE) {
-      ESP_LOGI(TAG, "  Size[%d]: %ux%u", i, frmsize.discrete.width, frmsize.discrete.height);
+      ESP_LOGI(TAG, "  Size[%d]: %ux%u", i, (unsigned) frmsize.discrete.width, (unsigned) frmsize.discrete.height);
       if (frmsize.discrete.width == width && frmsize.discrete.height == height) {
         size_found = true;
       }
@@ -1005,16 +1005,16 @@ bool MipiDSICamComponent::start_streaming() {
         break;
       }
       if (frmsize.type == V4L2_FRMSIZE_TYPE_DISCRETE) {
-        ESP_LOGI(TAG, "  RAW8 Size[%d]: %ux%u", i, frmsize.discrete.width, frmsize.discrete.height);
+        ESP_LOGI(TAG, "  RAW8 Size[%d]: %ux%u", i, (unsigned) frmsize.discrete.width, (unsigned) frmsize.discrete.height);
         if (frmsize.discrete.width == width && frmsize.discrete.height == height) {
           size_found = true;
-          ESP_LOGI(TAG, "Found RAW8 %ux%u - ISP will convert to RGB565", width, height);
+          ESP_LOGI(TAG, "Found RAW8 %ux%u - ISP will convert to RGB565", (unsigned) width, (unsigned) height);
         }
       } else if (frmsize.type == V4L2_FRMSIZE_TYPE_STEPWISE) {
         ESP_LOGI(TAG, "  RAW8 Stepwise: %ux%u to %ux%u (step %ux%u)",
-                 frmsize.stepwise.min_width, frmsize.stepwise.min_height,
-                 frmsize.stepwise.max_width, frmsize.stepwise.max_height,
-                 frmsize.stepwise.step_width, frmsize.stepwise.step_height);
+                 (unsigned) frmsize.stepwise.min_width, (unsigned) frmsize.stepwise.min_height,
+                 (unsigned) frmsize.stepwise.max_width, (unsigned) frmsize.stepwise.max_height,
+                 (unsigned) frmsize.stepwise.step_width, (unsigned) frmsize.stepwise.step_height);
       }
     }
   }
@@ -1030,23 +1030,23 @@ bool MipiDSICamComponent::start_streaming() {
         break;
       }
       if (frmsize.type == V4L2_FRMSIZE_TYPE_DISCRETE) {
-        ESP_LOGI(TAG, "  RAW10 Size[%d]: %ux%u", i, frmsize.discrete.width, frmsize.discrete.height);
+        ESP_LOGI(TAG, "  RAW10 Size[%d]: %ux%u", i, (unsigned) frmsize.discrete.width, (unsigned) frmsize.discrete.height);
         if (frmsize.discrete.width == width && frmsize.discrete.height == height) {
           size_found = true;
-          ESP_LOGI(TAG, "Found RAW10 %ux%u - ISP will convert to RGB565", width, height);
+          ESP_LOGI(TAG, "Found RAW10 %ux%u - ISP will convert to RGB565", (unsigned) width, (unsigned) height);
         }
       } else if (frmsize.type == V4L2_FRMSIZE_TYPE_STEPWISE) {
         ESP_LOGI(TAG, "  RAW10 Stepwise: %ux%u to %ux%u (step %ux%u)",
-                 frmsize.stepwise.min_width, frmsize.stepwise.min_height,
-                 frmsize.stepwise.max_width, frmsize.stepwise.max_height,
-                 frmsize.stepwise.step_width, frmsize.stepwise.step_height);
+                 (unsigned) frmsize.stepwise.min_width, (unsigned) frmsize.stepwise.min_height,
+                 (unsigned) frmsize.stepwise.max_width, (unsigned) frmsize.stepwise.max_height,
+                 (unsigned) frmsize.stepwise.step_width, (unsigned) frmsize.stepwise.step_height);
       }
     }
   }
 
 
   if (!size_found) {
-    ESP_LOGD(TAG, "Requested size %ux%u not found in supported list", width, height);
+    ESP_LOGD(TAG, "Requested size %ux%u not found in supported list", (unsigned) width, (unsigned) height);
     ESP_LOGD(TAG, "Trying to set anyway (driver may adjust)...");
   }
 
@@ -1069,12 +1069,12 @@ bool MipiDSICamComponent::start_streaming() {
       fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
       if (ioctl(this->video_fd_, VIDIOC_G_FMT, &fmt) == 0) {
         ESP_LOGI(TAG, "Driver format: %ux%u, sizeimage=%u",
-                 fmt.fmt.pix.width, fmt.fmt.pix.height, fmt.fmt.pix.sizeimage);
+                 (unsigned) fmt.fmt.pix.width, (unsigned) fmt.fmt.pix.height, (unsigned) fmt.fmt.pix.sizeimage);
         // Use the custom format dimensions
         fmt.fmt.pix.width = width;
         fmt.fmt.pix.height = height;
         fmt.fmt.pix.sizeimage = width * height * 2; // RGB565 = 2 bytes per pixel
-        ESP_LOGI(TAG, "Using custom format dimensions: %ux%u", width, height);
+        ESP_LOGI(TAG, "Using custom format dimensions: %ux%u", (unsigned) width, (unsigned) height);
       } else {
         // Fallback: calculate sizeimage manually
         fmt.fmt.pix.width = width;
@@ -1084,7 +1084,7 @@ bool MipiDSICamComponent::start_streaming() {
       }
     } else {
       ESP_LOGE(TAG, "VIDIOC_S_FMT failed: %s", strerror(errno));
-      ESP_LOGE(TAG, "Requested: %ux%u RGB565", width, height);
+      ESP_LOGE(TAG, "Requested: %ux%u RGB565", (unsigned) width, (unsigned) height);
       ESP_LOGE(TAG, "This may indicate:");
       ESP_LOGE(TAG, "  1. Sensor %s doesn't support this resolution in RGB565", this->sensor_name_.c_str());
       ESP_LOGE(TAG, "  2. ESP-IDF 5.4.2+ has stricter format validation");
@@ -1185,7 +1185,7 @@ bool MipiDSICamComponent::start_streaming() {
     return false;
   }
 
-  ESP_LOGI(TAG, "V4L2 USERPTR mode: %u buffers requested", req.count);
+  ESP_LOGI(TAG, "V4L2 USERPTR mode: %u buffers requested", (unsigned) req.count);
 
   // 5. Queuer les buffers avec nos pointeurs SPIRAM
   for (int i = 0; i < NUM_BUFFERS; i++) {
@@ -1209,7 +1209,7 @@ bool MipiDSICamComponent::start_streaming() {
       return false;
     }
     ESP_LOGI(TAG, "  Buffer[%u] queued: userptr=%p, length=%u",
-             i, (void*)buf.m.userptr, buf.length);
+             i, (void*)buf.m.userptr, (unsigned) buf.length);
   }
 
   // 8. DÉMARRER LE STREAMING
@@ -1399,7 +1399,7 @@ bool MipiDSICamComponent::capture_frame() {
              this->image_buffer_size_, this->image_width_, this->image_height_);
     ESP_LOGI(TAG, "   SPIRAM buffer: %p (index=%d)", frame_data, buffer_idx);
     ESP_LOGI(TAG, "   Timing: DQBUF=%uus, PPA=%uus",
-             (uint32_t)(t2-t1), (uint32_t)(t4-t3));
+             (unsigned)(t2-t1), (unsigned)(t4-t3));
     ESP_LOGI(TAG, "   First pixels (RGB565): %02X%02X %02X%02X %02X%02X",
              frame_data[0], frame_data[1],
              frame_data[2], frame_data[3],
@@ -1616,7 +1616,7 @@ bool MipiDSICamComponent::start_streaming_uvc_() {
   fmt.fmt.pix.pixelformat = chosen;
   fmt.fmt.pix.field = V4L2_FIELD_NONE;
   if (ioctl(this->video_fd_, VIDIOC_S_FMT, &fmt) < 0) {
-    ESP_LOGE(TAG, "UVC: VIDIOC_S_FMT %ux%u %.4s a échoué: %s", width, height,
+    ESP_LOGE(TAG, "UVC: VIDIOC_S_FMT %ux%u %.4s a échoué: %s", (unsigned) width, (unsigned) height,
              (const char *) &chosen, strerror(errno));
     cleanup();
     return false;
