@@ -3,6 +3,8 @@ import esphome.config_validation as cv
 from esphome.components import i2c
 from esphome.const import CONF_ID
 from esphome import automation
+import os
+import logging
 
 # Dépendances requises
 DEPENDENCIES = ["esp_video"]
@@ -37,6 +39,8 @@ CONF_OUTPUT_WIDTH = "output_width"    # Hardware PPA resize output (0 = no resiz
 CONF_OUTPUT_HEIGHT = "output_height"  # Hardware PPA resize output
 CONF_PPA_ENABLED = "ppa_enabled"      # Explicit PPA enable/disable (overrides auto-detection)
 CONF_FILENAME = "filename"
+CONF_SOURCE = "source"            # "mipi_csi" (défaut) ou "uvc" (caméra USB externe)
+CONF_DEVICE_PATH = "device_path"  # Override du nœud V4L2 (vide = auto selon la source)
 CONF_RGB_GAINS = "rgb_gains"
 CONF_RED_GAIN = "red"
 CONF_GREEN_GAIN = "green"
@@ -82,6 +86,12 @@ CONFIG_SCHEMA = cv.All(
         cv.Optional(CONF_SENSOR_ADDR, default=0x36): cv.hex_int,
         cv.Optional(CONF_RESOLUTION, default="720P"): cv.string,
         cv.Optional(CONF_PIXEL_FORMAT, default="JPEG"): cv.string,
+        # Source de capture: capteur MIPI-CSI interne (défaut) ou caméra USB UVC externe
+        cv.Optional(CONF_SOURCE, default="mipi_csi"): cv.one_of(
+            "mipi_csi", "uvc", lower=True
+        ),
+        # Nœud V4L2 explicite (ex: "/dev/video40"). Vide = choix auto selon `source`
+        cv.Optional(CONF_DEVICE_PATH, default=""): cv.string,
         cv.Optional(CONF_FRAMERATE, default=30): cv.int_range(min=1, max=60),
         cv.Optional(CONF_JPEG_QUALITY, default=10): cv.int_range(min=1, max=63),
         # Options obsolètes (acceptées mais ignorées)
@@ -123,6 +133,8 @@ async def to_code(config):
     cg.add(var.set_sensor_addr(config[CONF_SENSOR_ADDR]))
     cg.add(var.set_resolution(config[CONF_RESOLUTION]))
     cg.add(var.set_pixel_format(config[CONF_PIXEL_FORMAT]))
+    cg.add(var.set_source(config[CONF_SOURCE]))
+    cg.add(var.set_device_path(config[CONF_DEVICE_PATH]))
     cg.add(var.set_framerate(config[CONF_FRAMERATE]))
     cg.add(var.set_jpeg_quality(config[CONF_JPEG_QUALITY]))
 
@@ -153,6 +165,29 @@ async def to_code(config):
             rgb_config[CONF_GREEN_GAIN],
             rgb_config[CONF_BLUE_GAIN]
         ))
+
+    # -----------------------------------------------------------------------
+    # Filet de sécurité include dirs.
+    # esp_cam_sensor_camera.cpp inclut des headers d'esp_video (esp_video_init.h,
+    # esp_video_device.h, sys/mman.h vendu par esp_video, linux/videodev2.h),
+    # tous situés dans components/esp_video/include/. Normalement esp_video
+    # (DEPENDENCIES) ajoute déjà ces `-I` globalement, mais on les ré-ajoute ici
+    # pour ne pas dépendre de l'ordre/scoping du to_code d'esp_video — sinon la
+    # compilation échoue sur `sys/mman.h: No such file` avant le code métier.
+    # -----------------------------------------------------------------------
+    _this_dir = os.path.dirname(__file__)
+    _components_dir = os.path.dirname(_this_dir)
+    for _rel in ["esp_video/include", "esp_video/private_include",
+                 "esp_cam_sensor/include", "esp_ipa/include", "esp_sccb_intf/include"]:
+        _inc = os.path.abspath(os.path.join(_components_dir, _rel))
+        if os.path.isdir(_inc):
+            cg.add_build_flag(f"-I{_inc}")
+            logging.info(f"[esp_cam_sensor] include dir: {_inc}")
+        elif _rel == "esp_video/include":
+            logging.error(
+                f"[esp_cam_sensor] MISSING required include dir: {_inc} "
+                f"(la compilation va échouer sur esp_video_init.h / sys/mman.h)"
+            )
 
     # Build flags pour ESP32-P4 avec ESP-IDF 5.x
     cg.add_build_flag("-DBOARD_HAS_PSRAM")

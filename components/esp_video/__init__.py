@@ -7,6 +7,7 @@ Ce composant initialise ESP-Video en utilisant le bus I2C d'ESPHome.
 
 import esphome.codegen as cg
 import esphome.config_validation as cv
+import esphome.final_validate as fv
 from esphome.components import i2c, esp32
 from esphome.const import CONF_ID, CONF_I2C_ID
 import os
@@ -23,6 +24,7 @@ ESPVideoComponent = esp_video_ns.class_("ESPVideoComponent", cg.Component)
 CONF_ENABLE_JPEG = "enable_jpeg"
 CONF_ENABLE_ISP = "enable_isp"
 CONF_ENABLE_UVC = "enable_uvc"
+CONF_MANAGE_USB_HOST = "manage_usb_host"
 CONF_USE_HEAP_ALLOCATOR = "use_heap_allocator"
 CONF_XCLK_PIN = "xclk_pin"
 CONF_XCLK_FREQ = "xclk_freq"
@@ -57,6 +59,15 @@ def validate_esp_video_config(config):
     return config
 
 
+# Compat ESPHome: cv.only_with_esp_idf a été retiré des versions récentes
+# d'ESPHome (2026.x). On le réutilise s'il existe, sinon on retombe sur un
+# no-op (le composant impose déjà esp-idf via DEPENDENCIES=["esp32"] + framework).
+_only_with_esp_idf = getattr(cv, "only_with_esp_idf", None)
+if _only_with_esp_idf is None:
+    def _only_with_esp_idf(value):
+        return value
+
+
 CONFIG_SCHEMA = cv.All(
     cv.Schema({
         cv.GenerateID(): cv.declare_id(ESPVideoComponent),
@@ -68,6 +79,13 @@ CONFIG_SCHEMA = cv.All(
         # USB host stack + UVC host driver are compiled in and started, and a
         # connected UVC camera is enumerated as a /dev/videoN V4L2 device.
         cv.Optional(CONF_ENABLE_UVC, default=False): cv.boolean,
+        # manage_usb_host: qui possède la pile USB Host ?
+        #   true  (défaut) -> esp_video l'installe lui-même (init_usb_host_lib=true).
+        #   false          -> le composant ESPHome `usb_host` la possède ; esp_video
+        #                     s'y greffe (coexistence / hot-swap). Dans ce cas un bloc
+        #                     `usb_host:` est OBLIGATOIRE (vérifié en validation finale),
+        #                     sinon l'install UVC échoue silencieusement au runtime.
+        cv.Optional(CONF_MANAGE_USB_HOST, default=True): cv.boolean,
         cv.Optional(CONF_USE_HEAP_ALLOCATOR, default=True): cv.boolean,
         # XCLK pin accepte: "GPIO36", 36, -1, ou "NO_CLOCK"
         cv.Optional(CONF_XCLK_PIN, default="GPIO36"): cv.Any(cv.string, cv.int_range(min=-1, max=48)),
@@ -75,9 +93,29 @@ CONFIG_SCHEMA = cv.All(
         # Enable XCLK initialization via LEDC (for non-M5Stack boards)
         cv.Optional(CONF_ENABLE_XCLK_INIT, default=False): cv.boolean,
     }).extend(cv.COMPONENT_SCHEMA),
-    cv.only_with_esp_idf,
+    _only_with_esp_idf,
     validate_esp_video_config
 )
+
+
+def _final_validate_usb_host(config):
+    """Garde-fou (#4): `manage_usb_host: false` n'a de sens que si un autre
+    composant possède la pile USB Host. Sans bloc `usb_host:`, `uvc_host_install`
+    échouerait silencieusement au runtime — on transforme ça en erreur de config."""
+    if config.get(CONF_ENABLE_UVC) and not config.get(CONF_MANAGE_USB_HOST, True):
+        full_config = fv.full_config.get()
+        if "usb_host" not in full_config:
+            raise cv.Invalid(
+                "esp_video: `manage_usb_host: false` exige qu'un composant `usb_host:` "
+                "soit présent dans la configuration (il possède la pile USB Host que "
+                "esp_video doit partager pour la caméra UVC). Ajoutez un bloc `usb_host:`, "
+                "ou repassez sur `manage_usb_host: true` pour qu'esp_video gère lui-même "
+                "la pile USB Host."
+            )
+    return config
+
+
+FINAL_VALIDATE_SCHEMA = _final_validate_usb_host
 
 
 async def to_code(config):
@@ -126,6 +164,19 @@ async def to_code(config):
     cg.add(var.set_xclk_freq(xclk_freq))
     cg.add(var.set_enable_xclk_init(config[CONF_ENABLE_XCLK_INIT]))
     cg.add(var.set_enable_uvc(config[CONF_ENABLE_UVC]))
+    cg.add(var.set_manage_usb_host(config[CONF_MANAGE_USB_HOST]))
+
+    # ESPHome 2026.7+ (build ESP-IDF natif, sans PlatformIO) : le script SCons
+    # esp_video_build.py ne tourne plus et cg.add_build_flag("-I...") ne se propage
+    # plus (seuls -D/-W passent). On enregistre donc esp_video / esp_cam_sensor /
+    # esp_ipa / esp_sccb_intf comme de VRAIS composants ESP-IDF locaux : leurs
+    # CMakeLists compilent le cœur et exposent leurs include dirs, et le composant
+    # `src` d'ESPHome (qui contient les wrappers .cpp) en hérite via idf_component.yml.
+    _components_dir = os.path.dirname(component_dir)
+    for _idf_comp in ("esp_sccb_intf", "esp_ipa", "esp_cam_sensor", "esp_video"):
+        _cpath = os.path.join(_components_dir, _idf_comp)
+        if os.path.isdir(_cpath):
+            esp32.add_idf_component(name=_idf_comp, path=_cpath)
 
     # USB-UVC host: pull Espressif's USB Host UVC driver (native 2.x API, P4
     # support) which also provides the esp_private/uvc_esp_video.h glue the
@@ -150,45 +201,65 @@ async def to_code(config):
 
     # -----------------------------------------------------------------------
     # Ajout des répertoires include
+    #
+    # NOTE BUILD: les .cpp wrappers ESPHome (esp_video_component.cpp,
+    # esp_cam_sensor_camera.cpp) sont compilés dans le composant `src` d'ESPHome
+    # et n'ont PAS automatiquement accès aux dossiers `include/` de ces
+    # composants (contrairement à un vrai composant IDF qui exporte INCLUDE_DIRS).
+    # On ajoute donc les `-I` à la main. esp_video/include contient des headers
+    # CRITIQUES, dont le sys/mman.h vendu par esp_video (l'IDF n'en fournit pas
+    # pour le mmap V4L2) et esp_video_init.h. Si ces `-I` manquent, la
+    # compilation échoue sur `sys/mman.h: No such file` / `esp_video_init.h: No
+    # such file` AVANT même d'atteindre le code métier.
     # -----------------------------------------------------------------------
-    includes_found = False
+    added_includes = []
 
-    # esp_video
-    esp_video_includes = ["include", "private_include", "src"]
-    for inc in esp_video_includes:
-        inc_path = os.path.join(component_dir, inc)
-        if os.path.exists(inc_path):
+    def _add_include(base_dir, sub, required=False):
+        inc_path = os.path.abspath(os.path.join(base_dir, sub))
+        if os.path.isdir(inc_path):
             cg.add_build_flag(f"-I{inc_path}")
-            includes_found = True
+            added_includes.append(inc_path)
+            logging.info(f"[ESP-Video] include dir: {inc_path}")
+            return True
+        if required:
+            logging.error(
+                f"[ESP-Video] MISSING required include dir: {inc_path} "
+                f"(la compilation des wrappers ESPHome va échouer sur les headers "
+                f"esp_video/sys/mman.h). Vérifiez la structure du composant."
+            )
+        return False
+
+    # esp_video (CRITIQUE: include doit toujours être présent)
+    _add_include(component_dir, "include", required=True)
+    _add_include(component_dir, "private_include")
+    _add_include(component_dir, "src")
 
     # esp_cam_sensor
     esp_cam_sensor_dir = os.path.join(parent_components_dir, "esp_cam_sensor")
-    if os.path.exists(esp_cam_sensor_dir):
-        for inc in ["include", "sensor/ov5647/include", "sensor/sc202cs/include", "sensor/ov02c10/include", "src", "src/driver_spi", "src/driver_cam"]:
-            inc_path = os.path.join(esp_cam_sensor_dir, inc)
-            if os.path.exists(inc_path):
-                cg.add_build_flag(f"-I{inc_path}")
-                includes_found = True
+    for inc in ["include", "sensor/ov5647/include", "sensor/sc202cs/include",
+                "sensor/ov02c10/include", "src", "src/driver_spi", "src/driver_cam"]:
+        _add_include(esp_cam_sensor_dir, inc)
 
     # esp_ipa
     esp_ipa_dir = os.path.join(parent_components_dir, "esp_ipa")
-    if os.path.exists(esp_ipa_dir):
-        for inc in ["include", "src"]:
-            inc_path = os.path.join(esp_ipa_dir, inc)
-            if os.path.exists(inc_path):
-                cg.add_build_flag(f"-I{inc_path}")
-                includes_found = True
+    for inc in ["include", "src"]:
+        _add_include(esp_ipa_dir, inc)
 
     # esp_sccb_intf
     esp_sccb_intf_dir = os.path.join(parent_components_dir, "esp_sccb_intf")
-    if os.path.exists(esp_sccb_intf_dir):
-        for inc in ["include", "interface", "sccb_i2c/include"]:
-            inc_path = os.path.join(esp_sccb_intf_dir, inc)
-            if os.path.exists(inc_path):
-                cg.add_build_flag(f"-I{inc_path}")
-                includes_found = True
+    for inc in ["include", "interface", "sccb_i2c/include"]:
+        _add_include(esp_sccb_intf_dir, inc)
 
-    if not includes_found:
+    # Garde-fou : vérifier que les headers réellement requis sont atteignables.
+    _critical_headers = ["esp_video_init.h", "esp_video_device.h", "sys/mman.h"]
+    for header in _critical_headers:
+        if not any(os.path.isfile(os.path.join(d, header)) for d in added_includes):
+            logging.error(
+                f"[ESP-Video] header introuvable sur les chemins d'include: '{header}'. "
+                f"Chemins ajoutés: {added_includes or '(aucun)'}"
+            )
+
+    if not added_includes:
         logging.warning(
             "[ESP-Video] No include directories found! "
             "Check ESP-Video component structure."

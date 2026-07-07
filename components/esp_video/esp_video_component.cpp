@@ -77,7 +77,7 @@ static void esp_video_init_task_core0(void *param) {
  * @return ESP_OK on success, error code otherwise
  */
 static esp_err_t init_xclk_ledc(gpio_num_t gpio_num, uint32_t freq_hz) {
-  ESP_LOGI(TAG, "🔧 Initializing XCLK via LEDC on GPIO%d @ %u Hz", gpio_num, freq_hz);
+  ESP_LOGI(TAG, "🔧 Initializing XCLK via LEDC on GPIO%d @ %u Hz", gpio_num, (unsigned) freq_hz);
 
   // Configure LEDC timer for XCLK generation (matching M5Stack's implementation)
   ledc_timer_config_t timer_conf = {};
@@ -110,7 +110,7 @@ static esp_err_t init_xclk_ledc(gpio_num_t gpio_num, uint32_t freq_hz) {
   }
 
   ESP_LOGI(TAG, "XCLK initialized successfully via LEDC");
-  ESP_LOGI(TAG, "   GPIO%d now outputs %u Hz clock signal", gpio_num, freq_hz);
+  ESP_LOGI(TAG, "   GPIO%d now outputs %u Hz clock signal", gpio_num, (unsigned) freq_hz);
   ESP_LOGI(TAG, "   Sensor can now respond on I2C during detection");
 
   return ESP_OK;
@@ -192,7 +192,7 @@ void ESPVideoComponent::setup() {
   // M5Stack Tab5 BSP already initializes XCLK, so this should be disabled for M5Stack
   if (this->enable_xclk_init_ && this->xclk_pin_ != (gpio_num_t)-1) {
     ESP_LOGI(TAG, "🔧 Initializing XCLK for non-M5Stack board (GPIO%d @ %u Hz)",
-             this->xclk_pin_, this->xclk_freq_);
+             this->xclk_pin_, (unsigned) this->xclk_freq_);
 
     esp_err_t xclk_ret = init_xclk_ledc(this->xclk_pin_, this->xclk_freq_);
     if (xclk_ret != ESP_OK) {
@@ -246,12 +246,16 @@ void ESPVideoComponent::setup() {
     uvc_config.uvc.task_stack = 4096;
     uvc_config.uvc.task_priority = 5;
     uvc_config.uvc.task_affinity = -1;        // no core affinity
-    uvc_config.usb.init_usb_host_lib = true;  // esp_video owns the USB host lib
+    // init_usb_host_lib: true -> esp_video installe/possède la pile USB Host.
+    // false -> une autre pile (composant ESPHome `usb_host`) la possède et pompe
+    // ses événements ; esp_video s'y greffe (coexistence/hot-swap).
+    uvc_config.usb.init_usb_host_lib = this->manage_usb_host_;
     uvc_config.usb.task_stack = 4096;
     uvc_config.usb.task_priority = 5;
     uvc_config.usb.task_affinity = -1;
     video_config.usb_uvc = &uvc_config;
-    ESP_LOGI(TAG, "USB-UVC host enabled: external USB cameras will appear as /dev/videoN");
+    ESP_LOGI(TAG, "USB-UVC host enabled (manage_usb_host=%s): external USB cameras will appear as /dev/videoN",
+             this->manage_usb_host_ ? "true" : "false");
   }
 #endif
 

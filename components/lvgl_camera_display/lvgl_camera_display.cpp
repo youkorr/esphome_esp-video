@@ -41,7 +41,7 @@ void LVGLCameraDisplay::setup() {
   ESP_LOGI(TAG, "LVGL Camera Display initialise (not started yet)");
   ESP_LOGI(TAG, "   Camera: Operationnelle");
   ESP_LOGI(TAG, "   Update interval: %u ms (~%d FPS) via LVGL timer",
-           this->update_interval_, 1000 / this->update_interval_);
+           (unsigned) this->update_interval_, (int) (1000 / this->update_interval_));
   ESP_LOGI(TAG, "Turn on the 'LVGL Camera Display' switch to start");
 }
 
@@ -151,7 +151,7 @@ void LVGLCameraDisplay::update_camera_frame_() {
 
       ESP_LOGI(TAG, "=== BENCHMARK (100 frames) ===");
       ESP_LOGI(TAG, "  FPS: %.1f | CPU: %.1f%%", fps, cpu_percent);
-      ESP_LOGI(TAG, "  Frame interval: %.1fms (target: %ums)", avg_frame_interval, this->update_interval_);
+      ESP_LOGI(TAG, "  Frame interval: %.1fms (target: %ums)", avg_frame_interval, (unsigned) this->update_interval_);
       ESP_LOGI(TAG, "  CPU time: %.1fms (capture: %.1fms + canvas: %.1fms)", avg_cpu_time, avg_capture, avg_canvas);
       ESP_LOGI(TAG, "  LVGL overhead: %.1fms | Skip: %.1f%%", lvgl_overhead, skip_rate);
 
@@ -197,8 +197,8 @@ void LVGLCameraDisplay::set_stats_label(lv_obj_t *label) {
 
 void LVGLCameraDisplay::dump_config() {
   ESP_LOGCONFIG(TAG, "LVGL Camera Display:");
-  ESP_LOGCONFIG(TAG, "  Update interval: %u ms", this->update_interval_);
-  ESP_LOGCONFIG(TAG, "  FPS cible: ~%d", 1000 / this->update_interval_);
+  ESP_LOGCONFIG(TAG, "  Update interval: %u ms", (unsigned) this->update_interval_);
+  ESP_LOGCONFIG(TAG, "  FPS cible: ~%d", (int) (1000 / this->update_interval_));
   ESP_LOGCONFIG(TAG, "  Canvas configure: %s", this->canvas_obj_ ? "OUI" : "NON");
 }
 
@@ -242,35 +242,46 @@ void LVGLCameraDisplay::update_canvas_() {
   esp_cache_msync(img_data, frame_size,
                   ESP_CACHE_MSYNC_FLAG_DIR_M2C | ESP_CACHE_MSYNC_FLAG_TYPE_DATA);
 
-  // Optional: draw detection results if configured
+  // Optional: draw detection results if configured. Track whether anything
+  // actually wrote into the frame so we can skip the (expensive, full-frame)
+  // cache write-back below when no overlay was drawn.
+  bool overlay_drawn = false;
 #ifdef USE_FACE_DETECTION
   if (this->face_detection_ != nullptr) {
     this->face_detection_->draw_on_frame(img_data, width, height);
+    overlay_drawn = true;
   }
 #endif
 #ifdef USE_YOLO11_DETECTION
   if (this->yolo11_detection_ != nullptr) {
     this->yolo11_detection_->draw_on_frame(img_data, width, height);
+    overlay_drawn = true;
   }
 #endif
 #ifdef USE_PEDESTRIAN_DETECTION
   if (this->pedestrian_detection_ != nullptr) {
     this->pedestrian_detection_->draw_on_frame(img_data, width, height);
+    overlay_drawn = true;
   }
 #endif
 
   // ESP32-P4: Flush CPU cache to PSRAM after detection drawing.
   // Without this, PPA/DMA reads stale data from PSRAM (see LVGL PR #9162).
-  uint32_t buf_size_bytes = width * height * 2;
-  esp_cache_msync(img_data, buf_size_bytes,
-                  ESP_CACHE_MSYNC_FLAG_DIR_C2M | ESP_CACHE_MSYNC_FLAG_TYPE_DATA);
+  // Only needed when an overlay actually modified the buffer with the CPU;
+  // otherwise the CPU wrote nothing and flushing the whole frame is wasted
+  // work (a full-frame msync every frame).
+  if (overlay_drawn) {
+    uint32_t buf_size_bytes = width * height * 2;
+    esp_cache_msync(img_data, buf_size_bytes,
+                    ESP_CACHE_MSYNC_FLAG_DIR_C2M | ESP_CACHE_MSYNC_FLAG_TYPE_DATA);
+  }
 
   // Detect widget type on first update
   if (this->first_update_) {
     this->is_canvas_ = lv_obj_check_type(this->canvas_obj_, &lv_canvas_class);
     ESP_LOGI(TAG, "Premier update - Widget type: %s", this->is_canvas_ ? "CANVAS" : "IMAGE");
     ESP_LOGI(TAG, "   Dimensions: %ux%u", width, height);
-    ESP_LOGI(TAG, "   Buffer: %p (index=%u)", img_data, this->camera_->get_buffer_index(buffer));
+    ESP_LOGI(TAG, "   Buffer: %p (index=%u)", img_data, (unsigned) this->camera_->get_buffer_index(buffer));
   }
 
   // LVGL 9.4 ZERO-COPY MODE
@@ -289,7 +300,7 @@ void LVGLCameraDisplay::update_canvas_() {
     this->draw_buf_initialized_ = true;
 
     ESP_LOGI(TAG, "Zero-copy draw_buf initialized: %ux%u, stride=%u, size=%u, data=%p",
-             width, height, stride, buf_size, img_data);
+             width, height, (unsigned) stride, (unsigned) buf_size, img_data);
   } else {
     // Just update the data pointer - no memcpy needed!
     this->camera_draw_buf_.data = img_data;
@@ -321,7 +332,7 @@ void LVGLCameraDisplay::configure_canvas(lv_obj_t *canvas) {
   if (canvas != nullptr) {
     lv_coord_t w = lv_obj_get_width(canvas);
     lv_coord_t h = lv_obj_get_height(canvas);
-    ESP_LOGI(TAG, "   Taille canvas: %dx%d", w, h);
+    ESP_LOGI(TAG, "   Taille canvas: %dx%d", (int) w, (int) h);
   }
 }
 

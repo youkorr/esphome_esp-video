@@ -33,6 +33,18 @@ extern "C" {
 #include "esp_private/esp_cache_private.h"  // Pour esp_cache_get_alignment() (détection dynamique cache line)
 }
 
+// Décodage MJPEG matériel (ESP32-P4) pour les caméras UVC qui ne fournissent
+// que du MJPEG. Optionnel : opt-in via -DUVC_ENABLE_MJPEG_DECODE pour garantir
+// que la compilation par défaut (chemin YUYV) reste indépendante du driver JPEG.
+#if defined(UVC_ENABLE_MJPEG_DECODE) && __has_include(<driver/jpeg_decode.h>)
+extern "C" {
+#include "driver/jpeg_decode.h"
+}
+#define UVC_HW_JPEG_DECODE 1
+#else
+#define UVC_HW_JPEG_DECODE 0
+#endif
+
 // Custom format configurations for all sensors
 #include "ov5647_custom_formats.h"   // OV5647: VGA 640x480, 800x600, 800x640, 1024x600
 #include "sc202cs_custom_formats.h"  // SC202CS: 800x600
@@ -112,6 +124,21 @@ static bool map_resolution_(const std::string &res, uint32_t &w, uint32_t &h) {
   return false;
 }
 
+// Conversion d'un pixel YUV (BT.601, plage limitée 16-235) en RGB565.
+// Coefficients en virgule fixe ×256. Utilisé pour les caméras UVC en YUYV.
+static inline uint16_t yuv_to_rgb565_(int y, int u, int v) {
+  int c = y - 16;
+  int d = u - 128;
+  int e = v - 128;
+  int r = (298 * c + 409 * e + 128) >> 8;
+  int g = (298 * c - 100 * d - 208 * e + 128) >> 8;
+  int b = (298 * c + 516 * d + 128) >> 8;
+  if (r < 0) r = 0; else if (r > 255) r = 255;
+  if (g < 0) g = 0; else if (g > 255) g = 255;
+  if (b < 0) b = 0; else if (b > 255) b = 255;
+  return (uint16_t)(((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3));
+}
+
 static uint32_t map_pixfmt_fourcc_(const std::string &fmt, const std::string &bayer_pattern = "BGGR") {
   if (fmt == "RGB565") return V4L2_PIX_FMT_RGB565;
   if (fmt == "YUYV")   return V4L2_PIX_FMT_YUYV;
@@ -178,7 +205,22 @@ static bool jpeg_apply_quality_(int quality) {
   ctrl.id = V4L2_CID_JPEG_COMPRESSION_QUALITY;
   ctrl.value = quality;
 
-  (void)safe_ioctl_(fd, VIDIOC_S_CTRL, &ctrl, "VIDIOC_S_CTRL(JPEG_QUALITY)");
+  // The JPEG quality control is optional: several sensor/encoder paths (e.g.
+  // OV5647) don't expose V4L2_CID_JPEG_COMPRESSION_QUALITY and return EINVAL
+  // (or ENOTTY). That is harmless — the encoder just keeps its default
+  // quality — so don't call safe_ioctl_() here (it would log an ESP_LOGE and
+  // scare users). Do the ioctl directly and only warn on unexpected errors.
+  int r;
+  do {
+    r = ioctl(fd, VIDIOC_S_CTRL, &ctrl);
+  } while (r == -1 && errno == EINTR);
+  if (r < 0) {
+    if (errno == EINVAL || errno == ENOTTY) {
+      ESP_LOGD(TAG, "JPEG quality control not supported by this encoder - using default");
+    } else {
+      ESP_LOGW(TAG, "Could not set JPEG quality: errno=%d (%s)", errno, strerror(errno));
+    }
+  }
 
   close_fd_(fd);
   return true;
@@ -560,8 +602,8 @@ bool MipiDSICamComponent::capture_snapshot_to_file(const std::string &path) {
   }
 
   ESP_LOGI(TAG, "Format actuel: %ux%u, fourcc=0x%08X, sizeimage=%u",
-           fmt.fmt.pix.width, fmt.fmt.pix.height,
-           fmt.fmt.pix.pixelformat, fmt.fmt.pix.sizeimage);
+           (unsigned) fmt.fmt.pix.width, (unsigned) fmt.fmt.pix.height,
+           (unsigned) fmt.fmt.pix.pixelformat, (unsigned) fmt.fmt.pix.sizeimage);
 
   // 3. Demander 2 buffers en mode MMAP
   struct v4l2_requestbuffers req;
@@ -577,7 +619,7 @@ bool MipiDSICamComponent::capture_snapshot_to_file(const std::string &path) {
     return false;
   }
 
-  ESP_LOGI(TAG, "%u buffers alloués", req.count);
+  ESP_LOGI(TAG, "%u buffers alloués", (unsigned) req.count);
 
   // 4. Mapper et queuer les buffers
   struct {
@@ -616,7 +658,7 @@ bool MipiDSICamComponent::capture_snapshot_to_file(const std::string &path) {
       return false;
     }
 
-    ESP_LOGI(TAG, "Buffer[%u] mappé: %u octets @ %p", i, buf.length, buffers[i].start);
+    ESP_LOGI(TAG, "Buffer[%u] mappé: %u octets @ %p", i, (unsigned) buf.length, buffers[i].start);
 
     // Mettre le buffer dans la queue
     if (ioctl(fd, VIDIOC_QBUF, &buf) < 0) {
@@ -671,7 +713,7 @@ bool MipiDSICamComponent::capture_snapshot_to_file(const std::string &path) {
   }
 
   ESP_LOGI(TAG, "Frame capturée: %u octets (buffer index=%u, sequence=%u)",
-           buf.bytesused, buf.index, buf.sequence);
+           (unsigned) buf.bytesused, (unsigned) buf.index, (unsigned) buf.sequence);
 
   // 7. Créer le répertoire si nécessaire
   std::string dir = path.substr(0, path.find_last_of('/'));
@@ -700,7 +742,7 @@ bool MipiDSICamComponent::capture_snapshot_to_file(const std::string &path) {
 
   if (written != buf.bytesused) {
     ESP_LOGW(TAG, "Écriture incomplète (%u / %u octets)",
-             (unsigned)written, buf.bytesused);
+             (unsigned)written, (unsigned) buf.bytesused);
   }
 
   // 9. Arrêter le streaming
@@ -732,6 +774,12 @@ bool MipiDSICamComponent::start_streaming() {
   if (this->streaming_active_) {
     ESP_LOGW(TAG, "Streaming déjà actif");
     return true;
+  }
+
+  // Caméra USB externe (UVC) : chemin de capture dédié (MMAP + conversion RGB565).
+  // Indépendant du pipeline MIPI-CSI/ISP (une carte UVC-only n'a pas de capteur MIPI).
+  if (this->is_uvc_source_()) {
+    return this->start_streaming_uvc_();
   }
 
   if (!this->pipeline_started_) {
@@ -813,7 +861,7 @@ bool MipiDSICamComponent::start_streaming() {
         }
       }
     } else {
-      ESP_LOGE(TAG, "No native OV5647 format matches %ux%u. Supported sizes:", width, height);
+      ESP_LOGE(TAG, "No native OV5647 format matches %ux%u. Supported sizes:", (unsigned) width, (unsigned) height);
       for (size_t i = 0; i < format_count; i++) {
         ESP_LOGE(TAG, "  - %ux%u @ %ufps (%s)",
                  natives[i].width, natives[i].height, natives[i].fps, natives[i].name);
@@ -877,6 +925,17 @@ bool MipiDSICamComponent::start_streaming() {
     } else if (width == 1920 && height == 1080) {
       custom_format = &ov02c10_format_1920x1080_raw10_30fps;
       ESP_LOGI(TAG, "Using NATIVE format: 1920x1080 RAW10 @ 30fps (1080P - Full Sensor)");
+    } else if (width == 1288 && height == 728) {
+      // 1288x728 is the driver's default format index. Historically we skipped
+      // VIDIOC_S_SENSOR_FMT here ("native, no custom format needed") and relied
+      // on the sensor being pre-programmed at probe time. That assumption no
+      // longer holds: probe only sets cur_format (the pointer), it does not
+      // write the 1288x728 register array to the sensor, so the sensor never
+      // actually streams and VIDIOC_DQBUF stays EAGAIN forever (black screen).
+      // Apply the format explicitly, exactly like every other OV02C10 mode.
+      // It matches the boot-time ISP pipeline format, so no ISP re-init needed.
+      custom_format = &ov02c10_format_1288x728_raw10_30fps;
+      ESP_LOGI(TAG, "Using NATIVE format: 1288x728 RAW10 @ 30fps (HD - default index)");
     }
 
     // Appliquer le format custom via VIDIOC_S_SENSOR_FMT
@@ -886,12 +945,12 @@ bool MipiDSICamComponent::start_streaming() {
         ESP_LOGE(TAG, "Custom format not supported, falling back to standard format");
       } else {
         ESP_LOGI(TAG, "Custom format applied successfully!");
-        ESP_LOGI(TAG, "   Sensor registers configured for native %ux%u", width, height);
+        ESP_LOGI(TAG, "   Sensor registers configured for native %ux%u", (unsigned) width, (unsigned) height);
         // Update width/height to match format's actual output dimensions
         // (important for rotated formats where output != input)
         width = custom_format->width;
         height = custom_format->height;
-        ESP_LOGI(TAG, "   Actual output dimensions after rotation: %ux%u", width, height);
+        ESP_LOGI(TAG, "   Actual output dimensions after rotation: %ux%u", (unsigned) width, (unsigned) height);
       }
     }
   }
@@ -943,7 +1002,7 @@ bool MipiDSICamComponent::start_streaming() {
       break;
     }
     if (frmsize.type == V4L2_FRMSIZE_TYPE_DISCRETE) {
-      ESP_LOGI(TAG, "  Size[%d]: %ux%u", i, frmsize.discrete.width, frmsize.discrete.height);
+      ESP_LOGI(TAG, "  Size[%d]: %ux%u", i, (unsigned) frmsize.discrete.width, (unsigned) frmsize.discrete.height);
       if (frmsize.discrete.width == width && frmsize.discrete.height == height) {
         size_found = true;
       }
@@ -961,16 +1020,16 @@ bool MipiDSICamComponent::start_streaming() {
         break;
       }
       if (frmsize.type == V4L2_FRMSIZE_TYPE_DISCRETE) {
-        ESP_LOGI(TAG, "  RAW8 Size[%d]: %ux%u", i, frmsize.discrete.width, frmsize.discrete.height);
+        ESP_LOGI(TAG, "  RAW8 Size[%d]: %ux%u", i, (unsigned) frmsize.discrete.width, (unsigned) frmsize.discrete.height);
         if (frmsize.discrete.width == width && frmsize.discrete.height == height) {
           size_found = true;
-          ESP_LOGI(TAG, "Found RAW8 %ux%u - ISP will convert to RGB565", width, height);
+          ESP_LOGI(TAG, "Found RAW8 %ux%u - ISP will convert to RGB565", (unsigned) width, (unsigned) height);
         }
       } else if (frmsize.type == V4L2_FRMSIZE_TYPE_STEPWISE) {
         ESP_LOGI(TAG, "  RAW8 Stepwise: %ux%u to %ux%u (step %ux%u)",
-                 frmsize.stepwise.min_width, frmsize.stepwise.min_height,
-                 frmsize.stepwise.max_width, frmsize.stepwise.max_height,
-                 frmsize.stepwise.step_width, frmsize.stepwise.step_height);
+                 (unsigned) frmsize.stepwise.min_width, (unsigned) frmsize.stepwise.min_height,
+                 (unsigned) frmsize.stepwise.max_width, (unsigned) frmsize.stepwise.max_height,
+                 (unsigned) frmsize.stepwise.step_width, (unsigned) frmsize.stepwise.step_height);
       }
     }
   }
@@ -986,23 +1045,23 @@ bool MipiDSICamComponent::start_streaming() {
         break;
       }
       if (frmsize.type == V4L2_FRMSIZE_TYPE_DISCRETE) {
-        ESP_LOGI(TAG, "  RAW10 Size[%d]: %ux%u", i, frmsize.discrete.width, frmsize.discrete.height);
+        ESP_LOGI(TAG, "  RAW10 Size[%d]: %ux%u", i, (unsigned) frmsize.discrete.width, (unsigned) frmsize.discrete.height);
         if (frmsize.discrete.width == width && frmsize.discrete.height == height) {
           size_found = true;
-          ESP_LOGI(TAG, "Found RAW10 %ux%u - ISP will convert to RGB565", width, height);
+          ESP_LOGI(TAG, "Found RAW10 %ux%u - ISP will convert to RGB565", (unsigned) width, (unsigned) height);
         }
       } else if (frmsize.type == V4L2_FRMSIZE_TYPE_STEPWISE) {
         ESP_LOGI(TAG, "  RAW10 Stepwise: %ux%u to %ux%u (step %ux%u)",
-                 frmsize.stepwise.min_width, frmsize.stepwise.min_height,
-                 frmsize.stepwise.max_width, frmsize.stepwise.max_height,
-                 frmsize.stepwise.step_width, frmsize.stepwise.step_height);
+                 (unsigned) frmsize.stepwise.min_width, (unsigned) frmsize.stepwise.min_height,
+                 (unsigned) frmsize.stepwise.max_width, (unsigned) frmsize.stepwise.max_height,
+                 (unsigned) frmsize.stepwise.step_width, (unsigned) frmsize.stepwise.step_height);
       }
     }
   }
 
 
   if (!size_found) {
-    ESP_LOGD(TAG, "Requested size %ux%u not found in supported list", width, height);
+    ESP_LOGD(TAG, "Requested size %ux%u not found in supported list", (unsigned) width, (unsigned) height);
     ESP_LOGD(TAG, "Trying to set anyway (driver may adjust)...");
   }
 
@@ -1025,12 +1084,12 @@ bool MipiDSICamComponent::start_streaming() {
       fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
       if (ioctl(this->video_fd_, VIDIOC_G_FMT, &fmt) == 0) {
         ESP_LOGI(TAG, "Driver format: %ux%u, sizeimage=%u",
-                 fmt.fmt.pix.width, fmt.fmt.pix.height, fmt.fmt.pix.sizeimage);
+                 (unsigned) fmt.fmt.pix.width, (unsigned) fmt.fmt.pix.height, (unsigned) fmt.fmt.pix.sizeimage);
         // Use the custom format dimensions
         fmt.fmt.pix.width = width;
         fmt.fmt.pix.height = height;
         fmt.fmt.pix.sizeimage = width * height * 2; // RGB565 = 2 bytes per pixel
-        ESP_LOGI(TAG, "Using custom format dimensions: %ux%u", width, height);
+        ESP_LOGI(TAG, "Using custom format dimensions: %ux%u", (unsigned) width, (unsigned) height);
       } else {
         // Fallback: calculate sizeimage manually
         fmt.fmt.pix.width = width;
@@ -1040,7 +1099,7 @@ bool MipiDSICamComponent::start_streaming() {
       }
     } else {
       ESP_LOGE(TAG, "VIDIOC_S_FMT failed: %s", strerror(errno));
-      ESP_LOGE(TAG, "Requested: %ux%u RGB565", width, height);
+      ESP_LOGE(TAG, "Requested: %ux%u RGB565", (unsigned) width, (unsigned) height);
       ESP_LOGE(TAG, "This may indicate:");
       ESP_LOGE(TAG, "  1. Sensor %s doesn't support this resolution in RGB565", this->sensor_name_.c_str());
       ESP_LOGE(TAG, "  2. ESP-IDF 5.4.2+ has stricter format validation");
@@ -1141,7 +1200,7 @@ bool MipiDSICamComponent::start_streaming() {
     return false;
   }
 
-  ESP_LOGI(TAG, "V4L2 USERPTR mode: %u buffers requested", req.count);
+  ESP_LOGI(TAG, "V4L2 USERPTR mode: %u buffers requested", (unsigned) req.count);
 
   // 5. Queuer les buffers avec nos pointeurs SPIRAM
   for (int i = 0; i < NUM_BUFFERS; i++) {
@@ -1165,7 +1224,7 @@ bool MipiDSICamComponent::start_streaming() {
       return false;
     }
     ESP_LOGI(TAG, "  Buffer[%u] queued: userptr=%p, length=%u",
-             i, (void*)buf.m.userptr, buf.length);
+             i, (void*)buf.m.userptr, (unsigned) buf.length);
   }
 
   // 8. DÉMARRER LE STREAMING
@@ -1265,6 +1324,11 @@ bool MipiDSICamComponent::capture_frame() {
     return false;
   }
 
+  // Caméra USB externe (UVC) : chemin de capture/conversion dédié
+  if (this->is_uvc_source_()) {
+    return this->capture_frame_uvc_();
+  }
+
   // Feed watchdog at start of capture
   esp_task_wdt_reset();
 
@@ -1350,7 +1414,7 @@ bool MipiDSICamComponent::capture_frame() {
              this->image_buffer_size_, this->image_width_, this->image_height_);
     ESP_LOGI(TAG, "   SPIRAM buffer: %p (index=%d)", frame_data, buffer_idx);
     ESP_LOGI(TAG, "   Timing: DQBUF=%uus, PPA=%uus",
-             (uint32_t)(t2-t1), (uint32_t)(t4-t3));
+             (unsigned)(t2-t1), (unsigned)(t4-t3));
     ESP_LOGI(TAG, "   First pixels (RGB565): %02X%02X %02X%02X %02X%02X",
              frame_data[0], frame_data[1],
              frame_data[2], frame_data[3],
@@ -1410,6 +1474,12 @@ void MipiDSICamComponent::stop_streaming() {
     }
   }
 
+  // 1b. UVC : libérer les buffers MMAP fournis par le driver UVC (le chemin
+  // commun ci-dessous libère les buffers RGB565 de sortie, alloués en SPIRAM).
+  if (this->is_uvc_source_()) {
+    this->stop_streaming_uvc_();
+  }
+
   // 2. Libérer les buffers SPIRAM (USERPTR mode - pas de munmap nécessaire)
   portENTER_CRITICAL(&this->buffer_mutex_);
   this->current_buffer_index_ = -1;
@@ -1458,6 +1528,340 @@ void MipiDSICamComponent::stop_streaming() {
   this->image_buffer_size_ = 0;
 
   // ESP_LOGI(TAG, "Streaming stopped, resources freed");
+}
+
+// ============================================================================
+// UVC (caméra USB externe) — chemin de capture dédié
+//
+// Le driver UVC d'Espressif énumère la caméra USB comme un nœud V4L2
+// (/dev/video40 par défaut) et fournit ses propres frame buffers (MMAP). Le
+// format livré est YUYV ou MJPEG, et NON le RGB565 du chemin MIPI-CSI : on
+// convertit donc chaque frame en RGB565 dans le buffer pool d'affichage
+// existant (simple_buffers_), pour réutiliser à l'identique acquire/release et
+// get_image_* côté lvgl_camera_display.
+// ============================================================================
+
+bool MipiDSICamComponent::start_streaming_uvc_() {
+  // Nœud V4L2 du driver UVC. Par défaut le premier device UVC (/dev/video40).
+  // Surchargé par `device_path:` si renseigné dans le YAML.
+  const char *dev = this->device_path_.empty() ? ESP_VIDEO_USB_UVC_NAME(0)
+                                                : this->device_path_.c_str();
+  ESP_LOGI(TAG, "UVC: ouverture du nœud %s", dev);
+
+  this->video_fd_ = open(dev, O_RDWR | O_NONBLOCK);
+  if (this->video_fd_ < 0) {
+    ESP_LOGE(TAG, "UVC: open(%s) a échoué: %s", dev, strerror(errno));
+    ESP_LOGE(TAG, "UVC: vérifiez qu'une caméra USB est branchée et que `enable_uvc: true` est activé sur esp_video");
+    return false;
+  }
+
+  // Nettoyage local sûr en cas d'échec (streaming_active_ pas encore positionné,
+  // donc stop_streaming() ne ferait rien).
+  auto cleanup = [this]() {
+    for (int i = 0; i < UVC_CAPTURE_BUFFERS; i++) {
+      if (this->uvc_mmap_[i]) {
+        munmap(this->uvc_mmap_[i], this->uvc_mmap_len_[i]);
+        this->uvc_mmap_[i] = nullptr;
+        this->uvc_mmap_len_[i] = 0;
+      }
+    }
+    for (int i = 0; i < NUM_BUFFERS; i++) {
+      if (this->simple_buffers_[i].data) {
+        heap_caps_free(this->simple_buffers_[i].data);
+        this->simple_buffers_[i].data = nullptr;
+      }
+    }
+    this->uvc_buf_count_ = 0;
+    close_fd_(this->video_fd_);
+  };
+
+  struct v4l2_capability cap;
+  memset(&cap, 0, sizeof(cap));
+  if (ioctl(this->video_fd_, VIDIOC_QUERYCAP, &cap) == 0) {
+    ESP_LOGI(TAG, "UVC: driver='%s' card='%s'", cap.driver, cap.card);
+  }
+
+  // 1. Choisir le format de capture : YUYV de préférence (conversion logicielle
+  //    directe, sans dépendance), sinon MJPEG (décodage matériel si activé).
+  uint32_t chosen = 0;
+  for (int i = 0;; i++) {
+    struct v4l2_fmtdesc fmtdesc;
+    memset(&fmtdesc, 0, sizeof(fmtdesc));
+    fmtdesc.index = i;
+    fmtdesc.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    if (ioctl(this->video_fd_, VIDIOC_ENUM_FMT, &fmtdesc) < 0) {
+      break;
+    }
+    ESP_LOGI(TAG, "UVC: format[%d] = %.4s", i, (const char *) &fmtdesc.pixelformat);
+    if (fmtdesc.pixelformat == V4L2_PIX_FMT_YUYV) {
+      chosen = V4L2_PIX_FMT_YUYV;  // préféré
+      break;
+    }
+    if (fmtdesc.pixelformat == V4L2_PIX_FMT_MJPEG && chosen == 0) {
+      chosen = V4L2_PIX_FMT_MJPEG;  // repli, on continue de chercher YUYV
+    }
+  }
+  if (chosen == 0) {
+    ESP_LOGE(TAG, "UVC: aucun format supporté (ni YUYV ni MJPEG) exposé par la caméra");
+    cleanup();
+    return false;
+  }
+#if !UVC_HW_JPEG_DECODE
+  if (chosen == V4L2_PIX_FMT_MJPEG) {
+    ESP_LOGE(TAG, "UVC: la caméra ne fournit que du MJPEG mais le décodage matériel est désactivé");
+    ESP_LOGE(TAG, "UVC: ajoutez -DUVC_ENABLE_MJPEG_DECODE dans build_flags, ou utilisez une caméra YUYV");
+    cleanup();
+    return false;
+  }
+#endif
+
+  // 2. Format demandé (résolution issue du YAML, repli VGA)
+  uint32_t width, height;
+  if (!map_resolution_(this->resolution_, width, height)) {
+    ESP_LOGW(TAG, "UVC: résolution '%s' non reconnue, repli sur VGA 640x480", this->resolution_.c_str());
+    width = 640;
+    height = 480;
+  }
+
+  struct v4l2_format fmt;
+  memset(&fmt, 0, sizeof(fmt));
+  fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+  fmt.fmt.pix.width = width;
+  fmt.fmt.pix.height = height;
+  fmt.fmt.pix.pixelformat = chosen;
+  fmt.fmt.pix.field = V4L2_FIELD_NONE;
+  if (ioctl(this->video_fd_, VIDIOC_S_FMT, &fmt) < 0) {
+    ESP_LOGE(TAG, "UVC: VIDIOC_S_FMT %ux%u %.4s a échoué: %s", (unsigned) width, (unsigned) height,
+             (const char *) &chosen, strerror(errno));
+    cleanup();
+    return false;
+  }
+  // 3. Relire le format réellement appliqué (le driver/caméra peut l'ajuster)
+  if (ioctl(this->video_fd_, VIDIOC_G_FMT, &fmt) < 0) {
+    ESP_LOGE(TAG, "UVC: VIDIOC_G_FMT a échoué: %s", strerror(errno));
+    cleanup();
+    return false;
+  }
+  this->image_width_ = fmt.fmt.pix.width;
+  this->image_height_ = fmt.fmt.pix.height;
+  this->uvc_capture_fourcc_ = fmt.fmt.pix.pixelformat;
+  // Sortie d'affichage : toujours RGB565 (2 octets/pixel) après conversion
+  this->image_buffer_size_ = (size_t) this->image_width_ * this->image_height_ * 2;
+  ESP_LOGI(TAG, "UVC: capture %ux%u %.4s → RGB565 (%u octets/buffer)", this->image_width_,
+           this->image_height_, (const char *) &this->uvc_capture_fourcc_,
+           (unsigned) this->image_buffer_size_);
+
+  // 4. Allouer les buffers RGB565 de SORTIE (buffer pool d'affichage), comme le chemin MIPI
+  size_t cache_line_size = 64;
+  esp_cache_get_alignment(MALLOC_CAP_SPIRAM, &cache_line_size);
+  if (cache_line_size < 64) {
+    cache_line_size = 64;
+  }
+  for (int i = 0; i < NUM_BUFFERS; i++) {
+    this->simple_buffers_[i].data = (uint8_t *) heap_caps_aligned_alloc(
+        cache_line_size, this->image_buffer_size_, MALLOC_CAP_SPIRAM);
+    if (this->simple_buffers_[i].data == nullptr) {
+      ESP_LOGE(TAG, "UVC: échec allocation buffer RGB565 %d (%u octets)", i,
+               (unsigned) this->image_buffer_size_);
+      cleanup();
+      return false;
+    }
+    this->simple_buffers_[i].allocated = false;
+    this->simple_buffers_[i].index = i;
+  }
+  this->current_buffer_index_ = -1;
+  this->image_buffer_ = nullptr;
+
+  // 5. Demander les buffers de CAPTURE du driver UVC en MMAP (mémoire fournie par le driver)
+  struct v4l2_requestbuffers req;
+  memset(&req, 0, sizeof(req));
+  req.count = UVC_CAPTURE_BUFFERS;
+  req.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+  req.memory = V4L2_MEMORY_MMAP;
+  if (ioctl(this->video_fd_, VIDIOC_REQBUFS, &req) < 0) {
+    ESP_LOGE(TAG, "UVC: VIDIOC_REQBUFS (MMAP) a échoué: %s", strerror(errno));
+    cleanup();
+    return false;
+  }
+  // Le driver peut renvoyer un nombre différent ; on borne à notre capacité.
+  this->uvc_buf_count_ = (int) req.count > UVC_CAPTURE_BUFFERS ? UVC_CAPTURE_BUFFERS : (int) req.count;
+
+  for (int i = 0; i < this->uvc_buf_count_; i++) {
+    struct v4l2_buffer buf;
+    memset(&buf, 0, sizeof(buf));
+    buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    buf.memory = V4L2_MEMORY_MMAP;
+    buf.index = i;
+    if (ioctl(this->video_fd_, VIDIOC_QUERYBUF, &buf) < 0) {
+      ESP_LOGE(TAG, "UVC: VIDIOC_QUERYBUF[%d] a échoué: %s", i, strerror(errno));
+      cleanup();
+      return false;
+    }
+    this->uvc_mmap_len_[i] = buf.length;
+    this->uvc_mmap_[i] = (uint8_t *) mmap(NULL, buf.length, PROT_READ | PROT_WRITE, MAP_SHARED,
+                                          this->video_fd_, buf.m.offset);
+    if (this->uvc_mmap_[i] == MAP_FAILED) {
+      ESP_LOGE(TAG, "UVC: mmap[%d] a échoué: %s", i, strerror(errno));
+      this->uvc_mmap_[i] = nullptr;
+      cleanup();
+      return false;
+    }
+    if (ioctl(this->video_fd_, VIDIOC_QBUF, &buf) < 0) {
+      ESP_LOGE(TAG, "UVC: VIDIOC_QBUF[%d] a échoué: %s", i, strerror(errno));
+      cleanup();
+      return false;
+    }
+  }
+
+  // 6. Démarrer le flux
+  int type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+  if (ioctl(this->video_fd_, VIDIOC_STREAMON, &type) < 0) {
+    ESP_LOGE(TAG, "UVC: VIDIOC_STREAMON a échoué: %s", strerror(errno));
+    cleanup();
+    return false;
+  }
+
+  this->streaming_active_ = true;
+  this->frame_sequence_ = 0;
+  ESP_LOGI(TAG, "UVC: streaming démarré");
+  return true;
+}
+
+bool MipiDSICamComponent::capture_frame_uvc_() {
+  esp_task_wdt_reset();
+
+  // 1. Récupérer une frame de capture (MMAP, fournie par le driver UVC)
+  struct v4l2_buffer buf;
+  memset(&buf, 0, sizeof(buf));
+  buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+  buf.memory = V4L2_MEMORY_MMAP;
+  if (ioctl(this->video_fd_, VIDIOC_DQBUF, &buf) < 0) {
+    if (errno == EAGAIN) {
+      return false;  // pas de frame prête (mode non bloquant)
+    }
+    ESP_LOGE(TAG, "UVC: VIDIOC_DQBUF a échoué: %s", strerror(errno));
+    return false;
+  }
+
+  const int cap_idx = buf.index;
+  if (cap_idx < 0 || cap_idx >= UVC_CAPTURE_BUFFERS || this->uvc_mmap_[cap_idx] == nullptr) {
+    ESP_LOGW(TAG, "UVC: index de buffer DQBUF invalide (%d)", cap_idx);
+    ioctl(this->video_fd_, VIDIOC_QBUF, &buf);  // rendre le buffer
+    return false;
+  }
+  const uint8_t *src = this->uvc_mmap_[cap_idx];
+  const size_t src_len = buf.bytesused;
+
+  // 2. Choisir un buffer RGB565 de sortie distinct de celui actuellement affiché
+  //    (double buffering, comme le chemin MIPI — léger risque de tearing accepté)
+  int out_idx;
+  portENTER_CRITICAL(&this->buffer_mutex_);
+  out_idx = (this->current_buffer_index_ == 0) ? 1 : 0;
+  portEXIT_CRITICAL(&this->buffer_mutex_);
+
+  // 3. Convertir la frame UVC en RGB565
+  bool ok = this->convert_uvc_frame_(src, src_len, this->simple_buffers_[out_idx].data);
+
+  // 4. Rendre le buffer de capture au driver UVC, quoi qu'il arrive
+  if (ioctl(this->video_fd_, VIDIOC_QBUF, &buf) < 0) {
+    ESP_LOGW(TAG, "UVC: VIDIOC_QBUF a échoué: %s", strerror(errno));
+  }
+  if (!ok) {
+    return false;
+  }
+
+  // 5. Publier le buffer converti dans le pool d'affichage
+  portENTER_CRITICAL(&this->buffer_mutex_);
+  if (this->current_buffer_index_ >= 0 && this->current_buffer_index_ != out_idx) {
+    this->simple_buffers_[this->current_buffer_index_].allocated = false;
+  }
+  this->simple_buffers_[out_idx].allocated = true;
+  this->current_buffer_index_ = out_idx;
+  this->image_buffer_ = this->simple_buffers_[out_idx].data;
+  portEXIT_CRITICAL(&this->buffer_mutex_);
+
+  this->frame_sequence_++;
+  if (this->frame_sequence_ == 1) {
+    ESP_LOGI(TAG, "UVC: première frame %ux%u convertie en RGB565", this->image_width_,
+             this->image_height_);
+  }
+  return true;
+}
+
+bool MipiDSICamComponent::convert_uvc_frame_(const uint8_t *src, size_t src_len, uint8_t *dst) {
+  const int w = this->image_width_;
+  const int h = this->image_height_;
+
+  if (this->uvc_capture_fourcc_ == V4L2_PIX_FMT_YUYV) {
+    const size_t expected = (size_t) w * h * 2;  // 2 octets/pixel en YUYV
+    if (src_len < expected) {
+      ESP_LOGW(TAG, "UVC: frame YUYV tronquée (%u < %u octets)", (unsigned) src_len,
+               (unsigned) expected);
+      return false;
+    }
+    uint16_t *out = (uint16_t *) dst;
+    const int npix = w * h;
+    // YUYV : 4 octets (Y0 U Y1 V) = 2 pixels partageant la chrominance
+    for (int i = 0; i < npix; i += 2) {
+      const uint8_t *p = src + (size_t) i * 2;
+      int y0 = p[0], u = p[1], y1 = p[2], v = p[3];
+      out[i] = yuv_to_rgb565_(y0, u, v);
+      out[i + 1] = yuv_to_rgb565_(y1, u, v);
+    }
+    return true;
+  }
+
+#if UVC_HW_JPEG_DECODE
+  if (this->uvc_capture_fourcc_ == V4L2_PIX_FMT_MJPEG) {
+    // Décodage MJPEG → RGB565 via le moteur JPEG matériel de l'ESP32-P4.
+    // Opt-in / expérimental : selon la version d'ESP-IDF, le buffer de sortie
+    // peut nécessiter un alignement particulier (jpeg_alloc_decoder_mem).
+    if (this->uvc_jpeg_decoder_ == nullptr) {
+      jpeg_decode_engine_cfg_t eng = {};
+      eng.timeout_ms = 70;
+      jpeg_decoder_handle_t hdl = nullptr;
+      esp_err_t e = jpeg_new_decoder_engine(&eng, &hdl);
+      if (e != ESP_OK) {
+        ESP_LOGE(TAG, "UVC: jpeg_new_decoder_engine a échoué: %s", esp_err_to_name(e));
+        return false;
+      }
+      this->uvc_jpeg_decoder_ = hdl;
+    }
+    jpeg_decode_cfg_t dec = {};
+    dec.output_format = JPEG_DECODE_OUT_FORMAT_RGB565;
+    dec.rgb_order = JPEG_DEC_RGB_ELEMENT_ORDER_RGB;
+    uint32_t out_len = 0;
+    esp_err_t e = jpeg_decoder_process((jpeg_decoder_handle_t) this->uvc_jpeg_decoder_, &dec, src,
+                                       (uint32_t) src_len, dst, (uint32_t) this->image_buffer_size_,
+                                       &out_len);
+    if (e != ESP_OK) {
+      ESP_LOGW(TAG, "UVC: jpeg_decoder_process a échoué: %s", esp_err_to_name(e));
+      return false;
+    }
+    return true;
+  }
+#endif
+
+  ESP_LOGW(TAG, "UVC: format de capture non supporté (0x%08x)",
+           (unsigned) this->uvc_capture_fourcc_);
+  return false;
+}
+
+void MipiDSICamComponent::stop_streaming_uvc_() {
+  for (int i = 0; i < UVC_CAPTURE_BUFFERS; i++) {
+    if (this->uvc_mmap_[i]) {
+      munmap(this->uvc_mmap_[i], this->uvc_mmap_len_[i]);
+      this->uvc_mmap_[i] = nullptr;
+      this->uvc_mmap_len_[i] = 0;
+    }
+  }
+  this->uvc_buf_count_ = 0;
+#if UVC_HW_JPEG_DECODE
+  if (this->uvc_jpeg_decoder_) {
+    jpeg_del_decoder_engine((jpeg_decoder_handle_t) this->uvc_jpeg_decoder_);
+    this->uvc_jpeg_decoder_ = nullptr;
+  }
+#endif
 }
 
 

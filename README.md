@@ -114,10 +114,19 @@ When enabled, the USB host stack + Espressif's `usb_host_uvc` driver are compile
 in and started, and a connected UVC camera is enumerated as a `/dev/videoN` V4L2
 device. Requires the USB port in host/OTG mode with VBUS power for the camera.
 
+To consume it, point `esp_cam_sensor` at the UVC node with `source: uvc`; it
+negotiates YUYV/MJPEG and feeds the existing display pipeline:
+
+```yaml
+esp_cam_sensor:
+  source: uvc        # mipi_csi (default) | uvc
+  resolution: VGA
+```
+
 > Full details, prerequisites and troubleshooting:
 > [`components/esp_video/README_USB_UVC.md`](components/esp_video/README_USB_UVC.md).
-> Note: the UVC node is not yet consumed by `esp_cam_sensor` (which is MIPI-CSI
-> specific) — a consumer opening `/dev/videoN` is still required.
+> Not yet validated on real hardware. MJPEG-only cameras need the opt-in
+> `-DUVC_ENABLE_MJPEG_DECODE` build flag (YUYV works out of the box).
 
 ### 3. Sensor: `esp_cam_sensor`
 

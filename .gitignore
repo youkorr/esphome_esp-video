@@ -1,0 +1,3 @@
+# Python bytecode caches (generated when ESPHome imports the component modules)
+__pycache__/
+*.py[cod]

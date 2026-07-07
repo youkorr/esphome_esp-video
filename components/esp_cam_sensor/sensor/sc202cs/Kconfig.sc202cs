@@ -74,10 +74,19 @@ if CAMERA_SC202CS
 
     config CAMERA_SC202CS_MIPI_IF_FORMAT_INDEX_DEFAULT
         int
-        default 0 if CAMERA_SC202CS_MIPI_DEFAULT_FMT_RAW8_1280X720_30FPS
-        default 1 if CAMERA_SC202CS_MIPI_DEFAULT_FMT_RAW8_1600X1200_30FPS
-        default 2 if CAMERA_SC202CS_MIPI_DEFAULT_FMT_RAW10_1600X1200_30FPS
-        default 3 if CAMERA_SC202CS_MIPI_DEFAULT_FMT_RAW10_1600X900_30FPS
+        # Indices below MUST match the order of sc202cs_format_info[] in
+        # sc202cs.c. This fork inserts 800x600 at index 0 (upstream starts at
+        # 1280x720), so every entry is shifted by +1 versus upstream Espressif:
+        #   [0] 800x600  [1] 1280x720  [2] 1600x1200 RAW8
+        #   [3] 1600x1200 RAW10  [4] 1600x900 RAW10
+        # Without this shift a native-IDF build resolves the default to index 0
+        # (800x600) and VIDIOC_S_FMT for the intended 1280x720 is rejected
+        # ("csi_video: format width or height is invalid").
+        default 1 if CAMERA_SC202CS_MIPI_DEFAULT_FMT_RAW8_1280X720_30FPS
+        default 2 if CAMERA_SC202CS_MIPI_DEFAULT_FMT_RAW8_1600X1200_30FPS
+        default 3 if CAMERA_SC202CS_MIPI_DEFAULT_FMT_RAW10_1600X1200_30FPS
+        default 4 if CAMERA_SC202CS_MIPI_DEFAULT_FMT_RAW10_1600X900_30FPS
+        default 1
         help
             Sets the default configuration for the MIPI CSI interface.
             Use query_support_formats() API to get more format options.

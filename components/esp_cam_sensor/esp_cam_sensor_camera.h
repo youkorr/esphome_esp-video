@@ -21,6 +21,11 @@ typedef struct {
 
 #endif
 
+// Provided by the esp_video component (C). Lets the detection in
+// esp_video_init() prefer the user-selected sensor when two drivers share a
+// chip ID (SC202CS vs SC2356, both PID 0xEB52 at address 0x36).
+extern "C" void esp_video_set_preferred_sensor(const char *name);
+
 namespace esphome {
 namespace esp_cam_sensor {
 
@@ -38,7 +43,12 @@ class MipiDSICamComponent : public Component {
   float get_setup_priority() const override { return setup_priority::DATA; }
   void dump_config() override;
 
-  void set_sensor_type(const std::string &s) { sensor_name_ = s; }
+  void set_sensor_type(const std::string &s) {
+    sensor_name_ = s;
+    // Runs before App.setup() (and thus before esp_video_init()), so the
+    // detection loop can honor this choice when SC202CS/SC2356 share a chip ID.
+    esp_video_set_preferred_sensor(s.c_str());
+  }
   void set_i2c_id(int id) { i2c_id_ = id; i2c_bus_name_.clear(); }
   void set_i2c_id(const std::string &bus_name) {
     i2c_bus_name_ = bus_name;
@@ -58,6 +68,13 @@ class MipiDSICamComponent : public Component {
   void set_pixel_format(const std::string &f) { pixel_format_ = f; }
   void set_framerate(int f) { framerate_ = f; }
   void set_jpeg_quality(int q) { jpeg_quality_ = q; }
+
+  // Sélecteur de source de capture:
+  //   "mipi_csi" (défaut) -> capteur MIPI-CSI interne (/dev/video0)
+  //   "uvc"               -> caméra USB externe énumérée par le driver UVC (/dev/video4...)
+  void set_source(const std::string &s) { source_ = s; }
+  // Override optionnel du nœud V4L2 à ouvrir (vide = choix automatique selon la source)
+  void set_device_path(const std::string &p) { device_path_ = p; }
 
   // Configuration mirror/rotate (PPA hardware si disponible)
   void set_mirror_x(bool enable) { mirror_x_ = enable; }
@@ -184,6 +201,11 @@ class MipiDSICamComponent : public Component {
   int framerate_{30};
   int jpeg_quality_{10};
 
+  // Source de capture ("mipi_csi" par défaut, ou "uvc" pour une caméra USB externe)
+  std::string source_{"mipi_csi"};
+  std::string device_path_{};  // Nœud V4L2 explicite (vide = auto)
+  bool is_uvc_source_() const { return source_ == "uvc"; }
+
   // Configuration mirror/rotate (M5Stack-style PPA hardware)
   bool mirror_x_{false};
   bool mirror_y_{false};
@@ -237,6 +259,26 @@ class MipiDSICamComponent : public Component {
   // imlib image wrapper (zero-copy, pointe vers image_buffer_)
   image_t *imlib_image_{nullptr};  // Pointeur vers structure imlib (allouée dans .cpp)
   bool imlib_image_valid_{false};
+
+  // ── UVC (caméra USB externe) ────────────────────────────────────────────
+  // Le driver UVC d'Espressif fournit ses propres frame buffers, on les
+  // consomme donc en MMAP (et non en USERPTR comme le chemin MIPI-CSI).
+  // Le format livré est MJPEG ou YUYV (≠ RGB565 du MIPI-CSI) : on convertit
+  // chaque frame en RGB565 dans le buffer pool d'affichage existant.
+  // Nombre de buffers de capture UVC (MMAP, fournis par le driver). Découplé du
+  // pool d'affichage (NUM_BUFFERS) car le device UVC peut exiger un minimum (~4).
+  static constexpr int UVC_CAPTURE_BUFFERS = 4;
+  uint32_t uvc_capture_fourcc_{0};   // V4L2_PIX_FMT_YUYV ou V4L2_PIX_FMT_MJPEG
+  uint8_t *uvc_mmap_[UVC_CAPTURE_BUFFERS]{};  // Buffers MMAP du driver UVC
+  size_t uvc_mmap_len_[UVC_CAPTURE_BUFFERS]{};
+  int uvc_buf_count_{0};
+  void *uvc_jpeg_decoder_{nullptr};   // jpeg_decoder_handle_t (décodage MJPEG matériel, lazy)
+
+  bool start_streaming_uvc_();
+  bool capture_frame_uvc_();
+  void stop_streaming_uvc_();
+  // Convertit une frame UVC (YUYV ou MJPEG) en RGB565 dans dst (taille image_buffer_size_)
+  bool convert_uvc_frame_(const uint8_t *src, size_t src_len, uint8_t *dst);
 
   bool check_pipeline_health_();
   void cleanup_pipeline_();

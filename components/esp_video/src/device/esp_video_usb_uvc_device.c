@@ -148,9 +148,24 @@ static void uvc_event_callback(const uvc_host_stream_event_data_t *event, void *
 
         ESP_LOGD(TAG, "Device disconnected, dev_addr = %d, stream_index = %d", device->dev_addr, device->stream_index);
 
+        // Marquer le device comme déconnecté AVANT de libérer la mémoire : toutes
+        // les autres opérations (enum/get/set format) court-circuitent sur
+        // dev_addr == 0, ce qui évite tout accès au buffer libéré.
         device->dev_addr = 0;
         device->stream_index = 0;
         device->frame_info_num = 0;
+
+        // Libérer frame_info ici : sur un hot-swap (débranchement puis rebranchement),
+        // le slot uvc_video est réutilisé et uvc_video_init() refait un malloc() sans
+        // libérer l'ancien pointeur -> fuite. uvc_video_deinit() ne s'en charge pas non
+        // plus car il court-circuite désormais sur dev_addr == 0. (frame_info_fmt_index
+        // pointe à l'intérieur de la même allocation.)
+        if (device->frame_info) {
+            free(device->frame_info);
+            device->frame_info = NULL;
+            device->frame_info_fmt_index = NULL;
+        }
+
         xSemaphoreTake(device->ready_sem, 0);
         break;
     }
@@ -219,6 +234,14 @@ static esp_err_t uvc_video_init(struct esp_video *video)
     ESP_RETURN_ON_FALSE((xSemaphoreTake(device->ready_sem, UVC_INIT_TIMEOUT_MS / portTICK_PERIOD_MS) == pdPASS), ESP_ERR_NOT_FOUND,
                         TAG, "Failed to take UVC device ready semaphore");
     ESP_GOTO_ON_FALSE(device->dev_addr, ESP_ERR_NOT_FOUND, fail0, TAG, "UVC device=%p is not connected", device);
+
+    // Garde défensive : libérer une éventuelle allocation résiduelle (hot-swap où
+    // la déconnexion précédente n'aurait pas libéré) avant d'en allouer une nouvelle.
+    if (device->frame_info) {
+        free(device->frame_info);
+        device->frame_info = NULL;
+        device->frame_info_fmt_index = NULL;
+    }
 
     device->frame_info = malloc((sizeof(uvc_host_frame_info_t) + sizeof(uint8_t)) * device->frame_info_num);
     ESP_GOTO_ON_FALSE(device->frame_info, ESP_ERR_NO_MEM, fail0, TAG, "Failed to allocate memory for frame info");

@@ -31,6 +31,9 @@ extern const size_t sc2336_ipa_config_json_size;
 extern const char sc202cs_ipa_config_json_start[];
 extern const char *sc202cs_ipa_config_json_end;
 extern const size_t sc202cs_ipa_config_json_size;
+extern const char sc2356_ipa_config_json_start[];
+extern const char *sc2356_ipa_config_json_end;
+extern const size_t sc2356_ipa_config_json_size;
 
 /* ----------------------------------------------------------------------
  * Build-time IPA stage toggles
@@ -283,9 +286,13 @@ esp_err_t esp_ipa_load_json_config(const char *sensor_name, esp_ipa_json_config_
         ESP_LOGW(TAG, "SC202CS: ISP IPA tuning disabled by config -> colors will look washed out.");
         g_skip_all_for_sensor = 1;
 #endif
+    } else if (strcasecmp(sensor_name, "SC2356") == 0) {
+        json_data = sc2356_ipa_config_json_start;
+        json_size = sc2356_ipa_config_json_size;
+        ESP_LOGI(TAG, "Using SC2356 JSON (%zu bytes) [Seeed reTerminal-D1001]", json_size);
     } else {
         ESP_LOGE(TAG, "Unknown sensor: %s", sensor_name);
-        ESP_LOGE(TAG, "Supported sensors: OV02C10, OV5647, SC2336, SC202CS");
+        ESP_LOGE(TAG, "Supported sensors: OV02C10, OV5647, SC2336, SC202CS, SC2356");
         return ESP_ERR_NOT_SUPPORTED;
     }
 
