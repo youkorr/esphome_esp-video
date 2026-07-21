@@ -1329,8 +1329,12 @@ bool MipiDSICamComponent::capture_frame() {
     return this->capture_frame_uvc_();
   }
 
-  // Feed watchdog at start of capture
-  esp_task_wdt_reset();
+  // Feed watchdog at start of capture — ONLY if this task is subscribed to the
+  // TWDT. capture_frame() is also driven by tasks that are not registered (e.g.
+  // the webrtc video-TX task at 10 fps); calling reset() from those just floods
+  // the log with "esp_task_wdt_reset(): task not found" every frame.
+  if (esp_task_wdt_status(nullptr) == ESP_OK)
+    esp_task_wdt_reset();
 
   static uint32_t profile_count = 0;
   static uint32_t total_dqbuf_us = 0;
@@ -1728,7 +1732,9 @@ bool MipiDSICamComponent::start_streaming_uvc_() {
 }
 
 bool MipiDSICamComponent::capture_frame_uvc_() {
-  esp_task_wdt_reset();
+  // Only feed the TWDT if this task is subscribed (see capture_frame() note).
+  if (esp_task_wdt_status(nullptr) == ESP_OK)
+    esp_task_wdt_reset();
 
   // 1. Récupérer une frame de capture (MMAP, fournie par le driver UVC)
   struct v4l2_buffer buf;
