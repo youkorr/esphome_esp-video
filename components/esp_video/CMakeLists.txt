@@ -29,6 +29,18 @@ list(APPEND srcs
     "src/embedded_sc2336_ipa_config_json.c"
     "src/embedded_sc2356_ipa_config_json.c")
 
+# Hardware H.264 encoder video device (/dev/video11, ESP32-P4 only).
+# `esp_video_h264_device.c` includes the esp_h264 headers unconditionally, so it
+# can only be compiled when that managed component is present. The ESPHome
+# component signals the choice by writing this marker file (enable_h264: true),
+# which is the one channel CMake can read: the -D flags it also poses are not
+# part of sdkconfig, so if(CONFIG_...) would always be false here.
+if(EXISTS "${CMAKE_CURRENT_LIST_DIR}/.enable_h264")
+    list(APPEND srcs "src/device/esp_video_h264_device.c")
+    list(APPEND requires "espressif__esp_h264")
+    set(ESP_VIDEO_H264_ENABLED TRUE)
+endif()
+
 idf_component_register(SRCS ${srcs}
                        INCLUDE_DIRS ${include_dirs}
                        PRIV_INCLUDE_DIRS ${priv_include_dirs}
@@ -53,5 +65,14 @@ target_link_libraries(${COMPONENT_LIB} PRIVATE idf::esp_ipa)
 target_compile_definitions(${COMPONENT_LIB} PUBLIC
     CONFIG_ESP_VIDEO_DISABLE_MIPI_CSI_DRIVER_BACKUP_BUFFER=1
 )
+
+# Same values as the -D flags posed by __init__.py, so the definitions agree
+# whichever path the build takes (native ESP-IDF or the legacy SCons script).
+if(ESP_VIDEO_H264_ENABLED)
+    target_compile_definitions(${COMPONENT_LIB} PUBLIC
+        CONFIG_ESP_VIDEO_ENABLE_H264_VIDEO_DEVICE=1
+        CONFIG_ESP_VIDEO_ENABLE_HW_H264_VIDEO_DEVICE=1
+    )
+endif()
 
 

@@ -1,3 +1,7 @@
 # Python bytecode caches (generated when ESPHome imports the component modules)
 __pycache__/
 *.py[cod]
+
+# Marker written by the esp_video component when `enable_h264: true` is set;
+# read by CMakeLists.txt / esp_video_build.py to pull in the H.264 device.
+components/esp_video/.enable_h264

@@ -394,7 +394,10 @@ void ESPVideoComponent::dump_config() {
 
   ESP_LOGCONFIG(TAG, "  Encodeurs:");
 #ifdef ESP_VIDEO_JPEG_ENABLED
-  ESP_LOGCONFIG(TAG, "    - JPEG (matériel)");
+  ESP_LOGCONFIG(TAG, "    - JPEG (matériel) -> /dev/video10");
+#endif
+#ifdef ESP_VIDEO_H264_ENABLED
+  ESP_LOGCONFIG(TAG, "    - H.264 (matériel) -> /dev/video11");
 #endif
 
 #ifdef ESP_VIDEO_ISP_ENABLED

@@ -70,6 +70,13 @@ esp_video_sources = [
     "src/esp_video_isp_stubs.c",
 ]
 
+# Hardware H.264 encoder device. Unlike the UVC driver this file is not
+# #if-guarded and includes the esp_h264 headers unconditionally, so it is only
+# compiled when the ESPHome component enabled it (enable_h264: true), which is
+# signalled by the marker file it writes next to this script.
+if os.path.exists(os.path.join(component_dir, ".enable_h264")):
+    esp_video_sources.append("src/device/esp_video_h264_device.c")
+
 # Ajouter le chemin d'include private_include de esp_video
 esp_video_private_include = os.path.join(component_dir, "private_include")
 if os.path.exists(esp_video_private_include):
