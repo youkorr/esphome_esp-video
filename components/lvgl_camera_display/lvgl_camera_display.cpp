@@ -3,6 +3,7 @@
 #include "esphome/core/application.h"
 #include <cstring>
 #include "esp_cache.h"
+#include "esp_memory_utils.h"  // esp_ptr_external_ram()
 // Conditionally include detection components only if they exist
 #ifdef USE_FACE_DETECTION
 #include "esphome/components/face_detection/face_detection.h"
@@ -238,9 +239,15 @@ void LVGLCameraDisplay::update_canvas_() {
 
   // ESP32-P4: Invalidate CPU cache before reading PSRAM buffer filled by DMA.
   // Camera DMA writes to PSRAM but CPU cache may hold stale data for this address.
+  // Only PSRAM (external RAM) sits behind the data cache; internal SRAM is
+  // DMA-coherent and esp_cache_msync() rejects it with
+  // "esp_cache_msync(113): invalid addr or null pointer". Guard accordingly so
+  // the sync is a no-op (not an error) when the frame lives in internal SRAM.
   uint32_t frame_size = width * height * 2;  // RGB565
-  esp_cache_msync(img_data, frame_size,
-                  ESP_CACHE_MSYNC_FLAG_DIR_M2C | ESP_CACHE_MSYNC_FLAG_TYPE_DATA);
+  if (esp_ptr_external_ram(img_data)) {
+    esp_cache_msync(img_data, frame_size,
+                    ESP_CACHE_MSYNC_FLAG_DIR_M2C | ESP_CACHE_MSYNC_FLAG_TYPE_DATA);
+  }
 
   // Optional: draw detection results if configured. Track whether anything
   // actually wrote into the frame so we can skip the (expensive, full-frame)
@@ -270,7 +277,7 @@ void LVGLCameraDisplay::update_canvas_() {
   // Only needed when an overlay actually modified the buffer with the CPU;
   // otherwise the CPU wrote nothing and flushing the whole frame is wasted
   // work (a full-frame msync every frame).
-  if (overlay_drawn) {
+  if (overlay_drawn && esp_ptr_external_ram(img_data)) {
     uint32_t buf_size_bytes = width * height * 2;
     esp_cache_msync(img_data, buf_size_bytes,
                     ESP_CACHE_MSYNC_FLAG_DIR_C2M | ESP_CACHE_MSYNC_FLAG_TYPE_DATA);
