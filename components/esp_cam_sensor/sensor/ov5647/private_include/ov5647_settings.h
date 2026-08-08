@@ -40,7 +40,6 @@ static const ov5647_reginfo_t ov5647_mipi_reset_regs[] = {
     {0x4800, BIT(0)},// Ensure streaming off to make `clock lane` go into LP-11 state.
     {OV5647_REG_END, 0x00},
 };
-
 static const ov5647_reginfo_t ov5647_input_24M_MIPI_2lane_raw8_800x640_50fps[] = {
     {0x3034, OV5647_8BIT_MODE}, // set RAW format
     {0x3035, 0x41}, // system clk div
@@ -154,6 +153,7 @@ static const ov5647_reginfo_t ov5647_input_24M_MIPI_2lane_raw8_800x640_50fps[] =
     {0x4051, 0x8f},
     {OV5647_REG_END, 0x00},
 };
+
 
 static const ov5647_reginfo_t ov5647_input_24M_MIPI_2lane_raw8_800x1280_50fps[] = {
     {0x3034, 0x18},
@@ -640,6 +640,7 @@ static const ov5647_reginfo_t ov5647_input_24M_MIPI_2lane_raw10_1280x960_45fps[]
     {0x3212, 0xa0},
     {OV5647_REG_END, 0x00},
 };
+
 
 #ifdef __cplusplus
 }
