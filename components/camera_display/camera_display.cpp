@@ -19,14 +19,23 @@ void CameraDisplay::setup() {
 void CameraDisplay::loop() {
   if (!this->enabled_ || this->is_failed())
     return;
-  if (!this->camera_->is_streaming())
+
+  // Nothing on screen is otherwise indistinguishable from nothing running, so
+  // say which stage is not producing -- once per stage, not once per loop.
+  if (!this->camera_->is_streaming()) {
+    this->log_stage_once_(STAGE_STREAMING, "camera is not streaming yet");
     return;
-  if (!this->camera_->capture_frame())
+  }
+  if (!this->camera_->capture_frame()) {
+    this->log_stage_once_(STAGE_CAPTURE, "camera is streaming but capture_frame() returns false");
     return;
+  }
 
   esp_cam_sensor::SimpleBufferElement *buffer = this->camera_->acquire_buffer();
-  if (buffer == nullptr)
+  if (buffer == nullptr) {
+    this->log_stage_once_(STAGE_ACQUIRE, "frame captured but acquire_buffer() returned nothing");
     return;
+  }
 
   uint8_t *data = this->camera_->get_buffer_data(buffer);
   uint16_t width = this->camera_->get_image_width();
@@ -49,6 +58,11 @@ void CameraDisplay::loop() {
   }
 
   if (data != nullptr && width != 0 && height != 0) {
+    if (!this->drew_once_) {
+      this->drew_once_ = true;
+      ESP_LOGI(TAG, "First frame: %ux%u at %d,%d on a %dx%d display", width, height, this->x_, this->y_,
+               this->display_->get_width(), this->display_->get_height());
+    }
     uint32_t start = micros();
     // The packed overload passes x_offset/y_offset/x_pad = 0, which is what
     // keeps mipi_dsi on its single-transfer path instead of one DMA per line.
@@ -70,6 +84,13 @@ void CameraDisplay::loop() {
     this->stats_frames_ = 0;
     this->stats_draw_us_ = 0;
   }
+}
+
+void CameraDisplay::log_stage_once_(uint8_t stage, const char *reason) {
+  if (this->logged_stage_ == stage)
+    return;
+  this->logged_stage_ = stage;
+  ESP_LOGW(TAG, "No frame drawn: %s", reason);
 }
 
 void CameraDisplay::dump_config() {

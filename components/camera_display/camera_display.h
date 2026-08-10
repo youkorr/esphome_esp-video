@@ -43,6 +43,13 @@ class CameraDisplay : public Component {
   bool enabled_{true};
   // The frame size only becomes known once the first frame arrives.
   bool bounds_checked_{false};
+  bool drew_once_{false};
+
+  // Which stage last reported that it had no frame, so the reason is logged on
+  // each transition rather than on every loop iteration.
+  enum : uint8_t { STAGE_NONE = 0, STAGE_STREAMING, STAGE_CAPTURE, STAGE_ACQUIRE };
+  uint8_t logged_stage_{STAGE_NONE};
+  void log_stage_once_(uint8_t stage, const char *reason);
 
   // Throughput, reported on an interval so the direct path can be compared with
   // the LVGL canvas one on the same hardware.
