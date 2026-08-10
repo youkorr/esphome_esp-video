@@ -17,7 +17,9 @@ namespace camera_display {
 /// with no CPU copy.
 ///
 /// The frame is already scaled and rotated by esp_cam_sensor's PPA stage, so
-/// this component only moves it.
+/// this component only moves it: x/y place the top-left corner on the panel,
+/// and the size is whatever the camera produces. There is deliberately no
+/// width/height here -- set the output size on the camera.
 class CameraDisplay : public Component {
  public:
   void setup() override;
@@ -39,6 +41,8 @@ class CameraDisplay : public Component {
   int x_{0};
   int y_{0};
   bool enabled_{true};
+  // The frame size only becomes known once the first frame arrives.
+  bool bounds_checked_{false};
 
   // Throughput, reported on an interval so the direct path can be compared with
   // the LVGL canvas one on the same hardware.

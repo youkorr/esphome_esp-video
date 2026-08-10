@@ -32,6 +32,22 @@ void CameraDisplay::loop() {
   uint16_t width = this->camera_->get_image_width();
   uint16_t height = this->camera_->get_image_height();
 
+  // The frame size comes from the camera, so a position that fits on one sensor
+  // format runs off the panel on another. esp_lcd_panel_draw_bitmap() is given
+  // the rectangle unchecked, so catch it here rather than in the driver.
+  if (data != nullptr && width != 0 && height != 0 && !this->bounds_checked_) {
+    this->bounds_checked_ = true;
+    int dw = this->display_->get_width();
+    int dh = this->display_->get_height();
+    if (this->x_ + width > dw || this->y_ + height > dh) {
+      ESP_LOGE(TAG, "%ux%u at %d,%d does not fit a %dx%d display; set the size on the camera, not here", width, height,
+               this->x_, this->y_, dw, dh);
+      this->camera_->release_buffer(buffer);
+      this->mark_failed();
+      return;
+    }
+  }
+
   if (data != nullptr && width != 0 && height != 0) {
     uint32_t start = micros();
     // The packed overload passes x_offset/y_offset/x_pad = 0, which is what
