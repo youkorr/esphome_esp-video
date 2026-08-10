@@ -1,7 +1,7 @@
 import esphome.codegen as cg
 from esphome.components import display
 import esphome.config_validation as cv
-from esphome.const import CONF_ID, CONF_X, CONF_Y
+from esphome.const import CONF_ID, CONF_ROTATION, CONF_X, CONF_Y
 
 DEPENDENCIES = ["esp_cam_sensor", "display"]
 
@@ -21,6 +21,9 @@ CONFIG_SCHEMA = cv.Schema(
         cv.Required(CONF_DISPLAY_ID): cv.use_id(display.Display),
         cv.Optional(CONF_X, default=0): cv.int_range(min=0),
         cv.Optional(CONF_Y, default=0): cv.int_range(min=0),
+        # Applied by this component's own PPA client on the way to the panel,
+        # so the camera keeps whatever transform it was already configured with.
+        cv.Optional(CONF_ROTATION, default=0): cv.one_of(0, 90, 180, 270, int=True),
     }
 ).extend(cv.COMPONENT_SCHEMA)
 
@@ -36,3 +39,4 @@ async def to_code(config):
     cg.add(var.set_display(disp))
 
     cg.add(var.set_position(config[CONF_X], config[CONF_Y]))
+    cg.add(var.set_rotation(config[CONF_ROTATION]))

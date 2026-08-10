@@ -4,6 +4,8 @@
 #include "esphome/components/display/display.h"
 #include "esphome/components/esp_cam_sensor/esp_cam_sensor_camera.h"
 
+#include "driver/ppa.h"
+
 namespace esphome {
 namespace camera_display {
 
@@ -34,6 +36,10 @@ class CameraDisplay : public Component {
     this->y_ = y;
   }
   void set_enabled(bool enabled) { this->enabled_ = enabled; }
+  /// 0, 90, 180 or 270. Anything but 0 runs the frame through the PPA on the
+  /// way to the panel, which is where Espressif's own example puts it too --
+  /// the camera driver stays untouched.
+  void set_rotation(int degrees) { this->rotation_ = degrees; }
 
  protected:
   esp_cam_sensor::MipiDSICamComponent *camera_{nullptr};
@@ -41,13 +47,24 @@ class CameraDisplay : public Component {
   int x_{0};
   int y_{0};
   bool enabled_{true};
+  int rotation_{0};
+
+  // PPA transform, only allocated when rotation_ != 0. Without it the V4L2
+  // buffer goes to the panel untouched.
+  ppa_client_handle_t ppa_{nullptr};
+  uint8_t *ppa_out_{nullptr};
+  size_t ppa_out_size_{0};
+  uint16_t out_width_{0};
+  uint16_t out_height_{0};
+  bool setup_ppa_(uint16_t src_width, uint16_t src_height);
+  const uint8_t *transform_(const uint8_t *src, uint16_t src_width, uint16_t src_height);
   // The frame size only becomes known once the first frame arrives.
   bool bounds_checked_{false};
   bool drew_once_{false};
 
   // Which stage last reported that it had no frame, so the reason is logged on
   // each transition rather than on every loop iteration.
-  enum : uint8_t { STAGE_NONE = 0, STAGE_STREAMING, STAGE_CAPTURE, STAGE_ACQUIRE };
+  enum : uint8_t { STAGE_NONE = 0, STAGE_STREAMING, STAGE_CAPTURE, STAGE_ACQUIRE, STAGE_PPA };
   uint8_t logged_stage_{STAGE_NONE};
   void log_stage_once_(uint8_t stage, const char *reason);
 
