@@ -3,8 +3,8 @@
 #include "esphome/core/hal.h"
 #include "esphome/core/log.h"
 
-#include "esp_cache.h"
 #include "esp_heap_caps.h"
+#include "esp_private/esp_cache_private.h"  // esp_cache_get_alignment()
 
 namespace esphome {
 namespace camera_display {
