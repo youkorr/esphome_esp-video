@@ -43,14 +43,14 @@ void UVCDevice::setup() {
              "No MIPI-CSI sensor on %s (%s). The sensor has to be detected before this component can present it "
              "over USB.",
              ESP_VIDEO_MIPI_CSI_DEVICE_NAME, strerror(errno));
-    this->mark_failed();
+    this->mark_failed(LOG_STR("No MIPI-CSI sensor"));
     return;
   }
 
   this->encoder_fd_ = open(ESP_VIDEO_JPEG_DEVICE_NAME, O_RDONLY);
   if (this->encoder_fd_ < 0) {
     ESP_LOGE(TAG, "No hardware JPEG encoder on %s (%s)", ESP_VIDEO_JPEG_DEVICE_NAME, strerror(errno));
-    this->mark_failed();
+    this->mark_failed(LOG_STR("No hardware JPEG encoder"));
     return;
   }
 
@@ -75,7 +75,7 @@ void UVCDevice::setup() {
     this->uvc_buffer_ = (uint8_t *) heap_caps_malloc(this->uvc_buffer_size_, MALLOC_CAP_8BIT);
   if (this->uvc_buffer_ == nullptr) {
     ESP_LOGE(TAG, "Could not allocate the %u byte USB transfer buffer", (unsigned) this->uvc_buffer_size_);
-    this->mark_failed();
+    this->mark_failed(LOG_STR("USB transfer buffer allocation failed"));
     return;
   }
 
@@ -91,13 +91,13 @@ void UVCDevice::setup() {
   esp_err_t err = uvc_device_config(0, &config);
   if (err != ESP_OK) {
     ESP_LOGE(TAG, "uvc_device_config() failed: %s", esp_err_to_name(err));
-    this->mark_failed();
+    this->mark_failed(LOG_STR("uvc_device_config failed"));
     return;
   }
   err = uvc_device_init();
   if (err != ESP_OK) {
     ESP_LOGE(TAG, "uvc_device_init() failed: %s", esp_err_to_name(err));
-    this->mark_failed();
+    this->mark_failed(LOG_STR("uvc_device_init failed"));
     return;
   }
 
