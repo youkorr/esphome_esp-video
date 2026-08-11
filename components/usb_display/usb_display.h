@@ -84,9 +84,13 @@ class USBDisplay : public Component {
   size_t skipping_{0};
 
   jpeg_decoder_handle_t jpeg_{nullptr};
-  // Decoded RGB565, handed to the display. Sized for width * height * 2.
+  // Decoded RGB565, handed to the display. The decoder writes whole 16x16
+  // minimum coded units, so this is sized for the resolution rounded up to a
+  // multiple of 16 on both axes, not for the resolution itself.
   uint8_t *rgb_buffer_{nullptr};
   size_t rgb_buffer_len_{0};
+  uint16_t padded_width_{0};
+  uint16_t padded_height_{0};
 
   // Reported on an interval, like the camera components.
   uint32_t frames_drawn_{0};
@@ -98,6 +102,7 @@ class USBDisplay : public Component {
   // without turning the log into a per-packet trace.
   bool logged_first_bytes_{false};
   bool logged_bad_header_{false};
+  bool logged_decode_error_{false};
 };
 
 }  // namespace usb_display

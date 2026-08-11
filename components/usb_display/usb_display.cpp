@@ -87,19 +87,6 @@ void USBDisplay::setup() {
   }
   g_usb_display = this;
 
-  this->rgb_buffer_len_ = (size_t) this->width_ * this->height_ * 2;
-  this->rgb_buffer_ = (uint8_t *) heap_caps_aligned_alloc(64, this->rgb_buffer_len_, MALLOC_CAP_SPIRAM);
-  if (this->rgb_buffer_ == nullptr) {
-    ESP_LOGE(TAG, "Could not allocate the %u byte RGB565 buffer", (unsigned) this->rgb_buffer_len_);
-    this->mark_failed(LOG_STR("RGB buffer allocation failed"));
-    return;
-  }
-
-  if (!this->allocate_frames_()) {
-    this->mark_failed(LOG_STR("Frame buffer allocation failed"));
-    return;
-  }
-
   jpeg_decode_engine_cfg_t engine_cfg = {};
   engine_cfg.intr_priority = 1;
   engine_cfg.timeout_ms = 50;
@@ -107,6 +94,31 @@ void USBDisplay::setup() {
   if (err != ESP_OK) {
     ESP_LOGE(TAG, "jpeg_new_decoder_engine() failed: %s", esp_err_to_name(err));
     this->mark_failed(LOG_STR("JPEG decoder unavailable"));
+    return;
+  }
+
+  // The decoder works in 16x16 minimum coded units and writes a whole number of
+  // them, so it decodes a 1024x600 frame into 1024x608 and refuses a buffer
+  // sized for 1024x600. Round both axes up; the real pixels stay at the top
+  // left of that area, so drawing skips the padding rather than showing it.
+  this->padded_width_ = (this->width_ + 15) & ~15;
+  this->padded_height_ = (this->height_ + 15) & ~15;
+
+  // The driver's own allocator: the decode output is written by DMA, so the
+  // buffer has to sit on a cache line and occupy a whole number of them. It
+  // reports back how much it really took, which is what the size check wants.
+  jpeg_decode_memory_alloc_cfg_t out_cfg = {};
+  out_cfg.buffer_direction = JPEG_DEC_ALLOC_OUTPUT_BUFFER;
+  const size_t out_wanted = (size_t) this->padded_width_ * this->padded_height_ * 2;
+  this->rgb_buffer_ = (uint8_t *) jpeg_alloc_decoder_mem(out_wanted, &out_cfg, &this->rgb_buffer_len_);
+  if (this->rgb_buffer_ == nullptr) {
+    ESP_LOGE(TAG, "Could not allocate the %u byte RGB565 buffer", (unsigned) out_wanted);
+    this->mark_failed(LOG_STR("RGB buffer allocation failed"));
+    return;
+  }
+
+  if (!this->allocate_frames_()) {
+    this->mark_failed(LOG_STR("Frame buffer allocation failed"));
     return;
   }
 
@@ -156,9 +168,15 @@ bool USBDisplay::allocate_frames_() {
   if (this->empty_queue_ == nullptr || this->filled_queue_ == nullptr)
     return false;
 
+  // Same allocator for the compressed side: the decoder reads the bit stream by
+  // DMA too, so these have the same cache alignment requirement as the output.
+  jpeg_decode_memory_alloc_cfg_t in_cfg = {};
+  in_cfg.buffer_direction = JPEG_DEC_ALLOC_INPUT_BUFFER;
+
   for (uint8_t i = 0; i < this->frame_buffer_count_; i++) {
     Frame *frame = &this->frames_[i];
-    frame->data = (uint8_t *) heap_caps_aligned_alloc(64, this->max_frame_bytes_, MALLOC_CAP_SPIRAM);
+    size_t allocated = 0;
+    frame->data = (uint8_t *) jpeg_alloc_decoder_mem(this->max_frame_bytes_, &in_cfg, &allocated);
     if (frame->data == nullptr) {
       ESP_LOGE(TAG, "Could not allocate frame buffer %u of %u bytes", i, (unsigned) this->max_frame_bytes_);
       return false;
@@ -284,19 +302,30 @@ void USBDisplay::run_decode_task() {
                                          this->rgb_buffer_len_, &out_size);
     if (err == ESP_OK) {
       uint32_t start = micros();
-      // The packed overload: no offsets and no padding is what keeps mipi_dsi
-      // on its single-transfer path instead of one DMA per line.
+      // The decoded rows are padded_width_ wide even when fewer pixels are
+      // wanted; x_pad tells the display to skip the difference at the end of
+      // each line. When the width is already a multiple of 16 there is no
+      // padding, and this stays on mipi_dsi's single-transfer path instead of
+      // one DMA per line.
       this->display_->draw_pixels_at(0, 0, frame->width, frame->height, this->rgb_buffer_, display::COLOR_ORDER_RGB,
-                                     display::COLOR_BITNESS_565, false);
+                                     display::COLOR_BITNESS_565, false, 0, 0, this->padded_width_ - frame->width);
       this->draw_us_ += micros() - start;
       this->frames_drawn_++;
       if (!this->logged_first_frame_) {
         this->logged_first_frame_ = true;
-        ESP_LOGI(TAG, "First frame from the host: %u bytes compressed, %ux%u decoded", (unsigned) frame->received,
-                 (unsigned) frame->width, (unsigned) frame->height);
+        ESP_LOGI(TAG, "First frame from the host: %u bytes compressed, %ux%u decoded into %u bytes",
+                 (unsigned) frame->received, (unsigned) frame->width, (unsigned) frame->height, (unsigned) out_size);
       }
     } else {
       this->frames_dropped_++;
+      // Every frame failing looks exactly like no frame arriving, because the
+      // statistics below only run once something has been drawn. Say it once.
+      if (!this->logged_decode_error_) {
+        this->logged_decode_error_ = true;
+        ESP_LOGE(TAG, "JPEG decode failed: %s (%u bytes in, %ux%u into a %u byte buffer)", esp_err_to_name(err),
+                 (unsigned) frame->received, (unsigned) frame->width, (unsigned) frame->height,
+                 (unsigned) this->rgb_buffer_len_);
+      }
     }
 
     xQueueSend(this->empty_queue_, &frame, 0);
@@ -319,7 +348,8 @@ void USBDisplay::dump_config() {
   ESP_LOGCONFIG(TAG, "  Resolution: %ux%u", (unsigned) this->width_, (unsigned) this->height_);
   ESP_LOGCONFIG(TAG, "  Frame buffers: %u x %u bytes", (unsigned) this->frame_buffer_count_,
                 (unsigned) this->max_frame_bytes_);
-  ESP_LOGCONFIG(TAG, "  Decoded buffer: %u bytes", (unsigned) this->rgb_buffer_len_);
+  ESP_LOGCONFIG(TAG, "  Decoded buffer: %u bytes (%ux%u, rounded up to whole 16x16 units)",
+                (unsigned) this->rgb_buffer_len_, (unsigned) this->padded_width_, (unsigned) this->padded_height_);
   if (this->is_failed())
     ESP_LOGCONFIG(TAG, "  State: FAILED");
 }
