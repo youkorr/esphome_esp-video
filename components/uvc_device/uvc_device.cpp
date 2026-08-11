@@ -22,6 +22,9 @@ namespace uvc_device {
 
 static const char *const TAG = "uvc_device";
 
+// How often to report the rate frames are actually leaving at.
+static constexpr uint32_t STATS_INTERVAL_MS = 10000;
+
 // The JPEG encoder takes one of these on its input; which one depends on what
 // the sensor and the ISP are producing. Order is preference.
 static const uint32_t JPEG_INPUT_FORMATS[] = {
@@ -302,6 +305,9 @@ esp_err_t UVCDevice::on_start_(int width, int height) {
     return ESP_FAIL;
   }
 
+  this->frames_ = 0;
+  this->bytes_ = 0;
+  this->stats_since_ms_ = (uint32_t) (esp_timer_get_time() / 1000);
   this->streaming_ = true;
   return ESP_OK;
 }
@@ -352,6 +358,23 @@ uvc_fb_t *UVCDevice::on_fb_get_() {
 
   ioctl(this->capture_fd_, VIDIOC_QBUF, &cap_buf);
   ioctl(this->encoder_fd_, VIDIOC_DQBUF, &out_buf);
+
+  // Whether frames leave this board at all is the one thing the host cannot
+  // tell us, and it is what separates "the device is not producing" from "the
+  // transport is dropping everything".
+  this->frames_++;
+  this->bytes_ += enc_buf.bytesused;
+  if (this->frames_ == 1)
+    ESP_LOGI(TAG, "First frame handed to the host: %u bytes", (unsigned) enc_buf.bytesused);
+  uint32_t now_ms = (uint32_t) (esp_timer_get_time() / 1000);
+  uint32_t elapsed = now_ms - this->stats_since_ms_;
+  if (elapsed >= STATS_INTERVAL_MS) {
+    ESP_LOGI(TAG, "%ux%u @ %.1f fps, %u B/frame", (unsigned) this->width_, (unsigned) this->height_,
+             this->frames_ * 1000.0f / elapsed, (unsigned) (this->bytes_ / this->frames_));
+    this->stats_since_ms_ = now_ms;
+    this->frames_ = 0;
+    this->bytes_ = 0;
+  }
 
   int64_t us = esp_timer_get_time();
   this->fb_.buf = this->encoder_buffer_;

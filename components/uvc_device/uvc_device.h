@@ -81,6 +81,11 @@ class UVCDevice : public Component {
 
   bool streaming_{false};
   uvc_fb_t fb_{};
+
+  // Throughput of what this board hands to the host, reported on an interval.
+  uint32_t frames_{0};
+  uint32_t bytes_{0};
+  uint32_t stats_since_ms_{0};
 };
 
 }  // namespace uvc_device
