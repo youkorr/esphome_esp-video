@@ -23,9 +23,11 @@ Access to the device:
               SUBSYSTEM=="usb", ATTR{idVendor}=="303a", ATTR{idProduct}=="4001", MODE="0666"
   macOS    libusb is enough (brew install libusb); nothing claims a vendor
           interface, so it is free to take.
-  Windows  the interface needs the WinUSB driver bound to it, which is what
-          Zadig does in a couple of clicks. Windows will not hand a vendor
-          interface to libusb otherwise.
+  Windows  the interface needs the WinUSB driver. The board advertises
+          Microsoft OS 2.0 descriptors, so Windows 8 and later bind WinUSB by
+          themselves the first time it is plugged in. Zadig is only the
+          fallback for when that did not happen -- and it binds the same
+          WinUSB, so a board already set up with it keeps working.
 """
 
 import argparse
@@ -102,8 +104,9 @@ def find_endpoint(vid, pid):
         raise SystemExit(
             f"No device with {vid:04x}:{pid:04x}.\n"
             "  - Is the board on its OTG port, running a usb_display firmware?\n"
-            "  - On Windows the interface needs WinUSB bound to it with Zadig; until "
-            "then libusb cannot see the device even though Windows shows it."
+            "  - On Windows the interface needs WinUSB. The board asks for it "
+            "itself, but if Windows has not bound it, libusb cannot see the "
+            "device even though Device Manager shows it -- bind it with Zadig."
         )
 
     # Linux binds nothing to a vendor interface, but be explicit rather than

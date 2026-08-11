@@ -9,6 +9,7 @@
 #include <cstring>
 
 extern "C" {
+#include "sdkconfig.h"
 #include "freertos/task.h"
 #include "esp_private/usb_phy.h"
 #include "tusb.h"
@@ -38,7 +39,30 @@ extern "C" void tud_vendor_rx_cb(uint8_t itf, uint8_t const *buffer, uint16_t bu
 // The device end of enumeration. Whether these fire at all is the difference
 // between "the host never saw us" and "the host configured us and the sender
 // is the problem", which nothing else here can tell apart.
-extern "C" void tud_mount_cb(void) { ESP_LOGI(TAG, "USB: configured by the host"); }
+extern "C" void tud_mount_cb(void) {
+  // The speed the bus actually negotiated, which is not necessarily the one the
+  // descriptors were built for: the endpoint sizes in tusb_config.h are fixed at
+  // compile time, and a High-Speed bulk endpoint on a Full-Speed bus enumerates
+  // fine and then never transfers anything. Say it out loud rather than leaving
+  // a silent endpoint to be diagnosed from its absence.
+  const tusb_speed_t speed = tud_speed_get();
+  const char *speed_name = (speed == TUSB_SPEED_HIGH)   ? "High Speed"
+                           : (speed == TUSB_SPEED_FULL) ? "Full Speed"
+                                                        : "Low Speed";
+  ESP_LOGI(TAG, "USB: configured by the host at %s", speed_name);
+
+#if CONFIG_USB_DISPLAY_HIGH_SPEED
+  const bool as_built = speed == TUSB_SPEED_HIGH;
+#else
+  const bool as_built = speed == TUSB_SPEED_FULL;
+#endif
+  if (!as_built) {
+    ESP_LOGE(TAG,
+             "USB: the bus is %s but this firmware was built with %u byte endpoints; "
+             "no data will arrive. Check usb_speed: in the configuration.",
+             speed_name, (unsigned) CFG_TUD_VENDOR_EPSIZE);
+  }
+}
 extern "C" void tud_umount_cb(void) { ESP_LOGW(TAG, "USB: unconfigured"); }
 extern "C" void tud_suspend_cb(bool remote_wakeup_en) {
   (void) remote_wakeup_en;
@@ -86,13 +110,25 @@ void USBDisplay::setup() {
     return;
   }
 
-  // Device mode on the internal PHY, exactly as Espressif's usb_extend_screen
-  // example does it. TinyUSB does not set the PHY up itself.
+  // Device mode on the PHY that matches the speed the descriptors were built
+  // for. TinyUSB does not set the PHY up itself.
+  //
+  // The ESP32-P4 has two internal Full-Speed PHYs and one High-Speed one, and
+  // they are separate targets: USB_PHY_TARGET_INT is a Full-Speed PHY,
+  // USB_PHY_TARGET_UTMI is the High-Speed one. Picking INT while tusb_config.h
+  // declares a 512-byte bulk endpoint does not fail loudly -- the device
+  // enumerates and the host configures it, because endpoint 0 is legal at
+  // either speed -- but 512 is not a legal bulk packet size at Full Speed, so
+  // the OUT pipe never carries a byte and the receive callback never fires.
   usb_phy_handle_t phy = nullptr;
   usb_phy_config_t phy_conf = {};
   phy_conf.controller = USB_PHY_CTRL_OTG;
   phy_conf.otg_mode = USB_OTG_MODE_DEVICE;
+#if CONFIG_USB_DISPLAY_HIGH_SPEED
+  phy_conf.target = USB_PHY_TARGET_UTMI;
+#else
   phy_conf.target = USB_PHY_TARGET_INT;
+#endif
   if (usb_new_phy(&phy_conf, &phy) != ESP_OK) {
     this->mark_failed(LOG_STR("USB PHY setup failed"));
     return;
