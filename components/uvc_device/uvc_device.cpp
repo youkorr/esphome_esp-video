@@ -146,30 +146,33 @@ esp_err_t UVCDevice::on_start_(int width, int height) {
     return ESP_ERR_NOT_SUPPORTED;
   }
 
+  // Read what the sensor is actually running at before setting anything. Its
+  // size is fixed when the firmware is built, and S_FMT with any other size is
+  // rejected with a bare EINVAL that names neither the size asked for nor the
+  // one that would work -- which is no help at all to whoever has to fix it.
   struct v4l2_format format;
   memset(&format, 0, sizeof(format));
   format.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-  format.fmt.pix.width = width;
-  format.fmt.pix.height = height;
+  if (ioctl(this->capture_fd_, VIDIOC_G_FMT, &format) != 0) {
+    ESP_LOGE(TAG, "VIDIOC_G_FMT on the sensor failed: %s", strerror(errno));
+    return ESP_FAIL;
+  }
+  const unsigned sensor_width = format.fmt.pix.width;
+  const unsigned sensor_height = format.fmt.pix.height;
+  if ((int) sensor_width != width || (int) sensor_height != height) {
+    ESP_LOGE(TAG,
+             "The sensor is running at %ux%u but the USB descriptor announces %dx%d, so the host would decode a "
+             "frame of the wrong shape. Either set resolution: %ux%u here, or build the sensor for %dx%d.",
+             sensor_width, sensor_height, width, height, sensor_width, sensor_height, width, height);
+    return ESP_ERR_INVALID_SIZE;
+  }
+
+  // Only the pixel format is negotiable; keep the size the sensor came up with.
+  format.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
   format.fmt.pix.pixelformat = this->capture_format_;
   if (ioctl(this->capture_fd_, VIDIOC_S_FMT, &format) != 0) {
     ESP_LOGE(TAG, "VIDIOC_S_FMT on the sensor failed: %s", strerror(errno));
     return ESP_FAIL;
-  }
-
-  // A MIPI sensor's size is fixed when the firmware is built, so S_FMT cannot
-  // resize it. If the two disagree the host is decoding a frame of a different
-  // shape than its descriptor promised, which looks like a torn image.
-  memset(&format, 0, sizeof(format));
-  format.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-  if (ioctl(this->capture_fd_, VIDIOC_G_FMT, &format) == 0 &&
-      ((int) format.fmt.pix.width != width || (int) format.fmt.pix.height != height)) {
-    ESP_LOGE(TAG,
-             "The sensor streams %ux%u but the USB descriptor announces %dx%d. Set resolution: %ux%u here, or build "
-             "the sensor for %dx%d.",
-             (unsigned) format.fmt.pix.width, (unsigned) format.fmt.pix.height, width, height,
-             (unsigned) format.fmt.pix.width, (unsigned) format.fmt.pix.height, width, height);
-    return ESP_ERR_INVALID_SIZE;
   }
 
   struct v4l2_requestbuffers req;
@@ -190,6 +193,8 @@ esp_err_t UVCDevice::on_start_(int width, int height) {
     buf.index = i;
     if (ioctl(this->capture_fd_, VIDIOC_QUERYBUF, &buf) != 0) {
       ESP_LOGE(TAG, "VIDIOC_QUERYBUF[%d] failed: %s", i, strerror(errno));
+      this->teardown_();
+      this->teardown_();
       return ESP_FAIL;
     }
     this->capture_buffer_[i] =
@@ -197,11 +202,15 @@ esp_err_t UVCDevice::on_start_(int width, int height) {
     if (this->capture_buffer_[i] == MAP_FAILED) {
       this->capture_buffer_[i] = nullptr;
       ESP_LOGE(TAG, "mmap[%d] failed: %s", i, strerror(errno));
+      this->teardown_();
+      this->teardown_();
       return ESP_FAIL;
     }
     this->capture_buffer_len_[i] = buf.length;
     if (ioctl(this->capture_fd_, VIDIOC_QBUF, &buf) != 0) {
       ESP_LOGE(TAG, "VIDIOC_QBUF[%d] failed: %s", i, strerror(errno));
+      this->teardown_();
+      this->teardown_();
       return ESP_FAIL;
     }
   }
@@ -215,6 +224,7 @@ esp_err_t UVCDevice::on_start_(int width, int height) {
   format.fmt.pix.pixelformat = this->capture_format_;
   if (ioctl(this->encoder_fd_, VIDIOC_S_FMT, &format) != 0) {
     ESP_LOGE(TAG, "VIDIOC_S_FMT on the encoder input failed: %s", strerror(errno));
+    this->teardown_();
     return ESP_FAIL;
   }
   memset(&req, 0, sizeof(req));
@@ -223,6 +233,7 @@ esp_err_t UVCDevice::on_start_(int width, int height) {
   req.memory = V4L2_MEMORY_USERPTR;
   if (ioctl(this->encoder_fd_, VIDIOC_REQBUFS, &req) != 0) {
     ESP_LOGE(TAG, "VIDIOC_REQBUFS on the encoder input failed: %s", strerror(errno));
+    this->teardown_();
     return ESP_FAIL;
   }
 
@@ -234,6 +245,7 @@ esp_err_t UVCDevice::on_start_(int width, int height) {
   format.fmt.pix.pixelformat = V4L2_PIX_FMT_JPEG;
   if (ioctl(this->encoder_fd_, VIDIOC_S_FMT, &format) != 0) {
     ESP_LOGE(TAG, "VIDIOC_S_FMT on the encoder output failed: %s", strerror(errno));
+    this->teardown_();
     return ESP_FAIL;
   }
   memset(&req, 0, sizeof(req));
@@ -242,6 +254,7 @@ esp_err_t UVCDevice::on_start_(int width, int height) {
   req.memory = V4L2_MEMORY_MMAP;
   if (ioctl(this->encoder_fd_, VIDIOC_REQBUFS, &req) != 0) {
     ESP_LOGE(TAG, "VIDIOC_REQBUFS on the encoder output failed: %s", strerror(errno));
+    this->teardown_();
     return ESP_FAIL;
   }
 
@@ -252,6 +265,7 @@ esp_err_t UVCDevice::on_start_(int width, int height) {
   buf.index = 0;
   if (ioctl(this->encoder_fd_, VIDIOC_QUERYBUF, &buf) != 0) {
     ESP_LOGE(TAG, "VIDIOC_QUERYBUF on the encoder output failed: %s", strerror(errno));
+    this->teardown_();
     return ESP_FAIL;
   }
   this->encoder_buffer_ =
@@ -259,27 +273,32 @@ esp_err_t UVCDevice::on_start_(int width, int height) {
   if (this->encoder_buffer_ == MAP_FAILED) {
     this->encoder_buffer_ = nullptr;
     ESP_LOGE(TAG, "mmap of the encoder output failed: %s", strerror(errno));
+    this->teardown_();
     return ESP_FAIL;
   }
   this->encoder_buffer_len_ = buf.length;
   if (ioctl(this->encoder_fd_, VIDIOC_QBUF, &buf) != 0) {
     ESP_LOGE(TAG, "VIDIOC_QBUF on the encoder output failed: %s", strerror(errno));
+    this->teardown_();
     return ESP_FAIL;
   }
 
   int type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
   if (ioctl(this->encoder_fd_, VIDIOC_STREAMON, &type) != 0) {
     ESP_LOGE(TAG, "STREAMON on the encoder output failed: %s", strerror(errno));
+    this->teardown_();
     return ESP_FAIL;
   }
   type = V4L2_BUF_TYPE_VIDEO_OUTPUT;
   if (ioctl(this->encoder_fd_, VIDIOC_STREAMON, &type) != 0) {
     ESP_LOGE(TAG, "STREAMON on the encoder input failed: %s", strerror(errno));
+    this->teardown_();
     return ESP_FAIL;
   }
   type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
   if (ioctl(this->capture_fd_, VIDIOC_STREAMON, &type) != 0) {
     ESP_LOGE(TAG, "STREAMON on the sensor failed: %s", strerror(errno));
+    this->teardown_();
     return ESP_FAIL;
   }
 
@@ -288,6 +307,12 @@ esp_err_t UVCDevice::on_start_(int width, int height) {
 }
 
 uvc_fb_t *UVCDevice::on_fb_get_() {
+  // usb_device_uvc keeps asking for frames even after start_cb failed, so
+  // without this every request would drive a doomed ioctl and log a warning for
+  // it, burying the one line that says why the stream never started.
+  if (!this->streaming_)
+    return nullptr;
+
   // Dequeue one raw frame, hand it to the encoder as USERPTR, take the JPEG
   // back. The encoder releases its input as part of completing its output, so
   // the input has to be reclaimed after the output, not before -- waiting the
@@ -354,17 +379,19 @@ void UVCDevice::on_stop_() {
   this->teardown_();
 }
 
+// Also called from the failure paths of on_start_(), which can already have
+// mapped buffers by the time it gives up, so this has to be safe to call when
+// nothing was ever streaming.
 void UVCDevice::teardown_() {
-  if (!this->streaming_)
-    return;
-  this->streaming_ = false;
-
-  int type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-  ioctl(this->capture_fd_, VIDIOC_STREAMOFF, &type);
-  type = V4L2_BUF_TYPE_VIDEO_OUTPUT;
-  ioctl(this->encoder_fd_, VIDIOC_STREAMOFF, &type);
-  type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-  ioctl(this->encoder_fd_, VIDIOC_STREAMOFF, &type);
+  if (this->streaming_) {
+    this->streaming_ = false;
+    int type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    ioctl(this->capture_fd_, VIDIOC_STREAMOFF, &type);
+    type = V4L2_BUF_TYPE_VIDEO_OUTPUT;
+    ioctl(this->encoder_fd_, VIDIOC_STREAMOFF, &type);
+    type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    ioctl(this->encoder_fd_, VIDIOC_STREAMOFF, &type);
+  }
 
   // The next on_start_() maps a fresh set, so release these rather than leaking
   // one mapping per host connect.
