@@ -150,6 +150,15 @@ def main():
         "--monitor", type=int, default=1, help="which monitor to capture (1 = primary)"
     )
     parser.add_argument(
+        "--rotate",
+        type=int,
+        choices=(0, 90, 180, 270),
+        default=0,
+        help="rotate the image clockwise before sending, for a panel that is not "
+        "mounted the right way up. 90 and 270 swap the aspect ratio, so --width "
+        "and --height (and the component) have to be the rotated size",
+    )
+    parser.add_argument(
         "--fps", type=float, default=30.0, help="frames per second to aim for"
     )
     parser.add_argument("--quality", type=int, default=80, help="JPEG quality, 1..95")
@@ -165,9 +174,22 @@ def main():
             f"{err}. Install the dependencies: pip install pyusb mss pillow"
         ) from err
 
+    # Pillow's ROTATE_n turn counter-clockwise, and moved into an enum in 9.1
+    # while staying reachable from the module for compatibility. Transposing is
+    # a memory shuffle where rotate() goes through the resampling machinery, so
+    # take the cheap one.
+    transposes = getattr(Image, "Transpose", Image)
+    transpose = {
+        0: None,
+        90: transposes.ROTATE_270,
+        180: transposes.ROTATE_180,
+        270: transposes.ROTATE_90,
+    }[args.rotate]
+
     device, endpoint = find_endpoint(args.vid, args.pid)
     print(
         f"Sending {args.width}x{args.height} at up to {args.fps:g} fps to {args.vid:04x}:{args.pid:04x}"
+        + (f", rotated {args.rotate} degrees" if args.rotate else "")
     )
 
     interval = 1.0 / args.fps if args.fps > 0 else 0.0
@@ -176,14 +198,22 @@ def main():
     total_bytes = 0
     stats_at = time.monotonic()
 
+    # mss.mss() is a deprecated alias for mss.MSS(), which older versions do not
+    # have.
+    screenshotter = getattr(mss, "MSS", None) or mss.mss
+
     try:
-        with mss.mss() as sct:
+        with screenshotter() as sct:
             monitor = sct.monitors[args.monitor]
             while True:
                 started = time.monotonic()
 
                 shot = sct.grab(monitor)
                 image = Image.frombytes("RGB", shot.size, shot.rgb)
+                # Rotate before scaling, so a quarter turn is fitted to the
+                # panel's shape rather than to the desktop's.
+                if transpose is not None:
+                    image = image.transpose(transpose)
                 # The board draws the frame as it arrives and rejects any other
                 # size, so scaling happens here.
                 if image.size != (args.width, args.height):
