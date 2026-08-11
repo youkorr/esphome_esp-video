@@ -13,6 +13,21 @@
 extern "C" {
 #endif
 
+/* Which root hub port the device stack runs on, and at what speed.
+ *
+ * The ESP32-P4's High-Speed controller is root hub port 1; port 0 is the
+ * Full-Speed one. Getting this wrong is not a runtime problem: tusb_init()
+ * with no arguments expands to a static assertion that fails outright with
+ * "CFG_TUSB_RHPORT0_MODE/CFG_TUSB_RHPORT1_MODE must be defined".
+ *
+ * Same split as Espressif's usb_extend_screen example.
+ */
+#if CONFIG_USB_DISPLAY_HIGH_SPEED
+#define CFG_TUSB_RHPORT1_MODE (OPT_MODE_DEVICE | OPT_MODE_HIGH_SPEED)
+#else
+#define CFG_TUSB_RHPORT0_MODE (OPT_MODE_DEVICE | OPT_MODE_FULL_SPEED)
+#endif
+
 #define CFG_TUSB_OS OPT_OS_FREERTOS
 /* ESP-IDF wants the "freertos/" prefix on its includes. */
 #if TU_CHECK_MCU(OPT_MCU_ESP32S2, OPT_MCU_ESP32S3, OPT_MCU_ESP32P4)
