@@ -10,7 +10,11 @@ Linux, macOS and Windows alike.
 
 Requirements:
 
-    pip install pyusb mss pillow
+    pip install pyusb mss pillow libusb-package
+
+libusb-package is what supplies the libusb library pyusb needs. On Linux and
+macOS the system one is used if it is already installed, so it is optional
+there; on Windows it is the easy way out of hunting for a DLL.
 
 Access to the device:
 
@@ -57,20 +61,40 @@ def build_header(width, height, payload_len, frame_id):
     return _HEADER.pack(0, UDISP_TYPE_JPG, 0, 0, 0, width, height, packed)
 
 
+def _bundled_backend():
+    """The libusb that libusb-package ships, if it is installed.
+
+    pyusb is only a wrapper: it needs a libusb shared library, and finds one on
+    Linux and macOS through the system package manager. Windows has no such
+    thing, so rather than sending people to copy a DLL by hand, pick up the one
+    libusb-package bundles when it is available.
+    """
+    try:
+        import libusb_package
+    except ImportError:
+        return None
+    for name in ("get_libusb1_backend", "get_libusb1_backend_"):
+        getter = getattr(libusb_package, name, None)
+        if getter is not None:
+            try:
+                return getter()
+            except Exception:  # noqa: BLE001 - any failure just means "no bundled backend"
+                return None
+    return None
+
+
 def find_endpoint(vid, pid):
     import usb.core
     import usb.util
 
+    backend = _bundled_backend()
     try:
-        device = usb.core.find(idVendor=vid, idProduct=pid)
+        device = usb.core.find(idVendor=vid, idProduct=pid, backend=backend)
     except usb.core.NoBackendError as err:
-        # pyusb is only a wrapper; without libusb it cannot see any device at
-        # all, and its own message says nothing about how to fix that.
         raise SystemExit(
             "pyusb found no libusb backend.\n"
-            "  Windows  install libusb: pip install libusb1, or drop libusb-1.0.dll "
-            "next to python.exe\n"
-            "  Linux    install libusb-1.0-0\n"
+            "  Windows  pip install libusb-package   (it bundles the DLL)\n"
+            "  Linux    install libusb-1.0-0 from your package manager\n"
             "  macOS    brew install libusb"
         ) from err
 
