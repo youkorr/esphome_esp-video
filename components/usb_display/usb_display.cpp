@@ -117,6 +117,16 @@ void USBDisplay::setup() {
     return;
   }
 
+  // A quarter turn swaps what ends up on the panel; a half turn does not.
+  const bool quarter_turn = this->rotation_ == 90 || this->rotation_ == 270;
+  this->out_width_ = quarter_turn ? this->height_ : this->width_;
+  this->out_height_ = quarter_turn ? this->width_ : this->height_;
+
+  if (this->rotation_ != 0 && !this->allocate_rotation_()) {
+    this->mark_failed(LOG_STR("Rotation setup failed"));
+    return;
+  }
+
   if (!this->allocate_frames_()) {
     this->mark_failed(LOG_STR("Frame buffer allocation failed"));
     return;
@@ -159,6 +169,86 @@ void USBDisplay::setup() {
   this->stats_since_ms_ = millis();
   ESP_LOGI(TAG, "USB extended screen ready: %ux%u, %u frame buffers of %u bytes", (unsigned) this->width_,
            (unsigned) this->height_, (unsigned) this->frame_buffer_count_, (unsigned) this->max_frame_bytes_);
+}
+
+bool USBDisplay::allocate_rotation_() {
+  ppa_client_config_t ppa_config = {};
+  ppa_config.oper_type = PPA_OPERATION_SRM;
+  ppa_config.max_pending_trans_num = 1;
+  esp_err_t err = ppa_register_client(&ppa_config, &this->ppa_client_);
+  if (err != ESP_OK) {
+    ESP_LOGE(TAG, "ppa_register_client() failed: %s", esp_err_to_name(err));
+    this->ppa_client_ = nullptr;
+    return false;
+  }
+
+  // The accelerator writes this by DMA, so it wants a whole number of cache
+  // lines starting on one.
+  this->rot_buffer_len_ = ((size_t) this->out_width_ * this->out_height_ * 2 + 63) & ~(size_t) 63;
+  this->rot_buffer_ = (uint8_t *) heap_caps_aligned_alloc(64, this->rot_buffer_len_, MALLOC_CAP_SPIRAM);
+  if (this->rot_buffer_ == nullptr) {
+    ESP_LOGE(TAG, "Could not allocate the %u byte rotation buffer", (unsigned) this->rot_buffer_len_);
+    return false;
+  }
+  return true;
+}
+
+bool USBDisplay::rotate_() {
+  ppa_srm_rotation_angle_t angle;
+  // The accelerator turns counter-clockwise; the configuration is clockwise,
+  // the way a panel's mounting is described.
+  switch (this->rotation_) {
+    case 90:
+      angle = PPA_SRM_ROTATION_ANGLE_270;
+      break;
+    case 180:
+      angle = PPA_SRM_ROTATION_ANGLE_180;
+      break;
+    case 270:
+      angle = PPA_SRM_ROTATION_ANGLE_90;
+      break;
+    default:
+      return false;
+  }
+
+  ppa_srm_oper_config_t srm = {};
+  // The decoded frame sits at the top left of a buffer rounded up to whole
+  // 16x16 units, so read it as a block out of the larger picture rather than
+  // rotating the padding along with it.
+  srm.in.buffer = this->rgb_buffer_;
+  srm.in.pic_w = this->padded_width_;
+  srm.in.pic_h = this->padded_height_;
+  srm.in.block_w = this->width_;
+  srm.in.block_h = this->height_;
+  srm.in.block_offset_x = 0;
+  srm.in.block_offset_y = 0;
+  srm.in.srm_cm = PPA_SRM_COLOR_MODE_RGB565;
+
+  srm.out.buffer = this->rot_buffer_;
+  srm.out.buffer_size = this->rot_buffer_len_;
+  srm.out.pic_w = this->out_width_;
+  srm.out.pic_h = this->out_height_;
+  srm.out.block_offset_x = 0;
+  srm.out.block_offset_y = 0;
+  srm.out.srm_cm = PPA_SRM_COLOR_MODE_RGB565;
+
+  srm.rotation_angle = angle;
+  srm.scale_x = 1.0f;
+  srm.scale_y = 1.0f;
+  srm.mode = PPA_TRANS_MODE_BLOCKING;
+
+  esp_err_t err = ppa_do_scale_rotate_mirror(this->ppa_client_, &srm);
+  if (err != ESP_OK) {
+    if (!this->logged_rotate_error_) {
+      this->logged_rotate_error_ = true;
+      ESP_LOGE(TAG, "PPA rotation failed: %s (%ux%u out of %ux%u, into %ux%u, %u byte buffer)", esp_err_to_name(err),
+               (unsigned) this->width_, (unsigned) this->height_, (unsigned) this->padded_width_,
+               (unsigned) this->padded_height_, (unsigned) this->out_width_, (unsigned) this->out_height_,
+               (unsigned) this->rot_buffer_len_);
+    }
+    return false;
+  }
+  return true;
 }
 
 bool USBDisplay::allocate_frames_() {
@@ -306,15 +396,30 @@ void USBDisplay::run_decode_task() {
       // wanted; x_pad tells the display to skip the difference at the end of
       // each line. When the width is already a multiple of 16 there is no
       // padding, and this stays on mipi_dsi's single-transfer path instead of
-      // one DMA per line.
-      this->display_->draw_pixels_at(0, 0, frame->width, frame->height, this->rgb_buffer_, display::COLOR_ORDER_RGB,
-                                     display::COLOR_BITNESS_565, false, 0, 0, this->padded_width_ - frame->width);
+      // one DMA per line. The rotated buffer never has any.
+      const uint8_t *pixels = this->rgb_buffer_;
+      int x_pad = this->padded_width_ - this->width_;
+      if (this->ppa_client_ != nullptr) {
+        // Drawing the unrotated buffer instead would be worse than dropping the
+        // frame: after a quarter turn out_width_ and out_height_ are swapped, so
+        // it would go to the panel at the wrong shape.
+        if (!this->rotate_()) {
+          this->frames_dropped_++;
+          xQueueSend(this->empty_queue_, &frame, 0);
+          continue;
+        }
+        pixels = this->rot_buffer_;
+        x_pad = 0;
+      }
+      this->display_->draw_pixels_at(0, 0, this->out_width_, this->out_height_, pixels, display::COLOR_ORDER_RGB,
+                                     display::COLOR_BITNESS_565, false, 0, 0, x_pad);
       this->draw_us_ += micros() - start;
       this->frames_drawn_++;
       if (!this->logged_first_frame_) {
         this->logged_first_frame_ = true;
-        ESP_LOGI(TAG, "First frame from the host: %u bytes compressed, %ux%u decoded into %u bytes",
-                 (unsigned) frame->received, (unsigned) frame->width, (unsigned) frame->height, (unsigned) out_size);
+        ESP_LOGI(TAG, "First frame from the host: %u bytes compressed, %ux%u decoded, drawn as %ux%u",
+                 (unsigned) frame->received, (unsigned) frame->width, (unsigned) frame->height,
+                 (unsigned) this->out_width_, (unsigned) this->out_height_);
       }
     } else {
       this->frames_dropped_++;
@@ -350,6 +455,10 @@ void USBDisplay::dump_config() {
                 (unsigned) this->max_frame_bytes_);
   ESP_LOGCONFIG(TAG, "  Decoded buffer: %u bytes (%ux%u, rounded up to whole 16x16 units)",
                 (unsigned) this->rgb_buffer_len_, (unsigned) this->padded_width_, (unsigned) this->padded_height_);
+  if (this->rotation_ != 0) {
+    ESP_LOGCONFIG(TAG, "  Rotation: %u degrees, drawn as %ux%u (pixel-processing accelerator)",
+                  (unsigned) this->rotation_, (unsigned) this->out_width_, (unsigned) this->out_height_);
+  }
   if (this->is_failed())
     ESP_LOGCONFIG(TAG, "  State: FAILED");
 }

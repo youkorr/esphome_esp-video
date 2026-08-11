@@ -9,6 +9,7 @@ extern "C" {
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "driver/jpeg_decode.h"
+#include "driver/ppa.h"
 }
 
 namespace esphome {
@@ -39,6 +40,9 @@ class USBDisplay : public Component {
   }
   void set_frame_buffers(uint8_t count) { this->frame_buffer_count_ = count; }
   void set_max_frame_bytes(size_t bytes) { this->max_frame_bytes_ = bytes; }
+  /// Clockwise, in degrees; 0, 90, 180 or 270. Done by the P4's pixel-processing
+  /// accelerator, so it costs no CPU.
+  void set_rotation(uint16_t degrees) { this->rotation_ = degrees; }
 
   // Called from TinyUSB's receive callback; see the .cpp for why this is
   // reachable from C.
@@ -62,6 +66,12 @@ class USBDisplay : public Component {
   // put in front of every other component.
   static void decode_task(void *param);
   void run_decode_task();
+
+  // Turns the decoded frame into rot_buffer_ with the P4's pixel-processing
+  // accelerator. Nothing here touches the CPU: it is a DMA engine that reads
+  // one buffer and writes the other.
+  bool rotate_();
+  bool allocate_rotation_();
 
   bool allocate_frames_();
   Frame *take_empty_();
@@ -92,6 +102,17 @@ class USBDisplay : public Component {
   uint16_t padded_width_{0};
   uint16_t padded_height_{0};
 
+  // Rotation, for a panel that is not mounted the way the host sends its
+  // frames. Null client means none was asked for and nothing is allocated.
+  uint16_t rotation_{0};
+  ppa_client_handle_t ppa_client_{nullptr};
+  uint8_t *rot_buffer_{nullptr};
+  size_t rot_buffer_len_{0};
+  // What ends up on the panel: the frame size, with the axes swapped by a
+  // quarter turn.
+  uint16_t out_width_{0};
+  uint16_t out_height_{0};
+
   // Reported on an interval, like the camera components.
   uint32_t frames_drawn_{0};
   uint32_t frames_dropped_{0};
@@ -103,6 +124,7 @@ class USBDisplay : public Component {
   bool logged_first_bytes_{false};
   bool logged_bad_header_{false};
   bool logged_decode_error_{false};
+  bool logged_rotate_error_{false};
 };
 
 }  // namespace usb_display

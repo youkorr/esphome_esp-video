@@ -19,7 +19,7 @@ import os
 import esphome.codegen as cg
 from esphome.components import display, esp32
 import esphome.config_validation as cv
-from esphome.const import CONF_HEIGHT, CONF_ID, CONF_WIDTH
+from esphome.const import CONF_HEIGHT, CONF_ID, CONF_ROTATION, CONF_WIDTH
 
 CODEOWNERS = ["@youkorr"]
 DEPENDENCIES = ["display"]
@@ -58,6 +58,11 @@ CONFIG_SCHEMA = cv.All(
             cv.Optional(CONF_MAX_FRAME_BYTES, default=131072): cv.int_range(
                 min=16384, max=1048576
             ),
+            # For a panel that is not mounted the way the host sends its frames.
+            # The P4's pixel-processing accelerator does this, so it is free;
+            # note that a quarter turn swaps the axes, so a 1024x600 stream on a
+            # panel turned 90 degrees needs a 600x1024 panel to land on.
+            cv.Optional(CONF_ROTATION, default=0): cv.one_of(0, 90, 180, 270, int=True),
             cv.Optional(CONF_USB_SPEED, default="high"): cv.enum(
                 _USB_SPEEDS, lower=True
             ),
@@ -87,6 +92,7 @@ async def to_code(config):
     cg.add(var.set_resolution(config[CONF_WIDTH], config[CONF_HEIGHT]))
     cg.add(var.set_frame_buffers(config[CONF_FRAME_BUFFERS]))
     cg.add(var.set_max_frame_bytes(config[CONF_MAX_FRAME_BYTES]))
+    cg.add(var.set_rotation(config[CONF_ROTATION]))
 
     # The descriptors have to be compiled into TinyUSB itself, which only a
     # real IDF component can do (see that component's CMakeLists).
