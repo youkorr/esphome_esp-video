@@ -6,6 +6,7 @@
 #include "esp_heap_caps.h"
 #include "esp_timer.h"
 
+#include <cmath>
 #include <cstring>
 
 extern "C" {
@@ -22,6 +23,8 @@ namespace usb_display {
 static const char *const TAG = "usb_display";
 
 static constexpr uint32_t STATS_INTERVAL_MS = 5000;
+// How far the frame rate has to move before it is worth another line.
+static constexpr float STATS_FPS_EPSILON = 1.0f;
 
 // TinyUSB's callbacks are plain C with no context argument, so the one instance
 // has to be reachable from file scope. A second usb_display would need a second
@@ -437,9 +440,18 @@ void USBDisplay::run_decode_task() {
 
     uint32_t elapsed = millis() - this->stats_since_ms_;
     if (elapsed >= STATS_INTERVAL_MS && this->frames_drawn_ > 0) {
-      ESP_LOGD(TAG, "%ux%u @ %.1f fps, %u us/draw, %u dropped", (unsigned) this->width_, (unsigned) this->height_,
-               this->frames_drawn_ * 1000.0f / elapsed, (unsigned) (this->draw_us_ / this->frames_drawn_),
-               (unsigned) this->frames_dropped_);
+      const float fps = this->frames_drawn_ * 1000.0f / elapsed;
+      // A steady stream says the same thing every five seconds forever, which
+      // buries anything worth reading. Report the first measurement, then only
+      // when it has actually moved -- or whenever a frame was lost, which is
+      // always worth a line.
+      if (!this->logged_stats_ || this->frames_dropped_ > 0 || fabsf(fps - this->last_fps_) >= STATS_FPS_EPSILON) {
+        ESP_LOGD(TAG, "%ux%u @ %.1f fps, %u us/draw, %u dropped", (unsigned) this->out_width_,
+                 (unsigned) this->out_height_, fps, (unsigned) (this->draw_us_ / this->frames_drawn_),
+                 (unsigned) this->frames_dropped_);
+        this->logged_stats_ = true;
+        this->last_fps_ = fps;
+      }
       this->stats_since_ms_ = millis();
       this->frames_drawn_ = 0;
       this->frames_dropped_ = 0;

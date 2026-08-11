@@ -8,6 +8,11 @@ Linux, macOS and Windows alike.
 
     ./udisp_send.py --width 1024 --height 600
 
+It waits for the board rather than failing when it is not plugged in, and goes
+back to waiting if it is unplugged or reflashed, so it can be left running. To
+have it start at every login on Windows, add --install-startup to the options
+you want; --uninstall-startup takes it back out.
+
 Requirements:
 
     pip install pyusb mss pillow libusb-package
@@ -32,6 +37,7 @@ Access to the device:
 
 import argparse
 import io
+import os
 import struct
 import sys
 import time
@@ -101,13 +107,7 @@ def find_endpoint(vid, pid):
         ) from err
 
     if device is None:
-        raise SystemExit(
-            f"No device with {vid:04x}:{pid:04x}.\n"
-            "  - Is the board on its OTG port, running a usb_display firmware?\n"
-            "  - On Windows the interface needs WinUSB. The board asks for it "
-            "itself, but if Windows has not bound it, libusb cannot see the "
-            "device even though Device Manager shows it -- bind it with Zadig."
-        )
+        return None, None
 
     # Linux binds nothing to a vendor interface, but be explicit rather than
     # failing on a busy interface somewhere else.
@@ -130,20 +130,138 @@ def find_endpoint(vid, pid):
     return device, endpoint
 
 
+def wait_for_endpoint(vid, pid):
+    """Block until the board is there, however long that takes.
+
+    Exiting when the board is absent means the sender has to be started after
+    the board, by hand, every time -- and started again after every unplug.
+    Waiting instead is what lets this run unattended from login.
+    """
+    announced = False
+    while True:
+        device, endpoint = find_endpoint(vid, pid)
+        if device is not None:
+            return device, endpoint
+        if not announced:
+            announced = True
+            print(
+                f"Waiting for {vid:04x}:{pid:04x}.\n"
+                "  - Is the board on its OTG port, running a usb_display firmware?\n"
+                "  - On Windows the interface needs WinUSB. The board asks for it "
+                "itself, but if Windows has not bound it, libusb cannot see the "
+                "device even though Device Manager shows it -- bind it with Zadig."
+            )
+        time.sleep(1.0)
+
+
+STARTUP_SCRIPT_NAME = "esphome_udisp_send.vbs"
+
+
+def _startup_path():
+    """Where Windows looks for things to run at login, or None elsewhere."""
+    if sys.platform != "win32":
+        return None
+    appdata = os.environ.get("APPDATA")
+    if not appdata:
+        return None
+    return os.path.join(
+        appdata,
+        "Microsoft",
+        "Windows",
+        "Start Menu",
+        "Programs",
+        "Startup",
+        STARTUP_SCRIPT_NAME,
+    )
+
+
+def _require_startup_path():
+    path = _startup_path()
+    if path is None:
+        raise SystemExit(
+            "Starting at login is only wired up for Windows here. Elsewhere, run "
+            "the same command line from a systemd user unit (Linux) or a launchd "
+            "agent (macOS)."
+        )
+    return path
+
+
+def install_startup(args):
+    """Run this sender at every login, without a console window.
+
+    A one-line VBScript in the Startup folder rather than a shortcut or a
+    registry key: it is the only one of the three that can start a program with
+    its window hidden, and it is a text file the user can read and delete.
+    """
+    path = _require_startup_path()
+
+    # pythonw.exe is the interpreter without a console; fall back to the one
+    # running this if the installation has no windowed build.
+    interpreter = os.path.join(os.path.dirname(sys.executable), "pythonw.exe")
+    if not os.path.exists(interpreter):
+        interpreter = sys.executable
+
+    parts = [
+        interpreter,
+        os.path.abspath(__file__),
+        "--width",
+        str(args.width),
+        "--height",
+        str(args.height),
+        "--monitor",
+        str(args.monitor),
+        "--fps",
+        str(args.fps),
+        "--quality",
+        str(args.quality),
+        "--rotate",
+        str(args.rotate),
+        "--vid",
+        hex(args.vid),
+        "--pid",
+        hex(args.pid),
+    ]
+    # Quote every part for the shell, then double the quotes again because the
+    # whole command is about to become a VBScript string literal.
+    command = " ".join(f'"{part}"' for part in parts).replace('"', '""')
+
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as handle:
+        handle.write(
+            "' Sends this screen to an ESPHome usb_display board at login.\r\n"
+            "' Delete this file, or run udisp_send.py --uninstall-startup, to stop.\r\n"
+            f'CreateObject("WScript.Shell").Run "{command}", 0, False\r\n'
+        )
+    print(f"Installed: {path}")
+    print("It starts at the next login, and waits for the board rather than")
+    print("failing when it is not plugged in yet.")
+    return 0
+
+
+def uninstall_startup():
+    path = _require_startup_path()
+    if not os.path.exists(path):
+        print(f"Nothing installed at {path}")
+        return 0
+    os.remove(path)
+    print(f"Removed: {path}")
+    return 0
+
+
 def main():
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
+    # Not required=True, so --uninstall-startup does not have to be handed a
+    # geometry it will not use.
     parser.add_argument(
         "--width",
         type=int,
-        required=True,
         help="must match the width: of the usb_display component",
     )
     parser.add_argument(
         "--height",
         type=int,
-        required=True,
         help="must match the height: of the usb_display component",
     )
     parser.add_argument(
@@ -164,7 +282,25 @@ def main():
     parser.add_argument("--quality", type=int, default=80, help="JPEG quality, 1..95")
     parser.add_argument("--vid", type=lambda v: int(v, 0), default=DEFAULT_VID)
     parser.add_argument("--pid", type=lambda v: int(v, 0), default=DEFAULT_PID)
+    parser.add_argument(
+        "--install-startup",
+        action="store_true",
+        help="run this sender at every login with the options given here, then "
+        "exit. Windows only",
+    )
+    parser.add_argument(
+        "--uninstall-startup",
+        action="store_true",
+        help="undo --install-startup and exit",
+    )
     args = parser.parse_args()
+
+    if args.uninstall_startup:
+        return uninstall_startup()
+    if args.width is None or args.height is None:
+        parser.error("--width and --height are required")
+    if args.install_startup:
+        return install_startup(args)
 
     try:
         import mss
@@ -186,17 +322,11 @@ def main():
         270: transposes.ROTATE_90,
     }[args.rotate]
 
-    device, endpoint = find_endpoint(args.vid, args.pid)
-    print(
-        f"Sending {args.width}x{args.height} at up to {args.fps:g} fps to {args.vid:04x}:{args.pid:04x}"
-        + (f", rotated {args.rotate} degrees" if args.rotate else "")
-    )
+    import usb.core
+    import usb.util
 
     interval = 1.0 / args.fps if args.fps > 0 else 0.0
     frame_id = 0
-    frames = 0
-    total_bytes = 0
-    stats_at = time.monotonic()
 
     # mss.mss() is a deprecated alias for mss.MSS(), which older versions do not
     # have.
@@ -205,52 +335,71 @@ def main():
     try:
         with screenshotter() as sct:
             monitor = sct.monitors[args.monitor]
+            # Outer loop: one pass per connection. Unplugging the board, or
+            # reflashing it, ends the inner loop and comes back here to wait for
+            # it rather than ending the program.
             while True:
-                started = time.monotonic()
-
-                shot = sct.grab(monitor)
-                image = Image.frombytes("RGB", shot.size, shot.rgb)
-                # Rotate before scaling, so a quarter turn is fitted to the
-                # panel's shape rather than to the desktop's.
-                if transpose is not None:
-                    image = image.transpose(transpose)
-                # The board draws the frame as it arrives and rejects any other
-                # size, so scaling happens here.
-                if image.size != (args.width, args.height):
-                    image = image.resize((args.width, args.height), Image.BILINEAR)
-
-                buffer = io.BytesIO()
-                image.save(buffer, format="JPEG", quality=args.quality)
-                payload = buffer.getvalue()
-
-                endpoint.write(
-                    build_header(args.width, args.height, len(payload), frame_id)
-                    + payload
+                device, endpoint = wait_for_endpoint(args.vid, args.pid)
+                print(
+                    f"Sending {args.width}x{args.height} at up to {args.fps:g} fps to "
+                    f"{args.vid:04x}:{args.pid:04x}"
+                    + (f", rotated {args.rotate} degrees" if args.rotate else "")
                 )
-                frame_id = (frame_id + 1) & 0x3FF
 
-                frames += 1
-                total_bytes += len(payload)
-                now = time.monotonic()
-                if now - stats_at >= 5.0:
-                    elapsed = now - stats_at
-                    print(
-                        f"{frames / elapsed:.1f} fps, {total_bytes / frames / 1024:.0f} KiB/frame, "
-                        f"{total_bytes / elapsed / 1024 / 1024:.1f} MiB/s"
-                    )
-                    frames = 0
-                    total_bytes = 0
-                    stats_at = now
+                frames = 0
+                total_bytes = 0
+                stats_at = time.monotonic()
+                try:
+                    while True:
+                        started = time.monotonic()
 
-                remaining = interval - (time.monotonic() - started)
-                if remaining > 0:
-                    time.sleep(remaining)
+                        shot = sct.grab(monitor)
+                        image = Image.frombytes("RGB", shot.size, shot.rgb)
+                        # Rotate before scaling, so a quarter turn is fitted to
+                        # the panel's shape rather than to the desktop's.
+                        if transpose is not None:
+                            image = image.transpose(transpose)
+                        # The board draws the frame as it arrives and rejects any
+                        # other size, so scaling happens here.
+                        if image.size != (args.width, args.height):
+                            image = image.resize(
+                                (args.width, args.height), Image.BILINEAR
+                            )
+
+                        buffer = io.BytesIO()
+                        image.save(buffer, format="JPEG", quality=args.quality)
+                        payload = buffer.getvalue()
+
+                        endpoint.write(
+                            build_header(
+                                args.width, args.height, len(payload), frame_id
+                            )
+                            + payload
+                        )
+                        frame_id = (frame_id + 1) & 0x3FF
+
+                        frames += 1
+                        total_bytes += len(payload)
+                        now = time.monotonic()
+                        if now - stats_at >= 5.0:
+                            elapsed = now - stats_at
+                            print(
+                                f"{frames / elapsed:.1f} fps, {total_bytes / frames / 1024:.0f} KiB/frame, "
+                                f"{total_bytes / elapsed / 1024 / 1024:.1f} MiB/s"
+                            )
+                            frames = 0
+                            total_bytes = 0
+                            stats_at = now
+
+                        remaining = interval - (time.monotonic() - started)
+                        if remaining > 0:
+                            time.sleep(remaining)
+                except usb.core.USBError as err:
+                    print(f"Lost the board ({err}), waiting for it to come back")
+                finally:
+                    usb.util.dispose_resources(device)
     except KeyboardInterrupt:
         print("\nStopped")
-    finally:
-        import usb.util
-
-        usb.util.dispose_resources(device)
     return 0
 
 

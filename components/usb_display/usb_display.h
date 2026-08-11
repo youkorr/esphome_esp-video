@@ -118,6 +118,10 @@ class USBDisplay : public Component {
   uint32_t frames_dropped_{0};
   uint32_t draw_us_{0};
   uint32_t stats_since_ms_{0};
+  // The last frame rate reported, so a steady stream is not restated every five
+  // seconds for as long as it runs.
+  float last_fps_{0.0f};
+  bool logged_stats_{false};
   bool logged_first_frame_{false};
   // One-shots so a wrong-sized sender and a silent bus are distinguishable
   // without turning the log into a per-packet trace.
