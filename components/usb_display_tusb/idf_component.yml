@@ -1,0 +1,7 @@
+version: "0.1.0"
+description: USB descriptors for the ESPHome usb_display component
+targets:
+  - esp32p4
+dependencies:
+  idf: ">=5.3"
+  espressif/tinyusb: "*"

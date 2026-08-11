@@ -1,0 +1,31 @@
+menu "USB Extended Display"
+
+    config USB_DISPLAY_VID
+        hex "USB Vendor ID"
+        default 0x303A
+
+    config USB_DISPLAY_PID
+        hex "USB Product ID"
+        default 0x4001
+
+    config USB_DISPLAY_MANUFACTURER
+        string "USB Manufacturer string"
+        default "ESPHome"
+
+    config USB_DISPLAY_PRODUCT
+        string "USB Product string"
+        default "udisp"
+
+    config USB_DISPLAY_SERIAL
+        string "USB Serial string"
+        default "0001"
+
+    config USB_DISPLAY_HIGH_SPEED
+        bool "Use the High-Speed USB peripheral"
+        default y
+        help
+            Sets the vendor endpoint packet size to 512 instead of 64. The
+            ESP32-P4's internal PHY is High-Speed; only turn this off for a
+            board wired to the Full-Speed pins.
+
+endmenu
