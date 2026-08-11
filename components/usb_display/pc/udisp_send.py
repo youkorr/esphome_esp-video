@@ -61,11 +61,25 @@ def find_endpoint(vid, pid):
     import usb.core
     import usb.util
 
-    device = usb.core.find(idVendor=vid, idProduct=pid)
+    try:
+        device = usb.core.find(idVendor=vid, idProduct=pid)
+    except usb.core.NoBackendError as err:
+        # pyusb is only a wrapper; without libusb it cannot see any device at
+        # all, and its own message says nothing about how to fix that.
+        raise SystemExit(
+            "pyusb found no libusb backend.\n"
+            "  Windows  install libusb: pip install libusb1, or drop libusb-1.0.dll "
+            "next to python.exe\n"
+            "  Linux    install libusb-1.0-0\n"
+            "  macOS    brew install libusb"
+        ) from err
+
     if device is None:
         raise SystemExit(
-            f"No device with {vid:04x}:{pid:04x}. Is the board plugged into its OTG port "
-            "and running a usb_display firmware?"
+            f"No device with {vid:04x}:{pid:04x}.\n"
+            "  - Is the board on its OTG port, running a usb_display firmware?\n"
+            "  - On Windows the interface needs WinUSB bound to it with Zadig; until "
+            "then libusb cannot see the device even though Windows shows it."
         )
 
     # Linux binds nothing to a vendor interface, but be explicit rather than
