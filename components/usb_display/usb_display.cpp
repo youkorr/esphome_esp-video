@@ -471,6 +471,12 @@ void USBDisplay::dump_config() {
     ESP_LOGCONFIG(TAG, "  Rotation: %u degrees, drawn as %ux%u (pixel-processing accelerator)",
                   (unsigned) this->rotation_, (unsigned) this->out_width_, (unsigned) this->out_height_);
   }
+  // The sender has to be told the same geometry the board rejects everything
+  // else for, so print the command rather than leaving it to be matched by
+  // hand against the configuration above. Rotation is deliberately absent: the
+  // board does that now, and asking the sender for it as well would undo it.
+  ESP_LOGCONFIG(TAG, "  Host sender: python udisp_send.py --width %u --height %u", (unsigned) this->width_,
+                (unsigned) this->height_);
   if (this->is_failed())
     ESP_LOGCONFIG(TAG, "  State: FAILED");
 }

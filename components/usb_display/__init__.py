@@ -5,9 +5,16 @@ over a vendor interface: a PC application captures a screen region, encodes it
 as JPEG and pushes it; the P4 decodes with its hardware JPEG decoder and draws
 to an ESPHome display.
 
-The PC half is required and is not part of this component. It is the
-windows_driver directory of Espressif's usb_extend_screen example, which is
-Windows-only.
+The PC half is required, because USB has no display class: no operating system
+knows how to put its screen on a USB data connection by itself, which is why
+every USB monitor ships software for it. udisp_send.py, next to this file, is
+that half -- it captures the screen, encodes it and pushes it, and runs on
+Linux, macOS and Windows. Espressif's own answer is the windows_driver
+directory of their usb_extend_screen example, which is Windows-only and needs
+a signed driver; the board does not care which of the two is talking to it.
+
+The component logs the exact command line for the sender at startup, built
+from the configuration here, so the two cannot disagree about the geometry.
 
 This puts the board's single USB OTG controller in device mode, so it cannot be
 a USB host at the same time -- nor a UVC webcam, which needs the same
