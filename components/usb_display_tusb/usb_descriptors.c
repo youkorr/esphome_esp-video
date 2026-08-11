@@ -26,7 +26,9 @@ enum {
 static tusb_desc_device_t const desc_device = {
     .bLength = sizeof(tusb_desc_device_t),
     .bDescriptorType = TUSB_DESC_DEVICE,
-    .bcdUSB = 0x0200,
+    /* 2.1, not 2.0: a host only asks for the BOS descriptor -- and with it the
+     * Microsoft OS 2.0 descriptors below -- from a device that claims 2.1. */
+    .bcdUSB = 0x0210,
 
     .bDeviceClass = TUSB_CLASS_UNSPECIFIED,
     .bDeviceSubClass = TUSB_CLASS_UNSPECIFIED,
@@ -86,6 +88,227 @@ uint8_t const *tud_descriptor_other_speed_configuration_cb(uint8_t index) {
   return desc_configuration;
 }
 #endif
+
+//--------------------------------------------------------------------+
+// Microsoft OS 2.0 descriptors -- what makes Windows bind WinUSB itself
+//--------------------------------------------------------------------+
+/* Without these, a vendor interface is a driverless device on Windows and
+ * somebody has to bind WinUSB to it by hand with Zadig. With them, Windows 8
+ * and later read the compatible ID straight off the device and load WinUSB on
+ * their own, so libusb can open it with nothing installed.
+ *
+ * Layout and lengths are fixed by Microsoft's specification; the totals below
+ * are checked against the section sizes at compile time.
+ */
+
+#define MS_OS_20_VENDOR_REQUEST 0x02
+
+#define MS_OS_20_SET_HEADER_LEN 0x0A
+#define MS_OS_20_CONFIG_SUBSET_LEN 0x08
+#define MS_OS_20_FUNCTION_SUBSET_LEN 0x08
+#define MS_OS_20_COMPATIBLE_ID_LEN 0x14
+/* Registry property carrying DeviceInterfaceGUIDs: 10 bytes of header, a
+ * 42-byte UTF-16 name and an 80-byte UTF-16 value. */
+#define MS_OS_20_REGISTRY_LEN (0x0A + 0x2A + 0x50)
+
+#define MS_OS_20_DESC_LEN \
+  (MS_OS_20_SET_HEADER_LEN + MS_OS_20_CONFIG_SUBSET_LEN + MS_OS_20_FUNCTION_SUBSET_LEN + MS_OS_20_COMPATIBLE_ID_LEN + \
+   MS_OS_20_REGISTRY_LEN)
+
+#define BOS_TOTAL_LEN (TUD_BOS_DESC_LEN + TUD_BOS_MICROSOFT_OS_DESC_LEN)
+
+static uint8_t const desc_bos[] = {
+    TUD_BOS_DESCRIPTOR(BOS_TOTAL_LEN, 1),
+    TUD_BOS_MS_OS_20_DESCRIPTOR(MS_OS_20_DESC_LEN, MS_OS_20_VENDOR_REQUEST),
+};
+
+uint8_t const *tud_descriptor_bos_cb(void) { return desc_bos; }
+
+static uint8_t const desc_ms_os_20[] = {
+    /* Set header: length, type, minimum Windows version (8.1), total length */
+    U16_TO_U8S_LE(MS_OS_20_SET_HEADER_LEN),
+    U16_TO_U8S_LE(MS_OS_20_SET_HEADER_DESCRIPTOR),
+    U32_TO_U8S_LE(0x06030000),
+    U16_TO_U8S_LE(MS_OS_20_DESC_LEN),
+
+    /* Configuration subset: length, type, configuration index, reserved, total length */
+    U16_TO_U8S_LE(MS_OS_20_CONFIG_SUBSET_LEN),
+    U16_TO_U8S_LE(MS_OS_20_SUBSET_HEADER_CONFIGURATION),
+    0,
+    0,
+    U16_TO_U8S_LE(MS_OS_20_DESC_LEN - MS_OS_20_SET_HEADER_LEN),
+
+    /* Function subset: length, type, first interface, reserved, subset length */
+    U16_TO_U8S_LE(MS_OS_20_FUNCTION_SUBSET_LEN),
+    U16_TO_U8S_LE(MS_OS_20_SUBSET_HEADER_FUNCTION),
+    ITF_NUM_VENDOR,
+    0,
+    U16_TO_U8S_LE(MS_OS_20_DESC_LEN - MS_OS_20_SET_HEADER_LEN - MS_OS_20_CONFIG_SUBSET_LEN),
+
+    /* Compatible ID: this is the line that says "load WinUSB" */
+    U16_TO_U8S_LE(MS_OS_20_COMPATIBLE_ID_LEN),
+    U16_TO_U8S_LE(MS_OS_20_FEATURE_COMPATBLE_ID),
+    'W',
+    'I',
+    'N',
+    'U',
+    'S',
+    'B',
+    0x00,
+    0x00,
+    0x00,
+    0x00,
+    0x00,
+    0x00,
+    0x00,
+    0x00,
+    0x00,
+    0x00,
+
+    /* Registry property: the device interface GUID applications open by. */
+    U16_TO_U8S_LE(MS_OS_20_REGISTRY_LEN),
+    U16_TO_U8S_LE(MS_OS_20_FEATURE_REG_PROPERTY),
+    U16_TO_U8S_LE(0x0007), /* REG_MULTI_SZ */
+    U16_TO_U8S_LE(0x002A), /* length of "DeviceInterfaceGUIDs" in UTF-16 */
+    'D',
+    0x00,
+    'e',
+    0x00,
+    'v',
+    0x00,
+    'i',
+    0x00,
+    'c',
+    0x00,
+    'e',
+    0x00,
+    'I',
+    0x00,
+    'n',
+    0x00,
+    't',
+    0x00,
+    'e',
+    0x00,
+    'r',
+    0x00,
+    'f',
+    0x00,
+    'a',
+    0x00,
+    'c',
+    0x00,
+    'e',
+    0x00,
+    'G',
+    0x00,
+    'U',
+    0x00,
+    'I',
+    0x00,
+    'D',
+    0x00,
+    's',
+    0x00,
+    0x00,
+    0x00,
+    U16_TO_U8S_LE(0x0050),
+    '{',
+    0x00,
+    '9',
+    0x00,
+    '7',
+    0x00,
+    '5',
+    0x00,
+    'F',
+    0x00,
+    '4',
+    0x00,
+    '4',
+    0x00,
+    'D',
+    0x00,
+    '9',
+    0x00,
+    '-',
+    0x00,
+    '0',
+    0x00,
+    'D',
+    0x00,
+    '0',
+    0x00,
+    '8',
+    0x00,
+    '-',
+    0x00,
+    '4',
+    0x00,
+    '3',
+    0x00,
+    'F',
+    0x00,
+    'D',
+    0x00,
+    '-',
+    0x00,
+    '8',
+    0x00,
+    'B',
+    0x00,
+    '3',
+    0x00,
+    'E',
+    0x00,
+    '-',
+    0x00,
+    '1',
+    0x00,
+    '2',
+    0x00,
+    '7',
+    0x00,
+    'C',
+    0x00,
+    'A',
+    0x00,
+    '8',
+    0x00,
+    'A',
+    0x00,
+    'F',
+    0x00,
+    'F',
+    0x00,
+    'F',
+    0x00,
+    '9',
+    0x00,
+    'D',
+    0x00,
+    '}',
+    0x00,
+    0x00,
+    0x00,
+    0x00,
+    0x00,
+};
+
+TU_VERIFY_STATIC(sizeof(desc_ms_os_20) == MS_OS_20_DESC_LEN, "Microsoft OS 2.0 descriptor length mismatch");
+
+/* Windows fetches the set above through a vendor request named in the BOS
+ * platform capability. Answering it is the whole handshake. */
+bool tud_vendor_control_xfer_cb(uint8_t rhport, uint8_t stage, tusb_control_request_t const *request) {
+  if (stage != CONTROL_STAGE_SETUP)
+    return true;
+
+  if (request->bmRequestType_bit.type == TUSB_REQ_TYPE_VENDOR && request->bRequest == MS_OS_20_VENDOR_REQUEST &&
+      request->wIndex == 7) {
+    return tud_control_xfer(rhport, request, (void *) (uintptr_t) desc_ms_os_20, sizeof(desc_ms_os_20));
+  }
+  return false;
+}
 
 //--------------------------------------------------------------------+
 // String descriptors

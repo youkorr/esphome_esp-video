@@ -94,6 +94,10 @@ class USBDisplay : public Component {
   uint32_t draw_us_{0};
   uint32_t stats_since_ms_{0};
   bool logged_first_frame_{false};
+  // One-shots so a wrong-sized sender and a silent bus are distinguishable
+  // without turning the log into a per-packet trace.
+  bool logged_first_bytes_{false};
+  bool logged_bad_header_{false};
 };
 
 }  // namespace usb_display

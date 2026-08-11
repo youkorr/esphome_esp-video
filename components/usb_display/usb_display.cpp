@@ -35,6 +35,17 @@ extern "C" void tud_vendor_rx_cb(uint8_t itf, uint8_t const *buffer, uint16_t bu
     g_usb_display->on_vendor_rx(itf);
 }
 
+// The device end of enumeration. Whether these fire at all is the difference
+// between "the host never saw us" and "the host configured us and the sender
+// is the problem", which nothing else here can tell apart.
+extern "C" void tud_mount_cb(void) { ESP_LOGI(TAG, "USB: configured by the host"); }
+extern "C" void tud_umount_cb(void) { ESP_LOGW(TAG, "USB: unconfigured"); }
+extern "C" void tud_suspend_cb(bool remote_wakeup_en) {
+  (void) remote_wakeup_en;
+  ESP_LOGW(TAG, "USB: suspended by the host");
+}
+extern "C" void tud_resume_cb(void) { ESP_LOGI(TAG, "USB: resumed"); }
+
 namespace {
 
 void tusb_device_task(void *param) {
@@ -159,6 +170,11 @@ void USBDisplay::on_vendor_rx(uint8_t itf) {
     if (read <= 0)
       break;
 
+    if (!this->logged_first_bytes_) {
+      this->logged_first_bytes_ = true;
+      ESP_LOGI(TAG, "First %d bytes from the host", read);
+    }
+
     if (this->skipping_ > 0) {
       this->skipping_ = (this->skipping_ > (size_t) read) ? this->skipping_ - read : 0;
       continue;
@@ -176,10 +192,19 @@ void USBDisplay::on_vendor_rx(uint8_t itf) {
     if ((size_t) read < sizeof(udisp_frame_header_t))
       continue;
     auto *header = (udisp_frame_header_t *) rx_buf;
-    if (header->type != UDISP_TYPE_JPG)
-      continue;  // only the JPEG payload type is handled here
-    if (header->x != 0 || header->y != 0 || header->width != this->width_ || header->height != this->height_)
+    const bool usable = header->type == UDISP_TYPE_JPG && header->x == 0 && header->y == 0 &&
+                        header->width == this->width_ && header->height == this->height_;
+    if (!usable) {
+      // Silently dropping these is how a sender configured for the wrong size
+      // looks exactly like a sender that is not running at all.
+      if (!this->logged_bad_header_) {
+        this->logged_bad_header_ = true;
+        ESP_LOGW(TAG, "Ignoring frames: host sends type=%u %ux%u at %u,%u, this display wants type=%u %ux%u at 0,0",
+                 header->type, header->width, header->height, header->x, header->y, UDISP_TYPE_JPG,
+                 (unsigned) this->width_, (unsigned) this->height_);
+      }
       continue;
+    }
 
     const uint8_t *payload = rx_buf + sizeof(udisp_frame_header_t);
     const size_t payload_len = read - sizeof(udisp_frame_header_t);
