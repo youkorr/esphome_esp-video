@@ -29,6 +29,19 @@ extern "C" {
 #endif
 
 #define CFG_TUSB_OS OPT_OS_FREERTOS
+
+/* TinyUSB's FreeRTOS layer picks its critical-section form from this. Without
+ * it, it emits the vanilla FreeRTOS taskENTER_CRITICAL() with no argument,
+ * while ESP-IDF's multicore RISC-V port wants a mux:
+ *
+ *   error: too few arguments to function 'vPortEnterCriticalMultiCore'
+ *
+ * ESP-IDF defines ESP_PLATFORM globally, but not everywhere TinyUSB's headers
+ * are reached from, so Espressif's own example pins it here too. */
+#ifndef ESP_PLATFORM
+#define ESP_PLATFORM 1
+#endif
+
 /* ESP-IDF wants the "freertos/" prefix on its includes. */
 #if TU_CHECK_MCU(OPT_MCU_ESP32S2, OPT_MCU_ESP32S3, OPT_MCU_ESP32P4)
 #define CFG_TUSB_OS_INC_PATH freertos/
