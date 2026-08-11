@@ -135,6 +135,12 @@ void USBDisplay::setup() {
     return;
   }
 
+#if CFG_TUD_MSC
+  // Before tusb_init(): the host can ask for a sector as soon as it has
+  // enumerated the drive.
+  this->setup_sender_drive_();
+#endif
+
   // Device mode on the PHY that matches the speed the descriptors were built
   // for. TinyUSB does not set the PHY up itself.
   //
@@ -475,8 +481,13 @@ void USBDisplay::dump_config() {
   // else for, so print the command rather than leaving it to be matched by
   // hand against the configuration above. Rotation is deliberately absent: the
   // board does that now, and asking the sender for it as well would undo it.
+#if CFG_TUD_MSC
+  ESP_LOGCONFIG(TAG, "  Host sender: UDISP.PY, on the drive this board presents");
+  ESP_LOGCONFIG(TAG, "    python UDISP.PY --width %u --height %u", (unsigned) this->width_, (unsigned) this->height_);
+#else
   ESP_LOGCONFIG(TAG, "  Host sender: python udisp_send.py --width %u --height %u", (unsigned) this->width_,
                 (unsigned) this->height_);
+#endif
   if (this->is_failed())
     ESP_LOGCONFIG(TAG, "  State: FAILED");
 }

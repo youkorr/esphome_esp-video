@@ -28,4 +28,14 @@ menu "USB Extended Display"
             ESP32-P4's internal PHY is High-Speed; only turn this off for a
             board wired to the Full-Speed pins.
 
+    config USB_DISPLAY_SENDER_DRIVE
+        bool "Carry the host sender on a read-only drive"
+        default y
+        help
+            Adds a mass-storage interface holding the program the PC has to run
+            to send its screen, so it arrives with the board instead of being
+            downloaded. Windows binds its own driver to it; no installation.
+
+            Turn this off to go back to a single-interface device.
+
 endmenu

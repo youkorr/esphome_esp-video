@@ -43,6 +43,12 @@ class USBDisplay : public Component {
   /// Clockwise, in degrees; 0, 90, 180 or 270. Done by the P4's pixel-processing
   /// accelerator, so it costs no CPU.
   void set_rotation(uint16_t degrees) { this->rotation_ = degrees; }
+  /// The PC-side sender, compiled in so the board can hand it over on a
+  /// read-only drive instead of sending the user to find it.
+  void set_sender_script(const uint8_t *data, size_t length) {
+    this->sender_script_ = data;
+    this->sender_script_len_ = length;
+  }
 
   // Called from TinyUSB's receive callback; see the .cpp for why this is
   // reachable from C.
@@ -72,6 +78,9 @@ class USBDisplay : public Component {
   // one buffer and writes the other.
   bool rotate_();
   bool allocate_rotation_();
+  // Lays the sender out as a FAT12 volume for the mass-storage interface to
+  // serve. Defined in sender_drive.cpp, and compiled away with it.
+  void setup_sender_drive_();
 
   bool allocate_frames_();
   Frame *take_empty_();
@@ -112,6 +121,9 @@ class USBDisplay : public Component {
   // quarter turn.
   uint16_t out_width_{0};
   uint16_t out_height_{0};
+
+  const uint8_t *sender_script_{nullptr};
+  size_t sender_script_len_{0};
 
   // Reported on an interval, like the camera components.
   uint32_t frames_drawn_{0};

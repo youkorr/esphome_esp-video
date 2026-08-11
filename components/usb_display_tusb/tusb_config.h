@@ -77,8 +77,17 @@ extern "C" {
 #define CFG_TUD_VENDOR_RX_BUFSIZE (UDISP_EP_SIZE * 10)
 #define CFG_TUD_VENDOR_TX_BUFSIZE UDISP_EP_SIZE
 
-#define CFG_TUD_CDC 0
+/* The read-only drive that carries the PC sender. Mass storage is a class that
+ * Windows, Linux and macOS all ship a driver for, so it costs the user nothing
+ * -- unlike the display itself, which has no class to belong to. */
+#if CONFIG_USB_DISPLAY_SENDER_DRIVE
+#define CFG_TUD_MSC 1
+#define CFG_TUD_MSC_EP_BUFSIZE UDISP_EP_SIZE
+#else
 #define CFG_TUD_MSC 0
+#endif
+
+#define CFG_TUD_CDC 0
 #define CFG_TUD_HID 0
 #define CFG_TUD_MIDI 0
 #define CFG_TUD_AUDIO 0

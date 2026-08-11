@@ -1,8 +1,13 @@
 /* Device, configuration and string descriptors for the extended screen.
  *
- * One vendor interface with a bulk IN/OUT pair. The PC application finds the
- * device by VID/PID and claims that interface; there is no class driver
- * involved on either side.
+ * A vendor interface with a bulk IN/OUT pair carries the picture: the PC
+ * application finds the device by VID/PID and claims that interface, with no
+ * class driver involved on either side, because USB defines no display class
+ * for one to belong to.
+ *
+ * Optionally a mass-storage interface follows, holding the program the PC has
+ * to run. That one is a standard class every operating system already has a
+ * driver for, which is the point of it.
  */
 
 #include <string.h>
@@ -18,6 +23,7 @@ enum {
   STR_INDEX_PRODUCT,
   STR_INDEX_SERIAL,
   STR_INDEX_VENDOR,
+  STR_INDEX_MSC,
 };
 
 //--------------------------------------------------------------------+
@@ -52,13 +58,20 @@ uint8_t const *tud_descriptor_device_cb(void) { return (uint8_t const *) &desc_d
 //--------------------------------------------------------------------+
 // Configuration descriptor
 //--------------------------------------------------------------------+
+#if CFG_TUD_MSC
+#define CONFIG_TOTAL_LEN (TUD_CONFIG_DESC_LEN + TUD_VENDOR_DESC_LEN + TUD_MSC_DESC_LEN)
+#else
 #define CONFIG_TOTAL_LEN (TUD_CONFIG_DESC_LEN + TUD_VENDOR_DESC_LEN)
+#endif
 
 static uint8_t const desc_configuration[] = {
     /* Bus-powered is a lie on a board with its own supply, but the host budget
      * check is what a 500 mA claim risks failing, so ask for the minimum. */
     TUD_CONFIG_DESCRIPTOR(1, ITF_NUM_TOTAL, 0, CONFIG_TOTAL_LEN, TUSB_DESC_CONFIG_ATT_SELF_POWERED, 100),
     TUD_VENDOR_DESCRIPTOR(ITF_NUM_VENDOR, STR_INDEX_VENDOR, EPNUM_VENDOR, 0x80 | EPNUM_VENDOR, CFG_TUD_VENDOR_EPSIZE),
+#if CFG_TUD_MSC
+    TUD_MSC_DESCRIPTOR(ITF_NUM_MSC, STR_INDEX_MSC, EPNUM_MSC, 0x80 | EPNUM_MSC, CFG_TUD_MSC_EP_BUFSIZE),
+#endif
 };
 
 uint8_t const *tud_descriptor_configuration_cb(uint8_t index) {
@@ -319,6 +332,7 @@ static char const *string_desc_arr[] = {
     CONFIG_USB_DISPLAY_PRODUCT,       // 2
     CONFIG_USB_DISPLAY_SERIAL,        // 3
     "Extended Screen",                // 4: the vendor interface
+    "Sender",                         // 5: the drive holding the PC program
 };
 
 static uint16_t _desc_str[32];

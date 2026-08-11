@@ -7,14 +7,24 @@
 extern "C" {
 #endif
 
+/* The vendor interface stays first: the Microsoft OS 2.0 descriptors name it by
+ * number when they ask Windows to bind WinUSB to it, and a PC application finds
+ * the bulk endpoints by walking interface 0. Anything added later goes after
+ * it. */
 enum {
   ITF_NUM_VENDOR = 0,
+#if CFG_TUD_MSC
+  ITF_NUM_MSC,
+#endif
   ITF_NUM_TOTAL,
 };
 
 enum {
   EPNUM_DEFAULT = 0,
   EPNUM_VENDOR,
+#if CFG_TUD_MSC
+  EPNUM_MSC,
+#endif
 };
 
 /* Packet header the PC application puts in front of every frame. Layout is

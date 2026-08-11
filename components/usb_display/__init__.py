@@ -26,7 +26,14 @@ import os
 import esphome.codegen as cg
 from esphome.components import display, esp32
 import esphome.config_validation as cv
-from esphome.const import CONF_HEIGHT, CONF_ID, CONF_ROTATION, CONF_WIDTH
+from esphome.const import (
+    CONF_HEIGHT,
+    CONF_ID,
+    CONF_RAW_DATA_ID,
+    CONF_ROTATION,
+    CONF_WIDTH,
+)
+from esphome.core import HexInt
 
 CODEOWNERS = ["@youkorr"]
 DEPENDENCIES = ["display"]
@@ -43,6 +50,11 @@ CONF_VENDOR_ID = "vendor_id"
 CONF_PRODUCT_ID = "product_id"
 CONF_SERIAL = "serial"
 CONF_USB_SPEED = "usb_speed"
+CONF_SENDER_DRIVE = "sender_drive"
+
+# The PC half, carried by the board itself. Alongside this file so there is one
+# place to look for everything this display needs.
+SENDER_SCRIPT = os.path.join(os.path.dirname(__file__), "udisp_send.py")
 
 _USB_SPEEDS = {"high": True, "full": False}
 
@@ -50,6 +62,7 @@ CONFIG_SCHEMA = cv.All(
     cv.Schema(
         {
             cv.GenerateID(): cv.declare_id(USBDisplay),
+            cv.GenerateID(CONF_RAW_DATA_ID): cv.declare_id(cg.uint8),
             cv.Required(CONF_DISPLAY_ID): cv.use_id(display.Display),
             # Must match what the PC application is told to send: the header of
             # every frame carries the size, and a frame whose size does not
@@ -73,6 +86,11 @@ CONFIG_SCHEMA = cv.All(
             cv.Optional(CONF_USB_SPEED, default="high"): cv.enum(
                 _USB_SPEEDS, lower=True
             ),
+            # Mass storage is a class every operating system already has a
+            # driver for, so the board can hand over the sender with nothing to
+            # install and nothing to download. Turn it off to go back to a
+            # single-interface device.
+            cv.Optional(CONF_SENDER_DRIVE, default=True): cv.boolean,
             cv.Optional(CONF_MANUFACTURER, default="ESPHome"): cv.string_strict,
             # "udisp" is what Espressif's Windows driver looks for.
             cv.Optional(CONF_PRODUCT, default="udisp"): cv.string_strict,
@@ -121,3 +139,18 @@ async def to_code(config):
     esp32.add_idf_sdkconfig_option(
         "CONFIG_USB_DISPLAY_HIGH_SPEED", _USB_SPEEDS[config[CONF_USB_SPEED]]
     )
+    esp32.add_idf_sdkconfig_option(
+        "CONFIG_USB_DISPLAY_SENDER_DRIVE", config[CONF_SENDER_DRIVE]
+    )
+
+    if config[CONF_SENDER_DRIVE]:
+        with open(SENDER_SCRIPT, "rb") as handle:
+            script = handle.read()
+        # Line endings the way the drive's other file has them: this is opened
+        # on the machine that mounted the drive, and Notepad is still the thing
+        # that opens a .py there.
+        script = script.replace(b"\r\n", b"\n").replace(b"\n", b"\r\n")
+        arr = cg.progmem_array(
+            config[CONF_RAW_DATA_ID], [HexInt(byte) for byte in script]
+        )
+        cg.add(var.set_sender_script(arr, len(script)))
