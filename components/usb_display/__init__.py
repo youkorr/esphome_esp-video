@@ -40,6 +40,8 @@ from esphome.core import HexInt
 
 CODEOWNERS = ["@youkorr"]
 DEPENDENCIES = ["display"]
+# The speaker path hands the host's stream over with an audio::AudioStreamInfo.
+AUTO_LOAD = ["audio"]
 
 usb_display_ns = cg.esphome_ns.namespace("usb_display")
 USBDisplay = usb_display_ns.class_("USBDisplay", cg.Component)

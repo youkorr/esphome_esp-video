@@ -19,6 +19,7 @@
 
 #include "esphome/core/log.h"
 #include "esphome/core/hal.h"
+#include "esphome/components/audio/audio.h"
 
 extern "C" {
 #include "tusb.h"
@@ -71,6 +72,16 @@ void USBDisplay::setup_audio_() {
     this->mark_failed(LOG_STR("USB audio unavailable"));
     return;
   }
+  // Tell the speaker what is coming before a byte of it does. Without this it
+  // keeps ESPHome's historical default of 16 kHz mono, and a mixer asked to
+  // combine that with a 48 kHz source refuses the stream outright -- which is
+  // both the "Incompatible audio streams" error and the noise that comes out
+  // when the samples are read at the wrong rate.
+  if (this->speaker_ != nullptr) {
+    this->speaker_->set_audio_stream_info(
+        audio::AudioStreamInfo(CONFIG_UAC_BIT_RESOLUTION, CONFIG_UAC_SPEAKER_CHANNEL_NUM, CONFIG_UAC_SAMPLE_RATE));
+  }
+
   ESP_LOGCONFIG(TAG, "Speaker reported to the host: %d Hz, %d bit, %d channel", CONFIG_UAC_SAMPLE_RATE,
                 CONFIG_UAC_BIT_RESOLUTION, CONFIG_UAC_SPEAKER_CHANNEL_NUM);
 }
@@ -84,6 +95,10 @@ void USBDisplay::on_usb_audio(const uint8_t *data, size_t length) {
   if (this->audio_muted_ || this->audio_volume_ <= 0.0f)
     return;
 
+  // A speaker that has refused the stream will not start, and pushing at it
+  // anyway is how a format mismatch turns into a crash rather than a message.
+  if (this->speaker_->is_failed())
+    return;
   if (!this->speaker_->is_running())
     this->speaker_->start();
 
