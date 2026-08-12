@@ -416,6 +416,7 @@ void USBDisplay::on_vendor_rx(uint8_t itf) {
       // Nothing free: count this frame out so the next header is recognised
       // rather than being read out of the middle of a payload.
       this->frames_dropped_++;
+      this->dropped_no_buffer_++;
       this->skipping_ = (header->payload_total > payload_len) ? header->payload_total - payload_len : 0;
       continue;
     }
@@ -474,6 +475,7 @@ void USBDisplay::run_decode_task() {
         // the panel at the wrong shape and in the wrong place.
         if (!this->rotate_(*frame, padded_w, padded_h)) {
           this->frames_dropped_++;
+          this->dropped_rotate_++;
           xQueueSend(this->empty_queue_, &frame, 0);
           continue;
         }
@@ -484,6 +486,8 @@ void USBDisplay::run_decode_task() {
                                      display::COLOR_BITNESS_565, false, 0, 0, x_pad);
       this->draw_us_ += micros() - start;
       this->frames_drawn_++;
+      this->last_frame_w_ = frame->width;
+      this->last_frame_h_ = frame->height;
       if (!this->logged_first_frame_) {
         this->logged_first_frame_ = true;
         ESP_LOGI(TAG, "First frame from the host: %u bytes compressed, %ux%u at %u,%u, drawn as %ux%u at %u,%u",
@@ -492,6 +496,7 @@ void USBDisplay::run_decode_task() {
       }
     } else {
       this->frames_dropped_++;
+      this->dropped_decode_++;
       // Every frame failing looks exactly like no frame arriving, because the
       // statistics below only run once something has been drawn. Say it once.
       if (!this->logged_decode_error_) {
@@ -512,15 +517,20 @@ void USBDisplay::run_decode_task() {
       // when it has actually moved -- or whenever a frame was lost, which is
       // always worth a line.
       if (!this->logged_stats_ || this->frames_dropped_ > 0 || fabsf(fps - this->last_fps_) >= STATS_FPS_EPSILON) {
-        ESP_LOGD(TAG, "%ux%u @ %.1f fps, %u us/draw, %u dropped", (unsigned) this->out_width_,
-                 (unsigned) this->out_height_, fps, (unsigned) (this->draw_us_ / this->frames_drawn_),
-                 (unsigned) this->frames_dropped_);
+        ESP_LOGD(TAG, "%ux%u @ %.1f fps, %u us/draw, %u dropped (%u no buffer, %u decode, %u rotate)",
+                 (unsigned) this->last_frame_w_, (unsigned) this->last_frame_h_, fps,
+                 (unsigned) (this->draw_us_ / this->frames_drawn_), (unsigned) this->frames_dropped_,
+                 (unsigned) this->dropped_no_buffer_, (unsigned) this->dropped_decode_,
+                 (unsigned) this->dropped_rotate_);
         this->logged_stats_ = true;
         this->last_fps_ = fps;
       }
       this->stats_since_ms_ = millis();
       this->frames_drawn_ = 0;
       this->frames_dropped_ = 0;
+      this->dropped_no_buffer_ = 0;
+      this->dropped_decode_ = 0;
+      this->dropped_rotate_ = 0;
       this->draw_us_ = 0;
     }
   }

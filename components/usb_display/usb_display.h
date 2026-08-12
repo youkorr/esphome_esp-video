@@ -171,6 +171,17 @@ class USBDisplay : public Component
   // Reported on an interval, like the camera components.
   uint32_t frames_drawn_{0};
   uint32_t frames_dropped_{0};
+  // Why they were dropped. A single total says something is wrong without
+  // saying what, and the three causes have nothing to do with each other: no
+  // free buffer is the decoder falling behind, a decode failure is the frame
+  // itself, a rotation failure is the accelerator.
+  uint32_t dropped_no_buffer_{0};
+  uint32_t dropped_decode_{0};
+  uint32_t dropped_rotate_{0};
+  // The last rectangle drawn, which is not the panel once a driver sends only
+  // what changed.
+  uint16_t last_frame_w_{0};
+  uint16_t last_frame_h_{0};
   uint32_t draw_us_{0};
   uint32_t stats_since_ms_{0};
   // The last frame rate reported, so a steady stream is not restated every five
