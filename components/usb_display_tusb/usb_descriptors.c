@@ -44,7 +44,20 @@ static tusb_desc_device_t const desc_device = {
 
     .idVendor = USB_VID,
     .idProduct = USB_PID,
-    .bcdDevice = 0x0100,
+    /* Windows caches whether a device answers Microsoft OS descriptors, under a
+     * key made of the vendor, product and this revision, and never asks again
+     * once it has an answer. A board that enumerated before those descriptors
+     * existed -- or before it grew a second interface -- is remembered as not
+     * having them, and the vendor interface is then left with no driver no
+     * matter what the descriptors now say.
+     *
+     * Give each shape of the device its own revision, so a board that changes
+     * shape gets a fresh answer instead of a stale one. */
+#if CFG_TUD_MSC
+    .bcdDevice = 0x0201,
+#else
+    .bcdDevice = 0x0101,
+#endif
 
     .iManufacturer = STR_INDEX_MANUFACTURER,
     .iProduct = STR_INDEX_PRODUCT,

@@ -147,9 +147,14 @@ def wait_for_endpoint(vid, pid):
             print(
                 f"Waiting for {vid:04x}:{pid:04x}.\n"
                 "  - Is the board on its OTG port, running a usb_display firmware?\n"
-                "  - On Windows the interface needs WinUSB. The board asks for it "
-                "itself, but if Windows has not bound it, libusb cannot see the "
-                "device even though Device Manager shows it -- bind it with Zadig."
+                "  - On Windows the display interface needs WinUSB. The board asks\n"
+                "    for it itself, but Windows caches that answer per device\n"
+                "    revision and never asks twice, so a board that enumerated\n"
+                "    before it grew those descriptors stays without a driver even\n"
+                "    though its drive mounts. Clear the cache, as administrator:\n"
+                f"      Remove-Item -Recurse -Force 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\usbflags\\{vid:04X}{pid:04X}0201'\n"
+                "    then unplug and plug it back in. Zadig, pointed at the\n"
+                "    interface rather than the device, does the same by hand."
             )
         time.sleep(1.0)
 
