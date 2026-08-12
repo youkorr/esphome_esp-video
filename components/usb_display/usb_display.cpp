@@ -462,6 +462,17 @@ void USBDisplay::run_decode_task() {
     if (xQueueReceive(this->filled_queue_, &frame, portMAX_DELAY) != pdTRUE)
       continue;
 
+    // A host that sends faster than this board can draw is not doing anything
+    // wrong -- it has no way to know -- but decoding and rotating a frame that
+    // is already stale spends the memory bandwidth the audio needs. Turn it
+    // away before any of that work happens, rather than after.
+    if (this->min_frame_interval_ms_ != 0 && millis() - this->last_draw_ms_ < this->min_frame_interval_ms_) {
+      this->frames_dropped_++;
+      this->dropped_too_soon_++;
+      xQueueSend(this->empty_queue_, &frame, 0);
+      continue;
+    }
+
     // The decoder rounds each rectangle up to whole 16x16 units, so the stride
     // follows the rectangle's own width, not the panel's. The buffer is sized
     // for a full-panel rectangle, which is the largest one that can arrive.
@@ -500,6 +511,7 @@ void USBDisplay::run_decode_task() {
                                      display::COLOR_BITNESS_565, false, 0, 0, x_pad);
       this->draw_us_ += micros() - start;
       this->frames_drawn_++;
+      this->last_draw_ms_ = millis();
       this->last_frame_w_ = frame->width;
       this->last_frame_h_ = frame->height;
       if (!this->logged_first_frame_) {
@@ -535,10 +547,10 @@ void USBDisplay::run_decode_task() {
       const bool dropping = this->frames_dropped_ > 0;
       if (!this->logged_stats_ || dropping != this->was_dropping_ ||
           fabsf(fps - this->last_fps_) >= STATS_FPS_EPSILON) {
-        ESP_LOGD(TAG, "%ux%u @ %.1f fps, %u us/draw, %u dropped (%u no buffer, %u decode, %u rotate)",
+        ESP_LOGD(TAG, "%ux%u @ %.1f fps, %u us/draw, %u dropped (%u no buffer, %u too soon, %u decode, %u rotate)",
                  (unsigned) this->last_frame_w_, (unsigned) this->last_frame_h_, fps,
                  (unsigned) (this->draw_us_ / this->frames_drawn_), (unsigned) this->frames_dropped_,
-                 (unsigned) this->dropped_no_buffer_, (unsigned) this->dropped_decode_,
+                 (unsigned) this->dropped_no_buffer_, (unsigned) this->dropped_too_soon_, (unsigned) this->dropped_decode_,
                  (unsigned) this->dropped_rotate_);
         this->logged_stats_ = true;
         this->last_fps_ = fps;
@@ -548,6 +560,7 @@ void USBDisplay::run_decode_task() {
       this->frames_drawn_ = 0;
       this->frames_dropped_ = 0;
       this->dropped_no_buffer_ = 0;
+      this->dropped_too_soon_ = 0;
       this->dropped_decode_ = 0;
       this->dropped_rotate_ = 0;
       this->draw_us_ = 0;

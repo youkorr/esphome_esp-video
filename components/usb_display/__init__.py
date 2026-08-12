@@ -215,6 +215,7 @@ async def to_code(config):
     cg.add(var.set_frame_buffers(config[CONF_FRAME_BUFFERS]))
     cg.add(var.set_max_frame_bytes(config[CONF_MAX_FRAME_BYTES]))
     cg.add(var.set_rotation(config[CONF_ROTATION]))
+    cg.add(var.set_max_fps(config[CONF_MAX_FPS]))
 
     # The descriptors have to be compiled into TinyUSB itself, which only a
     # real IDF component can do (see that component's CMakeLists).

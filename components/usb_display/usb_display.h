@@ -56,6 +56,9 @@ class USBDisplay : public Component
   }
   void set_frame_buffers(uint8_t count) { this->frame_buffer_count_ = count; }
   void set_max_frame_bytes(size_t bytes) { this->max_frame_bytes_ = bytes; }
+  /// Also enforced here, not only advertised: a host that ignores the figure
+  /// otherwise spends this board's whole budget on frames it cannot draw.
+  void set_max_fps(uint8_t fps) { this->min_frame_interval_ms_ = fps > 0 ? 1000u / fps : 0; }
   /// Clockwise, in degrees; 0, 90, 180 or 270. Done by the P4's pixel-processing
   /// accelerator, so it costs no CPU.
   void set_rotation(uint16_t degrees) { this->rotation_ = degrees; }
@@ -153,6 +156,8 @@ class USBDisplay : public Component
   uint16_t height_{600};
   uint8_t frame_buffer_count_{4};
   size_t max_frame_bytes_{128 * 1024};
+  uint32_t min_frame_interval_ms_{0};
+  uint32_t last_draw_ms_{0};
 
   Frame *frames_{nullptr};
   QueueHandle_t empty_queue_{nullptr};
@@ -225,6 +230,7 @@ class USBDisplay : public Component
   // free buffer is the decoder falling behind, a decode failure is the frame
   // itself, a rotation failure is the accelerator.
   uint32_t dropped_no_buffer_{0};
+  uint32_t dropped_too_soon_{0};
   uint32_t dropped_decode_{0};
   uint32_t dropped_rotate_{0};
   // The last rectangle drawn, which is not the panel once a driver sends only
