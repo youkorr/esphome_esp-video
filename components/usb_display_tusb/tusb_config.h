@@ -108,10 +108,14 @@ extern "C" {
  * 16-bit at the configured rate.
  */
 #if CONFIG_USB_DISPLAY_AUDIO
-#include "uac_config.h"
+/* uac_descriptors.h, not uac_config.h: the descriptor length below lives in
+ * the former, and it pulls in the latter itself. Both are only macros, so
+ * including them this early is safe -- their bodies reach for TinyUSB's own
+ * names, and those are in scope by the time anything expands them. */
+#include "uac_descriptors.h"
 
 #define CFG_TUD_AUDIO 1
-#define CFG_TUD_AUDIO_FUNC_1_DESC_LEN TUD_AUDIO_DESC_LEN
+#define CFG_TUD_AUDIO_FUNC_1_DESC_LEN TUD_AUDIO_DEVICE_DESC_LEN
 /* One streaming interface: playback only. The microphone would be a second. */
 #define CFG_TUD_AUDIO_FUNC_1_N_AS_INT 1
 #define CFG_TUD_AUDIO_FUNC_1_CTRL_BUF_SZ 64

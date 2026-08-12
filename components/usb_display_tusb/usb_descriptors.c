@@ -14,7 +14,7 @@
 #include "tusb.h"
 #include "usb_descriptors.h"
 #if CFG_TUD_AUDIO
-/* TUD_AUDIO_DESCRIPTOR and TUD_AUDIO_DESC_LEN, built by Espressif's
+/* TUD_AUDIO_DESCRIPTOR and TUD_AUDIO_DEVICE_DESC_LEN, built by Espressif's
  * usb_device_uac component from the channel counts and sample rate. */
 #include "uac_descriptors.h"
 #endif
@@ -91,7 +91,7 @@ uint8_t const *tud_hid_descriptor_report_cb(uint8_t instance) {
 #endif
 
 #if CFG_TUD_AUDIO
-#define AUDIO_DESC_LEN TUD_AUDIO_DESC_LEN
+#define AUDIO_DESC_LEN TUD_AUDIO_DEVICE_DESC_LEN
 #else
 #define AUDIO_DESC_LEN 0
 #endif
