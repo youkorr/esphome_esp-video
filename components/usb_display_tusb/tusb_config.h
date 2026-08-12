@@ -145,11 +145,17 @@ extern "C" {
 /* One alternate setting carrying one format. */
 #define CFG_TUD_AUDIO_FUNC_1_N_FORMATS 1
 
-/* No microphone yet, so no IN endpoint -- but usb_device_uac.c sizes its
- * microphone buffer and builds its resolution table from these whatever the
- * channel count, so they have to exist. Small, because nothing ever fills
- * them. */
-#define CFG_TUD_AUDIO_ENABLE_EP_IN 0
+/* No microphone yet, but the transmit side is switched on all the same.
+ * usb_device_uac.c compiles its microphone path whatever the channel count --
+ * it sizes a buffer from these, builds a resolution table from them, and calls
+ * tud_audio_n_write(), which TinyUSB only declares when the IN endpoint is
+ * enabled. Leaving it off does not save the code, it only stops it compiling.
+ *
+ * Nothing is actually offered to the host: the descriptor is built from the
+ * channel counts, and with no microphone channels it is the speaker-only form
+ * with no IN endpoint in it. So this costs the buffers below and nothing
+ * else. */
+#define CFG_TUD_AUDIO_ENABLE_EP_IN 1
 #define CFG_TUD_AUDIO_FUNC_1_N_CHANNELS_TX 1
 #define CFG_TUD_AUDIO_FUNC_1_FORMAT_1_N_BYTES_PER_SAMPLE_TX CONFIG_UAC_BYTES_PER_SAMPLE
 #define CFG_TUD_AUDIO_FUNC_1_FORMAT_1_RESOLUTION_TX CONFIG_UAC_BIT_RESOLUTION
