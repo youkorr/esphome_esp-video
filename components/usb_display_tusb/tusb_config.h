@@ -1,9 +1,11 @@
 /* TinyUSB configuration for the USB extended-screen device.
  *
- * Vendor class only: USB has no standard "display" class, so the PC side is an
- * application talking to a vendor interface (see Espressif's usb_extend_screen
- * example and its Windows driver). Touch (HID) and audio (UAC) are not wired
- * up here.
+ * The picture goes over a vendor interface, because USB has no "display" class
+ * for it to belong to: the other end is an application or Espressif's Windows
+ * driver, with no class driver involved. Everything else this board offers the
+ * host -- the touch screen, the speaker, the drive carrying the sender -- is a
+ * standard class the host already has a driver for, and each is switched on
+ * from the component's configuration.
  */
 #pragma once
 
@@ -136,6 +138,21 @@ extern "C" {
 #define CFG_TUD_AUDIO_ENABLE_FEEDBACK_EP 1
 #define CFG_TUD_AUDIO_ENABLE_FEEDBACK_FORMAT_CORRECTION 1
 
+/* One alternate setting carrying one format. */
+#define CFG_TUD_AUDIO_FUNC_1_N_FORMATS 1
+
+/* No microphone yet, so no IN endpoint -- but usb_device_uac.c sizes its
+ * microphone buffer and builds its resolution table from these whatever the
+ * channel count, so they have to exist. Small, because nothing ever fills
+ * them. */
+#define CFG_TUD_AUDIO_ENABLE_EP_IN 0
+#define CFG_TUD_AUDIO_FUNC_1_N_CHANNELS_TX 1
+#define CFG_TUD_AUDIO_FUNC_1_FORMAT_1_N_BYTES_PER_SAMPLE_TX CONFIG_UAC_BYTES_PER_SAMPLE
+#define CFG_TUD_AUDIO_FUNC_1_FORMAT_1_RESOLUTION_TX CONFIG_UAC_BIT_RESOLUTION
+#define CFG_TUD_AUDIO_FUNC_1_FORMAT_1_EP_SZ_IN 64
+#define CFG_TUD_AUDIO_FUNC_1_EP_IN_SZ_MAX 64
+#define CFG_TUD_AUDIO_FUNC_1_EP_IN_SW_BUF_SZ 64
+
 #define CFG_TUD_AUDIO_ENABLE_ENCODING 0
 #define CFG_TUD_AUDIO_ENABLE_DECODING 0
 #else
@@ -144,7 +161,6 @@ extern "C" {
 
 #define CFG_TUD_CDC 0
 #define CFG_TUD_MIDI 0
-#define CFG_TUD_AUDIO 0
 #define CFG_TUD_VIDEO 0
 
 #ifdef __cplusplus
