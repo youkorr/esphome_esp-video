@@ -23,6 +23,9 @@ namespace usb_display {
 static const char *const TAG = "usb_display";
 
 static constexpr uint32_t STATS_INTERVAL_MS = 5000;
+// Long enough for a host to enumerate, load a driver and start it, short enough
+// to be in the same screenful of log as the startup lines.
+static constexpr uint32_t UNCLAIMED_WARNING_MS = 10000;
 // How far the frame rate has to move before it is worth another line.
 static constexpr float STATS_FPS_EPSILON = 1.0f;
 
@@ -48,6 +51,9 @@ extern "C" void tud_mount_cb(void) {
   // compile time, and a High-Speed bulk endpoint on a Full-Speed bus enumerates
   // fine and then never transfers anything. Say it out loud rather than leaving
   // a silent endpoint to be diagnosed from its absence.
+  if (g_usb_display != nullptr)
+    g_usb_display->set_configured();
+
   const tusb_speed_t speed = tud_speed_get();
   const char *speed_name = (speed == TUSB_SPEED_HIGH)   ? "High Speed"
                            : (speed == TUSB_SPEED_FULL) ? "Full Speed"
@@ -176,6 +182,7 @@ void USBDisplay::setup() {
   xTaskCreatePinnedToCore(USBDisplay::decode_task, "udisp", 4096, this, 4, nullptr, 1);
 
   this->stats_since_ms_ = millis();
+  this->started_ms_ = millis();
   ESP_LOGI(TAG, "USB extended screen ready: %ux%u, %u frame buffers of %u bytes", (unsigned) this->width_,
            (unsigned) this->height_, (unsigned) this->frame_buffer_count_, (unsigned) this->max_frame_bytes_);
 }
@@ -515,9 +522,31 @@ void USBDisplay::run_decode_task() {
   }
 }
 
+void USBDisplay::loop() {
+  // A host that has no driver for a device reads its descriptors and stops
+  // there: it never selects a configuration, so tud_mount_cb never runs and the
+  // only evidence is a line that is missing from the log. Say it instead --
+  // "nothing claimed this device" is a completely different problem from
+  // "claimed, but no picture arrives", and they look identical otherwise.
+  if (!this->configured_ && !this->logged_unclaimed_ && millis() - this->started_ms_ > UNCLAIMED_WARNING_MS) {
+    this->logged_unclaimed_ = true;
+    ESP_LOGW(TAG,
+             "USB: the host has not configured this device. It read the descriptors and stopped, which is what a host "
+             "does when no driver claims the device -- check that one is bound to %04X:%04X.",
+             (unsigned) CONFIG_USB_DISPLAY_VID, (unsigned) CONFIG_USB_DISPLAY_PID);
+  }
+}
+
 void USBDisplay::dump_config() {
   ESP_LOGCONFIG(TAG, "USB Extended Display:");
   ESP_LOGCONFIG(TAG, "  Resolution: %ux%u", (unsigned) this->width_, (unsigned) this->height_);
+  // Which identifiers the board actually enumerates as, and how many
+  // interfaces. Both decide which driver a host binds, and neither could be
+  // read back off a log before.
+  ESP_LOGCONFIG(TAG, "  USB device: %04X:%04X \"%s\" \"%s\", %s, %s", (unsigned) CONFIG_USB_DISPLAY_VID,
+                (unsigned) CONFIG_USB_DISPLAY_PID, CONFIG_USB_DISPLAY_MANUFACTURER, CONFIG_USB_DISPLAY_PRODUCT,
+                CONFIG_USB_DISPLAY_HIGH_SPEED ? "High Speed" : "Full Speed",
+                CFG_TUD_MSC ? "display + sender drive" : "display only");
   ESP_LOGCONFIG(TAG, "  Frame buffers: %u x %u bytes", (unsigned) this->frame_buffer_count_,
                 (unsigned) this->max_frame_bytes_);
   ESP_LOGCONFIG(TAG, "  Decoded buffer: %u bytes (%ux%u, rounded up to whole 16x16 units)",

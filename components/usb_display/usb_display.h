@@ -29,6 +29,7 @@ namespace usb_display {
 class USBDisplay : public Component {
  public:
   void setup() override;
+  void loop() override;
   void dump_config() override;
   // After the display, whose panel this draws into.
   float get_setup_priority() const override { return setup_priority::LATE; }
@@ -53,6 +54,9 @@ class USBDisplay : public Component {
   // Called from TinyUSB's receive callback; see the .cpp for why this is
   // reachable from C.
   void on_vendor_rx(uint8_t itf);
+  /// Set when the host selects a configuration, which it only does once a
+  /// driver has claimed the device.
+  void set_configured() { this->configured_ = true; }
 
  protected:
   /// One frame in flight: a compressed frame being filled by USB, or a full one
@@ -149,6 +153,11 @@ class USBDisplay : public Component {
   bool logged_bad_header_{false};
   bool logged_decode_error_{false};
   bool logged_rotate_error_{false};
+  // A device nobody has claimed is never configured, and the only trace of that
+  // is a callback that does not happen -- so watch for it not happening.
+  bool configured_{false};
+  bool logged_unclaimed_{false};
+  uint32_t started_ms_{0};
 };
 
 }  // namespace usb_display
