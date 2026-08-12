@@ -204,6 +204,7 @@ class USBDisplay : public Component
   size_t audio_block_size_{0};
   size_t audio_block_used_{0};
   size_t last_packet_len_{0};
+  uint32_t audio_resyncs_{0};
   // Buffers the speaker would not take whole. A few are normal at the start of
   // a stream; a steady stream of them is the board not keeping up.
   uint32_t audio_underruns_{0};

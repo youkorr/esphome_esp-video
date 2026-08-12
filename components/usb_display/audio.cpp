@@ -36,10 +36,11 @@ namespace usb_display {
 
 static const char *const TAG = "usb_display.audio";
 
-// How much audio to gather before handing it to the speaker. Twenty
-// milliseconds is far more than the 125 microseconds a High-Speed host sends
-// at, and far less than anyone hears as delay.
-static constexpr uint32_t AUDIO_BLOCK_MS = 20;
+// How much audio to gather before handing it to the speaker. Far more than the
+// 125 microseconds a High-Speed host sends at, far less than anyone hears as
+// delay -- and small next to whatever buffer the speaker keeps, because a block
+// that fills most of it cannot survive the slightest jitter.
+static constexpr uint32_t AUDIO_BLOCK_MS = 10;
 
 namespace {
 
@@ -139,16 +140,35 @@ void USBDisplay::flush_audio_block_() {
   // it took; audio it would not take is audio it was not ready for, and the
   // host is already sending the next block.
   const size_t length = this->audio_block_used_;
-  this->audio_block_used_ = 0;
   const size_t written = this->speaker_->play(this->audio_block_, length);
-  if (written < length) {
-    this->audio_underruns_++;
-    // The speaker refusing part of a buffer is the difference between a stream
-    // that is merely the wrong shape and one the board cannot keep up with, and
-    // the two sound alike from the outside.
-    if (this->audio_underruns_ == 1 || this->audio_underruns_ % 500 == 0) {
-      ESP_LOGW(TAG, "The speaker took %u of %u bytes (%u buffers short so far)", (unsigned) written, (unsigned) length,
-               (unsigned) this->audio_underruns_);
+  if (written == length) {
+    this->audio_block_used_ = 0;
+    return;
+  }
+
+  // Whatever the speaker would not take stays where it is and goes out at the
+  // front of the next block. Throwing it away instead cuts the wave mid-sample,
+  // and a cut like that is a click -- which is what a stream that starts clean
+  // and turns gritty is made of, one truncated block at a time.
+  const size_t carried = length - written;
+  memmove(this->audio_block_, this->audio_block_ + written, carried);
+  this->audio_block_used_ = carried;
+
+  this->audio_underruns_++;
+  if (this->audio_underruns_ == 1 || this->audio_underruns_ % 500 == 0) {
+    ESP_LOGW(TAG, "The speaker took %u of %u bytes, %u carried over (%u times so far)", (unsigned) written,
+             (unsigned) length, (unsigned) carried, (unsigned) this->audio_underruns_);
+  }
+
+  // Carrying over only works while the speaker eventually catches up. If a
+  // whole block comes back untouched there is no room to gather the next one
+  // and the audio is genuinely arriving faster than it can leave; start again
+  // rather than growing a delay that never drains.
+  if (written == 0 && carried >= this->audio_block_size_) {
+    this->audio_block_used_ = 0;
+    this->audio_resyncs_++;
+    if (this->audio_resyncs_ == 1 || this->audio_resyncs_ % 100 == 0) {
+      ESP_LOGW(TAG, "Dropped a block: the speaker is not draining (%u times so far)", (unsigned) this->audio_resyncs_);
     }
   }
 }
