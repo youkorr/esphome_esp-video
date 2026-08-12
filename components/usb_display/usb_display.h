@@ -197,6 +197,9 @@ class USBDisplay : public Component
   float audio_volume_{1.0f};
   bool audio_muted_{false};
   bool logged_first_audio_{false};
+  // Buffers the speaker would not take whole. A few are normal at the start of
+  // a stream; a steady stream of them is the board not keeping up.
+  uint32_t audio_underruns_{0};
 #endif
 
 #if CFG_TUD_HID

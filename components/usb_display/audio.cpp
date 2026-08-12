@@ -95,20 +95,21 @@ void USBDisplay::on_usb_audio(const uint8_t *data, size_t length) {
   if (this->audio_muted_ || this->audio_volume_ <= 0.0f)
     return;
 
-  // A speaker that has refused the stream will not start, and pushing at it
-  // anyway is how a format mismatch turns into a crash rather than a message.
-  if (this->speaker_->is_failed())
-    return;
   if (!this->speaker_->is_running())
     this->speaker_->start();
 
   // The two-argument form: the one taking a timeout is compiled conditionally,
-  // and this one is the interface every speaker implements.
-  this->speaker_->play(data, length);
+  // and this one is the interface every speaker implements. It reports how much
+  // it took; audio it would not take is audio it was not ready for, and the
+  // host is already sending the next buffer.
+  const size_t written = this->speaker_->play(data, length);
+  if (written < length)
+    this->audio_underruns_++;
 
   if (!this->logged_first_audio_) {
     this->logged_first_audio_ = true;
-    ESP_LOGI(TAG, "First audio from the host: %u bytes", (unsigned) length);
+    ESP_LOGI(TAG, "First audio from the host: %u bytes at %d Hz, %d bit, %d channel", (unsigned) length,
+             CONFIG_UAC_SAMPLE_RATE, CONFIG_UAC_BIT_RESOLUTION, CONFIG_UAC_SPEAKER_CHANNEL_NUM);
   }
 }
 
