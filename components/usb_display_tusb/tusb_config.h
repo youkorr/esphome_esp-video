@@ -87,8 +87,16 @@ extern "C" {
 #define CFG_TUD_MSC 0
 #endif
 
-#define CFG_TUD_CDC 0
+/* The touch screen. HID is another class every operating system has a driver
+ * for, so this needs no installing either. */
+#if CONFIG_USB_DISPLAY_TOUCH
+#define CFG_TUD_HID 1
+#define CFG_TUD_HID_EP_BUFSIZE UDISP_EP_SIZE
+#else
 #define CFG_TUD_HID 0
+#endif
+
+#define CFG_TUD_CDC 0
 #define CFG_TUD_MIDI 0
 #define CFG_TUD_AUDIO 0
 #define CFG_TUD_VIDEO 0

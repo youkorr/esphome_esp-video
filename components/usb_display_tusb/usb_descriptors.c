@@ -23,6 +23,7 @@ enum {
   STR_INDEX_PRODUCT,
   STR_INDEX_SERIAL,
   STR_INDEX_VENDOR,
+  STR_INDEX_HID,
   STR_INDEX_MSC,
 };
 
@@ -71,17 +72,33 @@ uint8_t const *tud_descriptor_device_cb(void) { return (uint8_t const *) &desc_d
 //--------------------------------------------------------------------+
 // Configuration descriptor
 //--------------------------------------------------------------------+
-#if CFG_TUD_MSC
-#define CONFIG_TOTAL_LEN (TUD_CONFIG_DESC_LEN + TUD_VENDOR_DESC_LEN + TUD_MSC_DESC_LEN)
-#else
-#define CONFIG_TOTAL_LEN (TUD_CONFIG_DESC_LEN + TUD_VENDOR_DESC_LEN)
+#if CFG_TUD_HID
+/* Horizontal then vertical: the two arguments are the maxima for X and Y. */
+static uint8_t const desc_hid_report[] = {
+    TUD_HID_REPORT_DESC_TOUCH_SCREEN(REPORT_ID_TOUCH, CONFIG_USB_DISPLAY_WIDTH, CONFIG_USB_DISPLAY_HEIGHT),
+};
+
+uint8_t const *tud_hid_descriptor_report_cb(uint8_t instance) {
+  (void) instance;
+  return desc_hid_report;
+}
 #endif
+
+#define CONFIG_TOTAL_LEN                                                                    \
+  (TUD_CONFIG_DESC_LEN + TUD_VENDOR_DESC_LEN + (CFG_TUD_HID ? TUD_HID_DESC_LEN : 0) + \
+   (CFG_TUD_MSC ? TUD_MSC_DESC_LEN : 0))
 
 static uint8_t const desc_configuration[] = {
     /* Bus-powered is a lie on a board with its own supply, but the host budget
      * check is what a 500 mA claim risks failing, so ask for the minimum. */
     TUD_CONFIG_DESCRIPTOR(1, ITF_NUM_TOTAL, 0, CONFIG_TOTAL_LEN, TUSB_DESC_CONFIG_ATT_SELF_POWERED, 100),
     TUD_VENDOR_DESCRIPTOR(ITF_NUM_VENDOR, STR_INDEX_VENDOR, EPNUM_VENDOR, 0x80 | EPNUM_VENDOR, CFG_TUD_VENDOR_EPSIZE),
+#if CFG_TUD_HID
+    /* 10 ms polling: the GT911 is read about that often, and asking the host to
+     * come more frequently only spends bus time on unchanged reports. */
+    TUD_HID_DESCRIPTOR(ITF_NUM_HID, STR_INDEX_HID, HID_ITF_PROTOCOL_NONE, sizeof(desc_hid_report),
+                       0x80 | EPNUM_HID, CFG_TUD_HID_EP_BUFSIZE, 10),
+#endif
 #if CFG_TUD_MSC
     TUD_MSC_DESCRIPTOR(ITF_NUM_MSC, STR_INDEX_MSC, EPNUM_MSC, 0x80 | EPNUM_MSC, CFG_TUD_MSC_EP_BUFSIZE),
 #endif
@@ -345,7 +362,8 @@ static char const *string_desc_arr[] = {
     CONFIG_USB_DISPLAY_PRODUCT,         // 2
     CONFIG_USB_DISPLAY_SERIAL,          // 3
     CONFIG_USB_DISPLAY_VENDOR_STRING,   // 4: the vendor interface
-    "Sender",                           // 5: the drive holding the PC program
+    "touch",                            // 5: the touch screen
+    "Sender",                           // 6: the drive holding the PC program
 };
 
 /* Long enough for the vendor interface string, which is not a label: it is how

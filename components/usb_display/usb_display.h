@@ -1,7 +1,11 @@
 #pragma once
 
 #include "esphome/core/component.h"
+#include "esphome/core/defines.h"
 #include "esphome/components/display/display.h"
+#ifdef USE_TOUCHSCREEN
+#include "esphome/components/touchscreen/touchscreen.h"
+#endif
 
 #include <cstdint>
 
@@ -10,6 +14,8 @@ extern "C" {
 #include "freertos/queue.h"
 #include "driver/jpeg_decode.h"
 #include "driver/ppa.h"
+#include "tusb.h"
+#include "usb_descriptors.h"
 }
 
 namespace esphome {
@@ -26,7 +32,12 @@ namespace usb_display {
  * The PC side is not optional and is not part of this component -- see the
  * windows_driver directory of Espressif's usb_extend_screen example.
  */
-class USBDisplay : public Component {
+class USBDisplay : public Component
+#if CFG_TUD_HID
+    ,
+                   public touchscreen::TouchListener
+#endif
+{
  public:
   void setup() override;
   void loop() override;
@@ -50,6 +61,13 @@ class USBDisplay : public Component {
     this->sender_script_ = data;
     this->sender_script_len_ = length;
   }
+
+#if CFG_TUD_HID
+  void set_touchscreen(touchscreen::Touchscreen *touchscreen) { this->touchscreen_ = touchscreen; }
+  // Every poll of the touch screen, with all contacts currently down.
+  void update(const touchscreen::TouchPoints_t &points) override;
+  void release() override;
+#endif
 
   // Called from TinyUSB's receive callback; see the .cpp for why this is
   // reachable from C.
@@ -93,6 +111,12 @@ class USBDisplay : public Component {
   // Lays the sender out as a FAT12 volume for the mass-storage interface to
   // serve. Defined in sender_drive.cpp, and compiled away with it.
   void setup_sender_drive_();
+#if CFG_TUD_HID
+  // Defined in touch.cpp, and compiled away with it.
+  void setup_touch_();
+  bool send_touch_report_(const udisp_touch_report_t &report);
+  void retry_release_();
+#endif
 
   bool allocate_frames_();
   Frame *take_empty_();
@@ -136,6 +160,13 @@ class USBDisplay : public Component {
 
   const uint8_t *sender_script_{nullptr};
   size_t sender_script_len_{0};
+
+#if CFG_TUD_HID
+  touchscreen::Touchscreen *touchscreen_{nullptr};
+  // A release the host has not been told about yet. Losing a press costs one
+  // poll; losing a release leaves a finger down forever.
+  bool release_pending_{false};
+#endif
 
   // Reported on an interval, like the camera components.
   uint32_t frames_drawn_{0};

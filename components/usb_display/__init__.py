@@ -25,7 +25,7 @@ import logging
 import os
 
 import esphome.codegen as cg
-from esphome.components import display, esp32
+from esphome.components import display, esp32, touchscreen
 import esphome.config_validation as cv
 from esphome.const import (
     CONF_HEIGHT,
@@ -54,6 +54,7 @@ CONF_USB_SPEED = "usb_speed"
 CONF_SENDER_DRIVE = "sender_drive"
 CONF_JPEG_QUALITY = "jpeg_quality"
 CONF_MAX_FPS = "max_fps"
+CONF_TOUCHSCREEN_ID = "touchscreen_id"
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -80,7 +81,24 @@ def _warn_about_espressif_driver(config):
     being broken rather than the two disagreeing about what the device is.
     """
     pid = config[CONF_PRODUCT_ID]
-    if pid == _ESPRESSIF_DISPLAY_ONLY_PID and config[CONF_SENDER_DRIVE]:
+    has_touch = CONF_TOUCHSCREEN_ID in config
+    if pid == _ESPRESSIF_DISPLAY_ONLY_PID and has_touch:
+        _LOGGER.warning(
+            "product_id 0x%04X is what Espressif's display driver binds to for a "
+            "board that is only a display, but touchscreen_id adds a touch "
+            "interface. Their composite identifier is 0x%04X.",
+            pid,
+            _ESPRESSIF_COMPOSITE_PID,
+        )
+    elif pid == _ESPRESSIF_COMPOSITE_PID and not has_touch:
+        _LOGGER.warning(
+            "product_id 0x%04X is what Espressif's driver binds to for their "
+            "composite device, which has a touch interface. Add touchscreen_id, "
+            "or use 0x%04X for a display on its own.",
+            pid,
+            _ESPRESSIF_DISPLAY_ONLY_PID,
+        )
+    elif pid == _ESPRESSIF_DISPLAY_ONLY_PID and config[CONF_SENDER_DRIVE]:
         _LOGGER.warning(
             "product_id 0x%04X is what Espressif's display driver binds to for a "
             "board that is only a display, but sender_drive adds a second "
@@ -88,13 +106,13 @@ def _warn_about_espressif_driver(config):
             "not needed anyway.",
             pid,
         )
-    elif pid == _ESPRESSIF_COMPOSITE_PID:
+    elif pid == _ESPRESSIF_COMPOSITE_PID and config[CONF_SENDER_DRIVE]:
         _LOGGER.warning(
             "product_id 0x%04X is what Espressif's driver binds to for their "
-            "composite device, which also has touch and audio interfaces. This "
-            "component provides neither. Use 0x%04X with sender_drive: false.",
+            "composite device, which has a display and a touch interface and no "
+            "drive. Set sender_drive: false -- with that driver the sender is not "
+            "needed anyway.",
             pid,
-            _ESPRESSIF_DISPLAY_ONLY_PID,
         )
     return config
 
@@ -105,6 +123,11 @@ CONFIG_SCHEMA = cv.All(
             cv.GenerateID(): cv.declare_id(USBDisplay),
             cv.GenerateID(CONF_RAW_DATA_ID): cv.declare_id(cg.uint8),
             cv.Required(CONF_DISPLAY_ID): cv.use_id(display.Display),
+            # Optional, and the whole of what touch needs: ESPHome applies the
+            # touchscreen's own transform: before a listener sees a point, so a
+            # panel mounted upside down is corrected in one place for both this
+            # and LVGL.
+            cv.Optional(CONF_TOUCHSCREEN_ID): cv.use_id(touchscreen.Touchscreen),
             # Must match what the PC application is told to send: the header of
             # every frame carries the size, and a frame whose size does not
             # match is dropped rather than drawn at the wrong shape.
@@ -189,6 +212,16 @@ async def to_code(config):
     esp32.add_idf_sdkconfig_option(
         "CONFIG_USB_DISPLAY_SENDER_DRIVE", config[CONF_SENDER_DRIVE]
     )
+    # The HID report descriptor states the coordinate range, so it needs the
+    # geometry at compile time as well.
+    esp32.add_idf_sdkconfig_option("CONFIG_USB_DISPLAY_WIDTH", config[CONF_WIDTH])
+    esp32.add_idf_sdkconfig_option("CONFIG_USB_DISPLAY_HEIGHT", config[CONF_HEIGHT])
+    esp32.add_idf_sdkconfig_option(
+        "CONFIG_USB_DISPLAY_TOUCH", CONF_TOUCHSCREEN_ID in config
+    )
+    if touchscreen_id := config.get(CONF_TOUCHSCREEN_ID):
+        touch = await cg.get_variable(touchscreen_id)
+        cg.add(var.set_touchscreen(touch))
 
     # The vendor interface string is not a label. Espressif's Windows display
     # driver reads it off the interface and parses the screen's geometry and

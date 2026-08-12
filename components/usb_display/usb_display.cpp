@@ -146,6 +146,10 @@ void USBDisplay::setup() {
   // enumerated the drive.
   this->setup_sender_drive_();
 #endif
+#if CFG_TUD_HID
+  if (this->touchscreen_ != nullptr)
+    this->setup_touch_();
+#endif
 
   // Device mode on the PHY that matches the speed the descriptors were built
   // for. TinyUSB does not set the PHY up itself.
@@ -523,6 +527,10 @@ void USBDisplay::run_decode_task() {
 }
 
 void USBDisplay::loop() {
+#if CFG_TUD_HID
+  this->retry_release_();
+#endif
+
   // A host that has no driver for a device reads its descriptors and stops
   // there: it never selects a configuration, so tud_mount_cb never runs and the
   // only evidence is a line that is missing from the log. Say it instead --
