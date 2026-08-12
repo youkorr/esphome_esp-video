@@ -394,6 +394,13 @@ void USBDisplay::on_vendor_rx(uint8_t itf) {
     if ((size_t) read < sizeof(udisp_frame_header_t))
       continue;
     auto *header = (udisp_frame_header_t *) rx_buf;
+    if (header->type == UDISP_TYPE_END) {
+      // Not a frame: the host marking the end of what it was sending. Count its
+      // payload out like any other and say nothing -- it is the protocol
+      // working, not a rejection.
+      this->skipping_ = header->payload_total;
+      continue;
+    }
     // Any rectangle that fits on the panel, not just the whole panel: a driver
     // that redraws only what changed sends small ones, and that is most of
     // where its speed comes from.
