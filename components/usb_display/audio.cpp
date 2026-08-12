@@ -36,6 +36,11 @@ namespace usb_display {
 
 static const char *const TAG = "usb_display.audio";
 
+// How much audio to gather before handing it to the speaker. Twenty
+// milliseconds is far more than the 125 microseconds a High-Speed host sends
+// at, and far less than anyone hears as delay.
+static constexpr uint32_t AUDIO_BLOCK_MS = 20;
+
 namespace {
 
 /* usb_device_uac's callbacks carry a context pointer, but the volume the host

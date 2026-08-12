@@ -32,10 +32,6 @@ static constexpr float STATS_FPS_EPSILON = 1.0f;
 // buffers. Half a second is far more than any scheduling hiccup and far less
 // than a listener would notice.
 static constexpr uint32_t AUDIO_IDLE_MS = 500;
-// How much audio to gather before handing it to the speaker. Twenty
-// milliseconds is far more than the 125 microseconds a High-Speed host sends
-// at, and far less than anyone hears as delay.
-static constexpr uint32_t AUDIO_BLOCK_MS = 20;
 
 // TinyUSB's callbacks are plain C with no context argument, so the one instance
 // has to be reachable from file scope. A second usb_display would need a second
