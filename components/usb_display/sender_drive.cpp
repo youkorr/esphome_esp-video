@@ -207,12 +207,14 @@ void USBDisplay::setup_sender_drive_() {
            "\r\n"
            "    pip install pyusb mss pillow libusb-package\r\n"
            "\r\n"
-           "Then, from a copy of UDISP.PY somewhere writable:\r\n"
+           "Then, with this drive open as D: (whatever letter it got):\r\n"
            "\r\n"
-           "    python UDISP.PY --width %u --height %u\r\n"
+           "    python D:\\UDISP.PY --width %u --height %u\r\n"
            "\r\n"
-           "Add --install-startup once and it runs at every login, waiting for\r\n"
-           "the board rather than failing when it is not plugged in.\r\n"
+           "It runs straight off this drive; nothing needs copying first. Add\r\n"
+           "--install-startup once and it starts at every login instead, from a\r\n"
+           "copy it puts in your own directory, waiting for the board rather\r\n"
+           "than failing when it is not plugged in.\r\n"
            "\r\n"
            "The rotation is set on the board, not here.\r\n",
            (unsigned) this->width_, (unsigned) this->height_);

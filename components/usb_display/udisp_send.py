@@ -186,6 +186,28 @@ def _require_startup_path():
     return path
 
 
+def _install_copy():
+    """Put a copy of this script somewhere that will still be there at login.
+
+    This is normally run straight off the board's own drive, and that drive only
+    exists while the board is plugged in -- and not always under the same
+    letter. A login task pointing at it would work until it did not, in a way
+    that would look like the board being broken. Copy it to the user's own
+    directory and point at the copy.
+    """
+    target_dir = os.path.join(
+        os.environ.get("LOCALAPPDATA") or os.path.expanduser("~"), "esphome-udisp"
+    )
+    os.makedirs(target_dir, exist_ok=True)
+    target = os.path.join(target_dir, "udisp_send.py")
+
+    source = os.path.abspath(__file__)
+    if os.path.normcase(source) != os.path.normcase(target):
+        with open(source, "rb") as src, open(target, "wb") as dst:
+            dst.write(src.read())
+    return target
+
+
 def install_startup(args):
     """Run this sender at every login, without a console window.
 
@@ -201,9 +223,10 @@ def install_startup(args):
     if not os.path.exists(interpreter):
         interpreter = sys.executable
 
+    copied = _install_copy()
     parts = [
         interpreter,
-        os.path.abspath(__file__),
+        copied,
         "--width",
         str(args.width),
         "--height",
@@ -233,6 +256,7 @@ def install_startup(args):
             f'CreateObject("WScript.Shell").Run "{command}", 0, False\r\n'
         )
     print(f"Installed: {path}")
+    print(f"Running:   {copied}")
     print("It starts at the next login, and waits for the board rather than")
     print("failing when it is not plugged in yet.")
     return 0
