@@ -1,6 +1,7 @@
 #pragma once
 
 #include "esphome/core/component.h"
+#include "esphome/core/automation.h"
 #include "esphome/core/defines.h"
 #include "esphome/components/display/display.h"
 #ifdef USE_TOUCHSCREEN
@@ -80,6 +81,13 @@ class USBDisplay : public Component
   void update(const touchscreen::TouchPoints_t &points) override;
   void release() override;
 #endif
+
+  /// Fired from the loop when the host starts and stops sending sound. What a
+  /// board has to do about that is its own business -- switch an amplifier on,
+  /// stand a wake word down off a shared I2S bus -- and none of it belongs
+  /// here.
+  void set_audio_start_trigger(Trigger<> *trigger) { this->audio_start_trigger_ = trigger; }
+  void set_audio_stop_trigger(Trigger<> *trigger) { this->audio_stop_trigger_ = trigger; }
 
   // Called from TinyUSB's receive callback; see the .cpp for why this is
   // reachable from C.
@@ -173,6 +181,13 @@ class USBDisplay : public Component
   // quarter turn.
   uint16_t out_width_{0};
   uint16_t out_height_{0};
+
+  Trigger<> *audio_start_trigger_{nullptr};
+  Trigger<> *audio_stop_trigger_{nullptr};
+  // Written from the audio task, read from the loop: the triggers run
+  // automations, which belong to the loop and nowhere else.
+  volatile uint32_t last_audio_ms_{0};
+  bool audio_active_{false};
 
   const uint8_t *sender_script_{nullptr};
   size_t sender_script_len_{0};

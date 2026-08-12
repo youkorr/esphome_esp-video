@@ -24,11 +24,13 @@ controller.
 import logging
 import os
 
+import esphome.automation as automation
 import esphome.codegen as cg
 from esphome.components import display, esp32, speaker, touchscreen
 import esphome.config_validation as cv
 from esphome.const import (
     CONF_HEIGHT,
+    CONF_TRIGGER_ID,
     CONF_ID,
     CONF_RAW_DATA_ID,
     CONF_ROTATION,
@@ -56,6 +58,8 @@ CONF_JPEG_QUALITY = "jpeg_quality"
 CONF_MAX_FPS = "max_fps"
 CONF_TOUCHSCREEN_ID = "touchscreen_id"
 CONF_SPEAKER_ID = "speaker_id"
+CONF_ON_AUDIO_START = "on_audio_start"
+CONF_ON_AUDIO_STOP = "on_audio_stop"
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -139,6 +143,16 @@ CONFIG_SCHEMA = cv.All(
             # mixer alongside a media player and a voice assistant rather than
             # fighting them for the same I2S bus.
             cv.Optional(CONF_SPEAKER_ID): cv.use_id(speaker.Speaker),
+            # What to do when the host starts and stops sending sound. Every
+            # board answers this differently -- switch an amplifier on, stand a
+            # wake word down off a shared I2S bus -- so it is left to the
+            # configuration rather than guessed at here.
+            cv.Optional(CONF_ON_AUDIO_START): automation.validate_automation(
+                {cv.GenerateID(CONF_TRIGGER_ID): cv.declare_id(automation.Trigger.template())}
+            ),
+            cv.Optional(CONF_ON_AUDIO_STOP): automation.validate_automation(
+                {cv.GenerateID(CONF_TRIGGER_ID): cv.declare_id(automation.Trigger.template())}
+            ),
             # Must match what the PC application is told to send: the header of
             # every frame carries the size, and a frame whose size does not
             # match is dropped rather than drawn at the wrong shape.
@@ -241,6 +255,15 @@ async def to_code(config):
         esp32.add_idf_sdkconfig_option("CONFIG_UAC_SAMPLE_RATE", 48000)
         spk = await cg.get_variable(speaker_id)
         cg.add(var.set_speaker(spk))
+
+    for key, setter in (
+        (CONF_ON_AUDIO_START, var.set_audio_start_trigger),
+        (CONF_ON_AUDIO_STOP, var.set_audio_stop_trigger),
+    ):
+        for conf in config.get(key, []):
+            trigger = cg.new_Pvariable(conf[CONF_TRIGGER_ID])
+            cg.add(setter(trigger))
+            await automation.build_automation(trigger, [], conf)
 
     if touchscreen_id := config.get(CONF_TOUCHSCREEN_ID):
         touch = await cg.get_variable(touchscreen_id)

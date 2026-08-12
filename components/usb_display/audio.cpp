@@ -18,6 +18,7 @@
 #include "usb_display.h"
 
 #include "esphome/core/log.h"
+#include "esphome/core/hal.h"
 
 extern "C" {
 #include "tusb.h"
@@ -77,6 +78,9 @@ void USBDisplay::setup_audio_() {
 void USBDisplay::on_usb_audio(const uint8_t *data, size_t length) {
   if (this->speaker_ == nullptr || length == 0)
     return;
+  // Before the mute and volume checks: the host is sending, whatever this board
+  // then decides to do with it.
+  this->last_audio_ms_ = millis();
   if (this->audio_muted_ || this->audio_volume_ <= 0.0f)
     return;
 

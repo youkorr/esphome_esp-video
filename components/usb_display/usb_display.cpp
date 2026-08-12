@@ -28,6 +28,10 @@ static constexpr uint32_t STATS_INTERVAL_MS = 5000;
 static constexpr uint32_t UNCLAIMED_WARNING_MS = 10000;
 // How far the frame rate has to move before it is worth another line.
 static constexpr float STATS_FPS_EPSILON = 1.0f;
+// Silence longer than this is the host having stopped, not a gap between
+// buffers. Half a second is far more than any scheduling hiccup and far less
+// than a listener would notice.
+static constexpr uint32_t AUDIO_IDLE_MS = 500;
 
 // TinyUSB's callbacks are plain C with no context argument, so the one instance
 // has to be reachable from file scope. A second usb_display would need a second
@@ -554,6 +558,18 @@ void USBDisplay::run_decode_task() {
 void USBDisplay::loop() {
 #if CFG_TUD_HID
   this->retry_release_();
+#endif
+
+#if CFG_TUD_AUDIO
+  // The host does not announce that it has stopped; it simply stops sending.
+  // Silence for longer than a few buffers is the only signal there is.
+  const bool active = this->last_audio_ms_ != 0 && millis() - this->last_audio_ms_ < AUDIO_IDLE_MS;
+  if (active != this->audio_active_) {
+    this->audio_active_ = active;
+    Trigger<> *trigger = active ? this->audio_start_trigger_ : this->audio_stop_trigger_;
+    if (trigger != nullptr)
+      trigger->trigger();
+  }
 #endif
 
   // A host that has no driver for a device reads its descriptors and stops
