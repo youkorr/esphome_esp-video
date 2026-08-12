@@ -66,6 +66,15 @@ void USBDisplay::setup_audio_() {
   config.spk_itf_num = ITF_NUM_AUDIO_STREAMING_SPK;
   config.mic_itf_num = -1;
 
+  // At High Speed the host services an isochronous endpoint every 125 us, not
+  // every millisecond, so the component hands over six samples at a time --
+  // twelve bytes, eight thousand times a second. An ESPHome speaker will not
+  // take writes that small at that rate, and refusing them is what tore the
+  // stream into a crackle. Gather them into blocks it can use.
+  this->audio_block_size_ = (size_t) (CONFIG_UAC_SAMPLE_RATE / 1000) * AUDIO_BLOCK_MS *
+                            (CONFIG_UAC_BIT_RESOLUTION / 8) * CONFIG_UAC_SPEAKER_CHANNEL_NUM;
+  this->audio_block_ = new uint8_t[this->audio_block_size_];
+
   esp_err_t err = uac_device_init(&config);
   if (err != ESP_OK) {
     ESP_LOGE(TAG, "uac_device_init() failed: %s", esp_err_to_name(err));
@@ -92,17 +101,41 @@ void USBDisplay::on_usb_audio(const uint8_t *data, size_t length) {
   // Before the mute and volume checks: the host is sending, whatever this board
   // then decides to do with it.
   this->last_audio_ms_ = millis();
+  this->last_packet_len_ = length;
   if (this->audio_muted_ || this->audio_volume_ <= 0.0f)
     return;
 
   if (!this->speaker_->is_running())
     this->speaker_->start();
 
+  while (length > 0) {
+    const size_t room = this->audio_block_size_ - this->audio_block_used_;
+    const size_t take = length < room ? length : room;
+    memcpy(this->audio_block_ + this->audio_block_used_, data, take);
+    this->audio_block_used_ += take;
+    data += take;
+    length -= take;
+    if (this->audio_block_used_ < this->audio_block_size_)
+      break;
+    this->flush_audio_block_();
+  }
+
+  if (!this->logged_first_audio_) {
+    this->logged_first_audio_ = true;
+    ESP_LOGI(TAG, "First audio from the host: %u byte packets at %d Hz, %d bit, %d channel, played %u at a time",
+             (unsigned) this->last_packet_len_, CONFIG_UAC_SAMPLE_RATE, CONFIG_UAC_BIT_RESOLUTION,
+             CONFIG_UAC_SPEAKER_CHANNEL_NUM, (unsigned) this->audio_block_size_);
+  }
+}
+
+void USBDisplay::flush_audio_block_() {
   // The two-argument form: the one taking a timeout is compiled conditionally,
   // and this one is the interface every speaker implements. It reports how much
   // it took; audio it would not take is audio it was not ready for, and the
-  // host is already sending the next buffer.
-  const size_t written = this->speaker_->play(data, length);
+  // host is already sending the next block.
+  const size_t length = this->audio_block_used_;
+  this->audio_block_used_ = 0;
+  const size_t written = this->speaker_->play(this->audio_block_, length);
   if (written < length) {
     this->audio_underruns_++;
     // The speaker refusing part of a buffer is the difference between a stream
@@ -112,12 +145,6 @@ void USBDisplay::on_usb_audio(const uint8_t *data, size_t length) {
       ESP_LOGW(TAG, "The speaker took %u of %u bytes (%u buffers short so far)", (unsigned) written, (unsigned) length,
                (unsigned) this->audio_underruns_);
     }
-  }
-
-  if (!this->logged_first_audio_) {
-    this->logged_first_audio_ = true;
-    ESP_LOGI(TAG, "First audio from the host: %u bytes at %d Hz, %d bit, %d channel", (unsigned) length,
-             CONFIG_UAC_SAMPLE_RATE, CONFIG_UAC_BIT_RESOLUTION, CONFIG_UAC_SPEAKER_CHANNEL_NUM);
   }
 }
 

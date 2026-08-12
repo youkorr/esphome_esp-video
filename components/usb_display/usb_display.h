@@ -134,6 +134,7 @@ class USBDisplay : public Component
 #if CFG_TUD_AUDIO
   // Defined in audio.cpp, and compiled away with it.
   void setup_audio_();
+  void flush_audio_block_();
 #endif
 #if CFG_TUD_HID
   // Defined in touch.cpp, and compiled away with it.
@@ -197,6 +198,12 @@ class USBDisplay : public Component
   float audio_volume_{1.0f};
   bool audio_muted_{false};
   bool logged_first_audio_{false};
+  // The host's packets are gathered here before the speaker sees them; see
+  // audio.cpp for why they arrive far too small to hand over one at a time.
+  uint8_t *audio_block_{nullptr};
+  size_t audio_block_size_{0};
+  size_t audio_block_used_{0};
+  size_t last_packet_len_{0};
   // Buffers the speaker would not take whole. A few are normal at the start of
   // a stream; a steady stream of them is the board not keeping up.
   uint32_t audio_underruns_{0};
