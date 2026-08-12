@@ -68,6 +68,7 @@ SENDER_SCRIPT = os.path.join(os.path.dirname(__file__), "udisp_send.py")
 
 _USB_SPEEDS = {"high": True, "full": False}
 
+
 def _warn_about_espressif_driver(config):
     """Say something when the product ID asks for a driver this shape will not get.
 
