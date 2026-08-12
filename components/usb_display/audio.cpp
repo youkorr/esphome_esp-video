@@ -103,8 +103,16 @@ void USBDisplay::on_usb_audio(const uint8_t *data, size_t length) {
   // it took; audio it would not take is audio it was not ready for, and the
   // host is already sending the next buffer.
   const size_t written = this->speaker_->play(data, length);
-  if (written < length)
+  if (written < length) {
     this->audio_underruns_++;
+    // The speaker refusing part of a buffer is the difference between a stream
+    // that is merely the wrong shape and one the board cannot keep up with, and
+    // the two sound alike from the outside.
+    if (this->audio_underruns_ == 1 || this->audio_underruns_ % 500 == 0) {
+      ESP_LOGW(TAG, "The speaker took %u of %u bytes (%u buffers short so far)", (unsigned) written, (unsigned) length,
+               (unsigned) this->audio_underruns_);
+    }
+  }
 
   if (!this->logged_first_audio_) {
     this->logged_first_audio_ = true;
