@@ -62,6 +62,11 @@ class USBDisplay : public Component {
     size_t capacity{0};
     size_t received{0};
     size_t total{0};
+    // Where on the panel this rectangle goes. A sender that redraws everything
+    // sends the whole panel at 0,0; an indirect display driver sends only what
+    // changed, which is most of the reason it is faster.
+    uint16_t x{0};
+    uint16_t y{0};
     uint16_t width{0};
     uint16_t height{0};
   };
@@ -76,8 +81,11 @@ class USBDisplay : public Component {
   // Turns the decoded frame into rot_buffer_ with the P4's pixel-processing
   // accelerator. Nothing here touches the CPU: it is a DMA engine that reads
   // one buffer and writes the other.
-  bool rotate_();
+  bool rotate_(const Frame &frame, uint16_t padded_width, uint16_t padded_height);
   bool allocate_rotation_();
+  /// Where a rectangle sent for the unrotated panel lands once the panel is
+  /// turned. Also swaps the size on a quarter turn.
+  void place_(const Frame &frame, uint16_t &x, uint16_t &y, uint16_t &w, uint16_t &h) const;
   // Lays the sender out as a FAT12 volume for the mass-storage interface to
   // serve. Defined in sender_drive.cpp, and compiled away with it.
   void setup_sender_drive_();

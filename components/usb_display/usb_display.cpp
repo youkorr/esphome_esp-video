@@ -202,7 +202,39 @@ bool USBDisplay::allocate_rotation_() {
   return true;
 }
 
-bool USBDisplay::rotate_() {
+void USBDisplay::place_(const Frame &frame, uint16_t &x, uint16_t &y, uint16_t &w, uint16_t &h) const {
+  // Turning the panel moves a rectangle as well as its contents. Everything
+  // here is clockwise, the way a mounting is described, and measured against
+  // the unrotated panel the host thinks it is drawing on.
+  switch (this->rotation_) {
+    case 90:
+      x = (uint16_t) (this->height_ - frame.y - frame.height);
+      y = frame.x;
+      w = frame.height;
+      h = frame.width;
+      break;
+    case 180:
+      x = (uint16_t) (this->width_ - frame.x - frame.width);
+      y = (uint16_t) (this->height_ - frame.y - frame.height);
+      w = frame.width;
+      h = frame.height;
+      break;
+    case 270:
+      x = frame.y;
+      y = (uint16_t) (this->width_ - frame.x - frame.width);
+      w = frame.height;
+      h = frame.width;
+      break;
+    default:
+      x = frame.x;
+      y = frame.y;
+      w = frame.width;
+      h = frame.height;
+      break;
+  }
+}
+
+bool USBDisplay::rotate_(const Frame &frame, uint16_t padded_width, uint16_t padded_height) {
   ppa_srm_rotation_angle_t angle;
   // The accelerator turns counter-clockwise; the configuration is clockwise,
   // the way a panel's mounting is described.
@@ -220,23 +252,27 @@ bool USBDisplay::rotate_() {
       return false;
   }
 
+  const bool quarter_turn = this->rotation_ == 90 || this->rotation_ == 270;
+  const uint16_t out_w = quarter_turn ? frame.height : frame.width;
+  const uint16_t out_h = quarter_turn ? frame.width : frame.height;
+
   ppa_srm_oper_config_t srm = {};
-  // The decoded frame sits at the top left of a buffer rounded up to whole
+  // The decoded rectangle sits at the top left of a buffer rounded up to whole
   // 16x16 units, so read it as a block out of the larger picture rather than
   // rotating the padding along with it.
   srm.in.buffer = this->rgb_buffer_;
-  srm.in.pic_w = this->padded_width_;
-  srm.in.pic_h = this->padded_height_;
-  srm.in.block_w = this->width_;
-  srm.in.block_h = this->height_;
+  srm.in.pic_w = padded_width;
+  srm.in.pic_h = padded_height;
+  srm.in.block_w = frame.width;
+  srm.in.block_h = frame.height;
   srm.in.block_offset_x = 0;
   srm.in.block_offset_y = 0;
   srm.in.srm_cm = PPA_SRM_COLOR_MODE_RGB565;
 
   srm.out.buffer = this->rot_buffer_;
   srm.out.buffer_size = this->rot_buffer_len_;
-  srm.out.pic_w = this->out_width_;
-  srm.out.pic_h = this->out_height_;
+  srm.out.pic_w = out_w;
+  srm.out.pic_h = out_h;
   srm.out.block_offset_x = 0;
   srm.out.block_offset_y = 0;
   srm.out.srm_cm = PPA_SRM_COLOR_MODE_RGB565;
@@ -251,9 +287,8 @@ bool USBDisplay::rotate_() {
     if (!this->logged_rotate_error_) {
       this->logged_rotate_error_ = true;
       ESP_LOGE(TAG, "PPA rotation failed: %s (%ux%u out of %ux%u, into %ux%u, %u byte buffer)", esp_err_to_name(err),
-               (unsigned) this->width_, (unsigned) this->height_, (unsigned) this->padded_width_,
-               (unsigned) this->padded_height_, (unsigned) this->out_width_, (unsigned) this->out_height_,
-               (unsigned) this->rot_buffer_len_);
+               (unsigned) frame.width, (unsigned) frame.height, (unsigned) padded_width, (unsigned) padded_height,
+               (unsigned) out_w, (unsigned) out_h, (unsigned) this->rot_buffer_len_);
     }
     return false;
   }
@@ -345,16 +380,19 @@ void USBDisplay::on_vendor_rx(uint8_t itf) {
     if ((size_t) read < sizeof(udisp_frame_header_t))
       continue;
     auto *header = (udisp_frame_header_t *) rx_buf;
-    const bool usable = header->type == UDISP_TYPE_JPG && header->x == 0 && header->y == 0 &&
-                        header->width == this->width_ && header->height == this->height_;
+    // Any rectangle that fits on the panel, not just the whole panel: a driver
+    // that redraws only what changed sends small ones, and that is most of
+    // where its speed comes from.
+    const bool usable = header->type == UDISP_TYPE_JPG && header->width > 0 && header->height > 0 &&
+                        header->x + header->width <= this->width_ && header->y + header->height <= this->height_;
     if (!usable) {
       // Silently dropping these is how a sender configured for the wrong size
       // looks exactly like a sender that is not running at all.
       if (!this->logged_bad_header_) {
         this->logged_bad_header_ = true;
-        ESP_LOGW(TAG, "Ignoring frames: host sends type=%u %ux%u at %u,%u, this display wants type=%u %ux%u at 0,0",
-                 header->type, header->width, header->height, header->x, header->y, UDISP_TYPE_JPG,
-                 (unsigned) this->width_, (unsigned) this->height_);
+        ESP_LOGW(TAG, "Ignoring frames: host sends type=%u %ux%u at %u,%u, which is not a JPEG rectangle inside %ux%u",
+                 (unsigned) header->type, (unsigned) header->width, (unsigned) header->height, (unsigned) header->x,
+                 (unsigned) header->y, (unsigned) this->width_, (unsigned) this->height_);
       }
       continue;
     }
@@ -370,6 +408,8 @@ void USBDisplay::on_vendor_rx(uint8_t itf) {
       this->skipping_ = (header->payload_total > payload_len) ? header->payload_total - payload_len : 0;
       continue;
     }
+    frame->x = header->x;
+    frame->y = header->y;
     frame->width = header->width;
     frame->height = header->height;
     frame->total = header->payload_total;
@@ -396,23 +436,32 @@ void USBDisplay::run_decode_task() {
     if (xQueueReceive(this->filled_queue_, &frame, portMAX_DELAY) != pdTRUE)
       continue;
 
+    // The decoder rounds each rectangle up to whole 16x16 units, so the stride
+    // follows the rectangle's own width, not the panel's. The buffer is sized
+    // for a full-panel rectangle, which is the largest one that can arrive.
+    const uint16_t padded_w = (frame->width + 15) & ~15;
+    const uint16_t padded_h = (frame->height + 15) & ~15;
+
     uint32_t out_size = 0;
     esp_err_t err = jpeg_decoder_process(this->jpeg_, &decode_cfg, frame->data, frame->received, this->rgb_buffer_,
                                          this->rgb_buffer_len_, &out_size);
     if (err == ESP_OK) {
       uint32_t start = micros();
-      // The decoded rows are padded_width_ wide even when fewer pixels are
-      // wanted; x_pad tells the display to skip the difference at the end of
-      // each line. When the width is already a multiple of 16 there is no
-      // padding, and this stays on mipi_dsi's single-transfer path instead of
-      // one DMA per line. The rotated buffer never has any.
+      // The decoded rows are padded_w wide even when fewer pixels are wanted;
+      // x_pad tells the display to skip the difference at the end of each line.
+      // When the width is already a multiple of 16 there is no padding, and
+      // this stays on mipi_dsi's single-transfer path instead of one DMA per
+      // line. The rotated buffer never has any.
+      uint16_t dst_x, dst_y, dst_w, dst_h;
+      this->place_(*frame, dst_x, dst_y, dst_w, dst_h);
+
       const uint8_t *pixels = this->rgb_buffer_;
-      int x_pad = this->padded_width_ - this->width_;
+      int x_pad = padded_w - frame->width;
       if (this->ppa_client_ != nullptr) {
         // Drawing the unrotated buffer instead would be worse than dropping the
-        // frame: after a quarter turn out_width_ and out_height_ are swapped, so
-        // it would go to the panel at the wrong shape.
-        if (!this->rotate_()) {
+        // frame: after a quarter turn the axes are swapped, so it would go to
+        // the panel at the wrong shape and in the wrong place.
+        if (!this->rotate_(*frame, padded_w, padded_h)) {
           this->frames_dropped_++;
           xQueueSend(this->empty_queue_, &frame, 0);
           continue;
@@ -420,15 +469,15 @@ void USBDisplay::run_decode_task() {
         pixels = this->rot_buffer_;
         x_pad = 0;
       }
-      this->display_->draw_pixels_at(0, 0, this->out_width_, this->out_height_, pixels, display::COLOR_ORDER_RGB,
+      this->display_->draw_pixels_at(dst_x, dst_y, dst_w, dst_h, pixels, display::COLOR_ORDER_RGB,
                                      display::COLOR_BITNESS_565, false, 0, 0, x_pad);
       this->draw_us_ += micros() - start;
       this->frames_drawn_++;
       if (!this->logged_first_frame_) {
         this->logged_first_frame_ = true;
-        ESP_LOGI(TAG, "First frame from the host: %u bytes compressed, %ux%u decoded, drawn as %ux%u",
-                 (unsigned) frame->received, (unsigned) frame->width, (unsigned) frame->height,
-                 (unsigned) this->out_width_, (unsigned) this->out_height_);
+        ESP_LOGI(TAG, "First frame from the host: %u bytes compressed, %ux%u at %u,%u, drawn as %ux%u at %u,%u",
+                 (unsigned) frame->received, (unsigned) frame->width, (unsigned) frame->height, (unsigned) frame->x,
+                 (unsigned) frame->y, (unsigned) dst_w, (unsigned) dst_h, (unsigned) dst_x, (unsigned) dst_y);
       }
     } else {
       this->frames_dropped_++;
