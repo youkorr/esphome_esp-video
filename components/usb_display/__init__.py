@@ -21,6 +21,7 @@ a USB host at the same time -- nor a UVC webcam, which needs the same
 controller.
 """
 
+import logging
 import os
 
 import esphome.codegen as cg
@@ -52,11 +53,48 @@ CONF_SERIAL = "serial"
 CONF_USB_SPEED = "usb_speed"
 CONF_SENDER_DRIVE = "sender_drive"
 
+_LOGGER = logging.getLogger(__name__)
+
+# Espressif's signed Indirect Display Driver binds by product ID, and it tells
+# the two shapes of their device apart that way: one identifier for a board that
+# is only a display, another for their composite one with touch and audio. Ours
+# grows a second interface when the sender drive is on, which matches neither.
+_ESPRESSIF_DISPLAY_ONLY_PID = 0x2987
+_ESPRESSIF_COMPOSITE_PID = 0x2986
+
 # The PC half, carried by the board itself. Alongside this file so there is one
 # place to look for everything this display needs.
 SENDER_SCRIPT = os.path.join(os.path.dirname(__file__), "udisp_send.py")
 
 _USB_SPEEDS = {"high": True, "full": False}
+
+def _warn_about_espressif_driver(config):
+    """Say something when the product ID asks for a driver this shape will not get.
+
+    Nothing here is wrong enough to refuse -- the identifiers belong to somebody
+    else and they are free to change them -- but a board that enumerates as the
+    wrong shape fails by simply never being bound, which looks like the firmware
+    being broken rather than the two disagreeing about what the device is.
+    """
+    pid = config[CONF_PRODUCT_ID]
+    if pid == _ESPRESSIF_DISPLAY_ONLY_PID and config[CONF_SENDER_DRIVE]:
+        _LOGGER.warning(
+            "product_id 0x%04X is what Espressif's display driver binds to for a "
+            "board that is only a display, but sender_drive adds a second "
+            "interface. Set sender_drive: false -- with that driver the sender is "
+            "not needed anyway.",
+            pid,
+        )
+    elif pid == _ESPRESSIF_COMPOSITE_PID:
+        _LOGGER.warning(
+            "product_id 0x%04X is what Espressif's driver binds to for their "
+            "composite device, which also has touch and audio interfaces. This "
+            "component provides neither. Use 0x%04X with sender_drive: false.",
+            pid,
+            _ESPRESSIF_DISPLAY_ONLY_PID,
+        )
+    return config
+
 
 CONFIG_SCHEMA = cv.All(
     cv.Schema(
@@ -105,6 +143,7 @@ CONFIG_SCHEMA = cv.All(
     ).extend(cv.COMPONENT_SCHEMA),
     # The hardware JPEG decoder and the High-Speed USB PHY are both ESP32-P4.
     esp32.only_on_variant(supported=[esp32.VARIANT_ESP32P4]),
+    _warn_about_espressif_driver,
 )
 
 
