@@ -25,7 +25,7 @@ import logging
 import os
 
 import esphome.codegen as cg
-from esphome.components import display, esp32, touchscreen
+from esphome.components import display, esp32, speaker, touchscreen
 import esphome.config_validation as cv
 from esphome.const import (
     CONF_HEIGHT,
@@ -55,6 +55,7 @@ CONF_SENDER_DRIVE = "sender_drive"
 CONF_JPEG_QUALITY = "jpeg_quality"
 CONF_MAX_FPS = "max_fps"
 CONF_TOUCHSCREEN_ID = "touchscreen_id"
+CONF_SPEAKER_ID = "speaker_id"
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -128,6 +129,10 @@ CONFIG_SCHEMA = cv.All(
             # panel mounted upside down is corrected in one place for both this
             # and LVGL.
             cv.Optional(CONF_TOUCHSCREEN_ID): cv.use_id(touchscreen.Touchscreen),
+            # Optional. Any ESPHome speaker, so this can be one input of a
+            # mixer alongside a media player and a voice assistant rather than
+            # fighting them for the same I2S bus.
+            cv.Optional(CONF_SPEAKER_ID): cv.use_id(speaker.Speaker),
             # Must match what the PC application is told to send: the header of
             # every frame carries the size, and a frame whose size does not
             # match is dropped rather than drawn at the wrong shape.
@@ -219,6 +224,18 @@ async def to_code(config):
     esp32.add_idf_sdkconfig_option(
         "CONFIG_USB_DISPLAY_TOUCH", CONF_TOUCHSCREEN_ID in config
     )
+    esp32.add_idf_sdkconfig_option("CONFIG_USB_DISPLAY_AUDIO", CONF_SPEAKER_ID in config)
+    if speaker_id := config.get(CONF_SPEAKER_ID):
+        esp32.add_idf_component(name="espressif/usb_device_uac", ref="~1.3.0")
+        # Plugged into the TinyUSB device this component already brings up,
+        # rather than bringing up one of its own.
+        esp32.add_idf_sdkconfig_option("CONFIG_USB_DEVICE_UAC_AS_PART", True)
+        esp32.add_idf_sdkconfig_option("CONFIG_UAC_SPEAKER_CHANNEL_NUM", 1)
+        esp32.add_idf_sdkconfig_option("CONFIG_UAC_MIC_CHANNEL_NUM", 0)
+        esp32.add_idf_sdkconfig_option("CONFIG_UAC_SAMPLE_RATE", 48000)
+        spk = await cg.get_variable(speaker_id)
+        cg.add(var.set_speaker(spk))
+
     if touchscreen_id := config.get(CONF_TOUCHSCREEN_ID):
         touch = await cg.get_variable(touchscreen_id)
         cg.add(var.set_touchscreen(touch))

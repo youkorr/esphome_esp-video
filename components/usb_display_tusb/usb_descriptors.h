@@ -18,6 +18,12 @@ enum {
    * touch interface here when it binds the composite product identifier. */
   ITF_NUM_HID,
 #endif
+#if CFG_TUD_AUDIO
+  /* Audio is a function of two interfaces: a control one and a streaming one.
+   * Same order as Espressif's, for the same reason as the touch. */
+  ITF_NUM_AUDIO_CONTROL,
+  ITF_NUM_AUDIO_STREAMING_SPK,
+#endif
 #if CFG_TUD_MSC
   ITF_NUM_MSC,
 #endif
@@ -29,6 +35,10 @@ enum {
   EPNUM_VENDOR,
 #if CFG_TUD_HID
   EPNUM_HID,
+#endif
+#if CFG_TUD_AUDIO
+  EPNUM_AUDIO_OUT,
+  EPNUM_AUDIO_FB,
 #endif
 #if CFG_TUD_MSC
   EPNUM_MSC,

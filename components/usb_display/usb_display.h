@@ -6,6 +6,9 @@
 #ifdef USE_TOUCHSCREEN
 #include "esphome/components/touchscreen/touchscreen.h"
 #endif
+#ifdef USE_SPEAKER
+#include "esphome/components/speaker/speaker.h"
+#endif
 
 #include <cstdint>
 
@@ -62,6 +65,15 @@ class USBDisplay : public Component
     this->sender_script_len_ = length;
   }
 
+#if CFG_TUD_AUDIO
+  void set_speaker(speaker::Speaker *speaker) { this->speaker_ = speaker; }
+  // Called from the audio component's task with one buffer of host audio.
+  void on_usb_audio(const uint8_t *data, size_t length);
+  void on_usb_audio_volume(float volume);
+  void on_usb_audio_mute(bool muted);
+  float get_audio_volume() const { return this->audio_volume_; }
+#endif
+
 #if CFG_TUD_HID
   void set_touchscreen(touchscreen::Touchscreen *touchscreen) { this->touchscreen_ = touchscreen; }
   // Every poll of the touch screen, with all contacts currently down.
@@ -111,6 +123,10 @@ class USBDisplay : public Component
   // Lays the sender out as a FAT12 volume for the mass-storage interface to
   // serve. Defined in sender_drive.cpp, and compiled away with it.
   void setup_sender_drive_();
+#if CFG_TUD_AUDIO
+  // Defined in audio.cpp, and compiled away with it.
+  void setup_audio_();
+#endif
 #if CFG_TUD_HID
   // Defined in touch.cpp, and compiled away with it.
   void setup_touch_();
@@ -160,6 +176,13 @@ class USBDisplay : public Component
 
   const uint8_t *sender_script_{nullptr};
   size_t sender_script_len_{0};
+
+#if CFG_TUD_AUDIO
+  speaker::Speaker *speaker_{nullptr};
+  float audio_volume_{1.0f};
+  bool audio_muted_{false};
+  bool logged_first_audio_{false};
+#endif
 
 #if CFG_TUD_HID
   touchscreen::Touchscreen *touchscreen_{nullptr};

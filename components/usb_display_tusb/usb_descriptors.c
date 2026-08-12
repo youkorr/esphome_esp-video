@@ -13,6 +13,11 @@
 #include <string.h>
 #include "tusb.h"
 #include "usb_descriptors.h"
+#if CFG_TUD_AUDIO
+/* TUD_AUDIO_DESCRIPTOR and TUD_AUDIO_DESC_LEN, built by Espressif's
+ * usb_device_uac component from the channel counts and sample rate. */
+#include "uac_descriptors.h"
+#endif
 
 #define USB_VID CONFIG_USB_DISPLAY_VID
 #define USB_PID CONFIG_USB_DISPLAY_PID
@@ -24,6 +29,7 @@ enum {
   STR_INDEX_SERIAL,
   STR_INDEX_VENDOR,
   STR_INDEX_HID,
+  STR_INDEX_AUDIO,
   STR_INDEX_MSC,
 };
 
@@ -84,9 +90,15 @@ uint8_t const *tud_hid_descriptor_report_cb(uint8_t instance) {
 }
 #endif
 
-#define CONFIG_TOTAL_LEN                                                                    \
+#if CFG_TUD_AUDIO
+#define AUDIO_DESC_LEN TUD_AUDIO_DESC_LEN
+#else
+#define AUDIO_DESC_LEN 0
+#endif
+
+#define CONFIG_TOTAL_LEN                                                              \
   (TUD_CONFIG_DESC_LEN + TUD_VENDOR_DESC_LEN + (CFG_TUD_HID ? TUD_HID_DESC_LEN : 0) + \
-   (CFG_TUD_MSC ? TUD_MSC_DESC_LEN : 0))
+   AUDIO_DESC_LEN + (CFG_TUD_MSC ? TUD_MSC_DESC_LEN : 0))
 
 static uint8_t const desc_configuration[] = {
     /* Bus-powered is a lie on a board with its own supply, but the host budget
@@ -98,6 +110,11 @@ static uint8_t const desc_configuration[] = {
      * come more frequently only spends bus time on unchanged reports. */
     TUD_HID_DESCRIPTOR(ITF_NUM_HID, STR_INDEX_HID, HID_ITF_PROTOCOL_NONE, sizeof(desc_hid_report),
                        0x80 | EPNUM_HID, CFG_TUD_HID_EP_BUFSIZE, 10),
+#endif
+#if CFG_TUD_AUDIO
+    /* No IN endpoint: playback only for now, so the microphone argument is
+     * unused by the speaker-only form of this macro. */
+    TUD_AUDIO_DESCRIPTOR(ITF_NUM_AUDIO_CONTROL, STR_INDEX_AUDIO, EPNUM_AUDIO_OUT, 0x00, 0x80 | EPNUM_AUDIO_FB),
 #endif
 #if CFG_TUD_MSC
     TUD_MSC_DESCRIPTOR(ITF_NUM_MSC, STR_INDEX_MSC, EPNUM_MSC, 0x80 | EPNUM_MSC, CFG_TUD_MSC_EP_BUFSIZE),
@@ -363,7 +380,8 @@ static char const *string_desc_arr[] = {
     CONFIG_USB_DISPLAY_SERIAL,          // 3
     CONFIG_USB_DISPLAY_VENDOR_STRING,   // 4: the vendor interface
     "touch",                            // 5: the touch screen
-    "Sender",                           // 6: the drive holding the PC program
+    "esp uac",                          // 6: the audio function
+    "Sender",                           // 7: the drive holding the PC program
 };
 
 /* Long enough for the vendor interface string, which is not a label: it is how

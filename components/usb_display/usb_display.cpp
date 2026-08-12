@@ -150,6 +150,9 @@ void USBDisplay::setup() {
   if (this->touchscreen_ != nullptr)
     this->setup_touch_();
 #endif
+#if CFG_TUD_AUDIO
+  this->setup_audio_();
+#endif
 
   // Device mode on the PHY that matches the speed the descriptors were built
   // for. TinyUSB does not set the PHY up itself.

@@ -57,6 +57,14 @@ menu "USB Extended Display"
             HID is a class every operating system has a driver for, so unlike
             the picture itself this needs nothing installed.
 
+    config USB_DISPLAY_AUDIO
+        bool "Report a speaker to the host"
+        default n
+        help
+            Adds a USB Audio Class playback interface, so the host can send its
+            sound to this board's speaker. Another standard class, needing
+            nothing installed on the host.
+
     config USB_DISPLAY_SENDER_DRIVE
         bool "Carry the host sender on a read-only drive"
         default y
