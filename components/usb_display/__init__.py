@@ -82,22 +82,28 @@ def _warn_about_espressif_driver(config):
     being broken rather than the two disagreeing about what the device is.
     """
     pid = config[CONF_PRODUCT_ID]
-    has_touch = CONF_TOUCHSCREEN_ID in config
-    if pid == _ESPRESSIF_DISPLAY_ONLY_PID and has_touch:
-        _LOGGER.warning(
-            "product_id 0x%04X is what Espressif's display driver binds to for a "
-            "board that is only a display, but touchscreen_id adds a touch "
-            "interface. Their composite identifier is 0x%04X.",
-            pid,
-            _ESPRESSIF_COMPOSITE_PID,
+    # Anything beyond the picture is a second function, and which identifier is
+    # used decides whether the host ever sees it: Espressif's driver claims the
+    # whole device under 0x2987, so Windows creates no child devices and the
+    # other interfaces are invisible however correct they are. Their 0x2986
+    # sets up the composite parent, and every function appears.
+    extra_functions = [
+        name
+        for key, name in (
+            (CONF_TOUCHSCREEN_ID, "touchscreen_id"),
+            (CONF_SPEAKER_ID, "speaker_id"),
         )
-    elif pid == _ESPRESSIF_COMPOSITE_PID and not has_touch:
+        if key in config
+    ]
+    if pid == _ESPRESSIF_DISPLAY_ONLY_PID and extra_functions:
         _LOGGER.warning(
-            "product_id 0x%04X is what Espressif's driver binds to for their "
-            "composite device, which has a touch interface. Add touchscreen_id, "
-            "or use 0x%04X for a display on its own.",
+            "product_id 0x%04X is what Espressif's driver binds to for a board "
+            "that is only a display: it claims the whole device, so the "
+            "interface added by %s is never exposed to the host. Their composite "
+            "identifier is 0x%04X.",
             pid,
-            _ESPRESSIF_DISPLAY_ONLY_PID,
+            " and ".join(extra_functions),
+            _ESPRESSIF_COMPOSITE_PID,
         )
     elif pid == _ESPRESSIF_DISPLAY_ONLY_PID and config[CONF_SENDER_DRIVE]:
         _LOGGER.warning(
