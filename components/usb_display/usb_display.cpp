@@ -514,9 +514,13 @@ void USBDisplay::run_decode_task() {
       const float fps = this->frames_drawn_ * 1000.0f / elapsed;
       // A steady stream says the same thing every five seconds forever, which
       // buries anything worth reading. Report the first measurement, then only
-      // when it has actually moved -- or whenever a frame was lost, which is
-      // always worth a line.
-      if (!this->logged_stats_ || this->frames_dropped_ > 0 || fabsf(fps - this->last_fps_) >= STATS_FPS_EPSILON) {
+      // when the rate has actually moved -- or when frames start or stop being
+      // lost, which is a change of state rather than a running commentary. A
+      // host sending faster than this can draw loses frames continuously and
+      // perfectly normally; saying so every five seconds is noise.
+      const bool dropping = this->frames_dropped_ > 0;
+      if (!this->logged_stats_ || dropping != this->was_dropping_ ||
+          fabsf(fps - this->last_fps_) >= STATS_FPS_EPSILON) {
         ESP_LOGD(TAG, "%ux%u @ %.1f fps, %u us/draw, %u dropped (%u no buffer, %u decode, %u rotate)",
                  (unsigned) this->last_frame_w_, (unsigned) this->last_frame_h_, fps,
                  (unsigned) (this->draw_us_ / this->frames_drawn_), (unsigned) this->frames_dropped_,
@@ -525,6 +529,7 @@ void USBDisplay::run_decode_task() {
         this->logged_stats_ = true;
         this->last_fps_ = fps;
       }
+      this->was_dropping_ = dropping;
       this->stats_since_ms_ = millis();
       this->frames_drawn_ = 0;
       this->frames_dropped_ = 0;

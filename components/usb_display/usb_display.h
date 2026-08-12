@@ -188,6 +188,7 @@ class USBDisplay : public Component
   // seconds for as long as it runs.
   float last_fps_{0.0f};
   bool logged_stats_{false};
+  bool was_dropping_{false};
   bool logged_first_frame_{false};
   // One-shots so a wrong-sized sender and a silent bus are distinguishable
   // without turning the log into a per-packet trace.
