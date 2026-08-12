@@ -52,6 +52,8 @@ CONF_PRODUCT_ID = "product_id"
 CONF_SERIAL = "serial"
 CONF_USB_SPEED = "usb_speed"
 CONF_SENDER_DRIVE = "sender_drive"
+CONF_JPEG_QUALITY = "jpeg_quality"
+CONF_MAX_FPS = "max_fps"
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -130,6 +132,11 @@ CONFIG_SCHEMA = cv.All(
             # install and nothing to download. Turn it off to go back to a
             # single-interface device.
             cv.Optional(CONF_SENDER_DRIVE, default=True): cv.boolean,
+            # Advertised to the host in the vendor interface string, which is
+            # how a driver on the other end learns what to send. Espressif's
+            # scale, not the usual one to ninety-five.
+            cv.Optional(CONF_JPEG_QUALITY, default=6): cv.int_range(min=1, max=10),
+            cv.Optional(CONF_MAX_FPS, default=60): cv.int_range(min=1, max=60),
             cv.Optional(CONF_MANUFACTURER, default="ESPHome"): cv.string_strict,
             # "udisp" is what Espressif's Windows driver looks for.
             cv.Optional(CONF_PRODUCT, default="udisp"): cv.string_strict,
@@ -181,6 +188,19 @@ async def to_code(config):
     )
     esp32.add_idf_sdkconfig_option(
         "CONFIG_USB_DISPLAY_SENDER_DRIVE", config[CONF_SENDER_DRIVE]
+    )
+
+    # The vendor interface string is not a label. Espressif's Windows display
+    # driver reads it off the interface and parses the screen's geometry and
+    # limits out of it, so a driver that finds anything else there has no idea
+    # what it is talking to. The layout is theirs, byte for byte, the same way
+    # the frame header is.
+    esp32.add_idf_sdkconfig_option(
+        "CONFIG_USB_DISPLAY_VENDOR_STRING",
+        f"esp32p4udisp0_R{config[CONF_WIDTH]}x{config[CONF_HEIGHT]}"
+        f"_Ejpg{config[CONF_JPEG_QUALITY]}"
+        f"_Fps{config[CONF_MAX_FPS]}"
+        f"_Bl{config[CONF_MAX_FRAME_BYTES]}",
     )
 
     if config[CONF_SENDER_DRIVE]:

@@ -340,15 +340,18 @@ bool tud_vendor_control_xfer_cb(uint8_t rhport, uint8_t stage, tusb_control_requ
 // String descriptors
 //--------------------------------------------------------------------+
 static char const *string_desc_arr[] = {
-    (const char[]){0x09, 0x04},       // 0: English (0x0409)
-    CONFIG_USB_DISPLAY_MANUFACTURER,  // 1
-    CONFIG_USB_DISPLAY_PRODUCT,       // 2
-    CONFIG_USB_DISPLAY_SERIAL,        // 3
-    "Extended Screen",                // 4: the vendor interface
-    "Sender",                         // 5: the drive holding the PC program
+    (const char[]){0x09, 0x04},         // 0: English (0x0409)
+    CONFIG_USB_DISPLAY_MANUFACTURER,    // 1
+    CONFIG_USB_DISPLAY_PRODUCT,         // 2
+    CONFIG_USB_DISPLAY_SERIAL,          // 3
+    CONFIG_USB_DISPLAY_VENDOR_STRING,   // 4: the vendor interface
+    "Sender",                           // 5: the drive holding the PC program
 };
 
-static uint16_t _desc_str[32];
+/* Long enough for the vendor interface string, which is not a label: it is how
+ * the host is told the geometry, and it runs to about forty characters. The
+ * obvious 32 truncates it into nonsense. */
+static uint16_t _desc_str[64];
 
 uint16_t const *tud_descriptor_string_cb(uint8_t index, uint16_t langid) {
   (void) langid;
@@ -363,8 +366,8 @@ uint16_t const *tud_descriptor_string_cb(uint8_t index, uint16_t langid) {
 
     const char *str = string_desc_arr[index];
     chr_count = (uint8_t) strlen(str);
-    if (chr_count > 31)
-      chr_count = 31;
+    if (chr_count > 63)
+      chr_count = 63;
     for (uint8_t i = 0; i < chr_count; i++)
       _desc_str[1 + i] = str[i];
   }

@@ -20,6 +20,19 @@ menu "USB Extended Display"
         string "USB Serial string"
         default "0001"
 
+    config USB_DISPLAY_VENDOR_STRING
+        string "Vendor interface string"
+        default "esp32p4udisp0_R1024x600_Ejpg6_Fps60_Bl131072"
+        help
+            Not a label. This is how a host driver is told the geometry and
+            limits of the screen: Espressif's Windows display driver reads it
+            off the vendor interface and parses it. The layout is theirs --
+            target, "udisp0_R", width, "x", height, JPEG quality on a one to
+            ten scale, maximum frames per second, and the largest single frame
+            in bytes the board can accept.
+
+            Built from the component's configuration; do not set it by hand.
+
     config USB_DISPLAY_HIGH_SPEED
         bool "Use the High-Speed USB peripheral"
         default y

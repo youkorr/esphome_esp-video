@@ -547,6 +547,7 @@ void USBDisplay::dump_config() {
                 (unsigned) CONFIG_USB_DISPLAY_PID, CONFIG_USB_DISPLAY_MANUFACTURER, CONFIG_USB_DISPLAY_PRODUCT,
                 CONFIG_USB_DISPLAY_HIGH_SPEED ? "High Speed" : "Full Speed",
                 CFG_TUD_MSC ? "display + sender drive" : "display only");
+  ESP_LOGCONFIG(TAG, "  Advertised to the host: %s", CONFIG_USB_DISPLAY_VENDOR_STRING);
   ESP_LOGCONFIG(TAG, "  Frame buffers: %u x %u bytes", (unsigned) this->frame_buffer_count_,
                 (unsigned) this->max_frame_bytes_);
   ESP_LOGCONFIG(TAG, "  Decoded buffer: %u bytes (%ux%u, rounded up to whole 16x16 units)",
