@@ -56,7 +56,7 @@ class UVCDevice : public Component {
   void teardown_();
 
   // Two capture buffers so the sensor can fill one while the other encodes.
-  static constexpr int CAPTURE_BUFFER_COUNT = 2;
+  static constexpr int CAPTURE_BUFFER_COUNT = 3;
 
   uint32_t width_{1280};
   uint32_t height_{720};
