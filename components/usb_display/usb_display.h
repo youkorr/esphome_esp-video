@@ -62,6 +62,9 @@ class USBDisplay : public Component
   /// Clockwise, in degrees; 0, 90, 180 or 270. Done by the P4's pixel-processing
   /// accelerator, so it costs no CPU.
   void set_rotation(uint16_t degrees) { this->rotation_ = degrees; }
+  /// TCP port to accept frames on, in addition to the USB interface. Zero
+  /// leaves the board USB-only.
+  void set_port(uint16_t port) { this->port_ = port; }
   /// The PC-side sender, compiled in so the board can hand it over on a
   /// read-only drive instead of sending the user to find it.
   void set_sender_script(const uint8_t *data, size_t length) {
@@ -136,6 +139,13 @@ class USBDisplay : public Component
   // Lays the sender out as a FAT12 volume for the mass-storage interface to
   // serve. Defined in sender_drive.cpp, and compiled away with it.
   void setup_sender_drive_();
+  // Defined in network.cpp: listens for a sender and feeds it to feed_().
+  void setup_network_();
+  static void network_task(void *param);
+  void run_network_task();
+  /// Forget a half-received frame, so the next sender's first header is not
+  /// read out of the middle of the last one's payload.
+  void reset_stream_();
 #if CFG_TUD_AUDIO
   // Defined in audio.cpp, and compiled away with it.
   void setup_audio_();
@@ -160,6 +170,9 @@ class USBDisplay : public Component
   size_t max_frame_bytes_{128 * 1024};
   uint32_t min_frame_interval_ms_{0};
   uint32_t last_draw_ms_{0};
+  uint16_t port_{0};
+  // feed_() is reachable from the USB task and the network one at once.
+  Mutex feed_lock_;
 
   Frame *frames_{nullptr};
   QueueHandle_t empty_queue_{nullptr};

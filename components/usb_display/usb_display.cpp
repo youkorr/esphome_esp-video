@@ -157,6 +157,7 @@ void USBDisplay::setup() {
 #if CFG_TUD_AUDIO
   this->setup_audio_();
 #endif
+  this->setup_network_();
 
   // Device mode on the PHY that matches the speed the descriptors were built
   // for. TinyUSB does not set the PHY up itself.
@@ -373,6 +374,9 @@ bool USBDisplay::append_(Frame *frame, const uint8_t *data, size_t len) {
 void USBDisplay::feed_(const uint8_t *data, size_t len) {
   if (len == 0)
     return;
+  // Two transports can be active at once; a frame half assembled from one must
+  // not have the other's bytes appended to it.
+  LockGuard lock(this->feed_lock_);
 
   if (!this->logged_first_bytes_) {
     this->logged_first_bytes_ = true;
@@ -574,6 +578,15 @@ void USBDisplay::run_decode_task() {
       this->draw_us_ = 0;
     }
   }
+}
+
+void USBDisplay::reset_stream_() {
+  LockGuard lock(this->feed_lock_);
+  if (this->current_ != nullptr) {
+    xQueueSend(this->empty_queue_, &this->current_, 0);
+    this->current_ = nullptr;
+  }
+  this->skipping_ = 0;
 }
 
 void USBDisplay::loop() {

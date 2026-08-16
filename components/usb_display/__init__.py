@@ -30,6 +30,7 @@ from esphome.components import display, esp32, speaker, touchscreen
 import esphome.config_validation as cv
 from esphome.const import (
     CONF_HEIGHT,
+    CONF_PORT,
     CONF_TRIGGER_ID,
     CONF_ID,
     CONF_RAW_DATA_ID,
@@ -182,6 +183,11 @@ CONFIG_SCHEMA = cv.All(
             # install and nothing to download. Turn it off to go back to a
             # single-interface device.
             cv.Optional(CONF_SENDER_DRIVE, default=True): cv.boolean,
+            # Accept frames over the network as well as over USB. The USB
+            # interfaces stay: touch and sound have no equivalent here, so a
+            # board can be plugged in for those and take its picture over
+            # Wi-Fi.
+            cv.Optional(CONF_PORT): cv.port,
             # Advertised to the host in the vendor interface string, which is
             # how a driver on the other end learns what to send. Espressif's
             # scale, not the usual one to ninety-five.
@@ -216,6 +222,8 @@ async def to_code(config):
     cg.add(var.set_max_frame_bytes(config[CONF_MAX_FRAME_BYTES]))
     cg.add(var.set_rotation(config[CONF_ROTATION]))
     cg.add(var.set_max_fps(config[CONF_MAX_FPS]))
+    if (port := config.get(CONF_PORT)) is not None:
+        cg.add(var.set_port(port))
 
     # The descriptors have to be compiled into TinyUSB itself, which only a
     # real IDF component can do (see that component's CMakeLists).

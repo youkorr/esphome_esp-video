@@ -130,6 +130,38 @@ def find_endpoint(vid, pid):
     return device, endpoint
 
 
+class _TcpEndpoint:
+    """A socket dressed as the endpoint object the send loop already uses."""
+
+    def __init__(self, sock):
+        self._sock = sock
+
+    def write(self, data):
+        self._sock.sendall(data)
+
+    def close(self):
+        self._sock.close()
+
+
+def _connect_tcp(host, port):
+    """Wait for the board to answer, the same way the USB path waits for it."""
+    import socket
+
+    announced = False
+    while True:
+        try:
+            sock = socket.create_connection((host, port), timeout=5)
+            sock.settimeout(None)
+            sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+            print(f"Connected to {host}:{port}")
+            return _TcpEndpoint(sock)
+        except OSError as err:
+            if not announced:
+                announced = True
+                print(f"Waiting for {host}:{port} ({err})")
+            time.sleep(1.0)
+
+
 def wait_for_endpoint(vid, pid):
     """Block until the board is there, however long that takes.
 
@@ -309,6 +341,12 @@ def main():
         "--fps", type=float, default=30.0, help="frames per second to aim for"
     )
     parser.add_argument("--quality", type=int, default=80, help="JPEG quality, 1..95")
+    parser.add_argument(
+        "--host",
+        help="send over the network to a board listening on this address, "
+        "instead of over USB. Use with the component's port: option",
+    )
+    parser.add_argument("--port", type=int, default=5000)
     parser.add_argument("--vid", type=lambda v: int(v, 0), default=DEFAULT_VID)
     parser.add_argument("--pid", type=lambda v: int(v, 0), default=DEFAULT_PID)
     parser.add_argument(
@@ -368,7 +406,10 @@ def main():
             # reflashing it, ends the inner loop and comes back here to wait for
             # it rather than ending the program.
             while True:
-                device, endpoint = wait_for_endpoint(args.vid, args.pid)
+                if args.host:
+                    device, endpoint = None, _connect_tcp(args.host, args.port)
+                else:
+                    device, endpoint = wait_for_endpoint(args.vid, args.pid)
                 print(
                     f"Sending {args.width}x{args.height} at up to {args.fps:g} fps to "
                     f"{args.vid:04x}:{args.pid:04x}"
@@ -423,10 +464,13 @@ def main():
                         remaining = interval - (time.monotonic() - started)
                         if remaining > 0:
                             time.sleep(remaining)
-                except usb.core.USBError as err:
+                except (usb.core.USBError, OSError) as err:
                     print(f"Lost the board ({err}), waiting for it to come back")
                 finally:
-                    usb.util.dispose_resources(device)
+                    if device is not None:
+                        usb.util.dispose_resources(device)
+                    else:
+                        endpoint.close()
     except KeyboardInterrupt:
         print("\nStopped")
     return 0
