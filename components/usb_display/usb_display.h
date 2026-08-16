@@ -95,6 +95,8 @@ class USBDisplay : public Component
   // Called from TinyUSB's receive callback; see the .cpp for why this is
   // reachable from C.
   void on_vendor_rx(uint8_t itf);
+  /// One chunk of the host's stream, whatever carried it here.
+  void feed_(const uint8_t *data, size_t len);
   /// Set when the host selects a configuration, which it only does once a
   /// driver has claimed the device.
   void set_configured() { this->configured_ = true; }

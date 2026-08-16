@@ -368,6 +368,82 @@ bool USBDisplay::append_(Frame *frame, const uint8_t *data, size_t len) {
 // ===========================================================================
 // USB receive -- runs on the TinyUSB task
 // ===========================================================================
+// One chunk of the host's stream, whatever carried it here. The USB endpoint
+// and any other transport hand bytes to this and nothing below cares which.
+void USBDisplay::feed_(const uint8_t *data, size_t len) {
+  if (len == 0)
+    return;
+
+  if (!this->logged_first_bytes_) {
+    this->logged_first_bytes_ = true;
+    ESP_LOGI(TAG, "First %u bytes from the host", (unsigned) len);
+  }
+
+  if (this->skipping_ > 0) {
+    this->skipping_ = (this->skipping_ > len) ? this->skipping_ - len : 0;
+    return;
+  }
+
+  if (this->current_ != nullptr) {
+    if (this->append_(this->current_, data, len)) {
+      this->queue_filled_(this->current_);
+      this->current_ = nullptr;
+    }
+    return;
+  }
+
+  // Start of a frame: the first packet carries the header.
+  if (len < sizeof(udisp_frame_header_t))
+    return;
+  auto *header = (udisp_frame_header_t *) data;
+  if (header->type == UDISP_TYPE_END) {
+    // Not a frame: the host marking the end of what it was sending. Count its
+    // payload out like any other and say nothing -- it is the protocol
+    // working, not a rejection.
+    this->skipping_ = header->payload_total;
+    return;
+  }
+  // Any rectangle that fits on the panel, not just the whole panel: a driver
+  // that redraws only what changed sends small ones, and that is most of
+  // where its speed comes from.
+  const bool usable = header->type == UDISP_TYPE_JPG && header->width > 0 && header->height > 0 &&
+                      header->x + header->width <= this->width_ && header->y + header->height <= this->height_;
+  if (!usable) {
+    // Silently dropping these is how a sender configured for the wrong size
+    // looks exactly like a sender that is not running at all.
+    if (!this->logged_bad_header_) {
+      this->logged_bad_header_ = true;
+      ESP_LOGW(TAG, "Ignoring frames: host sends type=%u %ux%u at %u,%u, which is not a JPEG rectangle inside %ux%u",
+               (unsigned) header->type, (unsigned) header->width, (unsigned) header->height, (unsigned) header->x,
+               (unsigned) header->y, (unsigned) this->width_, (unsigned) this->height_);
+    }
+    return;
+  }
+
+  const uint8_t *payload = data + sizeof(udisp_frame_header_t);
+  const size_t payload_len = len - sizeof(udisp_frame_header_t);
+
+  Frame *frame = this->take_empty_();
+  if (frame == nullptr) {
+    // Nothing free: count this frame out so the next header is recognised
+    // rather than being read out of the middle of a payload.
+    this->frames_dropped_++;
+    this->dropped_no_buffer_++;
+    this->skipping_ = (header->payload_total > payload_len) ? header->payload_total - payload_len : 0;
+    return;
+  }
+  frame->x = header->x;
+  frame->y = header->y;
+  frame->width = header->width;
+  frame->height = header->height;
+  frame->total = header->payload_total;
+  if (this->append_(frame, payload, payload_len)) {
+    this->queue_filled_(frame);
+  } else {
+    this->current_ = frame;
+  }
+}
+
 void USBDisplay::on_vendor_rx(uint8_t itf) {
   static uint8_t rx_buf[CFG_TUD_VENDOR_EPSIZE];
 
@@ -375,75 +451,7 @@ void USBDisplay::on_vendor_rx(uint8_t itf) {
     int read = tud_vendor_n_read(itf, rx_buf, sizeof(rx_buf));
     if (read <= 0)
       break;
-
-    if (!this->logged_first_bytes_) {
-      this->logged_first_bytes_ = true;
-      ESP_LOGI(TAG, "First %d bytes from the host", read);
-    }
-
-    if (this->skipping_ > 0) {
-      this->skipping_ = (this->skipping_ > (size_t) read) ? this->skipping_ - read : 0;
-      continue;
-    }
-
-    if (this->current_ != nullptr) {
-      if (this->append_(this->current_, rx_buf, read)) {
-        this->queue_filled_(this->current_);
-        this->current_ = nullptr;
-      }
-      continue;
-    }
-
-    // Start of a frame: the first packet carries the header.
-    if ((size_t) read < sizeof(udisp_frame_header_t))
-      continue;
-    auto *header = (udisp_frame_header_t *) rx_buf;
-    if (header->type == UDISP_TYPE_END) {
-      // Not a frame: the host marking the end of what it was sending. Count its
-      // payload out like any other and say nothing -- it is the protocol
-      // working, not a rejection.
-      this->skipping_ = header->payload_total;
-      continue;
-    }
-    // Any rectangle that fits on the panel, not just the whole panel: a driver
-    // that redraws only what changed sends small ones, and that is most of
-    // where its speed comes from.
-    const bool usable = header->type == UDISP_TYPE_JPG && header->width > 0 && header->height > 0 &&
-                        header->x + header->width <= this->width_ && header->y + header->height <= this->height_;
-    if (!usable) {
-      // Silently dropping these is how a sender configured for the wrong size
-      // looks exactly like a sender that is not running at all.
-      if (!this->logged_bad_header_) {
-        this->logged_bad_header_ = true;
-        ESP_LOGW(TAG, "Ignoring frames: host sends type=%u %ux%u at %u,%u, which is not a JPEG rectangle inside %ux%u",
-                 (unsigned) header->type, (unsigned) header->width, (unsigned) header->height, (unsigned) header->x,
-                 (unsigned) header->y, (unsigned) this->width_, (unsigned) this->height_);
-      }
-      continue;
-    }
-
-    const uint8_t *payload = rx_buf + sizeof(udisp_frame_header_t);
-    const size_t payload_len = read - sizeof(udisp_frame_header_t);
-
-    Frame *frame = this->take_empty_();
-    if (frame == nullptr) {
-      // Nothing free: count this frame out so the next header is recognised
-      // rather than being read out of the middle of a payload.
-      this->frames_dropped_++;
-      this->dropped_no_buffer_++;
-      this->skipping_ = (header->payload_total > payload_len) ? header->payload_total - payload_len : 0;
-      continue;
-    }
-    frame->x = header->x;
-    frame->y = header->y;
-    frame->width = header->width;
-    frame->height = header->height;
-    frame->total = header->payload_total;
-    if (this->append_(frame, payload, payload_len)) {
-      this->queue_filled_(frame);
-    } else {
-      this->current_ = frame;
-    }
+    this->feed_(rx_buf, (size_t) read);
   }
 }
 
