@@ -631,6 +631,14 @@ void USBDisplay::dump_config() {
                 CONFIG_USB_DISPLAY_HIGH_SPEED ? "High Speed" : "Full Speed",
                 CFG_TUD_MSC ? "display + sender drive" : "display only");
   ESP_LOGCONFIG(TAG, "  Advertised to the host: %s", CONFIG_USB_DISPLAY_VENDOR_STRING);
+  // Whether the network listener is up belongs here, not only in a line
+  // written during setup: a log opened over the API starts after that and
+  // never shows it.
+  if (this->port_ != 0) {
+    ESP_LOGCONFIG(TAG, "  Also listening on TCP port %u", (unsigned) this->port_);
+  } else {
+    ESP_LOGCONFIG(TAG, "  Network: off (set port: to accept frames over Wi-Fi)");
+  }
   ESP_LOGCONFIG(TAG, "  Frame buffers: %u x %u bytes", (unsigned) this->frame_buffer_count_,
                 (unsigned) this->max_frame_bytes_);
   ESP_LOGCONFIG(TAG, "  Decoded buffer: %u bytes (%ux%u, rounded up to whole 16x16 units)",
