@@ -276,11 +276,13 @@ def install_startup(args):
         str(args.quality),
         "--rotate",
         str(args.rotate),
-        "--vid",
-        hex(args.vid),
-        "--pid",
-        hex(args.pid),
     ]
+    # The transport the run was told to use, so a login task keeps it. Without
+    # this a network sender came back at the next login looking for USB.
+    if args.host:
+        parts += ["--host", args.host, "--port", str(args.port)]
+    else:
+        parts += ["--vid", hex(args.vid), "--pid", hex(args.pid)]
     # Quote every part for the shell, then double the quotes again because the
     # whole command is about to become a VBScript string literal.
     command = " ".join(f'"{part}"' for part in parts).replace('"', '""')
