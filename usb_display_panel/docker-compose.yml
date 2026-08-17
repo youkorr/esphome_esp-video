@@ -1,0 +1,15 @@
+# For a Home Assistant that is not the add-on kind: Container, Core, or simply
+# somewhere else on the network. Same image, same configuration file.
+#
+#   mkdir -p config && cp panels.example.json config/panels.json
+#   ...edit it...
+#   docker compose up -d
+services:
+  esp32p4-panel:
+    build: .
+    container_name: esp32p4-panel
+    restart: unless-stopped
+    environment:
+      UDISP_CONFIG: /config/panels.json
+    volumes:
+      - ./config:/config:ro
