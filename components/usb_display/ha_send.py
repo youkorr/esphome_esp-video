@@ -622,6 +622,18 @@ def main():
     if not args.calibrate:
         if not args.url:
             parser.error("--url is required")
+        # Checked here rather than left to the browser, which reports a
+        # malformed address as a bare navigation failure with the reason
+        # buried in a stack trace. The common way to get one is copying a
+        # documented line whole -- label included -- into a field that wanted
+        # only the value.
+        if not args.url.startswith(("http://", "https://")):
+            parser.error(
+                f"--url must begin with http:// or https://, and this one is "
+                f"{args.url!r}. If it starts with something like 'url: ', that "
+                f"is the name of the setting and not part of the address: the "
+                f"value alone is what goes in."
+            )
         if not args.token:
             parser.error("--token is required (or set HA_TOKEN)")
 
