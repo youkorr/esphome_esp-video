@@ -64,10 +64,18 @@ from udisp_send import build_header, build_heartbeat, connect_tcp  # noqa: E402
 # few rectangles and send unchanged pixels along with the changed ones. 64 is a
 # compromise that keeps a clock's worth of change down to one or two tiles.
 TILE = 64
-# Past this fraction of the panel, sending one rectangle costs less than sending
-# many: the headers, the JPEG tables repeated per rectangle and the board's
-# per-rectangle work stop being worth the pixels saved.
-FULL_REDRAW_FRACTION = 0.45
+# What one rectangle costs the board on top of its pixels, as a fraction of a
+# whole-panel decode. Measured: the panel decodes in 8.5 ms and each rectangle
+# adds roughly 1.5 ms of fixed work on top of its share of that.
+#
+# It is the count that decides whether to give up and send the panel, not the
+# area. Twenty scattered rectangles covering 45% cost the board 34 ms against
+# 8.5 for the panel, so the panel wins; one rectangle covering 64% -- which is
+# what two camera cards look like once the tiles between them join up -- costs
+# 233 KiB against 272 for the panel and decodes in 6.9 ms against 8.5, so it
+# wins on both counts. Judging by area alone got that case exactly backwards
+# and sent a whole panel, every frame, to update two thirds of it.
+RECT_COST_FRACTION = 0.18
 # However little changes, redraw everything this often. A dropped rectangle --
 # the board was busy, the socket hiccuped -- would otherwise stay wrong on the
 # panel forever, because nothing would ever mark that area as changed again.
@@ -828,9 +836,12 @@ def main():
                         else:
                             rectangles = changed_rectangles(previous, current)
                             covered = sum(w * h for _, _, w, h in rectangles)
-                            if covered > (
-                                args.width * args.height * FULL_REDRAW_FRACTION
-                            ):
+                            # Redraw everything only when doing so is actually
+                            # cheaper than the pieces.
+                            panel = args.width * args.height
+                            if covered / panel + RECT_COST_FRACTION * len(
+                                rectangles
+                            ) > 1.0:
                                 rectangles = [(0, 0, args.width, args.height)]
                                 last_full = started
 
