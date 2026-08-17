@@ -1,0 +1,43 @@
+name: ESP32-P4 Panel
+version: "1.0.0"
+slug: usb_display_panel
+description: Renders Home Assistant dashboards onto ESPHome usb_display panels over the network, with touch coming back
+url: https://github.com/youkorr/esphome_esp-video
+arch:
+  - amd64
+  - aarch64
+startup: application
+boot: auto
+init: false
+options:
+  panels:
+    - name: salon
+      host: 192.168.1.9
+      port: 5000
+      url: http://homeassistant.local:8123/lovelace/0
+      token: ""
+      width: 1024
+      height: 600
+      rotate: "180"
+      touch_rotate: "180"
+      touch_mirror_x: false
+      touch_mirror_y: false
+      fps: 30
+      quality: 80
+      stats: true
+schema:
+  panels:
+    - name: str
+      host: str
+      port: port
+      url: str
+      token: password
+      width: int(16,4096)
+      height: int(16,4096)
+      rotate: list(0|90|180|270)
+      touch_rotate: list(0|90|180|270)
+      touch_mirror_x: bool
+      touch_mirror_y: bool
+      fps: float
+      quality: int(1,95)
+      stats: bool

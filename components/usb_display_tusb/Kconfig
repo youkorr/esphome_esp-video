@@ -1,0 +1,78 @@
+menu "USB Extended Display"
+
+    config USB_DISPLAY_VID
+        hex "USB Vendor ID"
+        default 0x303A
+
+    config USB_DISPLAY_PID
+        hex "USB Product ID"
+        default 0x4001
+
+    config USB_DISPLAY_MANUFACTURER
+        string "USB Manufacturer string"
+        default "ESPHome"
+
+    config USB_DISPLAY_PRODUCT
+        string "USB Product string"
+        default "udisp"
+
+    config USB_DISPLAY_SERIAL
+        string "USB Serial string"
+        default "0001"
+
+    config USB_DISPLAY_VENDOR_STRING
+        string "Vendor interface string"
+        default "esp32p4udisp0_R1024x600_Ejpg6_Fps60_Bl131072"
+        help
+            Not a label. This is how a host driver is told the geometry and
+            limits of the screen: Espressif's Windows display driver reads it
+            off the vendor interface and parses it. The layout is theirs --
+            target, "udisp0_R", width, "x", height, JPEG quality on a one to
+            ten scale, maximum frames per second, and the largest single frame
+            in bytes the board can accept.
+
+            Built from the component's configuration; do not set it by hand.
+
+    config USB_DISPLAY_HIGH_SPEED
+        bool "Use the High-Speed USB peripheral"
+        default y
+        help
+            Sets the vendor endpoint packet size to 512 instead of 64. The
+            ESP32-P4's internal PHY is High-Speed; only turn this off for a
+            board wired to the Full-Speed pins.
+
+    config USB_DISPLAY_WIDTH
+        int "Screen width"
+        default 1024
+
+    config USB_DISPLAY_HEIGHT
+        int "Screen height"
+        default 600
+
+    config USB_DISPLAY_TOUCH
+        bool "Report the touch screen to the host"
+        default n
+        help
+            Adds a HID touch-screen interface reporting up to five contacts.
+            HID is a class every operating system has a driver for, so unlike
+            the picture itself this needs nothing installed.
+
+    config USB_DISPLAY_AUDIO
+        bool "Report a speaker to the host"
+        default n
+        help
+            Adds a USB Audio Class playback interface, so the host can send its
+            sound to this board's speaker. Another standard class, needing
+            nothing installed on the host.
+
+    config USB_DISPLAY_SENDER_DRIVE
+        bool "Carry the host sender on a read-only drive"
+        default y
+        help
+            Adds a mass-storage interface holding the program the PC has to run
+            to send its screen, so it arrives with the board instead of being
+            downloaded. Windows binds its own driver to it; no installation.
+
+            Turn this off to go back to a single-interface device.
+
+endmenu

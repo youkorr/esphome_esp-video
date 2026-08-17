@@ -1,0 +1,25 @@
+# For a machine with neither Home Assistant add-ons nor Docker.
+#
+#   sudo mkdir -p /opt/esp32p4-panel /etc/esp32p4-panel
+#   sudo python3 -m venv /opt/esp32p4-panel/venv
+#   sudo /opt/esp32p4-panel/venv/bin/pip install playwright pillow numpy
+#   sudo /opt/esp32p4-panel/venv/bin/playwright install --with-deps chromium
+#   sudo cp run.py ha_send.py udisp_send.py /opt/esp32p4-panel/
+#   sudo cp panels.example.json /etc/esp32p4-panel/panels.json   (then edit it)
+#   sudo cp esp32p4-panel.service /etc/systemd/system/
+#   sudo systemctl enable --now esp32p4-panel
+[Unit]
+Description=Home Assistant dashboards on ESP32-P4 panels
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+Environment=UDISP_CONFIG=/etc/esp32p4-panel/panels.json
+WorkingDirectory=/opt/esp32p4-panel
+ExecStart=/opt/esp32p4-panel/venv/bin/python -u /opt/esp32p4-panel/run.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
