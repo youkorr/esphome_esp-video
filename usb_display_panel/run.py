@@ -52,6 +52,14 @@ def say(text):
         print(text, flush=True)
 
 
+# Settings a panel may leave out and inherit from the top of the file. The
+# token is the reason this exists -- it is the same for every panel in a house
+# and long enough that repeating it per panel is only a way to get one of them
+# wrong -- and the rest follow because there is no sense in a rule that applies
+# to one key.
+SHARED_KEYS = ("token", "url", "port", "fps", "quality", "stats")
+
+
 def load_panels():
     """Every panel to serve, as dictionaries of ha_send.py's options."""
     for path in ("/data/options.json", os.environ.get("UDISP_CONFIG")):
@@ -60,7 +68,14 @@ def load_panels():
                 config = json.load(handle)
             panels = config.get("panels")
             if panels:
-                return panels
+                shared = {
+                    key: config[key]
+                    for key in SHARED_KEYS
+                    if config.get(key) not in (None, "")
+                }
+                # A panel's own value always wins; the shared one only fills a
+                # gap.
+                return [{**shared, **panel} for panel in panels]
             # A file holding a single panel is a reasonable thing to write.
             if config.get("host"):
                 return [config]

@@ -45,6 +45,16 @@ See the header of `esp32p4-panel.service` for the six commands.
 
 ## Options
 
+`token`, `url`, `port`, `fps`, `quality` and `stats` can be set once at the top
+and every panel inherits them; a panel that sets one for itself keeps its own.
+The token in particular is the same for a whole house, and long enough that
+repeating it per panel is mostly a way to get one of them wrong.
+
+The token is still required even here, where this runs beside Home Assistant.
+An add-on is given a SUPERVISOR_TOKEN, but that authenticates to the Supervisor
+rather than to Home Assistant as a user: it cannot log a browser in. Only a
+long-lived access token can.
+
 | Option | What it is |
 |---|---|
 | `name` | What this panel is called in the log |

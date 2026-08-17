@@ -1,29 +1,27 @@
 {
+  "token": "PASTE A LONG-LIVED ACCESS TOKEN HERE",
+  "url": "http://homeassistant.local:8123/lovelace/0",
+  "port": 5000,
+  "fps": 30,
+  "stats": true,
+
   "panels": [
     {
       "name": "salon",
       "host": "192.168.1.9",
-      "port": 5000,
-      "url": "http://homeassistant.local:8123/lovelace/0",
-      "token": "PASTE A LONG-LIVED ACCESS TOKEN HERE",
       "width": 1024,
       "height": 600,
       "rotate": 180,
-      "touch_rotate": 180,
-      "fps": 30,
-      "stats": true
+      "touch_rotate": 180
     },
     {
       "name": "cuisine",
       "host": "192.168.1.12",
-      "port": 5000,
       "url": "http://homeassistant.local:8123/lovelace/cuisine",
-      "token": "PASTE A LONG-LIVED ACCESS TOKEN HERE",
       "width": 800,
       "height": 1280,
       "rotate": 0,
-      "touch_rotate": 0,
-      "fps": 30
+      "touch_rotate": 0
     }
   ]
 }
