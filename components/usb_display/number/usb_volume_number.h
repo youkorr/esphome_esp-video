@@ -19,6 +19,15 @@ class USBVolumeNumber : public number::Number, public Component {
  public:
   void set_parent(USBDisplay *parent) { this->parent_ = parent; }
   void setup() override { this->publish_state(this->parent_->get_audio_volume() * 100.0f); }
+  /// Follows the host as well as Home Assistant.
+  ///
+  /// Turning the volume down on the computer is a USB request, and it arrives
+  /// on the USB task -- which is no place to publish a state from, because
+  /// that walks the API connections and belongs to the loop. So the value is
+  /// noticed here instead, where publishing is safe. Without this the entity
+  /// showed whatever it was last told by Home Assistant, while the sound
+  /// followed the computer: two numbers for one volume.
+  void loop() override;
   void dump_config() override;
 
  protected:
