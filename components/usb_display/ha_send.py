@@ -8,8 +8,20 @@ panel. Touches come back over the same socket and are replayed into that
 browser, so the panel behaves like the screen of the machine doing the
 rendering.
 
+    ./ha_send.py --calibrate --host 192.168.1.9 --width 1024 --height 600
     ./ha_send.py --host 192.168.1.9 --width 1024 --height 600 \
-        --url http://homeassistant.local:8123/lovelace/0 --token <long-lived>
+        --url http://homeassistant.local:8123/lovelace/0 --token <long-lived> \
+        --touch-rotate 0
+
+Calibrate first, once per board. There is no way to know from here which way a
+panel reports its contacts: it depends on how the touch controller is wired and
+on the transform: the touch screen was configured with, and no two boards
+agree -- a GT911 on one mirrors both axes, the same part on another swaps them,
+a GSL3680 on a third mirrors one. ESPHome hands a listener that board's own
+display coordinates, which is what LVGL wants and is not necessarily the
+orientation the picture is being shown in. So --calibrate draws three targets,
+asks for a tap on each, and prints the options that make the two agree. It needs
+no browser and no token, so it is the first thing to run on a new panel.
 
 What makes this affordable is that it does not send the picture. It sends the
 part of the picture that changed. A dashboard at rest is a clock moving once a
@@ -160,6 +172,184 @@ def rotate_point(x, y, width, height, degrees):
     return x, y
 
 
+class TouchMap:
+    """Where a contact on the panel is on the page.
+
+    There is no single answer, because the coordinates a board reports depend on
+    how its touch controller is wired and on the transform: it was configured
+    with -- and every panel differs. A GT911 on one board reports with both axes
+    mirrored, the same part on another reports with the axes swapped, a GSL3680
+    on a third mirrors only one. ESPHome hands each of them to a listener in
+    that board's own display coordinates, which is what LVGL wants and is not
+    necessarily the orientation the picture is being shown in.
+
+    So rather than assume, this holds the whole family of possibilities -- four
+    turns, each with or without a mirror -- and calibrate() picks the one that
+    matches by asking for a few taps. Eight candidates covers every way a panel
+    can be mounted and every transform: that can be written for it.
+    """
+
+    def __init__(self, page_w, page_h, panel_w, panel_h, rotate, mirror_x, mirror_y):
+        self.page_w = page_w
+        self.page_h = page_h
+        self.panel_w = panel_w
+        self.panel_h = panel_h
+        self.rotate = rotate
+        self.mirror_x = mirror_x
+        self.mirror_y = mirror_y
+
+    def to_page(self, px, py):
+        if self.mirror_x:
+            px = self.panel_w - 1 - px
+        if self.mirror_y:
+            py = self.panel_h - 1 - py
+        x, y = rotate_point(px, py, self.page_w, self.page_h, self.rotate)
+        # Clamp rather than skip: a contact on the very last column is a real
+        # press, and the browser refuses a point outside the viewport.
+        return max(0, min(self.page_w - 1, x)), max(0, min(self.page_h - 1, y))
+
+    def options(self):
+        """The command line that reproduces this, for pasting into a service."""
+        parts = [f"--touch-rotate {self.rotate}"]
+        if self.mirror_x:
+            parts.append("--touch-mirror-x")
+        if self.mirror_y:
+            parts.append("--touch-mirror-y")
+        return " ".join(parts)
+
+    @staticmethod
+    def candidates(page_w, page_h, panel_w, panel_h):
+        """Every way this panel's coordinates could relate to the page's.
+
+        There are exactly four, not eight. A rectangle has four symmetries, and
+        which four depends on whether the picture was turned a quarter -- if it
+        was, the panel is the page transposed and the base turn is 90 rather
+        than 0. Mirroring both axes is the same map as turning half way round,
+        so that one is named as the turn: it is the same thing said shorter.
+        """
+        base = 0 if (panel_w == page_w and panel_h == page_h) else 90
+        for rotate, mirror_x, mirror_y in (
+            (base, False, False),
+            (base, True, False),
+            (base, False, True),
+            (base + 180, False, False),
+        ):
+            yield TouchMap(
+                page_w, page_h, panel_w, panel_h, rotate, mirror_x, mirror_y
+            )
+
+
+def send_picture(endpoint, image, frame_id, transpose, panel_w, panel_h, quality):
+    """One whole-panel picture, turned the way the frames are."""
+    if transpose is not None:
+        image = image.transpose(transpose)
+    if image.size != (panel_w, panel_h):
+        image = image.resize((panel_w, panel_h))
+    buffer = io.BytesIO()
+    image.save(buffer, format="JPEG", quality=quality)
+    payload = buffer.getvalue()
+    endpoint.write(build_header(panel_w, panel_h, len(payload), frame_id) + payload)
+
+
+def _target_picture(page_w, page_h, tx, ty, step, total):
+    from PIL import Image, ImageDraw
+
+    image = Image.new("RGB", (page_w, page_h), (16, 16, 20))
+    draw = ImageDraw.Draw(image)
+    radius = max(12, min(page_w, page_h) // 16)
+    for r, colour in ((radius, (240, 240, 240)), (radius // 2, (220, 60, 60))):
+        draw.ellipse((tx - r, ty - r, tx + r, ty + r), outline=colour, width=4)
+    draw.line((tx - radius * 2, ty, tx + radius * 2, ty), fill=(240, 240, 240))
+    draw.line((tx, ty - radius * 2, tx, ty + radius * 2), fill=(240, 240, 240))
+    draw.text(
+        (page_w // 2 - 90, page_h - 40),
+        f"Touch the circle  ({step} of {total})",
+        fill=(200, 200, 200),
+    )
+    return image
+
+
+def calibrate(endpoint, page_w, page_h, panel_w, panel_h, transpose, quality):
+    """Ask for a few taps and work out which way the contacts come in.
+
+    Three targets, deliberately off-centre and not in a line: a point in the
+    middle is fixed by half the candidates at once, and three points that are
+    collinear cannot separate a mirror from a turn. Each target is drawn by this
+    script and sent as a whole picture, so calibration works before the browser
+    is involved at all.
+    """
+    samples = []
+    frame_id = 0
+    targets = [(0.25, 0.22), (0.78, 0.30), (0.30, 0.80)]
+    for step, (fx, fy) in enumerate(targets, start=1):
+        tx, ty = int(fx * page_w), int(fy * page_h)
+
+        # Drain before the target is shown, never after. Anything already in
+        # flight belongs to the previous target or to a finger that had not
+        # lifted; anything that arrives once the circle is up is the answer, and
+        # throwing that away would leave this waiting for a tap that was made.
+        deadline = time.monotonic() + 0.6
+        while time.monotonic() < deadline:
+            endpoint.read_touches()
+            time.sleep(0.05)
+
+        send_picture(
+            endpoint,
+            _target_picture(page_w, page_h, tx, ty, step, len(targets)),
+            frame_id,
+            transpose,
+            panel_w,
+            panel_h,
+            quality,
+        )
+        frame_id = (frame_id + 1) & 0x3FF
+
+        print(f"  target {step} of {len(targets)}: touch the circle on the panel")
+        contact = None
+        while contact is None:
+            for contacts in endpoint.read_touches():
+                if contacts:
+                    contact = contacts[0]
+                    break
+            time.sleep(0.02)
+        _, px, py = contact
+        print(f"    got {px},{py}")
+        samples.append(((tx, ty), (px, py)))
+
+        # Wait for the finger to leave, so the next target does not read it.
+        lifted = False
+        while not lifted:
+            for contacts in endpoint.read_touches():
+                if not contacts:
+                    lifted = True
+            time.sleep(0.02)
+
+    scored = []
+    for candidate in TouchMap.candidates(page_w, page_h, panel_w, panel_h):
+        error = 0
+        for (tx, ty), (px, py) in samples:
+            x, y = candidate.to_page(px, py)
+            error += abs(x - tx) + abs(y - ty)
+        scored.append((error / len(samples), candidate))
+    scored.sort(key=lambda pair: pair[0])
+
+    best_error, best = scored[0]
+    runner_up = scored[1][0] if len(scored) > 1 else float("inf")
+    print(f"\nBest match: {best.options()}  (average miss {best_error:.0f} px)")
+    if best_error > min(page_w, page_h) * 0.15:
+        print(
+            "That is a long way off. Check --width and --height match the "
+            "component, and that the taps landed on the circles."
+        )
+    elif runner_up - best_error < best_error:
+        print(
+            "The next candidate is nearly as good, so this is a guess. Run the "
+            "calibration again, taking care to hit the middle of each circle."
+        )
+    print("Add those options to the command line to keep this.\n")
+    return best
+
+
 class Injector:
     """Replays the panel's contacts into the browser.
 
@@ -169,11 +359,9 @@ class Injector:
     would turn one tap into thirty.
     """
 
-    def __init__(self, page, width, height, rotate):
+    def __init__(self, page, touch_map):
         self._page = page
-        self._width = width
-        self._height = height
-        self._rotate = rotate
+        self._map = touch_map
         self._down = False
 
     def handle(self, reports):
@@ -184,11 +372,7 @@ class Injector:
                     self._down = False
                 continue
             _, px, py = contacts[0]
-            x, y = rotate_point(px, py, self._width, self._height, self._rotate)
-            # Clamp rather than skip: a contact on the very last column is a
-            # real press, and the browser refuses a point outside the viewport.
-            x = max(0, min(self._width - 1, x))
-            y = max(0, min(self._height - 1, y))
+            x, y = self._map.to_page(px, py)
             self._page.mouse.move(x, y)
             if not self._down:
                 self._page.mouse.down()
@@ -208,7 +392,9 @@ def main():
         "--host", required=True, help="the panel's address (its port: option)"
     )
     parser.add_argument("--port", type=int, default=5000)
-    parser.add_argument("--url", required=True, help="the dashboard to render")
+    parser.add_argument(
+        "--url", help="the dashboard to render. Not needed with --calibrate"
+    )
     parser.add_argument(
         "--token",
         default=os.environ.get("HA_TOKEN"),
@@ -227,14 +413,30 @@ def main():
         "option is already doing this",
     )
     parser.add_argument(
+        "--calibrate",
+        action="store_true",
+        help="find out which way this panel reports its contacts, by drawing "
+        "three targets and asking for a tap on each. Prints the options to add. "
+        "No browser and no token needed -- run it once per board",
+    )
+    parser.add_argument(
         "--touch-rotate",
         type=int,
         choices=(0, 90, 180, 270),
-        help="how far to turn the contacts back, when that is not --rotate. A "
-        "touch screen configured with its own transform: may already be "
-        "reporting in the orientation the picture is shown in, in which case "
-        "the contacts need no turning at all and this is 0. Symptom of getting "
-        "it wrong: presses land at the opposite corner",
+        help="how far to turn the contacts back, when that is not --rotate. "
+        "Every panel reports differently -- it depends on how the controller is "
+        "wired and on the transform: it was given -- so take this from "
+        "--calibrate rather than guessing",
+    )
+    parser.add_argument(
+        "--touch-mirror-x",
+        action="store_true",
+        help="the panel reports x the other way round. From --calibrate",
+    )
+    parser.add_argument(
+        "--touch-mirror-y",
+        action="store_true",
+        help="the panel reports y the other way round. From --calibrate",
     )
     parser.add_argument(
         "--fps", type=float, default=10.0, help="how often to look for changes"
@@ -251,19 +453,16 @@ def main():
     )
     args = parser.parse_args()
 
-    if not args.token:
-        parser.error("--token is required (or set HA_TOKEN)")
+    if not args.calibrate:
+        if not args.url:
+            parser.error("--url is required")
+        if not args.token:
+            parser.error("--token is required (or set HA_TOKEN)")
 
     try:
-        import numpy as np
         from PIL import Image
-        from playwright.sync_api import sync_playwright
     except ImportError as err:
-        raise SystemExit(
-            f"{err}. Install the dependencies:\n"
-            "    pip install playwright pillow numpy\n"
-            "    playwright install chromium"
-        ) from err
+        raise SystemExit(f"{err}. Install it: pip install pillow") from err
 
     # The browser renders at the panel's shape. A quarter turn means the page is
     # taller than it is wide, and the panel is the other way round.
@@ -278,6 +477,29 @@ def main():
         180: transposes.ROTATE_180,
         270: transposes.ROTATE_90,
     }[args.rotate]
+
+    # Calibration draws its own targets, so it needs neither a browser nor a
+    # token -- which is what makes it the first thing to run on a new board.
+    if args.calibrate:
+        endpoint = connect_tcp(args.host, args.port)
+        try:
+            calibrate(
+                endpoint, page_w, page_h, args.width, args.height, transpose,
+                args.quality,
+            )
+        finally:
+            endpoint.close()
+        return
+
+    try:
+        import numpy as np
+        from playwright.sync_api import sync_playwright
+    except ImportError as err:
+        raise SystemExit(
+            f"{err}. Install the dependencies:\n"
+            "    pip install playwright pillow numpy\n"
+            "    playwright install chromium"
+        ) from err
 
     interval = 1.0 / args.fps if args.fps > 0 else 0.0
 
@@ -309,10 +531,16 @@ def main():
                 "was created on, scheme and port included."
             )
 
-        touch_rotate = args.rotate if args.touch_rotate is None else args.touch_rotate
-        injector = (
-            None if args.no_touch else Injector(page, page_w, page_h, touch_rotate)
+        touch_map = TouchMap(
+            page_w,
+            page_h,
+            args.width,
+            args.height,
+            args.rotate if args.touch_rotate is None else args.touch_rotate,
+            args.touch_mirror_x,
+            args.touch_mirror_y,
         )
+        injector = None if args.no_touch else Injector(page, touch_map)
         frame_id = 0
 
         # One pass per connection: losing the panel waits for it to come back
