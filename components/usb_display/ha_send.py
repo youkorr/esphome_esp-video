@@ -57,7 +57,7 @@ import time
 # udisp_send.py is next to this file and owns the wire format. Importing it
 # rather than restating the header keeps one definition of the protocol.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from udisp_send import build_header, connect_tcp  # noqa: E402
+from udisp_send import build_header, build_heartbeat, connect_tcp  # noqa: E402
 
 # The panel is divided into tiles and each is compared with the last picture.
 # Small tiles find changes precisely and cost many rectangles; large ones cost
@@ -76,6 +76,11 @@ FULL_REDRAW_SECONDS = 30.0
 # what bounds how stale a change can be before it is even noticed; not
 # zero, because each look is a round trip into the browser.
 PUMP_MS = 8
+# How often to say "still here" when there is nothing to send. A sender that
+# only transmits what changed is silent while nothing changes, and silence is
+# indistinguishable from having died; the board's patience has to be longer
+# than this, and is.
+HEARTBEAT_S = 3.0
 # How far a finger has to travel before the gesture is scrolling rather than
 # a tap. Small enough that a deliberate drag is recognised at once, large
 # enough that the wobble of a fingertip on a press is not.
@@ -748,6 +753,7 @@ def main():
             loops = 0
             pending = None
             last_send = 0.0
+            last_sent = time.monotonic()
             stats_at = time.monotonic()
             try:
                 while True:
@@ -832,6 +838,10 @@ def main():
                             # limit decides about the picture and not about each
                             # of its rectangles.
                             frame_id = (frame_id + 1) & 0x3FF
+                        last_sent = started
+                    elif started - last_sent >= HEARTBEAT_S:
+                        endpoint.write(build_heartbeat())
+                        last_sent = started
 
                     reports = endpoint.read_touches()
                     if args.show_touches and reports:

@@ -39,8 +39,16 @@ static const char *const TAG = "usb_display.net";
 // rather than hundreds, small enough to sit in internal RAM alongside a task.
 static constexpr size_t NET_READ_SIZE = 4096;
 // How long to wait for a client's next byte before deciding it has gone away
-// without saying so. A sender at any frame rate at all beats this easily.
-static constexpr int NET_RECV_TIMEOUT_S = 10;
+// without saying so.
+//
+// This has to allow for silence, because silence is the normal state. A sender
+// that only transmits what changed sends nothing at all while nothing changes,
+// and a dashboard can sit still for minutes; ten seconds of that used to be
+// read as a sender that had died, and the connection was torn down and rebuilt
+// every time the screen was quiet. What proves a sender is alive is its
+// heartbeat -- an empty end-of-frame marker every few seconds -- so this only
+// has to be comfortably longer than that.
+static constexpr int NET_RECV_TIMEOUT_S = 30;
 
 #ifdef USE_TOUCHSCREEN
 void USBDisplay::queue_touch_(const touchscreen::TouchPoints_t &points) {
@@ -168,6 +176,11 @@ void USBDisplay::run_network_task() {
       ::setsockopt(client, IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one));
       struct timeval timeout = {.tv_sec = NET_RECV_TIMEOUT_S, .tv_usec = 0};
       ::setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+      // A sender that is gone but whose machine never said so -- unplugged,
+      // suspended, a router that forgot the flow -- leaves a connection that
+      // looks open and delivers nothing. Keepalive is what notices, and it
+      // notices without needing anything to be sent.
+      ::setsockopt(client, SOL_SOCKET, SO_KEEPALIVE, &one, sizeof(one));
 
       char peer_text[16] = {};
       ::inet_ntoa_r(peer.sin_addr, peer_text, sizeof(peer_text));
