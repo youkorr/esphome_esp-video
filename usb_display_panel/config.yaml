@@ -1,5 +1,5 @@
 name: ESP32-P4 Panel
-version: "1.1.0"
+version: "1.2.0"
 slug: usb_display_panel
 description: Renders Home Assistant dashboards onto ESPHome usb_display panels over the network, with touch coming back
 url: https://github.com/youkorr/esphome_esp-video
@@ -13,7 +13,10 @@ options:
   # Set once here and every panel inherits it. A panel may still override any
   # of these for itself.
   token: ""
-  url: http://homeassistant.local:8123/lovelace/0
+  # The name Home Assistant answers to from inside an add-on. Use this rather
+  # than a remote-access address: Tailscale, Nabu Casa and dynamic DNS names
+  # are for reaching the house from outside and do not resolve in here.
+  url: http://homeassistant:8123/lovelace/0
   port: 5000
   fps: 30
   quality: 80

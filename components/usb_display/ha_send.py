@@ -108,6 +108,48 @@ def install_token(context, url, token):
     )
 
 
+def explain_unreachable(url, error):
+    """Say something useful about a page that would not open.
+
+    Playwright's own message names the failure and not the cause, and the
+    likeliest cause here is a name that means something where the address was
+    written and nothing where the browser is running. A remote-access name --
+    Tailscale, Nabu Casa, a dynamic DNS host -- resolves on the network it
+    belongs to; a container beside Home Assistant is not on it and does not
+    need to be, because Home Assistant is right there.
+    """
+    from urllib.parse import urlsplit
+
+    text = str(error)
+    host = urlsplit(url).hostname or url
+    if "ERR_NAME_NOT_RESOLVED" in text:
+        print(f"\n{host} does not resolve from where this is running.")
+        if os.path.exists("/data/options.json"):
+            print(
+                "This is running as a Home Assistant add-on, on the same "
+                "machine as Home Assistant, so it should ask for it directly:\n"
+                "    url: http://homeassistant:8123/lovelace/0\n"
+                "That name exists inside every add-on. A remote-access address "
+                "-- Tailscale, Nabu Casa, dynamic DNS -- is for reaching the "
+                "house from outside and does not resolve in here."
+            )
+        else:
+            print(
+                "Use an address that resolves on this machine: the local "
+                "hostname, or Home Assistant's IP and port."
+            )
+    elif "ERR_CONNECTION_REFUSED" in text:
+        print(f"\nNothing is listening at {host}. Check the port.")
+    elif "ERR_CERT" in text or "SSL" in text:
+        print(
+            f"\nThe certificate for {host} was refused. Inside the house, "
+            "http:// and the plain port avoids the question entirely."
+        )
+    else:
+        return
+    print()
+
+
 def changed_rectangles(previous, current, tile=TILE):
     """Where the two pictures differ, as few rectangles as reasonable.
 
@@ -639,7 +681,11 @@ def main():
         print(f"Opening {args.url} at {page_w}x{page_h}")
         # Not networkidle: the frontend holds a websocket open for as long as it
         # runs, and waiting for the network to go quiet would wait forever.
-        page.goto(args.url, wait_until="domcontentloaded", timeout=60000)
+        try:
+            page.goto(args.url, wait_until="domcontentloaded", timeout=60000)
+        except Exception as err:  # noqa: BLE001 - re-raised after the diagnosis
+            explain_unreachable(args.url, err)
+            raise
         try:
             page.wait_for_selector("home-assistant", timeout=30000)
         except Exception:  # noqa: BLE001 - a page without it is still worth sending
