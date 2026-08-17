@@ -23,7 +23,7 @@ options:
   stats: true
   panels:
     - name: salon
-      host: 192.168.1.9
+      host: ip_esp32P4
       width: 1024
       height: 600
       rotate: "180"
