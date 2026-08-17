@@ -32,6 +32,11 @@ static constexpr float STATS_FPS_EPSILON = 1.0f;
 // buffers. Half a second is far more than any scheduling hiccup and far less
 // than a listener would notice.
 static constexpr uint32_t AUDIO_IDLE_MS = 500;
+// How long a transport that can be made to wait will wait for a free frame
+// buffer. Long enough to ride out a burst -- a whole page arrives as several
+// rectangles at once and the decoder is momentarily behind -- and short enough
+// that a decoder which has genuinely stopped does not hold the socket shut.
+static constexpr uint32_t FRAME_WAIT_MS = 250;
 
 // TinyUSB's callbacks are plain C with no context argument, so the one instance
 // has to be reachable from file scope. A second usb_display would need a second
@@ -341,9 +346,9 @@ bool USBDisplay::allocate_frames_() {
   return true;
 }
 
-USBDisplay::Frame *USBDisplay::take_empty_() {
+USBDisplay::Frame *USBDisplay::take_empty_(uint32_t wait_ms) {
   Frame *frame = nullptr;
-  if (xQueueReceive(this->empty_queue_, &frame, 0) != pdTRUE)
+  if (xQueueReceive(this->empty_queue_, &frame, pdMS_TO_TICKS(wait_ms)) != pdTRUE)
     return nullptr;
   frame->received = 0;
   return frame;
@@ -381,7 +386,7 @@ bool USBDisplay::append_(Frame *frame, const uint8_t *data, size_t len) {
 // marker in this protocol to find it again with, so it stays lost. The visible
 // result is a decoder complaining about impossible geometry, and a panel that
 // freezes until something restarts the connection.
-void USBDisplay::feed_(const uint8_t *data, size_t len) {
+void USBDisplay::feed_(const uint8_t *data, size_t len, bool may_wait) {
   if (len == 0)
     return;
   // Two transports can be active at once; a frame half assembled from one must
@@ -460,10 +465,17 @@ void USBDisplay::feed_(const uint8_t *data, size_t len) {
       continue;
     }
 
-    Frame *frame = this->take_empty_();
+    // Wait for a buffer where waiting is possible. Not reading the socket for a
+    // moment is all the flow control this needs -- the sender blocks, catches
+    // up and carries on -- and it costs nothing, where throwing the rectangle
+    // away costs the pixels under it until the next full redraw. A whole page
+    // arrives as a burst of rectangles and the decoder is briefly behind by
+    // definition; that is the moment this matters most.
+    Frame *frame = this->take_empty_(may_wait ? FRAME_WAIT_MS : 0);
     if (frame == nullptr) {
-      // Nothing free: count this frame out so the next header is recognised
-      // rather than being read out of the middle of a payload.
+      // Nothing free, and nothing to be done about it: count this frame out so
+      // the next header is recognised rather than being read out of the middle
+      // of a payload.
       this->frames_dropped_++;
       this->dropped_no_buffer_++;
       this->skipping_ = header->payload_total;
@@ -475,6 +487,7 @@ void USBDisplay::feed_(const uint8_t *data, size_t len) {
     frame->height = header->height;
     frame->id = header->frame_id;
     frame->total = header->payload_total;
+    frame->paced = may_wait;
     this->current_ = frame;
   }
 }
@@ -510,13 +523,33 @@ void USBDisplay::run_decode_task() {
     // is already stale spends the memory bandwidth the audio needs. Turn it
     // away before any of that work happens, rather than after.
     //
+    // Only a whole-panel frame, though, and only from a transport that cannot
+    // be asked to wait.
+    //
+    // A whole-panel frame is a complete picture and the next one replaces it
+    // entirely, so dropping one costs a moment of smoothness and nothing else.
+    // A smaller rectangle is the opposite: it is the only place its pixels will
+    // ever be sent, because a sender that redraws what changed does not repeat
+    // what did not. Drop one of those and the area under it keeps the previous
+    // page until some later full redraw -- two screens on top of each other,
+    // and a wait to come back.
+    //
+    // And over a socket even a whole-panel frame is worth keeping, because the
+    // sender there believes what it sent was drawn and will not send it again:
+    // it moves on to the next difference. Turning one away leaves the panel a
+    // picture behind with nothing to correct it. Not reading the socket for a
+    // moment says "slow down" without losing anything, which is what the wait
+    // for a free buffer already does.
+    const bool whole_panel = frame->width >= this->width_ && frame->height >= this->height_;
+    //
     // The unit being limited is the picture, not the rectangle. A sender that
     // redraws only what changed splits one picture across several rectangles,
     // all carrying the same identifier; deciding on each of them separately
     // would draw the first and discard the rest, leaving half an update on the
     // panel. So once a picture is admitted the rest of it follows, and once one
     // is turned away the rest of it goes with it.
-    bool too_soon = this->min_frame_interval_ms_ != 0 && millis() - this->last_draw_ms_ < this->min_frame_interval_ms_;
+    bool too_soon = whole_panel && !frame->paced && this->min_frame_interval_ms_ != 0 &&
+                    millis() - this->last_draw_ms_ < this->min_frame_interval_ms_;
     if (frame->id == this->drawing_frame_id_) {
       too_soon = false;
     } else if (frame->id == this->gated_frame_id_) {

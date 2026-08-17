@@ -206,7 +206,10 @@ void USBDisplay::run_network_task() {
 
         int received = ::recv(client, buffer, NET_READ_SIZE, 0);
         if (received > 0) {
-          this->feed_(buffer, (size_t) received);
+          // This transport can be made to wait: not reading the socket for a
+          // moment blocks the sender, which is the whole of the flow control
+          // needed and loses nothing.
+          this->feed_(buffer, (size_t) received, true);
           continue;
         }
         // Zero is an orderly close; anything else is the sender gone or silent

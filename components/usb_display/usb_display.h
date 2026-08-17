@@ -107,7 +107,13 @@ class USBDisplay : public Component
   // reachable from C.
   void on_vendor_rx(uint8_t itf);
   /// One chunk of the host's stream, whatever carried it here.
-  void feed_(const uint8_t *data, size_t len);
+  ///
+  /// may_wait says whether this transport can be made to slow down. A socket
+  /// can: stop reading it and the sender blocks, which costs a moment and
+  /// loses nothing. A USB endpoint cannot -- the host writes whether or not
+  /// anyone is listening -- so there the only answer to a full queue is to
+  /// throw the frame away.
+  void feed_(const uint8_t *data, size_t len, bool may_wait = false);
   /// Set when the host selects a configuration, which it only does once a
   /// driver has claimed the device.
   void set_configured() { this->configured_ = true; }
@@ -131,6 +137,10 @@ class USBDisplay : public Component
     // changed sends several rectangles carrying the same identifier, and they
     // have to be admitted or turned away together.
     uint16_t id{0};
+    // Whether the transport this arrived on can be told to slow down. One that
+    // can is never worth dropping a frame from: waiting says the same thing
+    // and keeps the picture.
+    bool paced{false};
   };
 
   // Decodes whatever the USB side has finished and draws it. Runs on its own
@@ -178,7 +188,7 @@ class USBDisplay : public Component
 #endif
 
   bool allocate_frames_();
-  Frame *take_empty_();
+  Frame *take_empty_(uint32_t wait_ms = 0);
   void queue_filled_(Frame *frame);
   bool append_(Frame *frame, const uint8_t *data, size_t len);
 
