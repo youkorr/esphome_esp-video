@@ -527,6 +527,12 @@ def main():
     parser.add_argument(
         "--stats", action="store_true", help="print what is being sent every 5 seconds"
     )
+    parser.add_argument(
+        "--show-changes",
+        action="store_true",
+        help="with --stats, also name the busiest parts of the screen. Use it "
+        "to find the card that never stops redrawing",
+    )
     args = parser.parse_args()
 
     if not args.calibrate:
@@ -624,6 +630,11 @@ def main():
         # until something on the page moves.
         image = None
         current = None
+        # How often each tile has been in a rectangle, for --show-changes.
+        heat = np.zeros(
+            ((args.height + TILE - 1) // TILE, (args.width + TILE - 1) // TILE),
+            dtype=np.int32,
+        )
 
         # One pass per connection: losing the panel waits for it to come back
         # rather than ending, so this can be left running as a service.
@@ -692,6 +703,11 @@ def main():
                             rectangles_sent += 1
                             bytes_sent += len(payload)
 
+                        if args.show_changes:
+                            for x, y, w, h in rectangles:
+                                heat[y // TILE : (y + h) // TILE,
+                                     x // TILE : (x + w) // TILE] += 1
+
                         if rectangles:
                             previous = current
                             pictures += 1
@@ -738,6 +754,23 @@ def main():
                             # a press waits that long before it is even read.
                             f"loop {loops / elapsed:.1f} Hz"
                         )
+                        if args.show_changes and heat.any():
+                            # Where the traffic is coming from. A dashboard that
+                            # costs hundreds of kilobytes a second has something
+                            # on it that never stops moving -- a graph, a camera
+                            # tile, a spinner -- and the only way to find it is
+                            # to be told which part of the screen it is on.
+                            order = np.argsort(heat, axis=None)[::-1][:5]
+                            spots = []
+                            for flat in order:
+                                ty, tx = divmod(int(flat), heat.shape[1])
+                                if heat[ty, tx] == 0:
+                                    break
+                                spots.append(
+                                    f"{tx * TILE},{ty * TILE} x{int(heat[ty, tx])}"
+                                )
+                            print("  busiest areas: " + "; ".join(spots))
+                            heat[:] = 0
                         rectangles_sent = bytes_sent = pictures = loops = 0
                         stats_at = now
             except OSError as err:
