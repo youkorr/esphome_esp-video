@@ -150,7 +150,7 @@ void USBDisplay::setup() {
   // enumerated the drive.
   this->setup_sender_drive_();
 #endif
-#if CFG_TUD_HID
+#ifdef USE_TOUCHSCREEN
   if (this->touchscreen_ != nullptr)
     this->setup_touch_();
 #endif
@@ -636,6 +636,10 @@ void USBDisplay::dump_config() {
   // never shows it.
   if (this->port_ != 0) {
     ESP_LOGCONFIG(TAG, "  Also listening on TCP port %u", (unsigned) this->port_);
+#ifdef USE_TOUCHSCREEN
+    if (this->touchscreen_ != nullptr)
+      ESP_LOGCONFIG(TAG, "    Touches sent back to the connected sender");
+#endif
   } else {
     ESP_LOGCONFIG(TAG, "  Network: off (set port: to accept frames over Wi-Fi)");
   }

@@ -5,9 +5,15 @@
  * decoder, the rotation accelerator and the panel. This file only moves bytes.
  *
  * It adds to the USB interface rather than replacing it, so a board can stay
- * plugged in for its touch screen and its speaker -- both of which are USB
- * interfaces and have no network equivalent here -- while the picture arrives
- * over Wi-Fi.
+ * plugged in for its speaker -- which is a USB interface and has no network
+ * equivalent here -- while the picture arrives over Wi-Fi.
+ *
+ * The socket carries traffic the other way too. Touches go back up it, so a
+ * board with no cable at all is still an input device: whoever is drawing the
+ * picture learns where the finger went and can redraw accordingly. Over USB
+ * that job belongs to HID, which every operating system understands without
+ * being told; over the network there is no such class, so the contacts are
+ * sent as they are and the sender decides what they mean.
  */
 
 #include "usb_display.h"
@@ -36,9 +42,60 @@ static constexpr size_t NET_READ_SIZE = 4096;
 // without saying so. A sender at any frame rate at all beats this easily.
 static constexpr int NET_RECV_TIMEOUT_S = 10;
 
+#ifdef USE_TOUCHSCREEN
+void USBDisplay::queue_touch_(const touchscreen::TouchPoints_t &points) {
+  if (this->touch_queue_ == nullptr)
+    return;
+  TouchEvent event = {};
+  for (const auto &point : points) {
+    if (event.count >= UDISP_NET_TOUCH_MAX)
+      break;
+    event.id[event.count] = point.id;
+    event.x[event.count] = point.x;
+    event.y[event.count] = point.y;
+    event.count++;
+  }
+  // Never block the loop for a sender that has stopped reading: a lost touch
+  // is replaced by the next poll, a stalled loop is not.
+  xQueueSend(this->touch_queue_, &event, 0);
+}
+
+void USBDisplay::send_queued_touches_(int client) {
+  if (this->touch_queue_ == nullptr)
+    return;
+  TouchEvent event;
+  while (xQueueReceive(this->touch_queue_, &event, 0) == pdTRUE) {
+    // 'T', a count, then five bytes per contact.
+    uint8_t message[2 + UDISP_NET_TOUCH_MAX * 5];
+    message[0] = 'T';
+    message[1] = event.count;
+    size_t at = 2;
+    for (uint8_t i = 0; i < event.count; i++) {
+      message[at++] = event.id[i];
+      message[at++] = (uint8_t) (event.x[i] & 0xFF);
+      message[at++] = (uint8_t) (event.x[i] >> 8);
+      message[at++] = (uint8_t) (event.y[i] & 0xFF);
+      message[at++] = (uint8_t) (event.y[i] >> 8);
+    }
+    // Never block here. A sender that only pushes frames and never reads its
+    // socket would otherwise fill its receive window and stall this task, and
+    // with it the picture -- a steep price for a return channel it is ignoring.
+    if (::send(client, message, at, MSG_DONTWAIT) < 0)
+      return;  // the read side will notice if the connection is really gone
+  }
+}
+#endif  // USE_TOUCHSCREEN
+
 void USBDisplay::setup_network_() {
   if (this->port_ == 0)
     return;
+#ifdef USE_TOUCHSCREEN
+  if (this->touchscreen_ != nullptr) {
+    // Deep enough to ride out a busy moment, shallow enough that a stale touch
+    // is never delivered long after the finger left.
+    this->touch_queue_ = xQueueCreate(8, sizeof(TouchEvent));
+  }
+#endif
   xTaskCreatePinnedToCore(USBDisplay::network_task, "udispnet", 4096, this, 4, nullptr, 0);
   ESP_LOGCONFIG(TAG, "Listening on port %u for frames", (unsigned) this->port_);
 }
@@ -97,7 +154,34 @@ void USBDisplay::run_network_task() {
       ::inet_ntoa_r(peer.sin_addr, peer_text, sizeof(peer_text));
       ESP_LOGI(TAG, "Sender connected from %s", peer_text);
 
+#ifdef USE_TOUCHSCREEN
+      // Contacts made while nobody was connected are history, not input: a
+      // sender that has just arrived must not be handed a press from before it
+      // existed.
+      if (this->touch_queue_ != nullptr)
+        xQueueReset(this->touch_queue_);
+#endif
+
       while (true) {
+        // Wait briefly rather than blocking on the read: the same loop has to
+        // get touches out, and they must not wait for the next frame to arrive.
+        fd_set readable;
+        FD_ZERO(&readable);
+        FD_SET(client, &readable);
+        struct timeval slice = {.tv_sec = 0, .tv_usec = 20000};
+        int ready = ::select(client + 1, &readable, nullptr, nullptr, &slice);
+
+#ifdef USE_TOUCHSCREEN
+        this->send_queued_touches_(client);
+#endif
+
+        if (ready == 0)
+          continue;  // nothing to read yet; the sender is simply between frames
+        if (ready < 0) {
+          ESP_LOGW(TAG, "select() failed: %s", strerror(errno));
+          break;
+        }
+
         int received = ::recv(client, buffer, NET_READ_SIZE, 0);
         if (received > 0) {
           this->feed_(buffer, (size_t) received);

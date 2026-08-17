@@ -25,6 +25,10 @@ extern "C" {
 namespace esphome {
 namespace usb_display {
 
+/// Contacts carried back to the network sender in one message. The same five a
+/// digitizer reports over HID, so neither path is the narrower one.
+static constexpr uint8_t UDISP_NET_TOUCH_MAX = 5;
+
 /**
  * @brief Turns the ESP32-P4 into a second monitor for a PC over USB.
  *
@@ -37,7 +41,7 @@ namespace usb_display {
  * windows_driver directory of Espressif's usb_extend_screen example.
  */
 class USBDisplay : public Component
-#if CFG_TUD_HID
+#ifdef USE_TOUCHSCREEN
     ,
                    public touchscreen::TouchListener
 #endif
@@ -81,9 +85,13 @@ class USBDisplay : public Component
   float get_audio_volume() const { return this->audio_volume_; }
 #endif
 
-#if CFG_TUD_HID
+#ifdef USE_TOUCHSCREEN
   void set_touchscreen(touchscreen::Touchscreen *touchscreen) { this->touchscreen_ = touchscreen; }
-  // Every poll of the touch screen, with all contacts currently down.
+  // Every poll of the touch screen, with all contacts currently down. Touches
+  // go two ways at once where both are available: to the host as HID, which is
+  // what makes a USB-attached panel a real digitizer, and back up the network
+  // socket to whoever is sending the picture, which is what makes a dashboard
+  // rendered elsewhere pressable here.
   void update(const touchscreen::TouchPoints_t &points) override;
   void release() override;
 #endif
@@ -141,6 +149,11 @@ class USBDisplay : public Component
   void setup_sender_drive_();
   // Defined in network.cpp: listens for a sender and feeds it to feed_().
   void setup_network_();
+#ifdef USE_TOUCHSCREEN
+  /// Queue one contact set for the network sender, if one is connected.
+  void queue_touch_(const touchscreen::TouchPoints_t &points);
+  void send_queued_touches_(int client);
+#endif
   static void network_task(void *param);
   void run_network_task();
   /// Forget a half-received frame, so the next sender's first header is not
@@ -151,9 +164,11 @@ class USBDisplay : public Component
   void setup_audio_();
   void flush_audio_block_();
 #endif
-#if CFG_TUD_HID
+#ifdef USE_TOUCHSCREEN
   // Defined in touch.cpp, and compiled away with it.
   void setup_touch_();
+#endif
+#if CFG_TUD_HID
   bool send_touch_report_(const udisp_touch_report_t &report);
   void retry_release_();
 #endif
@@ -171,6 +186,20 @@ class USBDisplay : public Component
   uint32_t min_frame_interval_ms_{0};
   uint32_t last_draw_ms_{0};
   uint16_t port_{0};
+#ifdef USE_TOUCHSCREEN
+  // Touches travel back to whoever is sending the picture, so a dashboard
+  // rendered elsewhere can be pressed here. The touchscreen reports on
+  // ESPHome's loop and the socket is written from the network task, so they
+  // meet in a queue rather than touching the same descriptor.
+  QueueHandle_t touch_queue_{nullptr};
+  /// Board to sender: 'T', a contact count, then that many id/x/y triples.
+  struct TouchEvent {
+    uint8_t count;
+    uint8_t id[UDISP_NET_TOUCH_MAX];
+    uint16_t x[UDISP_NET_TOUCH_MAX];
+    uint16_t y[UDISP_NET_TOUCH_MAX];
+  };
+#endif
   // feed_() is reachable from the USB task and the network one at once.
   Mutex feed_lock_;
 
@@ -230,8 +259,10 @@ class USBDisplay : public Component
   uint32_t audio_underruns_{0};
 #endif
 
-#if CFG_TUD_HID
+#ifdef USE_TOUCHSCREEN
   touchscreen::Touchscreen *touchscreen_{nullptr};
+#endif
+#if CFG_TUD_HID
   // A release the host has not been told about yet. Losing a press costs one
   // poll; losing a release leaves a finger down forever.
   bool release_pending_{false};

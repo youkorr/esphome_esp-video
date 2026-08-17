@@ -130,14 +130,87 @@ def find_endpoint(vid, pid):
     return device, endpoint
 
 
+def parse_touch_messages(buffer):
+    """Pull whole touch reports out of a byte buffer from the board.
+
+    The board sends its contacts back up the same socket the frames go down:
+    b"T", a contact count, then five bytes per contact -- an identifier and a
+    little-endian x and y, in the panel's own pixels, already corrected by the
+    touch screen's own transform. A count of zero is a release.
+
+    Returns the reports it could complete and whatever tail is still short of
+    one, so the caller can hand the tail back on the next read.
+    """
+    reports = []
+    at = 0
+    while True:
+        if len(buffer) - at < 2:
+            break
+        if buffer[at] != ord("T"):
+            # Not a message boundary: skip a byte rather than reading a length
+            # out of the middle of something.
+            at += 1
+            continue
+        count = buffer[at + 1]
+        end = at + 2 + count * 5
+        if len(buffer) < end:
+            break
+        contacts = []
+        for i in range(count):
+            base = at + 2 + i * 5
+            contacts.append(
+                (
+                    buffer[base],
+                    buffer[base + 1] | (buffer[base + 2] << 8),
+                    buffer[base + 3] | (buffer[base + 4] << 8),
+                )
+            )
+        reports.append(contacts)
+        at = end
+    return reports, buffer[at:]
+
+
 class _TcpEndpoint:
-    """A socket dressed as the endpoint object the send loop already uses."""
+    """A socket dressed as the endpoint object the send loop already uses.
+
+    It also drains the board's return channel. This sender does nothing with
+    the touches -- it mirrors a desktop that already has its own pointer, and
+    over the cable the same contacts arrive as HID, which every operating
+    system understands by itself. Draining still matters: a socket nobody reads
+    fills its window and eventually costs the board a send. read_touches() is
+    where a sender that renders its own page picks them up instead.
+    """
 
     def __init__(self, sock):
         self._sock = sock
+        self._tail = b""
 
     def write(self, data):
         self._sock.sendall(data)
+
+    def read_touches(self):
+        """Whatever the board has said since the last call. Never blocks.
+
+        select() rather than MSG_DONTWAIT, which Windows does not have.
+        """
+        import select
+
+        while True:
+            try:
+                readable, _, _ = select.select([self._sock], [], [], 0)
+            except OSError:
+                break
+            if not readable:
+                break
+            try:
+                chunk = self._sock.recv(4096)
+            except OSError:
+                break
+            if not chunk:
+                break
+            self._tail += chunk
+        reports, self._tail = parse_touch_messages(self._tail)
+        return reports
 
     def close(self):
         self._sock.close()
@@ -449,6 +522,13 @@ def main():
                             + payload
                         )
                         frame_id = (frame_id + 1) & 0x3FF
+
+                        # Keep the return channel empty. This sender mirrors a
+                        # desktop, so it has nothing to do with the contacts,
+                        # but leaving them unread would eventually cost the
+                        # board a send.
+                        if hasattr(endpoint, "read_touches"):
+                            endpoint.read_touches()
 
                         frames += 1
                         total_bytes += len(payload)

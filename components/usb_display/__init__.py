@@ -141,6 +141,11 @@ CONFIG_SCHEMA = cv.All(
             # touchscreen's own transform: before a listener sees a point, so a
             # panel mounted upside down is corrected in one place for both this
             # and LVGL.
+            #
+            # Contacts go wherever there is somebody to send them: to the host
+            # as an HID digitizer over the cable, and back up the socket to a
+            # connected network sender. The second is what makes a page
+            # rendered on another machine pressable here.
             cv.Optional(CONF_TOUCHSCREEN_ID): cv.use_id(touchscreen.Touchscreen),
             # Optional. Any ESPHome speaker, so this can be one input of a
             # mixer alongside a media player and a voice assistant rather than
@@ -184,9 +189,10 @@ CONFIG_SCHEMA = cv.All(
             # single-interface device.
             cv.Optional(CONF_SENDER_DRIVE, default=True): cv.boolean,
             # Accept frames over the network as well as over USB. The USB
-            # interfaces stay: touch and sound have no equivalent here, so a
-            # board can be plugged in for those and take its picture over
-            # Wi-Fi.
+            # interfaces stay: sound has no equivalent here, so a board can be
+            # plugged in for that and take its picture over Wi-Fi. Touches
+            # travel back over this socket, so a board with no cable at all is
+            # still an input device.
             cv.Optional(CONF_PORT): cv.port,
             # Advertised to the host in the vendor interface string, which is
             # how a driver on the other end learns what to send. Espressif's
