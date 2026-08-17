@@ -208,6 +208,10 @@ class USBDisplay : public Component
     uint16_t x[UDISP_NET_TOUCH_MAX];
     uint16_t y[UDISP_NET_TOUCH_MAX];
   };
+  // The last set queued, so a finger resting still is not sent fifty times a
+  // second saying the same thing.
+  TouchEvent last_touch_{};
+  bool last_touch_valid_{false};
 #endif
   // feed_() is reachable from the USB task and the network one at once.
   Mutex feed_lock_;

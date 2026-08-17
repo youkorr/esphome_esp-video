@@ -423,14 +423,27 @@ class Injector:
         self._down = False
 
     def handle(self, reports):
+        # Collapse first. Several reports can arrive between two passes of the
+        # loop, and within a run of them only the last position is where the
+        # finger actually is -- every earlier one would be a round trip into the
+        # browser spent moving to somewhere it has already left. What must not
+        # be collapsed is a change of state: a press and the release that ends
+        # it are what make a click.
+        batch = []
         for contacts in reports:
-            if not contacts:
+            point = None if not contacts else contacts[0][1:]
+            if batch and (point is None) == (batch[-1] is None):
+                batch[-1] = point
+            else:
+                batch.append(point)
+
+        for point in batch:
+            if point is None:
                 if self._down:
                     self._page.mouse.up()
                     self._down = False
                 continue
-            _, px, py = contacts[0]
-            x, y = self._map.to_page(px, py)
+            x, y = self._map.to_page(*point)
             self._page.mouse.move(x, y)
             if not self._down:
                 self._page.mouse.down()
@@ -621,6 +634,7 @@ def main():
             rectangles_sent = 0
             bytes_sent = 0
             pictures = 0
+            loops = 0
             stats_at = time.monotonic()
             try:
                 while True:
@@ -687,27 +701,44 @@ def main():
                             frame_id = (frame_id + 1) & 0x3FF
 
                     reports = endpoint.read_touches()
-                    if args.show_touches:
+                    if args.show_touches and reports:
+                        # With the time on them, because "the panel reacts
+                        # slowly" has two very different causes and this tells
+                        # them apart: a stamp that appears the moment the finger
+                        # lands means the board and the network are fine and the
+                        # wait is the page reacting, and one that appears late
+                        # means the report itself was late.
+                        stamp = time.strftime("%H:%M:%S") + f".{int(time.time() % 1 * 1000):03d}"
                         for contacts in reports:
                             if contacts:
                                 joined = ", ".join(
                                     f"#{i} at {x},{y}" for i, x, y in contacts
                                 )
-                                print(f"touch {joined}")
+                                print(f"[{stamp}] touch {joined}")
                             else:
-                                print("touch released")
+                                print(f"[{stamp}] touch released")
                     if injector is not None and reports:
                         injector.handle(reports)
+                        if args.show_touches:
+                            print(
+                                f"[{time.strftime('%H:%M:%S')}"
+                                f".{int(time.time() % 1 * 1000):03d}] injected"
+                            )
 
+                    loops += 1
                     now = time.monotonic()
                     if args.stats and now - stats_at >= 5.0:
                         elapsed = now - stats_at
                         print(
                             f"{pictures / elapsed:.1f} pictures/s, "
                             f"{rectangles_sent / elapsed:.1f} rectangles/s, "
-                            f"{bytes_sent / elapsed / 1024:.1f} KiB/s"
+                            f"{bytes_sent / elapsed / 1024:.1f} KiB/s, "
+                            # How often touches are looked at. Anything much
+                            # below --fps means the loop is the bottleneck, and
+                            # a press waits that long before it is even read.
+                            f"loop {loops / elapsed:.1f} Hz"
                         )
-                        rectangles_sent = bytes_sent = pictures = 0
+                        rectangles_sent = bytes_sent = pictures = loops = 0
                         stats_at = now
             except OSError as err:
                 print(f"Lost the panel ({err}), waiting for it to come back")

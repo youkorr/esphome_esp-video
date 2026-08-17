@@ -55,9 +55,28 @@ void USBDisplay::queue_touch_(const touchscreen::TouchPoints_t &points) {
     event.y[event.count] = point.y;
     event.count++;
   }
-  // Never block the loop for a sender that has stopped reading: a lost touch
-  // is replaced by the next poll, a stalled loop is not.
-  xQueueSend(this->touch_queue_, &event, 0);
+
+  // A touch screen is polled on an interval -- 20 ms is a common one -- so a
+  // finger resting still says the same thing fifty times a second. None of
+  // those repeats tell the sender anything it does not already know, and every
+  // one of them costs a slot in the queue and a message on the wire.
+  if (this->last_touch_valid_ && std::memcmp(&event, &this->last_touch_, sizeof(event)) == 0)
+    return;
+  this->last_touch_ = event;
+  this->last_touch_valid_ = true;
+
+  // Never block the loop for a sender that has stopped reading. When the queue
+  // is full the oldest goes, not the newest: for input the latest position is
+  // the true one, and -- far more important -- the last event of a press is the
+  // release. Dropping the newest drops exactly that, and a sender left holding
+  // a button that was let go does not act on it until some later release
+  // happens to get through, which reads as seconds of lag rather than as a lost
+  // event.
+  if (xQueueSend(this->touch_queue_, &event, 0) != pdTRUE) {
+    TouchEvent discarded;
+    xQueueReceive(this->touch_queue_, &discarded, 0);
+    xQueueSend(this->touch_queue_, &event, 0);
+  }
 }
 
 void USBDisplay::send_queued_touches_(int client) {
@@ -160,6 +179,9 @@ void USBDisplay::run_network_task() {
       // existed.
       if (this->touch_queue_ != nullptr)
         xQueueReset(this->touch_queue_);
+      // With the queue empty there is nothing for the next event to be a
+      // repeat of, whatever the finger was doing before.
+      this->last_touch_valid_ = false;
 #endif
 
       while (true) {
