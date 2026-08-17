@@ -47,6 +47,7 @@ what lets a browser with no keyboard get past the login screen.
 """
 
 import argparse
+import base64
 import io
 import json
 import os
@@ -350,6 +351,63 @@ def calibrate(endpoint, page_w, page_h, panel_w, panel_h, transpose, quality):
     return best
 
 
+class Screencast:
+    """Frames pushed by the browser, rather than pulled out of it.
+
+    Page.captureScreenshot forces a full paint, a compose and an encode every
+    time it is called, whether or not anything moved -- and on a live dashboard
+    it is slow enough to fall behind and eventually fail outright with "Unable to
+    capture screenshot". Chromium's screencast is the other way round: it hands
+    over a frame when the page actually changes and stays silent when it does
+    not, which is exactly the question this sender is asking.
+
+    Frames must be acknowledged or the stream stops after a handful. The
+    acknowledgement is deliberately not sent from the event handler -- that runs
+    inside Playwright's own dispatch -- but from the loop, right after pumping.
+    """
+
+    def __init__(self, page, width, height):
+        self._session = page.context.new_cdp_session(page)
+        self._latest = None
+        self._unacked = []
+        self._session.on("Page.screencastFrame", self._on_frame)
+        self._session.send(
+            "Page.startScreencast",
+            {
+                # Lossless: a JPEG here would make every tile differ from the
+                # last by a pixel or two of ringing, and nothing would ever look
+                # unchanged.
+                "format": "png",
+                "maxWidth": width,
+                "maxHeight": height,
+                "everyNthFrame": 1,
+            },
+        )
+
+    def _on_frame(self, params):
+        self._latest = base64.b64decode(params["data"])
+        self._unacked.append(params["sessionId"])
+
+    def take(self):
+        """The newest frame since the last call, or None if nothing moved."""
+        for session_id in self._unacked:
+            try:
+                self._session.send(
+                    "Page.screencastFrameAck", {"sessionId": session_id}
+                )
+            except Exception:  # noqa: BLE001 - a closed page is handled by the caller
+                pass
+        self._unacked.clear()
+        frame, self._latest = self._latest, None
+        return frame
+
+    def stop(self):
+        try:
+            self._session.send("Page.stopScreencast")
+        except Exception:  # noqa: BLE001 - going away anyway
+            pass
+
+
 class Injector:
     """Replays the panel's contacts into the browser.
 
@@ -439,7 +497,12 @@ def main():
         help="the panel reports y the other way round. From --calibrate",
     )
     parser.add_argument(
-        "--fps", type=float, default=10.0, help="how often to look for changes"
+        "--fps",
+        type=float,
+        default=10.0,
+        help="upper bound on how often a change is acted on. The browser only "
+        "hands over a frame when the page moves, so a still dashboard costs "
+        "nothing whatever this is set to",
     )
     parser.add_argument("--quality", type=int, default=80, help="JPEG quality, 1..95")
     parser.add_argument(
@@ -541,7 +604,13 @@ def main():
             args.touch_mirror_y,
         )
         injector = None if args.no_touch else Injector(page, touch_map)
+        capture = Screencast(page, page_w, page_h)
         frame_id = 0
+        # The newest rendering, kept across connections: a panel that comes back
+        # needs a whole picture, and the browser will not send another frame
+        # until something on the page moves.
+        image = None
+        current = None
 
         # One pass per connection: losing the panel waits for it to come back
         # rather than ending, so this can be left running as a service.
@@ -557,51 +626,65 @@ def main():
                 while True:
                     started = time.monotonic()
 
-                    shot = page.screenshot(type="png")
-                    image = Image.open(io.BytesIO(shot)).convert("RGB")
-                    if transpose is not None:
-                        image = image.transpose(transpose)
-                    if image.size != (args.width, args.height):
-                        image = image.resize(
-                            (args.width, args.height), Image.BILINEAR
-                        )
-                    current = np.asarray(image)
+                    # This is also what pumps the browser's events, so the
+                    # screencast frame below arrives here and nowhere else.
+                    page.wait_for_timeout(max(1, int(interval * 1000)))
 
-                    force_full = (
-                        previous is None
-                        or started - last_full >= FULL_REDRAW_SECONDS
-                    )
-                    if force_full:
-                        rectangles = [(0, 0, args.width, args.height)]
-                        last_full = started
-                    else:
-                        rectangles = changed_rectangles(previous, current)
-                        covered = sum(w * h for _, _, w, h in rectangles)
-                        if covered == 0:
-                            rectangles = []
-                        elif covered > args.width * args.height * FULL_REDRAW_FRACTION:
+                    shot = capture.take()
+                    if shot is not None:
+                        image = Image.open(io.BytesIO(shot)).convert("RGB")
+                        if transpose is not None:
+                            image = image.transpose(transpose)
+                        if image.size != (args.width, args.height):
+                            image = image.resize(
+                                (args.width, args.height), Image.BILINEAR
+                            )
+                        current = np.asarray(image)
+
+                    stale = started - last_full >= FULL_REDRAW_SECONDS
+                    # Nothing to send until the browser has produced something.
+                    # After that, a new frame is a reason to send, and so is a
+                    # panel that has just reconnected and knows nothing.
+                    if image is not None and (
+                        shot is not None or previous is None or stale
+                    ):
+                        # Everything, when there is nothing to compare against
+                        # yet, and once in a while regardless: a rectangle lost
+                        # to a busy board or a hiccuping socket would otherwise
+                        # stay wrong forever, because nothing would ever mark
+                        # that area as changed again.
+                        if previous is None or stale:
                             rectangles = [(0, 0, args.width, args.height)]
                             last_full = started
+                        else:
+                            rectangles = changed_rectangles(previous, current)
+                            covered = sum(w * h for _, _, w, h in rectangles)
+                            if covered > (
+                                args.width * args.height * FULL_REDRAW_FRACTION
+                            ):
+                                rectangles = [(0, 0, args.width, args.height)]
+                                last_full = started
 
-                    for x, y, w, h in rectangles:
-                        buffer = io.BytesIO()
-                        image.crop((x, y, x + w, y + h)).save(
-                            buffer, format="JPEG", quality=args.quality
-                        )
-                        payload = buffer.getvalue()
-                        endpoint.write(
-                            build_header(w, h, len(payload), frame_id, x, y) + payload
-                        )
-                        rectangles_sent += 1
-                        bytes_sent += len(payload)
+                        for x, y, w, h in rectangles:
+                            buffer = io.BytesIO()
+                            image.crop((x, y, x + w, y + h)).save(
+                                buffer, format="JPEG", quality=args.quality
+                            )
+                            payload = buffer.getvalue()
+                            endpoint.write(
+                                build_header(w, h, len(payload), frame_id, x, y)
+                                + payload
+                            )
+                            rectangles_sent += 1
+                            bytes_sent += len(payload)
 
-                    if rectangles:
-                        previous = current
-                        pictures += 1
-                        # One identifier per picture, so the board's rate limit
-                        # decides about the picture and not about each of its
-                        # rectangles.
-                        frame_id = (frame_id + 1) & 0x3FF
+                        if rectangles:
+                            previous = current
+                            pictures += 1
+                            # One identifier per picture, so the board's rate
+                            # limit decides about the picture and not about each
+                            # of its rectangles.
+                            frame_id = (frame_id + 1) & 0x3FF
 
                     reports = endpoint.read_touches()
                     if args.show_touches:
@@ -626,10 +709,6 @@ def main():
                         )
                         rectangles_sent = bytes_sent = pictures = 0
                         stats_at = now
-
-                    remaining = interval - (time.monotonic() - started)
-                    if remaining > 0:
-                        time.sleep(remaining)
             except OSError as err:
                 print(f"Lost the panel ({err}), waiting for it to come back")
                 if injector is not None:
