@@ -13,6 +13,8 @@ substitutions:
 esphome:
   name: ${name}
   friendly_name: ${name}
+  on_boot:
+    - script.execute: screen_timeout
 
 esp32:
   board: esp32-p4-evboard
@@ -116,7 +118,11 @@ touchscreen:
       mirror_x: true
       mirror_y: true
     on_touch:
+      # Rallume, et relance le compte a rebours depuis zero. Le script est en
+      # mode "restart", donc un toucher pendant qu'il attend annule l'attente
+      # en cours et en commence une neuve.
       - light.turn_on: backlight
+      - script.execute: screen_timeout
 
 # ---------------------------------------------------------------------------
 #  Son : le PC ou le serveur envoie l'audio par USB, il sort sur l'ES8311
@@ -191,7 +197,50 @@ usb_display:
   on_audio_stop:
     - switch.turn_off: audio_amplifier
 
-# Le volume regle par le PC et celui regle par Home Assistant sont le meme.
+
+# ---------------------------------------------------------------------------
+#  Mise en veille de la dalle
+#
+#  Le retroeclairage s'eteint apres un temps sans toucher, et se rallume au
+#  premier contact. Le compte a rebours est un script en mode "restart" :
+#  chaque toucher le relance depuis zero, ce qui est tout ce qu'il faut.
+#  0 ou moins = jamais de veille.
+# ---------------------------------------------------------------------------
+globals:
+  - id: screen_off_delay
+    type: int
+    restore_value: no
+    initial_value: '60'
+
+script:
+  - id: screen_timeout
+    mode: restart
+    then:
+      - if:
+          condition:
+            lambda: 'return id(screen_off_delay) > 0;'
+          then:
+            - delay: !lambda 'return id(screen_off_delay) * 1000;'
+            - light.turn_off: backlight
+
 number:
   - platform: usb_display
     name: Volume
+
+  - platform: template
+    name: Veille de l ecran
+    id: auto_off
+    optimistic: true
+    restore_value: true
+    min_value: 0
+    max_value: 600
+    step: 10
+    initial_value: 60
+    mode: slider
+    unit_of_measurement: s
+    icon: mdi:television-off
+    on_value:
+      # Prise en compte immediate : le compte a rebours repart avec la
+      # nouvelle valeur au lieu d'attendre le prochain toucher.
+      - lambda: 'id(screen_off_delay) = (int) x;'
+      - script.execute: screen_timeout
