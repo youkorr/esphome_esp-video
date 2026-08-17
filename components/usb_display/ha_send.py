@@ -227,6 +227,16 @@ def main():
         "option is already doing this",
     )
     parser.add_argument(
+        "--touch-rotate",
+        type=int,
+        choices=(0, 90, 180, 270),
+        help="how far to turn the contacts back, when that is not --rotate. A "
+        "touch screen configured with its own transform: may already be "
+        "reporting in the orientation the picture is shown in, in which case "
+        "the contacts need no turning at all and this is 0. Symptom of getting "
+        "it wrong: presses land at the opposite corner",
+    )
+    parser.add_argument(
         "--fps", type=float, default=10.0, help="how often to look for changes"
     )
     parser.add_argument("--quality", type=int, default=80, help="JPEG quality, 1..95")
@@ -299,7 +309,10 @@ def main():
                 "was created on, scheme and port included."
             )
 
-        injector = None if args.no_touch else Injector(page, page_w, page_h, args.rotate)
+        touch_rotate = args.rotate if args.touch_rotate is None else args.touch_rotate
+        injector = (
+            None if args.no_touch else Injector(page, page_w, page_h, touch_rotate)
+        )
         frame_id = 0
 
         # One pass per connection: losing the panel waits for it to come back
