@@ -422,6 +422,12 @@ def main():
         "instead of over USB. Use with the component's port: option",
     )
     parser.add_argument("--port", type=int, default=5000)
+    parser.add_argument(
+        "--show-touches",
+        action="store_true",
+        help="print the contacts the board sends back over the network. Nothing "
+        "here acts on them -- this is how to see that the return channel works",
+    )
     parser.add_argument("--vid", type=lambda v: int(v, 0), default=DEFAULT_VID)
     parser.add_argument("--pid", type=lambda v: int(v, 0), default=DEFAULT_PID)
     parser.add_argument(
@@ -528,7 +534,18 @@ def main():
                         # but leaving them unread would eventually cost the
                         # board a send.
                         if hasattr(endpoint, "read_touches"):
-                            endpoint.read_touches()
+                            for contacts in endpoint.read_touches():
+                                if not args.show_touches:
+                                    continue
+                                if contacts:
+                                    print(
+                                        "touch "
+                                        + ", ".join(
+                                            f"#{i} at {x},{y}" for i, x, y in contacts
+                                        )
+                                    )
+                                else:
+                                    print("touch released")
 
                         frames += 1
                         total_bytes += len(payload)
