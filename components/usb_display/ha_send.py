@@ -76,6 +76,10 @@ FULL_REDRAW_SECONDS = 30.0
 # what bounds how stale a change can be before it is even noticed; not
 # zero, because each look is a round trip into the browser.
 PUMP_MS = 8
+# How far a finger has to travel before the gesture is scrolling rather than
+# a tap. Small enough that a deliberate drag is recognised at once, large
+# enough that the wobble of a fingertip on a press is not.
+DRAG_THRESHOLD = 12
 
 
 def install_token(context, url, token):
@@ -422,47 +426,75 @@ class Injector:
     """Replays the panel's contacts into the browser.
 
     One pointer, because a dashboard is a list of things to press and the second
-    finger has nothing to do. Down and up are tracked rather than sent for every
-    report: a finger held still still reports, and pressing again every poll
-    would turn one tap into thirty.
+    finger has nothing to do.
+
+    A finger does two things a mouse does not do with one button: it taps, and
+    it drags to scroll. Which one it was is only known once it has moved, so the
+    press is held back until the finger lifts. A gesture that stayed put becomes
+    a click; one that travelled becomes scrolling, by the distance it
+    travelled -- drag the content down and the page goes up, the way it does on
+    anything with a touch screen. Sending the press immediately instead would
+    turn every scroll into a click on whatever was under the finger when it
+    landed.
     """
 
     def __init__(self, page, touch_map):
         self._page = page
         self._map = touch_map
-        self._down = False
+        # Where the finger landed, and where it was last seen. None between
+        # gestures.
+        self._start = None
+        self._last = None
+        self._scrolling = False
 
     def handle(self, reports):
-        # Collapse first. Several reports can arrive between two passes of the
-        # loop, and within a run of them only the last position is where the
-        # finger actually is -- every earlier one would be a round trip into the
-        # browser spent moving to somewhere it has already left. What must not
-        # be collapsed is a change of state: a press and the release that ends
-        # it are what make a click.
-        batch = []
+        # Every report, in order. Collapsing a run of them down to its last
+        # position would be cheaper but wrong: the first position of a run is
+        # where the finger landed and the rest is how far it travelled, and a
+        # gesture is exactly the difference between the two. Nothing is spent on
+        # this -- the browser is only called when the finger lands, moves or
+        # lifts, and the board already stops repeating a finger that is holding
+        # still.
         for contacts in reports:
             point = None if not contacts else contacts[0][1:]
-            if batch and (point is None) == (batch[-1] is None):
-                batch[-1] = point
-            else:
-                batch.append(point)
-
-        for point in batch:
             if point is None:
-                if self._down:
-                    self._page.mouse.up()
-                    self._down = False
+                self._finish()
                 continue
             x, y = self._map.to_page(*point)
-            self._page.mouse.move(x, y)
-            if not self._down:
-                self._page.mouse.down()
-                self._down = True
+            if self._start is None:
+                # The finger has just landed. Put the pointer there so a scroll
+                # goes to whatever is under it -- a dashboard has panes that
+                # scroll on their own -- but do not press yet.
+                self._page.mouse.move(x, y)
+                self._start = self._last = (x, y)
+                self._scrolling = False
+                continue
+            if not self._scrolling and (
+                abs(x - self._start[0]) + abs(y - self._start[1]) >= DRAG_THRESHOLD
+            ):
+                self._scrolling = True
+            if self._scrolling:
+                dx, dy = x - self._last[0], y - self._last[1]
+                if dx or dy:
+                    # Negated: dragging the content downwards means going up the
+                    # page, which is a negative wheel.
+                    self._page.mouse.wheel(-dx, -dy)
+            self._last = (x, y)
+
+    def _finish(self):
+        """The finger left. A gesture that never travelled was a tap."""
+        if self._start is not None and not self._scrolling:
+            self._page.mouse.move(*self._last)
+            self._page.mouse.down()
+            self._page.mouse.up()
+        self._start = self._last = None
+        self._scrolling = False
 
     def release(self):
-        if self._down:
-            self._page.mouse.up()
-            self._down = False
+        # A lost connection is not a tap: drop the gesture rather than clicking
+        # wherever the finger happened to be.
+        self._start = self._last = None
+        self._scrolling = False
 
 
 def main():
