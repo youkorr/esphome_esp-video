@@ -18,7 +18,7 @@ profile page.
 Run the calibration once per panel, from anywhere, before setting this up --
 it prints the `touch_rotate` and mirror values to use, and no two panels agree:
 
-    python ha_send.py --calibrate --host 192.168.1.9 --port 5000 \
+    python ha_send.py --calibrate --host ip esp32P4 --port 5000 \
         --width 1024 --height 600 --rotate 180
 
 ## As a Home Assistant add-on
