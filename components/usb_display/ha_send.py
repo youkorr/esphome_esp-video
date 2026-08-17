@@ -81,6 +81,29 @@ PUMP_MS = 8
 # indistinguishable from having died; the board's patience has to be longer
 # than this, and is.
 HEARTBEAT_S = 3.0
+# How the browser is started.
+#
+# The defaults are written for a browser somebody is looking at, and this one
+# is not: nothing is ever in the foreground, no window is ever focused, and a
+# page can sit for hours with no input. Chromium reads that as a tab nobody
+# wants and starts economising -- throttling timers, suspending media, pausing
+# a video that has been playing to no one. On a dashboard with two camera cards
+# that shows up as one camera live and the other stopped, coming back only when
+# something makes the browser pay attention to it again.
+BROWSER_ARGS = [
+    "--hide-scrollbars",
+    "--disable-gpu",
+    # A video nobody clicked on is still a video that should play here.
+    "--autoplay-policy=no-user-gesture-required",
+    # Do not stop a stream because the page it is on is not in front.
+    "--disable-background-media-suspend",
+    "--disable-backgrounding-occluded-windows",
+    "--disable-renderer-backgrounding",
+    "--disable-background-timer-throttling",
+    # There is no window manager here to ask, and the answer it guesses is
+    # "covered", which costs the page its updates.
+    "--disable-features=CalculateNativeWinOcclusion",
+]
 # How far a finger has to travel before the gesture is scrolling rather than
 # a tap. Small enough that a deliberate drag is recognised at once, large
 # enough that the wobble of a fingertip on a press is not.
@@ -687,9 +710,7 @@ def main():
     interval = 1.0 / args.fps if args.fps > 0 else 0.0
 
     with sync_playwright() as playwright:
-        browser = playwright.chromium.launch(
-            args=["--hide-scrollbars", "--disable-gpu"]
-        )
+        browser = playwright.chromium.launch(args=BROWSER_ARGS)
         context = browser.new_context(
             viewport={"width": page_w, "height": page_h}, device_scale_factor=1
         )
