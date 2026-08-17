@@ -440,6 +440,7 @@ void USBDisplay::feed_(const uint8_t *data, size_t len) {
   frame->y = header->y;
   frame->width = header->width;
   frame->height = header->height;
+  frame->id = header->frame_id;
   frame->total = header->payload_total;
   if (this->append_(frame, payload, payload_len)) {
     this->queue_filled_(frame);
@@ -478,12 +479,27 @@ void USBDisplay::run_decode_task() {
     // wrong -- it has no way to know -- but decoding and rotating a frame that
     // is already stale spends the memory bandwidth the audio needs. Turn it
     // away before any of that work happens, rather than after.
-    if (this->min_frame_interval_ms_ != 0 && millis() - this->last_draw_ms_ < this->min_frame_interval_ms_) {
+    //
+    // The unit being limited is the picture, not the rectangle. A sender that
+    // redraws only what changed splits one picture across several rectangles,
+    // all carrying the same identifier; deciding on each of them separately
+    // would draw the first and discard the rest, leaving half an update on the
+    // panel. So once a picture is admitted the rest of it follows, and once one
+    // is turned away the rest of it goes with it.
+    bool too_soon = this->min_frame_interval_ms_ != 0 && millis() - this->last_draw_ms_ < this->min_frame_interval_ms_;
+    if (frame->id == this->drawing_frame_id_) {
+      too_soon = false;
+    } else if (frame->id == this->gated_frame_id_) {
+      too_soon = true;
+    }
+    if (too_soon) {
+      this->gated_frame_id_ = frame->id;
       this->frames_dropped_++;
       this->dropped_too_soon_++;
       xQueueSend(this->empty_queue_, &frame, 0);
       continue;
     }
+    this->drawing_frame_id_ = frame->id;
 
     // The decoder rounds each rectangle up to whole 16x16 units, so the stride
     // follows the rectangle's own width, not the panel's. The buffer is sized

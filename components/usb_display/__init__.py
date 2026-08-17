@@ -13,6 +13,12 @@ Linux, macOS and Windows. Espressif's own answer is the windows_driver
 directory of their usb_extend_screen example, which is Windows-only and needs
 a signed driver; the board does not care which of the two is talking to it.
 
+ha_send.py, also next to this file, is a third: instead of mirroring a screen
+it renders a Home Assistant dashboard in a browser with no window and sends
+only the rectangles that changed, which is what a panel on a battery can
+afford. Touches travel back to it over the same socket, so the panel drives the
+page it is showing.
+
 The component logs the exact command line for the sender at startup, built
 from the configuration here, so the two cannot disagree about the geometry.
 

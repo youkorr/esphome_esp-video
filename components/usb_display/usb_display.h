@@ -127,6 +127,10 @@ class USBDisplay : public Component
     uint16_t y{0};
     uint16_t width{0};
     uint16_t height{0};
+    // Which picture this rectangle belongs to. A sender that redraws only what
+    // changed sends several rectangles carrying the same identifier, and they
+    // have to be admitted or turned away together.
+    uint16_t id{0};
   };
 
   // Decodes whatever the USB side has finished and draws it. Runs on its own
@@ -185,6 +189,11 @@ class USBDisplay : public Component
   size_t max_frame_bytes_{128 * 1024};
   uint32_t min_frame_interval_ms_{0};
   uint32_t last_draw_ms_{0};
+  // The picture the rate limiter last let through and the one it last turned
+  // away, so a picture split into several rectangles is not half drawn. The
+  // protocol's identifier is ten bits, so 0xFFFF is a value no frame has.
+  uint16_t drawing_frame_id_{0xFFFF};
+  uint16_t gated_frame_id_{0xFFFF};
   uint16_t port_{0};
 #ifdef USE_TOUCHSCREEN
   // Touches travel back to whoever is sending the picture, so a dashboard

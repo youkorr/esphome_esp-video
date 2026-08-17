@@ -58,7 +58,15 @@ DEFAULT_VID = 0x303A
 DEFAULT_PID = 0x4001
 
 
-def build_header(width, height, payload_len, frame_id):
+def build_header(width, height, payload_len, frame_id, x=0, y=0):
+    """One rectangle's header.
+
+    x and y default to the top left because this sender redraws the whole panel
+    every time. They exist because the protocol has always carried them: a
+    sender that knows what changed sends only that rectangle, and every
+    rectangle of one picture shares its frame_id so the board admits or drops
+    them together.
+    """
     if payload_len >= 1 << 22:
         raise ValueError(
             f"payload of {payload_len} bytes does not fit the 22-bit length field"
@@ -66,7 +74,7 @@ def build_header(width, height, payload_len, frame_id):
     packed = (frame_id & 0x3FF) | ((payload_len & 0x3FFFFF) << 10)
     # crc16 and cmd are unused by the board; it validates on the geometry and
     # the length instead.
-    return _HEADER.pack(0, UDISP_TYPE_JPG, 0, 0, 0, width, height, packed)
+    return _HEADER.pack(0, UDISP_TYPE_JPG, 0, x, y, width, height, packed)
 
 
 def _bundled_backend():
@@ -216,7 +224,7 @@ class _TcpEndpoint:
         self._sock.close()
 
 
-def _connect_tcp(host, port):
+def connect_tcp(host, port):
     """Wait for the board to answer, the same way the USB path waits for it."""
     import socket
 
@@ -488,7 +496,7 @@ def main():
             # it rather than ending the program.
             while True:
                 if args.host:
-                    device, endpoint = None, _connect_tcp(args.host, args.port)
+                    device, endpoint = None, connect_tcp(args.host, args.port)
                 else:
                     device, endpoint = wait_for_endpoint(args.vid, args.pid)
                 print(
