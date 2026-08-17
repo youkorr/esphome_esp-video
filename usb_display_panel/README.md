@@ -59,7 +59,7 @@ long-lived access token can.
 |---|---|
 | `name` | What this panel is called in the log |
 | `host`, `port` | The panel's address, and its `port:` |
-| `url` | The dashboard to render |
+| `url` | The dashboard to render. From inside an add-on this is `http://homeassistant:8123/...` -- see below |
 | `token` | A long-lived access token |
 | `width`, `height` | Must match the component's |
 | `rotate` | Turns the picture, for a panel not mounted upright |
@@ -74,3 +74,19 @@ A dashboard at rest sends nothing at all: the browser only produces a frame
 when the page changes, and only the rectangles that differ are sent. A clock
 ticking once a second is about 1.5 KiB/s. A camera card is a different matter
 entirely -- that is video, and it costs what video costs.
+
+## The address to give it
+
+From inside an add-on, use the name Home Assistant answers to on the add-on
+network:
+
+    url: http://homeassistant:8123/lovelace/0
+
+Not a remote-access address. Tailscale's `*.ts.net`, Nabu Casa's
+`*.ui.nabu.casa` and dynamic DNS names exist to reach the house from outside;
+they resolve on the network they belong to, and a container sitting beside
+Home Assistant is not on it -- the browser reports ERR_NAME_NOT_RESOLVED. It
+does not need to be, either: Home Assistant is on the same machine.
+
+Outside an add-on, any address that resolves where the sender runs will do:
+the machine's hostname, or Home Assistant's IP and port.
