@@ -371,6 +371,16 @@ bool USBDisplay::append_(Frame *frame, const uint8_t *data, size_t len) {
 // ===========================================================================
 // One chunk of the host's stream, whatever carried it here. The USB endpoint
 // and any other transport hand bytes to this and nothing below cares which.
+//
+// This is a byte stream, not a sequence of messages, and the difference is the
+// whole reason this function is a loop. A USB transfer usually did arrive with
+// one frame in it, which let an earlier version read the header off the front
+// of a chunk and hand the rest to the frame. TCP makes no such promise: a read
+// can hold half a header, or the tail of one frame followed by the head of the
+// next. Assume otherwise and the parser loses its place -- and there is no
+// marker in this protocol to find it again with, so it stays lost. The visible
+// result is a decoder complaining about impossible geometry, and a panel that
+// freezes until something restarts the connection.
 void USBDisplay::feed_(const uint8_t *data, size_t len) {
   if (len == 0)
     return;
@@ -383,68 +393,88 @@ void USBDisplay::feed_(const uint8_t *data, size_t len) {
     ESP_LOGI(TAG, "First %u bytes from the host", (unsigned) len);
   }
 
-  if (this->skipping_ > 0) {
-    this->skipping_ = (this->skipping_ > len) ? this->skipping_ - len : 0;
-    return;
-  }
-
-  if (this->current_ != nullptr) {
-    if (this->append_(this->current_, data, len)) {
-      this->queue_filled_(this->current_);
-      this->current_ = nullptr;
+  while (len > 0) {
+    // Counting out a frame that cannot be kept. Only its own bytes: whatever
+    // follows is the next header and belongs to the next pass.
+    if (this->skipping_ > 0) {
+      const size_t take = this->skipping_ < len ? this->skipping_ : len;
+      this->skipping_ -= take;
+      data += take;
+      len -= take;
+      continue;
     }
-    return;
-  }
 
-  // Start of a frame: the first packet carries the header.
-  if (len < sizeof(udisp_frame_header_t))
-    return;
-  auto *header = (udisp_frame_header_t *) data;
-  if (header->type == UDISP_TYPE_END) {
-    // Not a frame: the host marking the end of what it was sending. Count its
-    // payload out like any other and say nothing -- it is the protocol
-    // working, not a rejection.
-    this->skipping_ = header->payload_total;
-    return;
-  }
-  // Any rectangle that fits on the panel, not just the whole panel: a driver
-  // that redraws only what changed sends small ones, and that is most of
-  // where its speed comes from.
-  const bool usable = header->type == UDISP_TYPE_JPG && header->width > 0 && header->height > 0 &&
-                      header->x + header->width <= this->width_ && header->y + header->height <= this->height_;
-  if (!usable) {
-    // Silently dropping these is how a sender configured for the wrong size
-    // looks exactly like a sender that is not running at all.
-    if (!this->logged_bad_header_) {
-      this->logged_bad_header_ = true;
-      ESP_LOGW(TAG, "Ignoring frames: host sends type=%u %ux%u at %u,%u, which is not a JPEG rectangle inside %ux%u",
-               (unsigned) header->type, (unsigned) header->width, (unsigned) header->height, (unsigned) header->x,
-               (unsigned) header->y, (unsigned) this->width_, (unsigned) this->height_);
+    // Filling a frame, again only up to what it asked for.
+    if (this->current_ != nullptr) {
+      const size_t want = this->current_->total - this->current_->received;
+      const size_t take = want < len ? want : len;
+      if (this->append_(this->current_, data, take)) {
+        this->queue_filled_(this->current_);
+        this->current_ = nullptr;
+      }
+      data += take;
+      len -= take;
+      continue;
     }
-    return;
-  }
 
-  const uint8_t *payload = data + sizeof(udisp_frame_header_t);
-  const size_t payload_len = len - sizeof(udisp_frame_header_t);
+    // Gathering a header, which may well be split across two reads.
+    const size_t need = sizeof(udisp_frame_header_t) - this->header_len_;
+    const size_t take = need < len ? need : len;
+    memcpy(this->header_buf_ + this->header_len_, data, take);
+    this->header_len_ += take;
+    data += take;
+    len -= take;
+    if (this->header_len_ < sizeof(udisp_frame_header_t))
+      return;  // the rest of it is in the next read
+    this->header_len_ = 0;
 
-  Frame *frame = this->take_empty_();
-  if (frame == nullptr) {
-    // Nothing free: count this frame out so the next header is recognised
-    // rather than being read out of the middle of a payload.
-    this->frames_dropped_++;
-    this->dropped_no_buffer_++;
-    this->skipping_ = (header->payload_total > payload_len) ? header->payload_total - payload_len : 0;
-    return;
-  }
-  frame->x = header->x;
-  frame->y = header->y;
-  frame->width = header->width;
-  frame->height = header->height;
-  frame->id = header->frame_id;
-  frame->total = header->payload_total;
-  if (this->append_(frame, payload, payload_len)) {
-    this->queue_filled_(frame);
-  } else {
+    auto *header = (udisp_frame_header_t *) this->header_buf_;
+    if (header->type == UDISP_TYPE_END) {
+      // Not a frame: the host marking the end of what it was sending. Count its
+      // payload out like any other and say nothing -- it is the protocol
+      // working, not a rejection.
+      this->skipping_ = header->payload_total;
+      continue;
+    }
+    // Any rectangle that fits on the panel, not just the whole panel: a sender
+    // that redraws only what changed sends small ones, and that is most of
+    // where its speed comes from.
+    const bool usable = header->type == UDISP_TYPE_JPG && header->width > 0 && header->height > 0 &&
+                        header->x + header->width <= this->width_ && header->y + header->height <= this->height_ &&
+                        header->payload_total > 0 && header->payload_total <= this->max_frame_bytes_;
+    if (!usable) {
+      // Silently dropping these is how a sender configured for the wrong size
+      // looks exactly like a sender that is not running at all.
+      if (!this->logged_bad_header_) {
+        this->logged_bad_header_ = true;
+        ESP_LOGW(TAG,
+                 "Ignoring frames: host sends type=%u %ux%u at %u,%u of %u bytes, which is not a JPEG rectangle "
+                 "inside %ux%u of at most %u bytes",
+                 (unsigned) header->type, (unsigned) header->width, (unsigned) header->height, (unsigned) header->x,
+                 (unsigned) header->y, (unsigned) header->payload_total, (unsigned) this->width_,
+                 (unsigned) this->height_, (unsigned) this->max_frame_bytes_);
+      }
+      // Best effort: if the length is plausible this stays in step, and if it
+      // is not there was nothing to stay in step with.
+      this->skipping_ = header->payload_total;
+      continue;
+    }
+
+    Frame *frame = this->take_empty_();
+    if (frame == nullptr) {
+      // Nothing free: count this frame out so the next header is recognised
+      // rather than being read out of the middle of a payload.
+      this->frames_dropped_++;
+      this->dropped_no_buffer_++;
+      this->skipping_ = header->payload_total;
+      continue;
+    }
+    frame->x = header->x;
+    frame->y = header->y;
+    frame->width = header->width;
+    frame->height = header->height;
+    frame->id = header->frame_id;
+    frame->total = header->payload_total;
     this->current_ = frame;
   }
 }
@@ -603,6 +633,9 @@ void USBDisplay::reset_stream_() {
     this->current_ = nullptr;
   }
   this->skipping_ = 0;
+  // Half a header is worth even less than half a payload: keeping it would put
+  // the previous connection's bytes in front of the next one's first frame.
+  this->header_len_ = 0;
 }
 
 void USBDisplay::loop() {

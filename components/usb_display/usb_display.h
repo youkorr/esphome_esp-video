@@ -224,6 +224,10 @@ class USBDisplay : public Component
   // Set when a frame arrived with no buffer free: its payload is counted out
   // and thrown away rather than being mistaken for a header.
   size_t skipping_{0};
+  // A header being gathered. It arrives whole in a USB transfer and in pieces
+  // over TCP, where a read boundary falls wherever it likes.
+  uint8_t header_buf_[sizeof(udisp_frame_header_t)]{};
+  size_t header_len_{0};
 
   jpeg_decoder_handle_t jpeg_{nullptr};
   // Decoded RGB565, handed to the display. The decoder writes whole 16x16
