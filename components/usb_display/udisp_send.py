@@ -48,6 +48,9 @@ UDISP_TYPE_RGB565 = 0
 UDISP_TYPE_RGB888 = 1
 UDISP_TYPE_YUV420 = 2
 UDISP_TYPE_JPG = 3
+# Not a picture: the host marking the end of what it was sending. The board
+# counts its payload out and says nothing, which makes an empty one a heartbeat.
+UDISP_TYPE_END = 0xFF
 
 # crc16, type, cmd, x, y, width, height, then a packed word holding a 10-bit
 # frame id and a 22-bit payload length. Little-endian, 16 bytes, and it is
@@ -75,6 +78,18 @@ def build_header(width, height, payload_len, frame_id, x=0, y=0):
     # crc16 and cmd are unused by the board; it validates on the geometry and
     # the length instead.
     return _HEADER.pack(0, UDISP_TYPE_JPG, 0, x, y, width, height, packed)
+
+
+def build_heartbeat():
+    """Sixteen bytes that say "still here" and nothing else.
+
+    A sender that only transmits what changed is silent while nothing changes,
+    and a board cannot tell that apart from a sender that has died. This is the
+    protocol's end-of-frame marker carrying no payload: the board counts out
+    zero bytes and carries on, so it costs one header and means only that the
+    connection is alive.
+    """
+    return _HEADER.pack(0, UDISP_TYPE_END, 0, 0, 0, 0, 0, 0)
 
 
 def _bundled_backend():
