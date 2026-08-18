@@ -17,6 +17,7 @@ ARG BRANCH=claude/esphome-pr-outdated-mdq36w
 ARG RAW=https://raw.githubusercontent.com/youkorr/esphome_esp-video/${BRANCH}/components/usb_display
 ADD ${RAW}/udisp_send.py /app/udisp_send.py
 ADD ${RAW}/ha_send.py /app/ha_send.py
+ADD ${RAW}/keyboard.js /app/keyboard.js
 COPY run.py /app/run.py
 
 WORKDIR /app

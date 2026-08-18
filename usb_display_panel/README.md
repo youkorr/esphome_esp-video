@@ -67,6 +67,8 @@ long-lived access token can.
 | `fps` | Upper bound on how often a change is acted on |
 | `quality` | JPEG quality, 1..95 |
 | `stats` | Print what is being sent every five seconds |
+| `keyboard` | Draw an on-screen keyboard when a field is focused |
+| `keyboard_layout` | `azerty` or `qwerty` -- which one it starts on |
 
 ## What it costs
 
@@ -90,3 +92,14 @@ does not need to be, either: Home Assistant is on the same machine.
 
 Outside an add-on, any address that resolves where the sender runs will do:
 the machine's hostname, or Home Assistant's IP and port.
+
+## Typing
+
+A panel has no keys, so one is drawn in the page: it appears when a field takes
+focus and goes away when it loses it. It lives in the page rather than on the
+board, which means the panel's contacts press its keys by the path that already
+exists -- no firmware, no protocol, nothing to reflash -- and it works on every
+field Home Assistant has without knowing anything about them.
+
+It carries AZERTY and QWERTY with a key to switch between them, and remembers
+which was chosen. `keyboard_layout` only decides the first time.

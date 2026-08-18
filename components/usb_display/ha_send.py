@@ -125,6 +125,11 @@ BROWSER_ARGS = [
 # a tap. Small enough that a deliberate drag is recognised at once, large
 # enough that the wobble of a fingertip on a press is not.
 DRAG_THRESHOLD = 12
+# The on-screen keyboard, beside this file. A panel has no keys, and Home
+# Assistant has fields -- a login, a search, the text of a card. Drawn in the
+# page rather than on the board, it is pressed by the touch path that already
+# exists and needs no firmware at all.
+KEYBOARD_JS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "keyboard.js")
 
 
 def install_token(context, url, token):
@@ -151,6 +156,21 @@ def install_token(context, url, token):
     context.add_init_script(
         f"window.localStorage.setItem('hassTokens', {json.dumps(json.dumps(tokens))});"
     )
+
+
+def install_keyboard(context, layout):
+    """Put the on-screen keyboard into every page this browser loads.
+
+    An init script rather than an injection after load: Home Assistant replaces
+    most of its own document as it starts, and anything added before that is
+    gone by the time a field exists to type into.
+    """
+    with open(KEYBOARD_JS, encoding="utf-8") as handle:
+        script = handle.read()
+    # The layout the panel starts on. Whichever the user last chose on the
+    # keyboard itself wins over this, which is why the script reads its own
+    # stored value first.
+    context.add_init_script(script.replace("LAYOUT_DEFAULT", layout))
 
 
 def explain_unreachable(url, error):
@@ -667,6 +687,18 @@ def main():
         "--no-touch", action="store_true", help="do not replay the panel's contacts"
     )
     parser.add_argument(
+        "--no-keyboard",
+        action="store_true",
+        help="do not put an on-screen keyboard in the page",
+    )
+    parser.add_argument(
+        "--keyboard-layout",
+        choices=("azerty", "qwerty"),
+        default="azerty",
+        help="which layout the keyboard starts on. It has a key to switch, and "
+        "remembers what was chosen, so this only decides the first time",
+    )
+    parser.add_argument(
         "--show-touches", action="store_true", help="print the contacts as they arrive"
     )
     parser.add_argument(
@@ -748,6 +780,8 @@ def main():
             viewport={"width": page_w, "height": page_h}, device_scale_factor=1
         )
         install_token(context, args.url, args.token)
+        if not args.no_keyboard:
+            install_keyboard(context, args.keyboard_layout)
         page = context.new_page()
         print(f"Opening {args.url} at {page_w}x{page_h}")
         # Not networkidle: the frontend holds a websocket open for as long as it
