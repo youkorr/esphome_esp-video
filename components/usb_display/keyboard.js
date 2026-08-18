@@ -48,8 +48,19 @@
 
   /* The active element, following shadow roots. Home Assistant puts almost
      every field inside one, so document.activeElement alone only ever names
-     the outermost custom element. */
-  function deepActive() {
+     the outermost custom element.
+
+     Walking activeElement down the roots is not enough on its own: the chain
+     breaks at any host whose own activeElement is null -- a field reached
+     through a slot, or one root deeper than the walk expected -- and it stops
+     on the wrapper rather than the field. Where there is an event to ask, its
+     composed path is the honest answer, because it lists the real target
+     first whatever it is nested in. */
+  function deepActive(event) {
+    if (event && event.composedPath) {
+      var path = event.composedPath();
+      if (path && path.length) return path[0];
+    }
     var el = document.activeElement;
     while (el && el.shadowRoot && el.shadowRoot.activeElement) {
       el = el.shadowRoot.activeElement;
@@ -59,7 +70,10 @@
 
   function isTextField(el) {
     if (!el) return false;
+    // Inherited, so this covers a code editor as well: CodeMirror focuses a
+    // div inside the editable area rather than the editable element itself.
     if (el.isContentEditable) return true;
+    if (el.getAttribute && el.getAttribute("role") === "textbox") return true;
     var tag = (el.tagName || "").toLowerCase();
     if (tag === "textarea") return true;
     if (tag !== "input") return false;
@@ -113,14 +127,27 @@
 
   var root = document.createElement("div");
   root.id = "udisp-keyboard";
-  root.setAttribute("part", "udisp-keyboard");
+  /* The top layer, where a modal dialog also lives. Without this the keyboard
+     sits in the ordinary stacking order, and no z-index however large paints
+     above a dialog opened with showModal -- which is how Home Assistant shows
+     several of the things one would want to type into. "manual" is the kind
+     that neither takes focus nor closes itself when something else is
+     pressed, which is exactly what a keyboard needs. */
+  try { root.popover = "manual"; } catch (e) {}
   var style = document.createElement("style");
   style.textContent =
-    "#udisp-keyboard{position:fixed;left:0;right:0;bottom:0;z-index:2147483647;" +
+    "#udisp-keyboard{position:fixed;left:0;right:0;bottom:0;top:auto;" +
+    "width:auto;height:auto;max-width:none;max-height:none;margin:0;border:0;" +
+    "z-index:2147483647;overflow:visible;" +
     "background:#1c1c1e;padding:6px;box-sizing:border-box;display:none;" +
     "font:600 18px system-ui,sans-serif;user-select:none;-webkit-user-select:none;" +
     "box-shadow:0 -4px 16px rgba(0,0,0,.5)}" +
     "#udisp-keyboard.on{display:block}" +
+    "#udisp-keyboard:popover-open{display:block}" +
+    "#udisp-handle{position:fixed;right:8px;bottom:8px;z-index:2147483646;" +
+    "width:44px;height:44px;border:0;border-radius:22px;background:#3a3a3ccc;" +
+    "color:#fff;font:22px system-ui;padding:0;opacity:.55}" +
+    "#udisp-handle:active{opacity:1}" +
     "#udisp-keyboard .row{display:flex;gap:5px;margin:5px 0;justify-content:center}" +
     "#udisp-keyboard button{flex:1 1 0;min-width:0;height:44px;border:0;border-radius:7px;" +
     "background:#3a3a3c;color:#fff;font:inherit;padding:0}" +
@@ -186,19 +213,77 @@
     });
   }
 
+  /* The nearest open modal dialog above an element, crossing shadow
+     boundaries by hopping from each root to its host. */
+  function modalAbove(el) {
+    var node = el;
+    while (node) {
+      if (node.nodeType === 1 && node.tagName === "DIALOG") {
+        try { if (node.matches(":modal")) return node; } catch (e) {}
+      }
+      node = node.parentNode || (node.getRootNode && node.getRootNode().host);
+      if (node && node.nodeType === 11) node = node.host;
+    }
+    return null;
+  }
+
   function show(el) {
     target = el;
+    /* A modal dialog makes everything outside itself inert -- the top layer
+       included -- so a keyboard left in the body is drawn above the dialog
+       and cannot be pressed through it. Moving it inside the dialog is what
+       makes it part of what the dialog allows. Home Assistant's own overlays
+       are not native dialogs and never need this; something else on the page
+       might. */
+    var modal = modalAbove(el);
+    var host = modal || document.body || document.documentElement;
+    if (root.parentNode !== host) {
+      try { root.hidePopover(); } catch (e) {}
+      host.appendChild(root);
+      if (handle.parentNode !== host) host.appendChild(handle);
+    }
     root.classList.add("on");
+    try { root.showPopover(); } catch (e) {}
     // A field under the keyboard cannot be seen while it is typed into.
     try { el.scrollIntoView({ block: "center", behavior: "instant" }); } catch (e) {}
   }
-  function hide() { root.classList.remove("on"); target = null; }
+  function hide() {
+    root.classList.remove("on");
+    try { root.hidePopover(); } catch (e) {}
+    target = null;
+  }
+
+  /* Somewhere to press when the focus was never noticed.
+     Home Assistant is a large moving target and a field it introduces
+     tomorrow may not look like one to the check above. A panel whose
+     keyboard cannot be summoned by hand would simply be unusable that day,
+     so there is always a way in. */
+  var handle = document.createElement("button");
+  handle.id = "udisp-handle";
+  handle.textContent = "\u2328";
+  handle.setAttribute("aria-label", "clavier");
+  handle.addEventListener("pointerdown", function (e) { e.preventDefault(); });
+  handle.addEventListener("mousedown", function (e) { e.preventDefault(); });
+  handle.addEventListener("click", function (e) {
+    e.preventDefault();
+    if (root.classList.contains("on")) { hide(); return; }
+    // Whatever has the focus, even if the check above would not have called
+    // it a field; and if that element hides a field of its own, take that.
+    var el = deepActive();
+    if (!isTextField(el) && el && el.shadowRoot) {
+      var inner = el.shadowRoot.querySelector("input,textarea,[contenteditable]");
+      if (inner) { try { inner.focus(); } catch (err) {} el = deepActive(); }
+    }
+    show(isTextField(el) ? el : deepActive());
+  });
 
   /* This runs before the page's own scripts -- that is the point, so it is
      there whatever the frontend does to the document afterwards -- which also
      means the document may not have a body to attach to yet. */
   function attach() {
-    (document.body || document.documentElement).appendChild(root);
+    var host = document.body || document.documentElement;
+    host.appendChild(root);
+    host.appendChild(handle);
     render();
   }
   if (document.body) {
@@ -208,8 +293,8 @@
   }
 
   // focusin crosses shadow boundaries where focus does not.
-  document.addEventListener("focusin", function () {
-    var el = deepActive();
+  document.addEventListener("focusin", function (e) {
+    var el = deepActive(e);
     if (isTextField(el)) show(el); else if (target && !root.contains(el)) hide();
   }, true);
   document.addEventListener("focusout", function () {
@@ -217,5 +302,12 @@
       var el = deepActive();
       if (!isTextField(el)) hide();
     }, 0);
+  }, true);
+  /* A field can be entered by being pressed rather than by being focused --
+     a code editor moves the caret without the browser calling it a new focus
+     -- so a press inside one counts too. */
+  document.addEventListener("pointerup", function (e) {
+    var el = deepActive(e);
+    if (isTextField(el)) show(el);
   }, true);
 })();
