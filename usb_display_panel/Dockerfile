@@ -4,6 +4,8 @@
 # you missed six months later.
 FROM python:3.12-slim
 
+WORKDIR /app
+
 RUN pip install --no-cache-dir playwright pillow numpy \
     && playwright install --with-deps chromium \
     && apt-get clean \
@@ -13,8 +15,20 @@ RUN pip install --no-cache-dir playwright pillow numpy \
 # as the context and cannot reach the components directory beside it. Rebuilding
 # the add-on is what picks up a newer sender, which is the same thing an update
 # would do anyway.
-ARG BRANCH=claude/esphome-pr-outdated-mdq36w
+ARG BRANCH=main
 ARG RAW=https://raw.githubusercontent.com/youkorr/esphome_esp-video/${BRANCH}/components/usb_display
+
+# Bump this with the version in config.yaml.
+#
+# ADD from a URL is cached on the URL alone, and this URL never changes: an
+# add-on rebuilt after an update would happily reuse the layer holding the
+# senders it fetched weeks ago. Nothing fails -- it simply runs the old code,
+# which is a great deal harder to notice than a build error. Writing the
+# version into the image first invalidates everything after it, so a new
+# version really does fetch new senders.
+ARG BUNDLE=1.9.1
+RUN echo "${BUNDLE}" > /app/BUNDLE
+
 ADD ${RAW}/udisp_send.py /app/udisp_send.py
 ADD ${RAW}/ha_send.py /app/ha_send.py
 ADD ${RAW}/keyboard.js /app/keyboard.js

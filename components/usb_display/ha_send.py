@@ -780,8 +780,15 @@ def main():
             viewport={"width": page_w, "height": page_h}, device_scale_factor=1
         )
         install_token(context, args.url, args.token)
-        if not args.no_keyboard:
+        if args.no_keyboard:
+            print("On-screen keyboard: off")
+        else:
             install_keyboard(context, args.keyboard_layout)
+            # Said out loud, because a keyboard that never appears looks the
+            # same as one that was never installed, and the difference decides
+            # where to look next.
+            print(f"On-screen keyboard: {args.keyboard_layout}, shown when a "
+                  f"field takes focus")
         page = context.new_page()
         print(f"Opening {args.url} at {page_w}x{page_h}")
         # Not networkidle: the frontend holds a websocket open for as long as it
