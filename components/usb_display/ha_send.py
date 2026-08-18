@@ -460,9 +460,15 @@ class Screencast:
 
     def __init__(self, page, width, height):
         self._session = page.context.new_cdp_session(page)
+        self._width = width
+        self._height = height
         self._latest = None
         self._unacked = []
         self._session.on("Page.screencastFrame", self._on_frame)
+        self._running = True
+        self._start()
+
+    def _start(self):
         self._session.send(
             "Page.startScreencast",
             {
@@ -470,8 +476,8 @@ class Screencast:
                 # last by a pixel or two of ringing, and nothing would ever look
                 # unchanged.
                 "format": "png",
-                "maxWidth": width,
-                "maxHeight": height,
+                "maxWidth": self._width,
+                "maxHeight": self._height,
                 "everyNthFrame": 1,
             },
         )
@@ -493,11 +499,26 @@ class Screencast:
         frame, self._latest = self._latest, None
         return frame
 
-    def stop(self):
+    def pause(self):
+        """Stop the browser producing frames at all."""
+        if not self._running:
+            return
+        self._running = False
+        self._latest = None
+        self._unacked.clear()
         try:
             self._session.send("Page.stopScreencast")
-        except Exception:  # noqa: BLE001 - going away anyway
+        except Exception:  # noqa: BLE001 - a closed page needs no stopping
             pass
+
+    def resume(self):
+        if self._running:
+            return
+        self._running = True
+        self._start()
+
+    def stop(self):
+        self.pause()
 
 
 class Injector:
@@ -783,6 +804,10 @@ def main():
             pending = None
             last_send = 0.0
             last_sent = time.monotonic()
+            # Assumed awake until the panel says otherwise; it announces its
+            # state as soon as a sender connects, so this is only the first
+            # instant.
+            awake = True
             stats_at = time.monotonic()
             try:
                 while True:
@@ -821,8 +846,10 @@ def main():
                     stale = started - last_full >= FULL_REDRAW_SECONDS
                     # Nothing to send until the browser has produced something.
                     # After that, a new frame is a reason to send, and so is a
-                    # panel that has just reconnected and knows nothing.
-                    if image is not None and (
+                    # panel that has just reconnected and knows nothing. A
+                    # sleeping one is never a reason: only the heartbeat below
+                    # goes out, which is enough to hold the connection open.
+                    if awake and image is not None and (
                         shot is not None or previous is None or stale
                     ):
                         # Everything, when there is nothing to compare against
@@ -875,7 +902,27 @@ def main():
                         endpoint.write(build_heartbeat())
                         last_sent = started
 
-                    reports = endpoint.read_touches()
+                    reports = []
+                    for kind, body in endpoint.read_messages():
+                        if kind == "touch":
+                            reports.append(body)
+                            continue
+                        # The panel went dark or came back. Rendering for a
+                        # screen nobody can see costs the server, the network
+                        # and the board alike, so stop at the source: the
+                        # browser is told to stop producing frames at all.
+                        if body != awake:
+                            awake = body
+                            print("Panel " + ("awake" if awake else "asleep"))
+                            if awake:
+                                capture.resume()
+                                # It has been showing nothing; whatever it had
+                                # is no longer what should be there.
+                                previous = None
+                                if injector is not None:
+                                    injector.release()
+                            else:
+                                capture.pause()
                     if args.show_touches and reports:
                         # With the time on them, because "the panel reacts
                         # slowly" has two very different causes and this tells

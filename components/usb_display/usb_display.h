@@ -118,6 +118,16 @@ class USBDisplay : public Component
   /// driver has claimed the device.
   void set_configured() { this->configured_ = true; }
 
+  /// Tell whoever is sending the picture whether anyone can see it.
+  ///
+  /// Turning the backlight off saves the most power on its own, but the
+  /// sender goes on encoding and the board goes on decoding for a screen
+  /// nobody is looking at. Saying so lets the sender stop, and stops the
+  /// traffic with it. The connection stays up either way -- it is the
+  /// pictures that pause, not the link.
+  void set_awake(bool awake);
+  bool is_awake() const { return !this->asleep_; }
+
  protected:
   /// One frame in flight: a compressed frame being filled by USB, or a full one
   /// waiting to be decoded.
@@ -166,8 +176,10 @@ class USBDisplay : public Component
 #ifdef USE_TOUCHSCREEN
   /// Queue one contact set for the network sender, if one is connected.
   void queue_touch_(const touchscreen::TouchPoints_t &points);
-  void send_queued_touches_(int client);
 #endif
+  /// Everything waiting to go back up the socket: contacts, and whether the
+  /// panel is awake.
+  void send_queued_messages_(int client);
   static void network_task(void *param);
   void run_network_task();
   /// Forget a half-received frame, so the next sender's first header is not
@@ -225,6 +237,10 @@ class USBDisplay : public Component
 #endif
   // feed_() is reachable from the USB task and the network one at once.
   Mutex feed_lock_;
+  // Whether the panel is showing anything to anybody, and whether the sender
+  // has been told. Written from the loop, read from the network task.
+  bool asleep_{false};
+  volatile bool status_pending_{false};
 
   Frame *frames_{nullptr};
   QueueHandle_t empty_queue_{nullptr};
@@ -329,6 +345,21 @@ class USBDisplay : public Component
   bool configured_{false};
   bool logged_unclaimed_{false};
   uint32_t started_ms_{0};
+};
+
+/// Actions, so the panel's own automations can say when nobody is looking.
+///
+/// Two classes rather than one with a flag: that is how ESPHome spells a pair
+/// of opposites, and it keeps the YAML reading as "usb_display.sleep" without
+/// an argument to get the wrong way round.
+template<typename... Ts> class SleepAction : public Action<Ts...>, public Parented<USBDisplay> {
+ public:
+  void play(Ts... x) override { this->parent_->set_awake(false); }
+};
+
+template<typename... Ts> class WakeAction : public Action<Ts...>, public Parented<USBDisplay> {
+ public:
+  void play(Ts... x) override { this->parent_->set_awake(true); }
 };
 
 }  // namespace usb_display

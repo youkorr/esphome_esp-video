@@ -54,6 +54,11 @@ static constexpr int NET_RECV_TIMEOUT_S = 30;
 void USBDisplay::queue_touch_(const touchscreen::TouchPoints_t &points) {
   if (this->touch_queue_ == nullptr)
     return;
+  // A sleeping panel reports nothing. The touch that wakes it is meant for the
+  // panel and not for the page: on anything with a screen that sleeps, the tap
+  // that brings it back does not also press what was under the finger.
+  if (this->asleep_)
+    return;
   TouchEvent event = {};
   for (const auto &point : points) {
     if (event.count >= UDISP_NET_TOUCH_MAX)
@@ -87,7 +92,26 @@ void USBDisplay::queue_touch_(const touchscreen::TouchPoints_t &points) {
   }
 }
 
-void USBDisplay::send_queued_touches_(int client) {
+#endif  // USE_TOUCHSCREEN
+
+void USBDisplay::set_awake(bool awake) {
+  if (this->asleep_ != !awake) {
+    this->asleep_ = !awake;
+    this->status_pending_ = true;
+    ESP_LOGD(TAG, "Panel %s; telling the sender", awake ? "awake" : "asleep");
+  }
+}
+
+void USBDisplay::send_queued_messages_(int client) {
+  // State first. A sender that learns of a wake in the same read as the
+  // touches that follow it should act on the wake before them.
+  if (this->status_pending_) {
+    this->status_pending_ = false;
+    const uint8_t message[2] = {'S', (uint8_t) (this->asleep_ ? 0 : 1)};
+    if (::send(client, message, sizeof(message), MSG_DONTWAIT) < 0)
+      this->status_pending_ = true;  // say it again next time round
+  }
+#ifdef USE_TOUCHSCREEN
   if (this->touch_queue_ == nullptr)
     return;
   TouchEvent event;
@@ -110,8 +134,8 @@ void USBDisplay::send_queued_touches_(int client) {
     if (::send(client, message, at, MSG_DONTWAIT) < 0)
       return;  // the read side will notice if the connection is really gone
   }
-}
 #endif  // USE_TOUCHSCREEN
+}
 
 void USBDisplay::setup_network_() {
   if (this->port_ == 0)
@@ -196,6 +220,9 @@ void USBDisplay::run_network_task() {
       // repeat of, whatever the finger was doing before.
       this->last_touch_valid_ = false;
 #endif
+      // A sender that has just arrived knows nothing about this panel, and
+      // must not spend its first minutes drawing for a dark screen.
+      this->status_pending_ = true;
 
       while (true) {
         // Wait briefly rather than blocking on the read: the same loop has to
@@ -206,9 +233,7 @@ void USBDisplay::run_network_task() {
         struct timeval slice = {.tv_sec = 0, .tv_usec = 20000};
         int ready = ::select(client + 1, &readable, nullptr, nullptr, &slice);
 
-#ifdef USE_TOUCHSCREEN
-        this->send_queued_touches_(client);
-#endif
+        this->send_queued_messages_(client);
 
         if (ready == 0)
           continue;  // nothing to read yet; the sender is simply between frames

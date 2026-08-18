@@ -118,6 +118,10 @@ touchscreen:
       mirror_x: true
       mirror_y: true
     on_touch:
+      # Reveille l'emetteur d'abord : il a une image entiere a renvoyer.
+      # Le toucher qui reveille n'est pas transmis a la page -- la carte le
+      # retient tant qu'elle dort -- donc il ne presse rien au passage.
+      - usb_display.wake: udisp
       # Rallume, et relance le compte a rebours depuis zero. Le script est en
       # mode "restart", donc un toucher pendant qu'il attend annule l'attente
       # en cours et en commence une neuve.
@@ -170,6 +174,7 @@ external_components:
     refresh: 0s
 
 usb_display:
+  id: udisp
   display_id: main_screen
   # Sans ca, pas de tactile renvoye a l'emetteur.
   touchscreen_id: touch
@@ -222,6 +227,10 @@ script:
           then:
             - delay: !lambda 'return id(screen_off_delay) * 1000;'
             - light.turn_off: backlight
+            # Et on le dit : l'emetteur arrete de rendre et d'envoyer, la
+            # liaison reste ouverte. Sans cette ligne le rendu continue pour
+            # une dalle noire.
+            - usb_display.sleep: udisp
 
 number:
   - platform: usb_display
