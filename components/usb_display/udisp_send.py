@@ -153,23 +153,33 @@ def find_endpoint(vid, pid):
     return device, endpoint
 
 
-def parse_touch_messages(buffer):
-    """Pull whole touch reports out of a byte buffer from the board.
+def parse_messages(buffer):
+    """Pull whole messages out of a byte buffer from the board.
 
-    The board sends its contacts back up the same socket the frames go down:
-    b"T", a contact count, then five bytes per contact -- an identifier and a
-    little-endian x and y, in the panel's own pixels, already corrected by the
-    touch screen's own transform. A count of zero is a release.
+    Two kinds travel this way, and they are told apart by their first byte:
 
-    Returns the reports it could complete and whatever tail is still short of
-    one, so the caller can hand the tail back on the next read.
+      b"T", a contact count, then five bytes per contact -- an identifier and a
+      little-endian x and y, in the panel's own pixels, already corrected by the
+      touch screen's own transform. A count of zero is a release.
+
+      b"S", then 1 if the panel is awake and 0 if it has gone to sleep. A
+      sleeping panel is showing nothing to nobody, so there is no sense
+      rendering or sending for it.
+
+    Returns ("touch", contacts) and ("awake", bool) pairs, and whatever tail is
+    still short of a whole message so the caller can hand it back next time.
     """
-    reports = []
+    messages = []
     at = 0
     while True:
         if len(buffer) - at < 2:
             break
-        if buffer[at] != ord("T"):
+        kind = buffer[at]
+        if kind == ord("S"):
+            messages.append(("awake", bool(buffer[at + 1])))
+            at += 2
+            continue
+        if kind != ord("T"):
             # Not a message boundary: skip a byte rather than reading a length
             # out of the middle of something.
             at += 1
@@ -188,9 +198,9 @@ def parse_touch_messages(buffer):
                     buffer[base + 3] | (buffer[base + 4] << 8),
                 )
             )
-        reports.append(contacts)
+        messages.append(("touch", contacts))
         at = end
-    return reports, buffer[at:]
+    return messages, buffer[at:]
 
 
 class _TcpEndpoint:
@@ -211,7 +221,7 @@ class _TcpEndpoint:
     def write(self, data):
         self._sock.sendall(data)
 
-    def read_touches(self):
+    def read_messages(self):
         """Whatever the board has said since the last call. Never blocks.
 
         select() rather than MSG_DONTWAIT, which Windows does not have.
@@ -232,8 +242,12 @@ class _TcpEndpoint:
             if not chunk:
                 break
             self._tail += chunk
-        reports, self._tail = parse_touch_messages(self._tail)
-        return reports
+        messages, self._tail = parse_messages(self._tail)
+        return messages
+
+    def read_touches(self):
+        """Only the contacts, for a sender with no use for the rest."""
+        return [body for kind, body in self.read_messages() if kind == "touch"]
 
     def close(self):
         self._sock.close()

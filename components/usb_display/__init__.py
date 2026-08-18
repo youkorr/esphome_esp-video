@@ -53,6 +53,25 @@ AUTO_LOAD = ["audio"]
 usb_display_ns = cg.esphome_ns.namespace("usb_display")
 USBDisplay = usb_display_ns.class_("USBDisplay", cg.Component)
 
+# Turning the backlight off saves the most power on its own, but the sender
+# goes on rendering, encoding and transmitting for a screen nobody can see.
+# These say so, so it can stop -- and stop the traffic with it.
+SleepAction = usb_display_ns.class_("SleepAction", automation.Action)
+WakeAction = usb_display_ns.class_("WakeAction", automation.Action)
+
+_AWAKE_ACTION_SCHEMA = automation.maybe_simple_id(
+    {cv.Required(CONF_ID): cv.use_id(USBDisplay)}
+)
+
+
+@automation.register_action("usb_display.sleep", SleepAction, _AWAKE_ACTION_SCHEMA)
+@automation.register_action("usb_display.wake", WakeAction, _AWAKE_ACTION_SCHEMA)
+async def usb_display_awake_to_code(config, action_id, template_arg, args):
+    var = cg.new_Pvariable(action_id, template_arg)
+    await cg.register_parented(var, config[CONF_ID])
+    return var
+
+
 CONF_DISPLAY_ID = "display_id"
 CONF_FRAME_BUFFERS = "frame_buffers"
 CONF_MAX_FRAME_BYTES = "max_frame_bytes"
