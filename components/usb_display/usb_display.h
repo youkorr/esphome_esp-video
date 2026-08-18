@@ -352,14 +352,14 @@ class USBDisplay : public Component
 /// Two classes rather than one with a flag: that is how ESPHome spells a pair
 /// of opposites, and it keeps the YAML reading as "usb_display.sleep" without
 /// an argument to get the wrong way round.
-template<typename... Ts> class SleepAction : public Action<Ts...>, public Parented<USBDisplay> {
+template<typename... Ts> class SleepAction final : public Action<Ts...>, public Parented<USBDisplay> {
  public:
-  void play(Ts... x) override { this->parent_->set_awake(false); }
+  void play(const Ts &...) override { this->parent_->set_awake(false); }
 };
 
-template<typename... Ts> class WakeAction : public Action<Ts...>, public Parented<USBDisplay> {
+template<typename... Ts> class WakeAction final : public Action<Ts...>, public Parented<USBDisplay> {
  public:
-  void play(Ts... x) override { this->parent_->set_awake(true); }
+  void play(const Ts &...) override { this->parent_->set_awake(true); }
 };
 
 }  // namespace usb_display
