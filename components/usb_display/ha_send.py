@@ -89,6 +89,15 @@ PUMP_MS = 8
 # indistinguishable from having died; the board's patience has to be longer
 # than this, and is.
 HEARTBEAT_S = 3.0
+# Whether a frame that follows an input skips the rate limit.
+#
+# The limit exists to stop a busy page spending the whole link on frames
+# nobody asked for. A frame that follows a press is the opposite: somebody
+# just did something and is waiting to see it happen, and holding it back for
+# the rest of the interval is the difference between a panel that feels
+# connected to your finger and one that does not. Self-limiting, because it
+# only fires as often as there is input.
+URGENT_AFTER_INPUT = True
 # How the browser is started.
 #
 # The defaults are written for a browser somebody is looking at, and this one
@@ -803,6 +812,11 @@ def main():
             # state as soon as a sender connects, so this is only the first
             # instant.
             awake = True
+            # Set when a press has just been replayed into the page, and
+            # handed to the next frame the browser produces -- that is the one
+            # showing its effect, and the one that should not wait its turn.
+            urgent = False
+            pending_urgent = False
             stats_at = time.monotonic()
             try:
                 while True:
@@ -819,14 +833,22 @@ def main():
                     frame = capture.take()
                     if frame is not None:
                         pending = frame
+                        # The free pass belongs to the first frame produced
+                        # after the input, not to whichever one happened to be
+                        # waiting when it arrived -- that one was rendered
+                        # before the press and shows nothing of it.
+                        pending_urgent, urgent = urgent, False
                     # Hold the newest frame back until the send rate allows it.
                     # Nothing is lost by waiting: take() only ever returns the
                     # latest, so a frame held here is replaced rather than
                     # queued.
                     shot = None
-                    if pending is not None and started - last_send >= interval:
+                    if pending is not None and (
+                        started - last_send >= interval or pending_urgent
+                    ):
                         shot, pending = pending, None
                         last_send = started
+                        pending_urgent = False
 
                     if shot is not None:
                         image = Image.open(io.BytesIO(shot)).convert("RGB")
@@ -936,6 +958,8 @@ def main():
                                 print(f"[{stamp}] touch released")
                     if injector is not None and reports:
                         injector.handle(reports)
+                        if URGENT_AFTER_INPUT:
+                            urgent = True
                         if args.show_touches:
                             print(
                                 f"[{time.strftime('%H:%M:%S')}"

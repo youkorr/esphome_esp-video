@@ -230,7 +230,12 @@ void USBDisplay::run_network_task() {
         fd_set readable;
         FD_ZERO(&readable);
         FD_SET(client, &readable);
-        struct timeval slice = {.tv_sec = 0, .tv_usec = 20000};
+        // Short, because this is how long a contact can sit in the queue
+        // before it leaves the board, and it is spent on every press. The
+        // cost of a shorter one is a wakeup that finds nothing: at rest that
+        // is two hundred a second doing a select and a queue check, which is
+        // nothing next to the decoder.
+        struct timeval slice = {.tv_sec = 0, .tv_usec = 5000};
         int ready = ::select(client + 1, &readable, nullptr, nullptr, &slice);
 
         this->send_queued_messages_(client);
