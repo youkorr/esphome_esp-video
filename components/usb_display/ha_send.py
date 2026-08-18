@@ -245,26 +245,6 @@ def changed_rectangles(previous, current, tile=TILE):
     return merged
 
 
-def rotate_point(x, y, width, height, degrees):
-    """A point on the panel, back to where it is on the page.
-
-    The image is turned before it is sent, so the panel's pixels are not the
-    page's. This is the inverse of that turn: the panel says where the finger
-    landed on the panel, and the browser needs where that is on the page.
-    width and height are the page's, before rotation.
-    """
-    if degrees == 0:
-        return x, y
-    if degrees == 90:
-        # The page was turned clockwise, so panel x runs down the page.
-        return y, height - 1 - x
-    if degrees == 180:
-        return width - 1 - x, height - 1 - y
-    if degrees == 270:
-        return width - 1 - y, x
-    return x, y
-
-
 class TouchMap:
     """Where a contact on the panel is on the page.
 
@@ -292,11 +272,27 @@ class TouchMap:
         self.mirror_y = mirror_y
 
     def to_page(self, px, py):
+        # Normalised first, scaled back at the end. A board can report its
+        # contacts on a range that is not the panel's -- the Tab5 does, because
+        # its touch screen is told to swap the axes while the coordinates are
+        # still scaled to a portrait display -- and a mapping that only turns
+        # and mirrors cannot express that. Working in fractions of the panel
+        # makes the ranges somebody else's problem, and is exactly the identity
+        # when the two agree, which is every panel where they do.
+        u = px / max(1, self.panel_w - 1)
+        v = py / max(1, self.panel_h - 1)
         if self.mirror_x:
-            px = self.panel_w - 1 - px
+            u = 1.0 - u
         if self.mirror_y:
-            py = self.panel_h - 1 - py
-        x, y = rotate_point(px, py, self.page_w, self.page_h, self.rotate)
+            v = 1.0 - v
+        if self.rotate == 90:
+            u, v = v, 1.0 - u
+        elif self.rotate == 180:
+            u, v = 1.0 - u, 1.0 - v
+        elif self.rotate == 270:
+            u, v = 1.0 - v, u
+        x = int(round(u * (self.page_w - 1)))
+        y = int(round(v * (self.page_h - 1)))
         # Clamp rather than skip: a contact on the very last column is a real
         # press, and the browser refuses a point outside the viewport.
         return max(0, min(self.page_w - 1, x)), max(0, min(self.page_h - 1, y))
@@ -314,22 +310,21 @@ class TouchMap:
     def candidates(page_w, page_h, panel_w, panel_h):
         """Every way this panel's coordinates could relate to the page's.
 
-        There are exactly four, not eight. A rectangle has four symmetries, and
-        which four depends on whether the picture was turned a quarter -- if it
-        was, the panel is the page transposed and the base turn is 90 rather
-        than 0. Mirroring both axes is the same map as turning half way round,
-        so that one is named as the turn: it is the same thing said shorter.
+        Eight: four turns, each with or without a mirror. Mirroring both axes
+        is the same map as turning half way round, so mirror_y is left out of
+        the search -- it stays accepted on the command line, because a mapping
+        already written down should keep working.
+
+        The shapes are not used to narrow this down. They used to be, on the
+        reasoning that a quarter turn swaps the axes and so only turns of a
+        matching shape are possible -- true of the picture, and not true of the
+        coordinates a board reports, which can be on ranges of their own.
         """
-        base = 0 if (panel_w == page_w and panel_h == page_h) else 90
-        for rotate, mirror_x, mirror_y in (
-            (base, False, False),
-            (base, True, False),
-            (base, False, True),
-            (base + 180, False, False),
-        ):
-            yield TouchMap(
-                page_w, page_h, panel_w, panel_h, rotate, mirror_x, mirror_y
-            )
+        for rotate in (0, 90, 180, 270):
+            for mirror_x in (False, True):
+                yield TouchMap(
+                    page_w, page_h, panel_w, panel_h, rotate, mirror_x, False
+                )
 
 
 def send_picture(endpoint, image, frame_id, transpose, panel_w, panel_h, quality):
