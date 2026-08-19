@@ -251,26 +251,58 @@
     return null;
   }
 
+  /* Is the keyboard actually pressable where it is drawn? */
+  function reachable() {
+    var r = root.getBoundingClientRect();
+    if (r.height < 10) return false;
+    var at = document.elementFromPoint(r.left + r.width / 2, r.top + 6);
+    return !!at && (at === root || root.contains(at));
+  }
+
+  function moveTo(host) {
+    if (!host || root.parentNode === host) return;
+    var was = root.classList.contains("on");
+    try { root.hidePopover(); } catch (e) {}
+    host.appendChild(root);
+    if (handle.parentNode !== host) host.appendChild(handle);
+    if (was) {
+      root.classList.add("on");
+      try { root.showPopover(); } catch (e) {}
+    }
+  }
+
   function show(el) {
     target = el;
-    /* A modal dialog makes everything outside itself inert -- the top layer
-       included -- so a keyboard left in the body is drawn above the dialog
-       and cannot be pressed through it. Moving it inside the dialog is what
-       makes it part of what the dialog allows. Home Assistant's own overlays
-       are not native dialogs and never need this; something else on the page
-       might. */
-    var modal = modalAbove(el);
-    var host = modal || document.body || document.documentElement;
-    if (root.parentNode !== host) {
-      try { root.hidePopover(); } catch (e) {}
-      host.appendChild(root);
-      if (handle.parentNode !== host) host.appendChild(handle);
+
+    /* Parked inside a dialog that has since closed? Come home first: a closed
+       dialog does not render its children, so staying there means never being
+       seen again. */
+    var parent = root.parentNode;
+    if (parent && parent.nodeType === 1 && parent.tagName === "DIALOG") {
+      var stillModal = false;
+      try { stillModal = parent.matches(":modal"); } catch (e) {}
+      if (!stillModal) moveTo(document.body || document.documentElement);
     }
+
     root.classList.add("on");
     try { root.showPopover(); } catch (e) {}
+
+    /* A modal dialog makes everything outside itself inert -- the top layer
+       included -- so a keyboard in the body can be drawn above such a dialog
+       and still not be pressable through it. Moving it inside the dialog
+       fixes that, and costs something everywhere else: within a dialog it
+       inherits that dialog's box and its transforms.
+       So it is not moved on the guess that it might be needed. It is moved
+       when it is demonstrably not reachable where it is -- which for Home
+       Assistant, whose overlays are not native dialogs, is never. */
+    if (!reachable()) {
+      var modal = modalAbove(el);
+      if (modal) moveTo(modal);
+    }
     // A field under the keyboard cannot be seen while it is typed into.
     try { el.scrollIntoView({ block: "center", behavior: "instant" }); } catch (e) {}
   }
+
   function hide() {
     root.classList.remove("on");
     try { root.hidePopover(); } catch (e) {}
