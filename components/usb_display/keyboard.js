@@ -97,6 +97,9 @@
     setter.call(target, value.slice(0, start) + text + value.slice(end));
     try { target.setSelectionRange(start + text.length, start + text.length); } catch (e) {}
     target.dispatchEvent(new Event("input", { bubbles: true, composed: true }));
+    // A field rebuilt by the frontend can come back without the caret. Put it
+    // back, or the next key goes nowhere.
+    if (deepActive() !== target) { try { target.focus(); } catch (e) {} }
   }
 
   function backspace() {
@@ -139,7 +142,7 @@
     "#udisp-keyboard{position:fixed;left:0;right:0;bottom:0;top:auto;" +
     "width:auto;height:auto;max-width:none;max-height:none;margin:0;border:0;" +
     "z-index:2147483647;overflow:visible;" +
-    "background:#1c1c1e;padding:6px;box-sizing:border-box;display:none;" +
+    "background:#1c1c1e;padding:4px;box-sizing:border-box;display:none;" +
     "font:600 18px system-ui,sans-serif;user-select:none;-webkit-user-select:none;" +
     "box-shadow:0 -4px 16px rgba(0,0,0,.5)}" +
     "#udisp-keyboard.on{display:block}" +
@@ -148,10 +151,17 @@
     "width:44px;height:44px;border:0;border-radius:22px;background:#3a3a3ccc;" +
     "color:#fff;font:22px system-ui;padding:0;opacity:.55}" +
     "#udisp-handle:active{opacity:1}" +
-    "#udisp-keyboard .row{display:flex;gap:5px;margin:5px 0;justify-content:center}" +
-    "#udisp-keyboard button{flex:1 1 0;min-width:0;height:44px;border:0;border-radius:7px;" +
-    "background:#3a3a3c;color:#fff;font:inherit;padding:0}" +
-    "#udisp-keyboard button:active{background:#5a5a5e}" +
+    "#udisp-keyboard .row{display:flex;gap:4px;margin:3px 0;justify-content:center}" +
+    // Sized from the panel, not from a number that happened to suit one of
+    // them: six rows of a fixed 44 px is over half of a 600-pixel screen.
+    "#udisp-keyboard button{flex:1 1 0;min-width:0;border:0;border-radius:7px;" +
+    "height:clamp(22px,5.5vh,42px);font-size:clamp(12px,2.2vh,19px);" +
+    "background:#3a3a3c;color:#fff;font-family:inherit;font-weight:600;padding:0}" +
+    // Held by a class rather than left to :active. A press is a few
+    // milliseconds and the picture is sampled every few more, so the
+    // highlight has to outlast the finger or it is never once captured --
+    // which is why pressing a key looked like nothing happening.
+    "#udisp-keyboard button.pressed{background:#0a84ff;color:#fff}" +
     "#udisp-keyboard button.wide{flex:2 1 0}" +
     "#udisp-keyboard button.space{flex:6 1 0}" +
     "#udisp-keyboard button.on{background:#0a84ff}";
@@ -159,15 +169,29 @@
   var keys = document.createElement("div");
   root.appendChild(keys);
 
+  /* When the keyboard was last touched. A frontend that rebuilds a field on
+     every keystroke -- which is what a reactive one does -- blurs and
+     refocuses it in the process, and the blur used to be read as the user
+     having left. Pressing a key made the keyboard vanish. */
+  var touchedAt = 0;
+
   function key(label, cls, onPress) {
     var b = document.createElement("button");
     b.textContent = label;
     if (cls) b.className = cls;
     // The field must keep focus, so the press must never reach the browser's
     // own focus handling.
-    b.addEventListener("pointerdown", function (e) { e.preventDefault(); });
+    b.addEventListener("pointerdown", function (e) {
+      e.preventDefault();
+      touchedAt = Date.now();
+    });
     b.addEventListener("mousedown", function (e) { e.preventDefault(); });
-    b.addEventListener("click", function (e) { e.preventDefault(); onPress(); });
+    b.addEventListener("click", function (e) {
+      e.preventDefault();
+      b.classList.add("pressed");
+      setTimeout(function () { b.classList.remove("pressed"); }, 140);
+      onPress();
+    });
     return b;
   }
 
@@ -298,10 +322,15 @@
     if (isTextField(el)) show(el); else if (target && !root.contains(el)) hide();
   }, true);
   document.addEventListener("focusout", function () {
+    // Generously late, and never while the keyboard is being used. Leaving is
+    // deliberate -- another field, the cross, or somewhere else entirely --
+    // and none of those are undone by waiting a moment longer, where hiding
+    // in the middle of typing costs the whole gesture.
     setTimeout(function () {
+      if (Date.now() - touchedAt < 1000) return;
       var el = deepActive();
       if (!isTextField(el)) hide();
-    }, 0);
+    }, 400);
   }, true);
   /* A field can be entered by being pressed rather than by being focused --
      a code editor moves the caret without the browser calling it a new focus
