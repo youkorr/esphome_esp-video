@@ -141,7 +141,7 @@
   style.textContent =
     "#udisp-keyboard{position:fixed;left:0;right:0;bottom:0;top:auto;" +
     "width:auto;height:auto;max-width:none;max-height:none;margin:0;border:0;" +
-    "z-index:2147483647;overflow:visible;" +
+    "z-index:2147483647;overflow:visible;max-height:46vh;" +
     "background:#1c1c1e;padding:4px;box-sizing:border-box;display:none;" +
     "font:600 18px system-ui,sans-serif;user-select:none;-webkit-user-select:none;" +
     "box-shadow:0 -4px 16px rgba(0,0,0,.5)}" +
@@ -237,68 +237,11 @@
     });
   }
 
-  /* The nearest open modal dialog above an element, crossing shadow
-     boundaries by hopping from each root to its host. */
-  function modalAbove(el) {
-    var node = el;
-    while (node) {
-      if (node.nodeType === 1 && node.tagName === "DIALOG") {
-        try { if (node.matches(":modal")) return node; } catch (e) {}
-      }
-      node = node.parentNode || (node.getRootNode && node.getRootNode().host);
-      if (node && node.nodeType === 11) node = node.host;
-    }
-    return null;
-  }
-
-  /* Is the keyboard actually pressable where it is drawn? */
-  function reachable() {
-    var r = root.getBoundingClientRect();
-    if (r.height < 10) return false;
-    var at = document.elementFromPoint(r.left + r.width / 2, r.top + 6);
-    return !!at && (at === root || root.contains(at));
-  }
-
-  function moveTo(host) {
-    if (!host || root.parentNode === host) return;
-    var was = root.classList.contains("on");
-    try { root.hidePopover(); } catch (e) {}
-    host.appendChild(root);
-    if (handle.parentNode !== host) host.appendChild(handle);
-    if (was) {
-      root.classList.add("on");
-      try { root.showPopover(); } catch (e) {}
-    }
-  }
-
   function show(el) {
     target = el;
-
-    /* Parked inside a dialog that has since closed? Come home first: a closed
-       dialog does not render its children, so staying there means never being
-       seen again. */
-    var parent = root.parentNode;
-    if (parent && parent.nodeType === 1 && parent.tagName === "DIALOG") {
-      var stillModal = false;
-      try { stillModal = parent.matches(":modal"); } catch (e) {}
-      if (!stillModal) moveTo(document.body || document.documentElement);
-    }
-
     root.classList.add("on");
+    // The top layer, so nothing on the page can paint over it.
     try { root.showPopover(); } catch (e) {}
-
-    /* A modal dialog makes everything outside itself inert -- the top layer
-       included -- so a keyboard in the body can be drawn above such a dialog
-       and still not be pressable through it. Moving it inside the dialog
-       fixes that, and costs something everywhere else: within a dialog it
-       inherits that dialog's box and its transforms.
-       So it is not moved on the guess that it might be needed. It is moved
-       when it is demonstrably not reachable where it is -- which for Home
-       Assistant, whose overlays are not native dialogs, is never. */
-    if (!reachable()) {
-      var modal = modalAbove(el);
-      if (modal) moveTo(modal);
-    }
     // A field under the keyboard cannot be seen while it is typed into.
     try { el.scrollIntoView({ block: "center", behavior: "instant" }); } catch (e) {}
   }
