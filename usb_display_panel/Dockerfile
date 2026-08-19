@@ -26,7 +26,7 @@ ARG RAW=https://raw.githubusercontent.com/youkorr/esphome_esp-video/${BRANCH}/co
 # which is a great deal harder to notice than a build error. Writing the
 # version into the image first invalidates everything after it, so a new
 # version really does fetch new senders.
-ARG BUNDLE=1.10.0
+ARG BUNDLE=1.11.0
 RUN echo "${BUNDLE}" > /app/BUNDLE
 
 ADD ${RAW}/udisp_send.py /app/udisp_send.py
