@@ -1,5 +1,5 @@
 name: ESP32-P4 Panel
-version: "1.12.0"
+version: "1.13.0"
 slug: usb_display_panel
 description: Renders Home Assistant dashboards onto ESPHome usb_display panels over the network, with touch coming back
 url: https://github.com/youkorr/esphome_esp-video
@@ -21,11 +21,6 @@ options:
   fps: 30
   quality: 80
   stats: true
-  # A panel has no keys. This draws one in the page when a field is focused;
-  # it has a key to switch layout and remembers the choice, so this only
-  # decides which one it starts on.
-  keyboard: true
-  keyboard_layout: azerty
   panels:
     - name: salon
       host: 192.168.1.9
@@ -42,8 +37,6 @@ schema:
   fps: float?
   quality: int(1,95)?
   stats: bool?
-  keyboard: bool?
-  keyboard_layout: list(azerty|qwerty)?
   panels:
     - name: str
       host: str
@@ -59,5 +52,3 @@ schema:
       fps: float?
       quality: int(1,95)?
       stats: bool?
-      keyboard: bool?
-      keyboard_layout: list(azerty|qwerty)?

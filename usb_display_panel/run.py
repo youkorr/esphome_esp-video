@@ -57,8 +57,7 @@ def say(text):
 # and long enough that repeating it per panel is only a way to get one of them
 # wrong -- and the rest follow because there is no sense in a rule that applies
 # to one key.
-SHARED_KEYS = ("token", "url", "port", "fps", "quality", "stats",
-               "keyboard", "keyboard_layout")
+SHARED_KEYS = ("token", "url", "port", "fps", "quality", "stats")
 
 
 def load_panels():
@@ -118,15 +117,10 @@ def command_for(panel):
         "touch_rotate",
         "fps",
         "quality",
-        "keyboard_layout",
     ):
         value = panel.get(key)
         if value not in (None, ""):
             argv += [f"--{key.replace('_', '-')}", str(value)]
-    # Named for what it turns off, because that is what the option does; the
-    # add-on asks the question the other way round, which reads better there.
-    if str(panel.get("keyboard", True)).lower() in ("false", "no", "0"):
-        argv.append("--no-keyboard")
     for key in ("touch_mirror_x", "touch_mirror_y", "no_touch", "stats"):
         # Accept the string forms a hand-written JSON file may carry.
         value = panel.get(key)
