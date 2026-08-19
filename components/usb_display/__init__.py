@@ -262,6 +262,22 @@ async def to_code(config):
     cg.add(var.set_max_fps(config[CONF_MAX_FPS]))
     if (port := config.get(CONF_PORT)) is not None:
         cg.add(var.set_port(port))
+        # Receiving at video rates is bounded by the TCP receive window, and
+        # nothing else about the link. A window is how much a sender may have
+        # in flight before it must stop and wait for an acknowledgement, so
+        # the ceiling is the window divided by the round trip -- and the
+        # default is four segments, about 5.7 kB, which over Wi-Fi is a
+        # fraction of what the radio can carry.
+        #
+        # Sending does not suffer the same way, which is why a camera serving
+        # JPEG out of this board reaches rates this could not take in. Set
+        # only when frames actually arrive over the network; these are
+        # device-wide and not worth spending on a board that is USB-only.
+        esp32.add_idf_sdkconfig_option("CONFIG_LWIP_TCP_WND_DEFAULT", 28800)
+        esp32.add_idf_sdkconfig_option("CONFIG_LWIP_TCP_SND_BUF_DEFAULT", 28800)
+        # How many segments may queue for the socket before lwip drops them
+        # and asks for them again, which is what a burst of a large frame is.
+        esp32.add_idf_sdkconfig_option("CONFIG_LWIP_TCP_RECVMBOX_SIZE", 32)
 
     # The descriptors have to be compiled into TinyUSB itself, which only a
     # real IDF component can do (see that component's CMakeLists).
