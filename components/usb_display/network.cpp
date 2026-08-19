@@ -35,9 +35,12 @@ namespace usb_display {
 
 static const char *const TAG = "usb_display.net";
 
-// One read from the socket. Large enough that a frame is a handful of reads
-// rather than hundreds, small enough to sit in internal RAM alongside a task.
-static constexpr size_t NET_READ_SIZE = 4096;
+// One read from the socket. Every read costs a call into lwip and a chance to
+// re-advertise the window, so at video rates a small one is a tax paid several
+// hundred times a second: 4 kB meant a hundred-kilobyte frame took twenty-five
+// of them. Large enough to matter, small enough to sit in internal RAM beside
+// a task.
+static constexpr size_t NET_READ_SIZE = 16384;
 // How long to wait for a client's next byte before deciding it has gone away
 // without saying so.
 //
@@ -205,6 +208,10 @@ void USBDisplay::run_network_task() {
       // looks open and delivers nothing. Keepalive is what notices, and it
       // notices without needing anything to be sent.
       ::setsockopt(client, SOL_SOCKET, SO_KEEPALIVE, &one, sizeof(one));
+      // Room for a burst while the decoder is busy with the frame before it.
+      // Without it a sender is stopped the moment this task looks away.
+      int rcvbuf = 3 * (int) NET_READ_SIZE;
+      ::setsockopt(client, SOL_SOCKET, SO_RCVBUF, &rcvbuf, sizeof(rcvbuf));
 
       char peer_text[16] = {};
       ::inet_ntoa_r(peer.sin_addr, peer_text, sizeof(peer_text));
