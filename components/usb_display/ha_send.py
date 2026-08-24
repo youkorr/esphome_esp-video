@@ -510,10 +510,15 @@ class Screencast:
         # tile is a multiple of 16, so the spread stays inside the tile that
         # already changed.
         #
-        # What PNG did cost was real: encoding the frame in the browser 22.5 ms
-        # and decoding it here 7.2, against 1.6 and 2.2 for JPEG -- about 27 ms
-        # of a core per frame, or a third of one at fourteen frames a second,
-        # spent on a distinction the panel cannot show.
+        # What PNG did cost was real. Decoding it here is the half that was
+        # measured in this process: 7.2 ms a frame against 2.2 for JPEG, plus
+        # 1.8 more because a PNG arrives needing a convert() that a JPEG does
+        # not. The browser's own encode is the larger half and is inferred
+        # rather than measured -- the same 1024x600 picture costs libpng 22.5 ms
+        # and libjpeg 1.6 through Pillow, and Chromium uses those same two
+        # libraries on the same pixels. Call the whole of it twenty-odd
+        # milliseconds of a core per frame, spent on a distinction the panel
+        # cannot show.
         options = {
             "maxWidth": self._width,
             "maxHeight": self._height,
