@@ -62,7 +62,7 @@ ceiling is the network rather than the CPU.
 | `cmd`          | sent as 0                                         |
 | `x`, `y`       | rectangle origin — **this is the whole trick**    |
 | `width`,`height`| rectangle size                                   |
-| `packed`       | `frame_id:10 | payload_total:22`                  |
+| `packed`       | `frame_id` in the low 10 bits, `payload_total` above |
 
 `build_header()` / `build_heartbeat()` live in `udisp_send.py`, and `ha_send.py`
 imports them rather than restating the format. **One definition of the wire
@@ -185,7 +185,27 @@ panel. A panel smaller than the minimum keeps what it has.
 **Urgency is attached to the frame produced AFTER the input, not to the next
 frame sent.** The first attempt made latency worse (205 ms vs 105 ms) because
 the free pass was consumed by a frame rendered *before* the press. Measurement
-caught it; keep measuring.
+caught it; keep measuring. It is no longer a matter of picking the right frame:
+a press now throws away everything painted before it, in hand and in the
+browser both, so nothing that predates it can be shown.
+
+**A press opens a window, because one free frame was never the thing that was
+needed.** One frame is enough to watch a button go down and useless for what a
+press usually starts: changing dashboard repaints the whole page over about a
+second, and at `--fps 4` that arrived as four pictures. Reported from the panel
+as *"il rame entre les dashboards"*, and the frame limit was the cause — the
+`--fps 4` recommended to cut idle cost, paid for at the one moment there is
+most to show. `URGENT_WINDOW_S = 1.0` and `URGENT_FPS = 15` raise the limit for
+a second after each contact. Measured against a fake panel that sends a real
+contact up the return channel, same page, same run: 12.7 rectangles/s standing,
+**16.0** in the second after the press with the old single free frame — which
+is to say the one frame and nothing else — against **45.0** with the window,
+back to 16 afterwards.
+
+Not unlimited, deliberately. With no ceiling at all a page mid-transition hands
+over sixty frames a second, and a whole panel at 800×1280 is 130 KiB: megabytes
+a second that neither the link nor the board can take. Fifteen is smooth and
+still an eighth of what the browser would offer.
 
 **`TouchMap` works in normalised fractions and yields all 8 dihedral
 candidates.** Working in pixels failed on the Tab5 by 454 px: `swap_xy` is

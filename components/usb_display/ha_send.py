@@ -135,6 +135,23 @@ HEARTBEAT_S = 3.0
 # connected to your finger and one that does not. Self-limiting, because it
 # only fires as often as there is input.
 URGENT_AFTER_INPUT = True
+# How long the frame limit is lifted for after a press, and how far.
+#
+# One free frame is enough to watch a button go down. It is not enough for what
+# a press usually starts. Changing dashboard repaints the whole page over about
+# a second, and at four frames a second that arrives as four pictures, which
+# looks like a slideshow -- reported from a real panel as "it drags between the
+# dashboards", and the frame limit was the cause. The limit exists to stop a
+# page that never settles spending the link on frames nobody asked for, and for
+# a second after a press exactly the opposite is true.
+#
+# A window that raises the rate rather than one that removes the limit: with no
+# limit at all, a page in the middle of a transition would hand over sixty
+# whole panels a second, and a whole panel of this size is 130 KiB. That is
+# megabytes a second at neither the link nor the board can take. Fifteen is
+# smooth to the eye and still an eighth of what the browser would offer.
+URGENT_WINDOW_S = 1.0
+URGENT_FPS = 15.0
 # How the browser is started.
 #
 # The defaults are written for a browser somebody is looking at, and this one
@@ -941,6 +958,10 @@ def main():
         if args.rect_cost is None
         else args.rect_cost
     )
+    # A press lifts the limit to this for a moment, so that what the press
+    # started -- most often a whole new dashboard -- does not arrive as a
+    # slideshow. Never slower than the standing limit.
+    urgent_interval = min(interval, 1.0 / URGENT_FPS)
     if args.stats:
         print(
             f"One rectangle costs {rect_cost:.3f} of a whole panel at "
@@ -1021,11 +1042,10 @@ def main():
             # state as soon as a sender connects, so this is only the first
             # instant.
             awake = True
-            # Set when a press has just been replayed into the page, and
-            # handed to the next frame the browser produces -- that is the one
-            # showing its effect, and the one that should not wait its turn.
-            urgent = False
-            pending_urgent = False
+            # Until when a press has the frame limit raised for it. Everything
+            # painted before the press is dropped when it lands, so there is no
+            # question of the window covering a picture that predates it.
+            urgent_until = 0.0
             stats_at = time.monotonic()
             try:
                 while True:
@@ -1042,22 +1062,20 @@ def main():
                     frame = capture.take()
                     if frame is not None:
                         pending = frame
-                        # The free pass belongs to the first frame produced
-                        # after the input, not to whichever one happened to be
-                        # waiting when it arrived -- that one was rendered
-                        # before the press and shows nothing of it.
-                        pending_urgent, urgent = urgent, False
+                    # Inside the window that a press opens, the faster limit.
+                    # Nothing needs to be said about which frame the press
+                    # belongs to any more: the press threw away everything that
+                    # had been painted before it, so every frame that arrives
+                    # from here is one that answers it.
+                    limit = urgent_interval if started < urgent_until else interval
                     # Hold the newest frame back until the send rate allows it.
                     # Nothing is lost by waiting: take() only ever returns the
                     # latest, so a frame held here is replaced rather than
                     # queued.
                     shot = None
-                    if pending is not None and (
-                        started - last_send >= interval or pending_urgent
-                    ):
+                    if pending is not None and started - last_send >= limit:
                         shot, pending = pending, None
                         last_send = started
-                        pending_urgent = False
 
                     # Ask for another picture only once there is somewhere to
                     # put it. Holding the acknowledgement back is what stops
@@ -1065,7 +1083,7 @@ def main():
                     # away -- see Screencast.request. A pump early, so the next
                     # one is ready when the interval is up rather than being
                     # started then.
-                    if pending is None and started - last_send >= interval - PUMP_MS / 1000.0:
+                    if pending is None and started - last_send >= limit - PUMP_MS / 1000.0:
                         capture.request()
 
                     if shot is not None:
@@ -1184,10 +1202,10 @@ def main():
                     if injector is not None and reports:
                         injector.handle(reports)
                         if URGENT_AFTER_INPUT:
-                            urgent = True
-                            # Do not wait for the interval to ask for the
-                            # picture that answers this press, and do not
-                            # accept one painted before it landed.
+                            urgent_until = time.monotonic() + URGENT_WINDOW_S
+                            # Nothing painted before the finger landed shows
+                            # anything of it, in hand or still in the browser.
+                            pending = None
                             capture.request(discard=True)
                         if args.show_touches:
                             print(
