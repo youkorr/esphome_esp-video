@@ -445,6 +445,14 @@ add-on options.
   (`NameError`). Prefer narrow, anchored edits in `ha_send.py`; it is ~46 KB.
 - `queue_touch_` uses `touchscreen::TouchPoints_t` and must stay inside
   `#ifdef USE_TOUCHSCREEN`. Touch is decoupled from `CFG_TUD_HID`.
+- **A validator referenced before it is defined is a NameError at import
+  time**, and it reaches the board's build rather than any YAML check: the
+  schema is a module-level expression, so every name it uses must already be
+  bound. Shipped once, on `_validate_render_size`. `esphome config` catches it
+  in a second and is not always installable; `tools/importcheck.py` executes a
+  component's `__init__.py` against a stand-in for esphome and catches this
+  class without needing esphome at all. Run it on anything touched under
+  `components/` before pushing.
 - `cc1plus` was OOM-killed compiling `esp-tflite-micro`; `compile_process_limit:
   1` under `esphome:` is the workaround -- but check two versions before
   believing it did anything. The native ESP-IDF build path read the option and
