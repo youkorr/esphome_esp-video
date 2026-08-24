@@ -1,5 +1,5 @@
 name: ESP32-P4 Panel
-version: "1.14.0"
+version: "1.15.0"
 slug: usb_display_panel
 description: Renders Home Assistant dashboards onto ESPHome usb_display panels over the network, with touch coming back
 url: https://github.com/youkorr/esphome_esp-video
@@ -20,6 +20,10 @@ options:
   port: 5000
   fps: 30
   quality: 80
+  # What the browser hands over, before it is cut into rectangles. Asking it
+  # for lossless PNG instead -- 0 -- costs the machine running this about
+  # eight times the CPU for a picture the panel cannot tell apart.
+  capture_quality: 90
   stats: true
   panels:
     - name: salon
@@ -36,6 +40,7 @@ schema:
   port: port?
   fps: float?
   quality: int(1,95)?
+  capture_quality: int(0,100)?
   stats: bool?
   panels:
     - name: str
@@ -51,4 +56,5 @@ schema:
       touch_mirror_y: bool?
       fps: float?
       quality: int(1,95)?
+      capture_quality: int(0,100)?
       stats: bool?

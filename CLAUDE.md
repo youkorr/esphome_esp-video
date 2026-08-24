@@ -223,12 +223,12 @@ asks for a tap on each, and prints `--touch-rotate` / `--touch-mirror-x` /
 move together.** Docker caches `ADD` from a URL on the URL string alone, so an
 add-on update shipped stale sender code. The fix is the version-carrying
 `ARG BUNDLE` + a `RUN` that writes it *before* the `ADD`s, which invalidates
-everything after it. Currently **1.14.0**.
+everything after it. Currently **1.15.0**.
 
 `run.py` supervises one `ha_send.py` per panel: `SHARED_KEYS` lets the token,
-url, port, fps, quality and stats be given once at the top and inherited (a
-panel's own value always wins); backoff 5 → 10 → 20 → 120 s for a run shorter
-than 20 s; children are killed on SIGTERM.
+url, port, fps, quality, capture_quality and stats be given once at the top and
+inherited (a panel's own value always wins); backoff 5 → 10 → 20 → 120 s for a
+run shorter than 20 s; children are killed on SIGTERM.
 
 From inside the add-on the URL must be `http://homeassistant:8123` — a Tailscale
 or `.local` name gives `ERR_NAME_NOT_RESOLVED`. `explain_unreachable()` says so.

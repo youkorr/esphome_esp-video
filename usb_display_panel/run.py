@@ -57,7 +57,7 @@ def say(text):
 # and long enough that repeating it per panel is only a way to get one of them
 # wrong -- and the rest follow because there is no sense in a rule that applies
 # to one key.
-SHARED_KEYS = ("token", "url", "port", "fps", "quality", "stats")
+SHARED_KEYS = ("token", "url", "port", "fps", "quality", "capture_quality", "stats")
 
 
 def load_panels():
@@ -96,6 +96,7 @@ def load_panels():
                     "touch_rotate",
                     "fps",
                     "quality",
+                    "capture_quality",
                 )
                 if os.environ.get(key.upper())
             }
@@ -117,6 +118,7 @@ def command_for(panel):
         "touch_rotate",
         "fps",
         "quality",
+        "capture_quality",
     ):
         value = panel.get(key)
         if value not in (None, ""):
