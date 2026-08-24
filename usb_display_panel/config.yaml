@@ -1,5 +1,5 @@
 name: ESP32-P4 Panel
-version: "1.18.0"
+version: "1.19.0"
 slug: usb_display_panel
 description: Renders Home Assistant dashboards onto ESPHome usb_display panels over the network, with touch coming back
 url: https://github.com/youkorr/esphome_esp-video
@@ -35,15 +35,15 @@ options:
   # for lossless PNG instead -- 0 -- costs the machine running this about
   # eight times the CPU for a picture the panel cannot tell apart.
   capture_quality: 90
-  # What one rectangle costs the board, as a fraction of redrawing the whole
-  # panel. Left empty it is worked out from each panel's size, which is right
-  # for every panel this has been measured on. Raise it towards 0.18 only if
-  # the board's log starts reporting dropped frames.
-  rect_cost: ""
-  # Hold the page's animations still. Only animations: a camera, a video and a
-  # card that paints itself on a canvas carry on regardless, and one of those
-  # on the dashboard makes this worth nothing. Try it and watch the log.
-  freeze_animations: false
+  # The limit that applies for a moment after a contact, instead of fps, and
+  # how long for. This is what lets fps be low: at rest a dashboard costs what
+  # it costs, and the moment somebody touches it the brake comes off. Measured
+  # against a panel sending a real contact: 14 rectangles a second standing,
+  # 82 in the second after the press and 86 in the one after that, back to 16
+  # once the window closes. Raise urgent_fps if a low fps still feels slow
+  # under the finger.
+  urgent_fps: 30
+  urgent_window: 2.0
   stats: true
   panels:
     - name: salon
@@ -52,12 +52,6 @@ options:
       height: 600
       rotate: "180"
       touch_rotate: "180"
-      # Draw smaller and let the board's accelerator scale up. Must match the
-      # component's render_width/render_height exactly. Measured on an
-      # 800x1280 panel with 640x1024 here: 3.3 ms of work per picture instead
-      # of 8.7, and 13 KiB instead of 18. Leave both out for no scaling.
-      render_width: 0
-      render_height: 0
       touch_mirror_x: false
       touch_mirror_y: false
 schema:
@@ -67,8 +61,8 @@ schema:
   fps: float?
   quality: int(1,95)?
   capture_quality: int(0,100)?
-  rect_cost: str?
-  freeze_animations: bool?
+  urgent_fps: float?
+  urgent_window: float?
   stats: bool?
   panels:
     - name: str
@@ -80,13 +74,11 @@ schema:
       height: int(16,4096)
       rotate: list(0|90|180|270)
       touch_rotate: list(0|90|180|270)
-      render_width: int(0,4096)?
-      render_height: int(0,4096)?
       touch_mirror_x: bool?
       touch_mirror_y: bool?
       fps: float?
       quality: int(1,95)?
       capture_quality: int(0,100)?
-      rect_cost: str?
-      freeze_animations: bool?
+      urgent_fps: float?
+      urgent_window: float?
       stats: bool?
