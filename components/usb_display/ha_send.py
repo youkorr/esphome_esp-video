@@ -76,6 +76,18 @@ TILE = 64
 # wins on both counts. Judging by area alone got that case exactly backwards
 # and sent a whole panel, every frame, to update two thirds of it.
 RECT_COST_FRACTION = 0.18
+# No rectangle narrower or shorter than this.
+#
+# The P4's JPEG decoder is a DMA engine working in 16x16 units, and a sliver
+# stalls it: a 32x128 strip comes back as ESP_ERR_TIMEOUT rather than as
+# pixels. Slivers are not rare -- they are the panel's own edge, wherever its
+# size is not a multiple of the tile: 800 is twelve tiles of 64 and a
+# remainder of 32, so the rightmost column of every picture was one. Nothing
+# was ever drawn there, which is why the edge went stale and stayed stale.
+#
+# Growing such a rectangle backwards costs a few pixels sent twice and fixes
+# it outright.
+MIN_RECT = 64
 # However little changes, redraw everything this often. A dropped rectangle --
 # the board was busy, the socket hiccuped -- would otherwise stay wrong on the
 # panel forever, because nothing would ever mark that area as changed again.
@@ -251,7 +263,17 @@ def changed_rectangles(previous, current, tile=TILE):
                 merged[-1] = (mx, my, mw, mh + h)
                 continue
         merged.append((x, y, w, h))
-    return merged
+
+    # Widen anything the decoder would choke on, backwards so it stays inside
+    # the panel. A panel smaller than the minimum keeps whatever it has.
+    grown = []
+    for x, y, w, h in merged:
+        if w < MIN_RECT and width >= MIN_RECT:
+            x, w = min(x, width - MIN_RECT), MIN_RECT
+        if h < MIN_RECT and height >= MIN_RECT:
+            y, h = min(y, height - MIN_RECT), MIN_RECT
+        grown.append((x, y, w, h))
+    return grown
 
 
 class TouchMap:
