@@ -202,6 +202,48 @@ Lit/Polymer to notice.
 this often, so a rectangle lost to a busy board or a socket hiccup does not stay
 wrong forever.
 
+**The screencast acknowledgement is the flow control, so it is paced.** Chromium
+keeps about three frames in flight and then waits to be told they arrived.
+Acknowledging on every turn of the loop — 125 times a second — therefore asks it
+to paint and encode at its own full rate, and `--fps` then discards the surplus
+*after* the cost has been paid. Measured through the sender against a page that
+never settles, sent against made: at `--fps 4`, 3.9/s against **59.5**/s before,
+3.7 against **5.7** after; at `--fps 10`, 9.4 against 59.7 before, 8.9 against
+13.6 after. Waste falls from 84–93% to 33–35%, and it reproduces to within a
+frame on a second, quite different page. `Screencast.request()` now acknowledges
+only when there is somewhere to put the result — and at once, with the frame in
+hand thrown away, when a press has just been replayed, because that one was
+painted before the finger landed. Not free: about 4–5% fewer pictures actually
+reach the panel.
+
+**`--freeze-animations` only freezes animations, and that is less than it
+sounds.** It goes through the protocol's `Animation` domain, not CSS, because
+CSS cannot reach a Home Assistant card: a rule added to the document does not
+cross into a shadow root — measured, 60.2 frames/s with `animation: none` in
+place, which is to say no effect at all, and 60.0 under
+`prefers-reduced-motion`, which a page may ignore and does. Through the domain:
+55.8 → **0.2**. But a canvas driven by `requestAnimationFrame`, a camera tile
+and a video do not go through that engine at all: frozen, a canvas alone still
+ran at 59.7/s, and one such card on the page took a three-mover page from 57.3
+to 59.2 — no effect whatever. Ack pacing helps those; freezing does not. Try it
+with `--stats` and keep it only if the idle rate drops.
+
+**`--stats` reports `made/s` and `whole` because nothing else could.**
+`pictures/s`, `rectangles/s` and `KiB/s` all describe what was *sent*, and what
+is sent is decided by the page; the cost that matters is paid before that
+decision. `made/s` is what the browser handed over, so the gap is the waste.
+`whole` counts the pictures that gave up on rectangles and sent the panel
+entire — the rectangle count cannot say, since a whole panel is one rectangle
+and so is a card that grew, and the two differ by a hundred kilobytes.
+
+**`RECT_COST_FRACTION` is calibrated for 1024×600 and is a suspect on other
+geometries.** It is `per-rectangle fixed cost / whole-panel decode`, measured as
+1.5 ms over 8.5 ms. A whole-panel decode scales with pixels, so on the 800×1280
+Guition the denominator is nearer 14 ms and the right value nearer **0.11** than
+0.18 — which would mean that panel gives up on rectangles at 64% coverage where
+it should hold out to 79%. Unverified: the `whole` counter exists to settle it
+before anyone changes the constant.
+
 ## Calibration — run it once per board, always
 
 ```
