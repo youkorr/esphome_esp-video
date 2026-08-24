@@ -145,11 +145,19 @@ URGENT_AFTER_INPUT = True
 # page that never settles spending the link on frames nobody asked for, and for
 # a second after a press exactly the opposite is true.
 #
-# A window that raises the rate rather than one that removes the limit: with no
-# limit at all, a page in the middle of a transition would hand over sixty
-# whole panels a second, and a whole panel of this size is 130 KiB. That is
-# megabytes a second at neither the link nor the board can take. Fifteen is
-# smooth to the eye and still an eighth of what the browser would offer.
+# A window that raises the rate rather than one that removes the limit -- but
+# not for the reason it first seemed. The link has room: the board's radio was
+# measured above 25 Mbit/s serving a camera, and the inbound side, which is the
+# one that matters here, is bounded by the 28800-byte receive window over the
+# round trip, so 23 Mbit/s at a 10 ms RTT and more on a quiet network. A
+# transition peaked at 6.2.
+#
+# What actually binds during a transition is this machine. Nearly every picture
+# then is a whole panel, and decoding, diffing and re-encoding one at 800x1280
+# takes around 40 ms: the loop falls from 62 Hz to 43 and the sender tops out
+# near seven pictures a second whatever it is allowed. Fifteen therefore does
+# not bind there at all. What it stops is the other case -- a small cheap
+# change being sent sixty times a second because a finger touched the panel.
 URGENT_WINDOW_S = 1.0
 URGENT_FPS = 15.0
 # How the browser is started.
