@@ -64,6 +64,8 @@ SHARED_KEYS = (
     "fps",
     "quality",
     "capture_quality",
+    "urgent_fps",
+    "urgent_window",
     "rect_cost",
     "freeze_animations",
     "stats",
@@ -83,9 +85,22 @@ def load_panels():
                     for key in SHARED_KEYS
                     if config.get(key) not in (None, "")
                 }
-                # A panel's own value always wins; the shared one only fills a
-                # gap.
-                return [{**shared, **panel} for panel in panels]
+                # A panel's own value wins -- but only if it is a value. An
+                # add-on's form has no empty state to speak of, so a field
+                # nobody filled in arrives as "", and a plain merge would let
+                # that blank the shared one. The token is where this bites:
+                # every panel would silently lose it.
+                return [
+                    {
+                        **shared,
+                        **{
+                            key: value
+                            for key, value in panel.items()
+                            if key not in SHARED_KEYS or value not in (None, "")
+                        },
+                    }
+                    for panel in panels
+                ]
             # A file holding a single panel is a reasonable thing to write.
             if config.get("host"):
                 return [config]
@@ -132,6 +147,8 @@ def command_for(panel):
         "fps",
         "quality",
         "capture_quality",
+        "urgent_fps",
+        "urgent_window",
         "rect_cost",
     ):
         value = panel.get(key)

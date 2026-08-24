@@ -222,8 +222,14 @@ press usually starts: changing dashboard repaints the whole page over about a
 second, and at `--fps 4` that arrived as four pictures. Reported from the panel
 as *"il rame entre les dashboards"*, and the frame limit was the cause — the
 `--fps 4` recommended to cut idle cost, paid for at the one moment there is
-most to show. `URGENT_WINDOW_S = 1.0` and `URGENT_FPS = 15` raise the limit for
-a second after each contact. Measured against a fake panel that sends a real
+most to show. `--urgent-window` and `--urgent-fps` raise the limit after each
+contact, and the defaults are 2 seconds at 30 because 1 second at 15 was
+reported from a panel as still slow against a standing 30 — rightly: fifteen is
+less than the machine gives, and a transition or a settling scroll runs longer
+than a second. Measured against a fake panel sending a real contact, same page,
+same run: 14 rectangles/s standing, 50 in the second after the press at 15/1s
+and back to 13 by the next second, against **82 then 86** at 30/2s, back to 16
+once it closes. Measured against a fake panel that sends a real
 contact up the return channel, same page, same run: 12.7 rectangles/s standing,
 **16.0** in the second after the press with the old single free frame — which
 is to say the one frame and nothing else — against **45.0** with the window,
@@ -400,9 +406,22 @@ add-on update shipped stale sender code. The fix is the version-carrying
 everything after it. Currently **1.15.0**.
 
 `run.py` supervises one `ha_send.py` per panel: `SHARED_KEYS` lets the token,
-url, port, fps, quality, capture_quality and stats be given once at the top and
-inherited (a panel's own value always wins); backoff 5 → 10 → 20 → 120 s for a
-run shorter than 20 s; children are killed on SIGTERM.
+url, port, fps, quality, capture_quality, urgent_fps, urgent_window and stats be
+given once at the top and inherited; backoff 5 → 10 → 20 → 120 s for a run
+shorter than 20 s; children are killed on SIGTERM.
+
+**A panel's own value wins only if it is a value.** An add-on's form has no
+empty state, so a field nobody filled in arrives as `""`, and a plain
+`{**shared, **panel}` lets that blank the shared one — silently, and the token
+is where it bites.
+
+**The add-on's form offers only what somebody should actually set.**
+`rect_cost`, `freeze_animations` and `render_width`/`render_height` are gone
+from it: the first is computed from the geometry and only wanted when the board
+starts dropping frames, the second does nothing on a dashboard with a camera on
+it, and the third costs visible sharpness. All three remain options on
+`ha_send.py` for a hand-run sender. A form nobody can read is a form where the
+setting that matters gets missed.
 
 From inside the add-on the URL must be `http://homeassistant:8123` — a Tailscale
 or `.local` name gives `ERR_NAME_NOT_RESOLVED`. `explain_unreachable()` says so.

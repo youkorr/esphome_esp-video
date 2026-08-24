@@ -165,8 +165,16 @@ URGENT_AFTER_INPUT = True
 # near seven pictures a second whatever it is allowed. Fifteen therefore does
 # not bind there at all. What it stops is the other case -- a small cheap
 # change being sent sixty times a second because a finger touched the panel.
-URGENT_WINDOW_S = 1.0
-URGENT_FPS = 15.0
+# Defaults, overridable: a panel reported that a standing 10 was slow against
+# 30 even with the window, and it was right -- fifteen for one second is less
+# than the machine can do and less than the thing being watched needs. A
+# transition, a scroll settling, a card opening: all of them run longer than a
+# second, and the sender was measured serving 21 pictures a second on that
+# panel. So the window now goes to what the browser and the machine will give,
+# for as long as the movement lasts, and the standing limit is left free to be
+# low -- which is the whole point of having two numbers instead of one.
+URGENT_WINDOW_S = 2.0
+URGENT_FPS = 30.0
 # How the browser is started.
 #
 # The defaults are written for a browser somebody is looking at, and this one
@@ -858,6 +866,24 @@ def main():
         "CPU for a picture the panel cannot tell apart",
     )
     parser.add_argument(
+        "--urgent-fps",
+        type=float,
+        default=URGENT_FPS,
+        help="the limit that applies for a moment after a contact, instead of "
+        "--fps. This is what lets --fps be low: at rest a dashboard costs what "
+        "it costs, and the moment somebody touches it the brake comes off. "
+        "Raise it if a low --fps still feels slow under the finger; it cannot "
+        "make the sender go faster than the machine it runs on",
+    )
+    parser.add_argument(
+        "--urgent-window",
+        type=float,
+        default=URGENT_WINDOW_S,
+        help="how many seconds a contact keeps --urgent-fps in force. A "
+        "dashboard transition repaints for about a second and a scroll settles "
+        "over longer; each new contact starts the count again",
+    )
+    parser.add_argument(
         "--rect-cost",
         type=float,
         help="what one rectangle costs the board, as a fraction of redrawing "
@@ -1028,7 +1054,7 @@ def main():
     # A press lifts the limit to this for a moment, so that what the press
     # started -- most often a whole new dashboard -- does not arrive as a
     # slideshow. Never slower than the standing limit.
-    urgent_interval = min(interval, 1.0 / URGENT_FPS)
+    urgent_interval = min(interval, 1.0 / args.urgent_fps) if args.urgent_fps > 0 else 0.0
     if args.stats:
         print(
             f"One rectangle costs {rect_cost:.3f} of a whole panel at "
@@ -1281,7 +1307,7 @@ def main():
                     if injector is not None and reports:
                         injector.handle(reports)
                         if URGENT_AFTER_INPUT:
-                            urgent_until = time.monotonic() + URGENT_WINDOW_S
+                            urgent_until = time.monotonic() + args.urgent_window
                             # Nothing painted before the finger landed shows
                             # anything of it, in hand or still in the browser.
                             pending = None
