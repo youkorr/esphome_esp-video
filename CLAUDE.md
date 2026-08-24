@@ -144,6 +144,20 @@ paint/compose/encode per call, gave 0.2 pictures/s and then failed outright with
 change. Acks are sent from the loop, not from the handler. `pause()`/`resume()`
 map to stop/startScreencast for panel sleep.
 
+**The screencast is JPEG, and PNG was the server's largest single cost.**
+PNG was picked on the belief that JPEG ringing would make every tile differ and
+nothing would ever look unchanged. That is wrong: JPEG is a block transform, so
+a block whose pixels went in identical comes out identical -- the ringing is
+deterministic, not noise. Measured on a 1024x600 dashboard with one clock digit
+changed, at q60 through q95, with and without chroma subsampling: exactly the
+one tile holding the digit differed, never another (4:2:0 widens the unit to a
+16x16 MCU, and `TILE` is a multiple of 16). PNG cost 22.5 ms to encode in the
+browser and 7.2 ms to decode here, against 1.6 and 2.2 for JPEG -- about 27 ms
+of a core per frame. `--capture-quality` (default 90, `0` for PNG) is separate
+from `--quality`, which is what the panel receives. Outside a tile of pure
+white noise, which no encoder keeps and no camera produces, the capture encode
+costs 0.7 levels of mean error.
+
 **Tile diff, `TILE = 64`.** `changed_rectangles()` compares tiles against the
 previous frame. `differing = previous != current` — **without** an
 `np.any(..., axis=-1)` reduce, which was 15× slower for the same answer.

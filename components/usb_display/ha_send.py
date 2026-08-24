@@ -484,10 +484,11 @@ class Screencast:
     inside Playwright's own dispatch -- but from the loop, right after pumping.
     """
 
-    def __init__(self, page, width, height):
+    def __init__(self, page, width, height, quality):
         self._session = page.context.new_cdp_session(page)
         self._width = width
         self._height = height
+        self._quality = quality
         self._latest = None
         self._unacked = []
         self._session.on("Page.screencastFrame", self._on_frame)
@@ -495,18 +496,35 @@ class Screencast:
         self._start()
 
     def _start(self):
-        self._session.send(
-            "Page.startScreencast",
-            {
-                # Lossless: a JPEG here would make every tile differ from the
-                # last by a pixel or two of ringing, and nothing would ever look
-                # unchanged.
-                "format": "png",
-                "maxWidth": self._width,
-                "maxHeight": self._height,
-                "everyNthFrame": 1,
-            },
-        )
+        # JPEG, and this is where most of the server's CPU went before.
+        #
+        # PNG was chosen on the belief that a JPEG would make every tile differ
+        # from the last by a pixel or two of ringing, so nothing would ever look
+        # unchanged. That is not what happens. JPEG is a block transform: an 8x8
+        # block whose pixels went in identical comes out identical, because the
+        # coefficients are the same numbers. Ringing is deterministic, not
+        # noise. Measured on a dashboard-shaped 1024x600 picture with one clock
+        # digit changed, at every quality from 60 to 95 and with and without
+        # chroma subsampling: exactly the one tile holding the digit differed,
+        # never another. Subsampling widens the unit to a 16x16 MCU, and the
+        # tile is a multiple of 16, so the spread stays inside the tile that
+        # already changed.
+        #
+        # What PNG did cost was real: encoding the frame in the browser 22.5 ms
+        # and decoding it here 7.2, against 1.6 and 2.2 for JPEG -- about 27 ms
+        # of a core per frame, or a third of one at fourteen frames a second,
+        # spent on a distinction the panel cannot show.
+        options = {
+            "maxWidth": self._width,
+            "maxHeight": self._height,
+            "everyNthFrame": 1,
+        }
+        if self._quality:
+            options["format"] = "jpeg"
+            options["quality"] = self._quality
+        else:
+            options["format"] = "png"
+        self._session.send("Page.startScreencast", options)
 
     def _on_frame(self, params):
         self._latest = base64.b64decode(params["data"])
@@ -686,6 +704,17 @@ def main():
     )
     parser.add_argument("--quality", type=int, default=80, help="JPEG quality, 1..95")
     parser.add_argument(
+        "--capture-quality",
+        type=int,
+        default=90,
+        help="quality of the picture the browser hands over, 1..100, or 0 for "
+        "lossless PNG. This is not --quality: that one is what the panel "
+        "receives, and this one is what it is made from, so keeping it above "
+        "--quality leaves the second encode something to work with. PNG is "
+        "the honest answer and costs the server about eight times as much "
+        "CPU for a picture the panel cannot tell apart",
+    )
+    parser.add_argument(
         "--no-touch", action="store_true", help="do not replay the panel's contacts"
     )
     parser.add_argument(
@@ -701,6 +730,11 @@ def main():
         "to find the card that never stops redrawing",
     )
     args = parser.parse_args()
+
+    # Chromium rejects the whole startScreencast call for a quality outside
+    # this, and the failure surfaces as a page that simply never sends a frame.
+    if not 0 <= args.capture_quality <= 100:
+        parser.error("--capture-quality must be between 0 and 100")
 
     if not args.calibrate:
         if not args.url:
@@ -804,7 +838,7 @@ def main():
             args.touch_mirror_y,
         )
         injector = None if args.no_touch else Injector(page, touch_map)
-        capture = Screencast(page, page_w, page_h)
+        capture = Screencast(page, page_w, page_h, args.capture_quality)
         frame_id = 0
         # The newest rendering, kept across connections: a panel that comes back
         # needs a whole picture, and the browser will not send another frame
@@ -873,7 +907,12 @@ def main():
                         pending_urgent = False
 
                     if shot is not None:
-                        image = Image.open(io.BytesIO(shot)).convert("RGB")
+                        image = Image.open(io.BytesIO(shot))
+                        # A JPEG frame already arrives as RGB, and convert()
+                        # to the mode a picture is already in still copies the
+                        # whole of it -- 1.8 ms a frame for nothing.
+                        if image.mode != "RGB":
+                            image = image.convert("RGB")
                         if transpose is not None:
                             image = image.transpose(transpose)
                         if image.size != (args.width, args.height):
