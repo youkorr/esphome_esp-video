@@ -62,7 +62,7 @@ ceiling is the network rather than the CPU.
 | `cmd`          | sent as 0                                         |
 | `x`, `y`       | rectangle origin — **this is the whole trick**    |
 | `width`,`height`| rectangle size                                   |
-| `packed`       | `frame_id:10 | payload_total:22`                  |
+| `packed`       | `frame_id` in the low 10 bits, `payload_total` above |
 
 `build_header()` / `build_heartbeat()` live in `udisp_send.py`, and `ha_send.py`
 imports them rather than restating the format. **One definition of the wire
@@ -144,13 +144,35 @@ paint/compose/encode per call, gave 0.2 pictures/s and then failed outright with
 change. Acks are sent from the loop, not from the handler. `pause()`/`resume()`
 map to stop/startScreencast for panel sleep.
 
+**The screencast is JPEG, and PNG was the server's largest single cost.**
+PNG was picked on the belief that JPEG ringing would make every tile differ and
+nothing would ever look unchanged. That is wrong: JPEG is a block transform, so
+a block whose pixels went in identical comes out identical -- the ringing is
+deterministic, not noise. Measured on a 1024x600 dashboard with one clock digit
+changed, at q60 through q95, with and without chroma subsampling: exactly the
+one tile holding the digit differed, never another (4:2:0 widens the unit to a
+16x16 MCU, and `TILE` is a multiple of 16). The decode side is measured in the
+sender: 7.2 ms a frame for PNG against 2.2 for JPEG, plus 1.8 for a `convert()`
+a JPEG does not need. The browser's encode is the larger half and is *inferred*
+— libpng 22.5 ms against libjpeg 1.6 on the same picture through Pillow, and
+Chromium uses those libraries — so treat ~20 ms as indicative and measure it on
+the real box. `--capture-quality` (default 90, `0` for PNG) is separate from
+`--quality`, which is what the panel receives. Outside a tile of pure
+white noise, which no encoder keeps and no camera produces, the capture encode
+costs 0.7 levels of mean error.
+
 **Tile diff, `TILE = 64`.** `changed_rectangles()` compares tiles against the
 previous frame. `differing = previous != current` — **without** an
 `np.any(..., axis=-1)` reduce, which was 15× slower for the same answer.
 
-**`RECT_COST_FRACTION = 0.18`** — judge a full redraw by how many *pieces* an
-update is, not by its area. Judging by area got the common case exactly
-backwards and sent a whole panel every frame to update two thirds of it.
+**`rect_cost_fraction(w, h)` — judge a full redraw by how many *pieces* an
+update is, not by its area.** Judging by area got the common case exactly
+backwards and sent a whole panel every frame to update two thirds of it. But it
+is a *ratio* — a rectangle's fixed 1.5 ms over a whole-panel decode — and only
+the numerator is fixed, so it cannot be one constant for every panel. It was
+hard-coded at the 0.18 measured on 1024×600, where a whole panel decodes in
+8.5 ms. It now comes out of the geometry: 0.176 there, unchanged in practice;
+0.106 at 800×1280; 0.118 at 720×1280. `--rect-cost` overrides it.
 
 **`MIN_RECT = 64` — do not remove this.** The P4's JPEG decoder is a DMA engine
 working in 16×16 units and a sliver stalls it: a 32×128 strip returns
@@ -163,7 +185,27 @@ panel. A panel smaller than the minimum keeps what it has.
 **Urgency is attached to the frame produced AFTER the input, not to the next
 frame sent.** The first attempt made latency worse (205 ms vs 105 ms) because
 the free pass was consumed by a frame rendered *before* the press. Measurement
-caught it; keep measuring.
+caught it; keep measuring. It is no longer a matter of picking the right frame:
+a press now throws away everything painted before it, in hand and in the
+browser both, so nothing that predates it can be shown.
+
+**A press opens a window, because one free frame was never the thing that was
+needed.** One frame is enough to watch a button go down and useless for what a
+press usually starts: changing dashboard repaints the whole page over about a
+second, and at `--fps 4` that arrived as four pictures. Reported from the panel
+as *"il rame entre les dashboards"*, and the frame limit was the cause — the
+`--fps 4` recommended to cut idle cost, paid for at the one moment there is
+most to show. `URGENT_WINDOW_S = 1.0` and `URGENT_FPS = 15` raise the limit for
+a second after each contact. Measured against a fake panel that sends a real
+contact up the return channel, same page, same run: 12.7 rectangles/s standing,
+**16.0** in the second after the press with the old single free frame — which
+is to say the one frame and nothing else — against **45.0** with the window,
+back to 16 afterwards.
+
+Not unlimited, deliberately. With no ceiling at all a page mid-transition hands
+over sixty frames a second, and a whole panel at 800×1280 is 130 KiB: megabytes
+a second that neither the link nor the board can take. Fifteen is smooth and
+still an eighth of what the browser would offer.
 
 **`TouchMap` works in normalised fractions and yields all 8 dihedral
 candidates.** Working in pixels failed on the Tab5 by 454 px: `swap_xy` is
@@ -184,6 +226,69 @@ Lit/Polymer to notice.
 **`FULL_REDRAW_SECONDS = 30.0`** — however little changes, redraw everything
 this often, so a rectangle lost to a busy board or a socket hiccup does not stay
 wrong forever.
+
+**The screencast acknowledgement is the flow control, so it is paced.** Chromium
+keeps about three frames in flight and then waits to be told they arrived.
+Acknowledging on every turn of the loop — 125 times a second — therefore asks it
+to paint and encode at its own full rate, and `--fps` then discards the surplus
+*after* the cost has been paid. Measured through the sender against a page that
+never settles, sent against made: at `--fps 4`, 3.9/s against **59.5**/s before,
+3.7 against **5.7** after; at `--fps 10`, 9.4 against 59.7 before, 8.9 against
+13.6 after. Waste falls from 84–93% to 33–35%, and it reproduces to within a
+frame on a second, quite different page. `Screencast.request()` now acknowledges
+only when there is somewhere to put the result — and at once, with the frame in
+hand thrown away, when a press has just been replayed, because that one was
+painted before the finger landed. Not free: about 4–5% fewer pictures actually
+reach the panel.
+
+**`--freeze-animations` only freezes animations, and that is less than it
+sounds.** It goes through the protocol's `Animation` domain, not CSS, because
+CSS cannot reach a Home Assistant card: a rule added to the document does not
+cross into a shadow root — measured, 60.2 frames/s with `animation: none` in
+place, which is to say no effect at all, and 60.0 under
+`prefers-reduced-motion`, which a page may ignore and does. Through the domain:
+55.8 → **0.2**. But a canvas driven by `requestAnimationFrame`, a camera tile
+and a video do not go through that engine at all: frozen, a canvas alone still
+ran at 59.7/s, and one such card on the page took a three-mover page from 57.3
+to 59.2 — no effect whatever. Ack pacing helps those; freezing does not. Try it
+with `--stats` and keep it only if the idle rate drops.
+
+**`--stats` reports `made/s` and `whole` because nothing else could.**
+`pictures/s`, `rectangles/s` and `KiB/s` all describe what was *sent*, and what
+is sent is decided by the page; the cost that matters is paid before that
+decision. `made/s` is what the browser handed over, so the gap is the waste.
+`whole` counts the pictures that gave up on rectangles and sent the panel
+entire — the rectangle count cannot say, since a whole panel is one rectangle
+and so is a card that grew, and the two differ by a hundred kilobytes.
+
+**The rectangle cost saturates, and that is how 0.18 broke the 800×1280
+panel.** The rule gives up on rectangles when `coverage + fraction × count > 1`,
+so the fraction alone sets a count past which the whole panel goes out *however
+little of it changed*: at 0.18 that count is **six**. A camera tile and one or
+two other moving cards reach six easily. Measured on the Guition with a camera
+running: 17 of the 18 pictures in a five-second window were whole panels, 132
+KiB each, at 476 KiB/s — and `0 whole` in the same window at rest, so it was
+not the thirty-second redraw. This is what the `whole` counter was added to
+find, and it found it in one run.
+
+Measured again on the same panel after the fraction became geometry-aware:
+`whole` per five-second window fell from 14–17 out of 18 pictures to 1–11, and
+`rectangles/s` rose from about 5 to about 13, which is the same update arriving
+in pieces instead of whole. Within that one run, at an unchanged 3.4–3.8
+pictures a second, the counter accounts for nearly all of the cost: windows at
+`0 whole` cost **16–30 KiB/s**, at `1 whole` 46–51, and at 6–11 whole 295–422.
+So the two regimes are worth keeping apart — where the change is genuinely
+small but scattered it went from ~338 KiB/s to ~20, and where the camera is
+really refreshing it is about a quarter better, 132 KiB a picture down to ~100.
+That second one is real change and no sender setting will remove it. The
+before-and-after is across two runs of a live dashboard rather than a
+controlled A/B; the within-run table is the solid part.
+
+The risk this trades into is the board's: about 13 rectangles a second instead
+of 5, each costing it a header, its own JPEG tables and one more DMA transfer.
+The board's own log line is where that shows — `dropped (… decode …)` climbing
+means the real fixed cost is above the 1.5 ms this is built on, and
+`--rect-cost 0.14` is the step back before 0.18.
 
 ## Calibration — run it once per board, always
 
@@ -209,12 +314,12 @@ asks for a tap on each, and prints `--touch-rotate` / `--touch-mirror-x` /
 move together.** Docker caches `ADD` from a URL on the URL string alone, so an
 add-on update shipped stale sender code. The fix is the version-carrying
 `ARG BUNDLE` + a `RUN` that writes it *before* the `ADD`s, which invalidates
-everything after it. Currently **1.14.0**.
+everything after it. Currently **1.15.0**.
 
 `run.py` supervises one `ha_send.py` per panel: `SHARED_KEYS` lets the token,
-url, port, fps, quality and stats be given once at the top and inherited (a
-panel's own value always wins); backoff 5 → 10 → 20 → 120 s for a run shorter
-than 20 s; children are killed on SIGTERM.
+url, port, fps, quality, capture_quality and stats be given once at the top and
+inherited (a panel's own value always wins); backoff 5 → 10 → 20 → 120 s for a
+run shorter than 20 s; children are killed on SIGTERM.
 
 From inside the add-on the URL must be `http://homeassistant:8123` — a Tailscale
 or `.local` name gives `ERR_NAME_NOT_RESOLVED`. `explain_unreachable()` says so.
@@ -253,7 +358,16 @@ add-on options.
 - `queue_touch_` uses `touchscreen::TouchPoints_t` and must stay inside
   `#ifdef USE_TOUCHSCREEN`. Touch is decoupled from `CFG_TUD_HID`.
 - `cc1plus` was OOM-killed compiling `esp-tflite-micro`; `compile_process_limit:
-  1` under `esphome:` is the workaround.
+  1` under `esphome:` is the workaround -- but check two versions before
+  believing it did anything. The native ESP-IDF build path read the option and
+  threw it away, so ninja kept running at full parallelism: esphome/esphome
+  PR 17857, merged 2026-07-26 for **ESPHome 2026.7.3**, is what forwards it to
+  `idf.py` as `IDF_PY_BUILD_JOBS` -- and that variable is itself ignored in
+  silence by **ESP-IDF below 5.5.5** (and by 6.0.x). Both gates have to be
+  open. The tell that neither is: ninja starts another object while the killed
+  one is still in the log. What does not depend on any version is dropping
+  `micro_wake_word`, which is the only thing pulling `esp-tflite-micro` in at
+  all.
 - A 9.4 fps "mystery" turned out to be the webcam dropping frame rate in low
   light, not `max_framerate`. Check the physical world before the code.
 - The user once pasted a Home Assistant long-lived token in plaintext. It was

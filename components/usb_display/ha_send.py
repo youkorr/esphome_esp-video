@@ -75,7 +75,32 @@ TILE = 64
 # 233 KiB against 272 for the panel and decodes in 6.9 ms against 8.5, so it
 # wins on both counts. Judging by area alone got that case exactly backwards
 # and sent a whole panel, every frame, to update two thirds of it.
-RECT_COST_FRACTION = 0.18
+# The two measurements it is made of, kept apart so it can be worked out for
+# a panel rather than assumed. A rectangle adds a fixed 1.5 ms on the board --
+# its header, its own JPEG tables, one more DMA transfer set up -- and a
+# whole-panel decode took 8.5 ms on the 1024x600 it was measured on, which is
+# 0.6144 megapixels.
+RECT_FIXED_MS = 1.5
+PANEL_DECODE_MS_PER_MPX = 8.5 / 0.6144
+
+
+def rect_cost_fraction(width, height):
+    """What one rectangle costs, as a fraction of redrawing the whole panel.
+
+    This has to be computed and cannot be a constant, because it is a ratio and
+    only the numerator is fixed: a whole-panel decode grows with the pixels. At
+    1024x600 it comes to 0.176, which is the 0.18 that was measured there and
+    hard-coded, so nothing changes on that panel. At 800x1280 -- two thirds
+    again as many pixels -- it comes to 0.106.
+
+    Leaving 0.18 on a larger panel is not a small error. The rule gives up on
+    rectangles when coverage + fraction x count exceeds one, so at 0.18 six
+    rectangles alone exceed it: the whole panel goes out however little of it
+    changed. Measured on an 800x1280 dashboard with a camera on it, 17 pictures
+    out of 18 in a five second window were whole panels of 132 KiB. At 0.106
+    the same rule holds out to nine rectangles and weighs the area again.
+    """
+    return RECT_FIXED_MS / (PANEL_DECODE_MS_PER_MPX * width * height / 1e6)
 # No rectangle narrower or shorter than this.
 #
 # The P4's JPEG decoder is a DMA engine working in 16x16 units, and a sliver
@@ -110,6 +135,23 @@ HEARTBEAT_S = 3.0
 # connected to your finger and one that does not. Self-limiting, because it
 # only fires as often as there is input.
 URGENT_AFTER_INPUT = True
+# How long the frame limit is lifted for after a press, and how far.
+#
+# One free frame is enough to watch a button go down. It is not enough for what
+# a press usually starts. Changing dashboard repaints the whole page over about
+# a second, and at four frames a second that arrives as four pictures, which
+# looks like a slideshow -- reported from a real panel as "it drags between the
+# dashboards", and the frame limit was the cause. The limit exists to stop a
+# page that never settles spending the link on frames nobody asked for, and for
+# a second after a press exactly the opposite is true.
+#
+# A window that raises the rate rather than one that removes the limit: with no
+# limit at all, a page in the middle of a transition would hand over sixty
+# whole panels a second, and a whole panel of this size is 130 KiB. That is
+# megabytes a second at neither the link nor the board can take. Fifteen is
+# smooth to the eye and still an eighth of what the browser would offer.
+URGENT_WINDOW_S = 1.0
+URGENT_FPS = 15.0
 # How the browser is started.
 #
 # The defaults are written for a browser somebody is looking at, and this one
@@ -484,36 +526,92 @@ class Screencast:
     inside Playwright's own dispatch -- but from the loop, right after pumping.
     """
 
-    def __init__(self, page, width, height):
+    def __init__(self, page, width, height, quality):
         self._session = page.context.new_cdp_session(page)
         self._width = width
         self._height = height
+        self._quality = quality
         self._latest = None
         self._unacked = []
+        # How many pictures the browser has actually made. The count that
+        # matters is this one against the count sent: the gap between them is
+        # work paid for and thrown away, and it is invisible from every other
+        # number this prints.
+        self.produced = 0
         self._session.on("Page.screencastFrame", self._on_frame)
         self._running = True
         self._start()
 
     def _start(self):
-        self._session.send(
-            "Page.startScreencast",
-            {
-                # Lossless: a JPEG here would make every tile differ from the
-                # last by a pixel or two of ringing, and nothing would ever look
-                # unchanged.
-                "format": "png",
-                "maxWidth": self._width,
-                "maxHeight": self._height,
-                "everyNthFrame": 1,
-            },
-        )
+        # JPEG, and this is where most of the server's CPU went before.
+        #
+        # PNG was chosen on the belief that a JPEG would make every tile differ
+        # from the last by a pixel or two of ringing, so nothing would ever look
+        # unchanged. That is not what happens. JPEG is a block transform: an 8x8
+        # block whose pixels went in identical comes out identical, because the
+        # coefficients are the same numbers. Ringing is deterministic, not
+        # noise. Measured on a dashboard-shaped 1024x600 picture with one clock
+        # digit changed, at every quality from 60 to 95 and with and without
+        # chroma subsampling: exactly the one tile holding the digit differed,
+        # never another. Subsampling widens the unit to a 16x16 MCU, and the
+        # tile is a multiple of 16, so the spread stays inside the tile that
+        # already changed.
+        #
+        # What PNG did cost was real. Decoding it here is the half that was
+        # measured in this process: 7.2 ms a frame against 2.2 for JPEG, plus
+        # 1.8 more because a PNG arrives needing a convert() that a JPEG does
+        # not. The browser's own encode is the larger half and is inferred
+        # rather than measured -- the same 1024x600 picture costs libpng 22.5 ms
+        # and libjpeg 1.6 through Pillow, and Chromium uses those same two
+        # libraries on the same pixels. Call the whole of it twenty-odd
+        # milliseconds of a core per frame, spent on a distinction the panel
+        # cannot show.
+        options = {
+            "maxWidth": self._width,
+            "maxHeight": self._height,
+            "everyNthFrame": 1,
+        }
+        if self._quality:
+            options["format"] = "jpeg"
+            options["quality"] = self._quality
+        else:
+            options["format"] = "png"
+        self._session.send("Page.startScreencast", options)
 
     def _on_frame(self, params):
         self._latest = base64.b64decode(params["data"])
         self._unacked.append(params["sessionId"])
+        self.produced += 1
 
     def take(self):
         """The newest frame since the last call, or None if nothing moved."""
+        frame, self._latest = self._latest, None
+        return frame
+
+    def request(self, discard=False):
+        """Let the browser produce another frame.
+
+        The acknowledgement is not a formality: it is the flow control. Chromium
+        keeps about three frames in flight and then waits to be told they
+        arrived, so acknowledging on every turn of the loop -- a hundred and
+        twenty times a second -- asks it to paint and encode at its own full
+        rate, and the frame limit then throws the surplus away once it has
+        already been paid for. Measured on an animated page at 800x1280: 59.8
+        frames a second produced when acknowledging freely, 28.5 when
+        acknowledging at ten a second and 12.0 at four. The pictures that stop
+        being made are exactly the ones that were being discarded.
+
+        discard drops whatever is already in hand along with the
+        acknowledgement. That is for the moment a press has just been replayed:
+        a frame waiting at that instant was painted before the finger landed
+        and shows nothing of it, so letting it through would spend the free
+        pass on the wrong picture -- the mistake that once made a press feel
+        205 ms slow instead of 105. Nothing is lost by dropping it, because a
+        picture that is not sent does not advance what the next difference is
+        measured against.
+        """
+        if discard:
+            self._latest = None
         for session_id in self._unacked:
             try:
                 self._session.send(
@@ -522,8 +620,37 @@ class Screencast:
             except Exception:  # noqa: BLE001 - a closed page is handled by the caller
                 pass
         self._unacked.clear()
-        frame, self._latest = self._latest, None
-        return frame
+
+    def freeze_animations(self):
+        """Hold every animation on the page still.
+
+        A dashboard with a pulsing icon or a spinner never stops changing, so
+        the screencast never goes quiet and the whole pipeline runs for a
+        picture nobody is watching. Measured on an animated page: 55.8 frames a
+        second, against 0.2 once frozen.
+
+        This goes through the protocol's animation domain rather than through
+        CSS, because CSS cannot reach it. Home Assistant builds its cards from
+        custom elements, and a rule added to the document does not cross into a
+        shadow root -- measured: 60.2 frames a second with the stylesheet in
+        place, which is to say no effect whatever. prefers-reduced-motion is no
+        better, being only a request the page is free to ignore. The animation
+        domain acts on the engine that drives them and does not care where the
+        keyframes were declared.
+
+        What it does not reach is anything that is not an animation. A card
+        that draws itself on a canvas from requestAnimationFrame, a camera
+        tile, a video: none of them go through that engine and none of them
+        stop. Measured on one page carrying all three kinds at once -- a
+        keyframe animation in a shadow root, a canvas loop and a setInterval
+        rewriting text -- 57.3 frames a second before and 59.2 after, because
+        the canvas alone is enough to keep the page moving. Each on its own,
+        frozen: 0.2 for the animation, 59.7 for the canvas, unchanged for the
+        interval. This is worth trying and worth measuring, not worth
+        assuming.
+        """
+        self._session.send("Animation.enable")
+        self._session.send("Animation.setPlaybackRate", {"playbackRate": 0})
 
     def pause(self):
         """Stop the browser producing frames at all."""
@@ -686,6 +813,36 @@ def main():
     )
     parser.add_argument("--quality", type=int, default=80, help="JPEG quality, 1..95")
     parser.add_argument(
+        "--capture-quality",
+        type=int,
+        default=90,
+        help="quality of the picture the browser hands over, 1..100, or 0 for "
+        "lossless PNG. This is not --quality: that one is what the panel "
+        "receives, and this one is what it is made from, so keeping it above "
+        "--quality leaves the second encode something to work with. PNG is "
+        "the honest answer and costs the server about eight times as much "
+        "CPU for a picture the panel cannot tell apart",
+    )
+    parser.add_argument(
+        "--rect-cost",
+        type=float,
+        help="what one rectangle costs the board, as a fraction of redrawing "
+        "the whole panel. Worked out from the panel's size when not given -- "
+        "0.18 at 1024x600, 0.11 at 800x1280 -- because it is a ratio to a "
+        "whole-panel decode and that grows with the pixels. Raise it to prefer "
+        "whole panels, lower it to prefer rectangles",
+    )
+    parser.add_argument(
+        "--freeze-animations",
+        action="store_true",
+        help="hold the page's animations still. A pulsing icon or a spinner "
+        "keeps the whole pipeline running for a picture nobody is watching. "
+        "Only animations: a camera, a video and a card that draws itself on a "
+        "canvas do not go through the animation engine and do not stop -- one "
+        "of those on the page is enough for this to change nothing at all. "
+        "Try it with --stats and keep it only if the idle rate drops",
+    )
+    parser.add_argument(
         "--no-touch", action="store_true", help="do not replay the panel's contacts"
     )
     parser.add_argument(
@@ -701,6 +858,11 @@ def main():
         "to find the card that never stops redrawing",
     )
     args = parser.parse_args()
+
+    # Chromium rejects the whole startScreencast call for a quality outside
+    # this, and the failure surfaces as a page that simply never sends a frame.
+    if not 0 <= args.capture_quality <= 100:
+        parser.error("--capture-quality must be between 0 and 100")
 
     if not args.calibrate:
         if not args.url:
@@ -719,6 +881,34 @@ def main():
             )
         if not args.token:
             parser.error("--token is required (or set HA_TOKEN)")
+        # A token of the wrong shape is worth refusing here rather than in the
+        # browser. Home Assistant answers a bad one by redirecting to its login
+        # page, and all this sender can see of that is a page that is not a
+        # dashboard -- so it says to check --url, the scheme and the port, and
+        # sends you looking in the one place the fault is not.
+        #
+        # Two things about the shape are certain and cost nothing to check. It
+        # is a JWT, so it has three parts separated by dots. It is signed with
+        # HS256, whose signature is 32 bytes, which is 43 base64url characters
+        # and never any other number. The way it gets broken is being copied
+        # out of the dialog by hand and pasted into a console, which truncates
+        # it -- silently, and by a different amount each time.
+        args.token = args.token.strip()
+        parts = args.token.split(".")
+        if len(parts) != 3:
+            parser.error(
+                f"the token is not a JWT: it has {len(parts)} dot-separated "
+                f"parts and a Home Assistant token has three. Copy it again."
+            )
+        if len(parts[2]) != 43:
+            parser.error(
+                f"the token's signature is {len(parts[2])} characters and "
+                f"every Home Assistant token's is 43, so this one was cut or "
+                f"joined while being copied. Consoles do that to a long paste. "
+                f"Copy it in Home Assistant with the dialog's copy button and "
+                f"take it from the clipboard without retyping it: in "
+                f"PowerShell, $env:HA_TOKEN = (Get-Clipboard -Raw).Trim()"
+            )
 
     try:
         from PIL import Image
@@ -763,6 +953,21 @@ def main():
         ) from err
 
     interval = 1.0 / args.fps if args.fps > 0 else 0.0
+    rect_cost = (
+        rect_cost_fraction(args.width, args.height)
+        if args.rect_cost is None
+        else args.rect_cost
+    )
+    # A press lifts the limit to this for a moment, so that what the press
+    # started -- most often a whole new dashboard -- does not arrive as a
+    # slideshow. Never slower than the standing limit.
+    urgent_interval = min(interval, 1.0 / URGENT_FPS)
+    if args.stats:
+        print(
+            f"One rectangle costs {rect_cost:.3f} of a whole panel at "
+            f"{args.width}x{args.height}, so anything from "
+            f"{int(1.0 / rect_cost) + 1} of them is sent whole"
+        )
 
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(args=BROWSER_ARGS)
@@ -804,7 +1009,9 @@ def main():
             args.touch_mirror_y,
         )
         injector = None if args.no_touch else Injector(page, touch_map)
-        capture = Screencast(page, page_w, page_h)
+        capture = Screencast(page, page_w, page_h, args.capture_quality)
+        if args.freeze_animations:
+            capture.freeze_animations()
         frame_id = 0
         # The newest rendering, kept across connections: a panel that comes back
         # needs a whole picture, and the browser will not send another frame
@@ -828,17 +1035,17 @@ def main():
             pictures = 0
             loops = 0
             pending = None
+            fulls = 0
             last_send = 0.0
             last_sent = time.monotonic()
             # Assumed awake until the panel says otherwise; it announces its
             # state as soon as a sender connects, so this is only the first
             # instant.
             awake = True
-            # Set when a press has just been replayed into the page, and
-            # handed to the next frame the browser produces -- that is the one
-            # showing its effect, and the one that should not wait its turn.
-            urgent = False
-            pending_urgent = False
+            # Until when a press has the frame limit raised for it. Everything
+            # painted before the press is dropped when it lands, so there is no
+            # question of the window covering a picture that predates it.
+            urgent_until = 0.0
             stats_at = time.monotonic()
             try:
                 while True:
@@ -855,25 +1062,37 @@ def main():
                     frame = capture.take()
                     if frame is not None:
                         pending = frame
-                        # The free pass belongs to the first frame produced
-                        # after the input, not to whichever one happened to be
-                        # waiting when it arrived -- that one was rendered
-                        # before the press and shows nothing of it.
-                        pending_urgent, urgent = urgent, False
+                    # Inside the window that a press opens, the faster limit.
+                    # Nothing needs to be said about which frame the press
+                    # belongs to any more: the press threw away everything that
+                    # had been painted before it, so every frame that arrives
+                    # from here is one that answers it.
+                    limit = urgent_interval if started < urgent_until else interval
                     # Hold the newest frame back until the send rate allows it.
                     # Nothing is lost by waiting: take() only ever returns the
                     # latest, so a frame held here is replaced rather than
                     # queued.
                     shot = None
-                    if pending is not None and (
-                        started - last_send >= interval or pending_urgent
-                    ):
+                    if pending is not None and started - last_send >= limit:
                         shot, pending = pending, None
                         last_send = started
-                        pending_urgent = False
+
+                    # Ask for another picture only once there is somewhere to
+                    # put it. Holding the acknowledgement back is what stops
+                    # the browser painting frames this loop would only throw
+                    # away -- see Screencast.request. A pump early, so the next
+                    # one is ready when the interval is up rather than being
+                    # started then.
+                    if pending is None and started - last_send >= limit - PUMP_MS / 1000.0:
+                        capture.request()
 
                     if shot is not None:
-                        image = Image.open(io.BytesIO(shot)).convert("RGB")
+                        image = Image.open(io.BytesIO(shot))
+                        # A JPEG frame already arrives as RGB, and convert()
+                        # to the mode a picture is already in still copies the
+                        # whole of it -- 1.8 ms a frame for nothing.
+                        if image.mode != "RGB":
+                            image = image.convert("RGB")
                         if transpose is not None:
                             image = image.transpose(transpose)
                         if image.size != (args.width, args.height):
@@ -899,17 +1118,19 @@ def main():
                         if previous is None or stale:
                             rectangles = [(0, 0, args.width, args.height)]
                             last_full = started
+                            fulls += 1
                         else:
                             rectangles = changed_rectangles(previous, current)
                             covered = sum(w * h for _, _, w, h in rectangles)
                             # Redraw everything only when doing so is actually
                             # cheaper than the pieces.
                             panel = args.width * args.height
-                            if covered / panel + RECT_COST_FRACTION * len(
+                            if covered / panel + rect_cost * len(
                                 rectangles
                             ) > 1.0:
                                 rectangles = [(0, 0, args.width, args.height)]
                                 last_full = started
+                                fulls += 1
 
                         for x, y, w, h in rectangles:
                             buffer = io.BytesIO()
@@ -981,7 +1202,11 @@ def main():
                     if injector is not None and reports:
                         injector.handle(reports)
                         if URGENT_AFTER_INPUT:
-                            urgent = True
+                            urgent_until = time.monotonic() + URGENT_WINDOW_S
+                            # Nothing painted before the finger landed shows
+                            # anything of it, in hand or still in the browser.
+                            pending = None
+                            capture.request(discard=True)
                         if args.show_touches:
                             print(
                                 f"[{time.strftime('%H:%M:%S')}"
@@ -994,7 +1219,20 @@ def main():
                         elapsed = now - stats_at
                         print(
                             f"{pictures / elapsed:.1f} pictures/s, "
+                            # What the browser made, against what was worth
+                            # sending. Every frame counted here was painted and
+                            # encoded whether or not it was used, so a number
+                            # far above the one before it is the cost of
+                            # pictures nobody will ever see.
+                            f"{capture.produced / elapsed:.1f} made/s, "
                             f"{rectangles_sent / elapsed:.1f} rectangles/s, "
+                            # How many of those pictures gave up on rectangles
+                            # and sent the whole panel. A dashboard costing
+                            # hundreds of kilobytes a second is usually doing
+                            # this, and the rectangle count alone does not say
+                            # so -- a whole panel is one rectangle, and so is a
+                            # card that grew.
+                            f"{fulls} whole, "
                             f"{bytes_sent / elapsed / 1024:.1f} KiB/s, "
                             # How often touches are looked at. Anything much
                             # below --fps means the loop is the bottleneck, and
@@ -1019,6 +1257,7 @@ def main():
                             print("  busiest areas: " + "; ".join(spots))
                             heat[:] = 0
                         rectangles_sent = bytes_sent = pictures = loops = 0
+                        capture.produced = fulls = 0
                         stats_at = now
             except OSError as err:
                 print(f"Lost the panel ({err}), waiting for it to come back")

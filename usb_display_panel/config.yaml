@@ -1,5 +1,5 @@
 name: ESP32-P4 Panel
-version: "1.14.0"
+version: "1.16.0"
 slug: usb_display_panel
 description: Renders Home Assistant dashboards onto ESPHome usb_display panels over the network, with touch coming back
 url: https://github.com/youkorr/esphome_esp-video
@@ -18,8 +18,27 @@ options:
   # are for reaching the house from outside and do not resolve in here.
   url: http://homeassistant:8123/lovelace/0
   port: 5000
-  fps: 30
+  # The upper bound on how often a change is acted on. It only bounds pictures
+  # nobody asked for: a press lifts it to fifteen a second for the second that
+  # follows, which is what a dashboard transition needs, so a low number here
+  # no longer makes the panel feel slow. Lower it to 4 if the machine running
+  # this has other work to do; a still dashboard costs nothing whatever it is
+  # set to. It was 30, which left the browser painting at its own full rate.
+  fps: 10
   quality: 80
+  # What the browser hands over, before it is cut into rectangles. Asking it
+  # for lossless PNG instead -- 0 -- costs the machine running this about
+  # eight times the CPU for a picture the panel cannot tell apart.
+  capture_quality: 90
+  # What one rectangle costs the board, as a fraction of redrawing the whole
+  # panel. Left empty it is worked out from each panel's size, which is right
+  # for every panel this has been measured on. Raise it towards 0.18 only if
+  # the board's log starts reporting dropped frames.
+  rect_cost: ""
+  # Hold the page's animations still. Only animations: a camera, a video and a
+  # card that paints itself on a canvas carry on regardless, and one of those
+  # on the dashboard makes this worth nothing. Try it and watch the log.
+  freeze_animations: false
   stats: true
   panels:
     - name: salon
@@ -36,6 +55,9 @@ schema:
   port: port?
   fps: float?
   quality: int(1,95)?
+  capture_quality: int(0,100)?
+  rect_cost: str?
+  freeze_animations: bool?
   stats: bool?
   panels:
     - name: str
@@ -51,4 +73,7 @@ schema:
       touch_mirror_y: bool?
       fps: float?
       quality: int(1,95)?
+      capture_quality: int(0,100)?
+      rect_cost: str?
+      freeze_animations: bool?
       stats: bool?
