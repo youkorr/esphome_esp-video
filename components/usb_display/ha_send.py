@@ -75,7 +75,32 @@ TILE = 64
 # 233 KiB against 272 for the panel and decodes in 6.9 ms against 8.5, so it
 # wins on both counts. Judging by area alone got that case exactly backwards
 # and sent a whole panel, every frame, to update two thirds of it.
-RECT_COST_FRACTION = 0.18
+# The two measurements it is made of, kept apart so it can be worked out for
+# a panel rather than assumed. A rectangle adds a fixed 1.5 ms on the board --
+# its header, its own JPEG tables, one more DMA transfer set up -- and a
+# whole-panel decode took 8.5 ms on the 1024x600 it was measured on, which is
+# 0.6144 megapixels.
+RECT_FIXED_MS = 1.5
+PANEL_DECODE_MS_PER_MPX = 8.5 / 0.6144
+
+
+def rect_cost_fraction(width, height):
+    """What one rectangle costs, as a fraction of redrawing the whole panel.
+
+    This has to be computed and cannot be a constant, because it is a ratio and
+    only the numerator is fixed: a whole-panel decode grows with the pixels. At
+    1024x600 it comes to 0.176, which is the 0.18 that was measured there and
+    hard-coded, so nothing changes on that panel. At 800x1280 -- two thirds
+    again as many pixels -- it comes to 0.106.
+
+    Leaving 0.18 on a larger panel is not a small error. The rule gives up on
+    rectangles when coverage + fraction x count exceeds one, so at 0.18 six
+    rectangles alone exceed it: the whole panel goes out however little of it
+    changed. Measured on an 800x1280 dashboard with a camera on it, 17 pictures
+    out of 18 in a five second window were whole panels of 132 KiB. At 0.106
+    the same rule holds out to nine rectangles and weighs the area again.
+    """
+    return RECT_FIXED_MS / (PANEL_DECODE_MS_PER_MPX * width * height / 1e6)
 # No rectangle narrower or shorter than this.
 #
 # The P4's JPEG decoder is a DMA engine working in 16x16 units, and a sliver
@@ -782,6 +807,15 @@ def main():
         "CPU for a picture the panel cannot tell apart",
     )
     parser.add_argument(
+        "--rect-cost",
+        type=float,
+        help="what one rectangle costs the board, as a fraction of redrawing "
+        "the whole panel. Worked out from the panel's size when not given -- "
+        "0.18 at 1024x600, 0.11 at 800x1280 -- because it is a ratio to a "
+        "whole-panel decode and that grows with the pixels. Raise it to prefer "
+        "whole panels, lower it to prefer rectangles",
+    )
+    parser.add_argument(
         "--freeze-animations",
         action="store_true",
         help="hold the page's animations still. A pulsing icon or a spinner "
@@ -902,6 +936,17 @@ def main():
         ) from err
 
     interval = 1.0 / args.fps if args.fps > 0 else 0.0
+    rect_cost = (
+        rect_cost_fraction(args.width, args.height)
+        if args.rect_cost is None
+        else args.rect_cost
+    )
+    if args.stats:
+        print(
+            f"One rectangle costs {rect_cost:.3f} of a whole panel at "
+            f"{args.width}x{args.height}, so anything from "
+            f"{int(1.0 / rect_cost) + 1} of them is sent whole"
+        )
 
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(args=BROWSER_ARGS)
@@ -1062,7 +1107,7 @@ def main():
                             # Redraw everything only when doing so is actually
                             # cheaper than the pieces.
                             panel = args.width * args.height
-                            if covered / panel + RECT_COST_FRACTION * len(
+                            if covered / panel + rect_cost * len(
                                 rectangles
                             ) > 1.0:
                                 rectangles = [(0, 0, args.width, args.height)]

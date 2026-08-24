@@ -165,9 +165,14 @@ costs 0.7 levels of mean error.
 previous frame. `differing = previous != current` — **without** an
 `np.any(..., axis=-1)` reduce, which was 15× slower for the same answer.
 
-**`RECT_COST_FRACTION = 0.18`** — judge a full redraw by how many *pieces* an
-update is, not by its area. Judging by area got the common case exactly
-backwards and sent a whole panel every frame to update two thirds of it.
+**`rect_cost_fraction(w, h)` — judge a full redraw by how many *pieces* an
+update is, not by its area.** Judging by area got the common case exactly
+backwards and sent a whole panel every frame to update two thirds of it. But it
+is a *ratio* — a rectangle's fixed 1.5 ms over a whole-panel decode — and only
+the numerator is fixed, so it cannot be one constant for every panel. It was
+hard-coded at the 0.18 measured on 1024×600, where a whole panel decodes in
+8.5 ms. It now comes out of the geometry: 0.176 there, unchanged in practice;
+0.106 at 800×1280; 0.118 at 720×1280. `--rect-cost` overrides it.
 
 **`MIN_RECT = 64` — do not remove this.** The P4's JPEG decoder is a DMA engine
 working in 16×16 units and a sliver stalls it: a 32×128 strip returns
@@ -236,13 +241,15 @@ decision. `made/s` is what the browser handed over, so the gap is the waste.
 entire — the rectangle count cannot say, since a whole panel is one rectangle
 and so is a card that grew, and the two differ by a hundred kilobytes.
 
-**`RECT_COST_FRACTION` is calibrated for 1024×600 and is a suspect on other
-geometries.** It is `per-rectangle fixed cost / whole-panel decode`, measured as
-1.5 ms over 8.5 ms. A whole-panel decode scales with pixels, so on the 800×1280
-Guition the denominator is nearer 14 ms and the right value nearer **0.11** than
-0.18 — which would mean that panel gives up on rectangles at 64% coverage where
-it should hold out to 79%. Unverified: the `whole` counter exists to settle it
-before anyone changes the constant.
+**The rectangle cost saturates, and that is how 0.18 broke the 800×1280
+panel.** The rule gives up on rectangles when `coverage + fraction × count > 1`,
+so the fraction alone sets a count past which the whole panel goes out *however
+little of it changed*: at 0.18 that count is **six**. A camera tile and one or
+two other moving cards reach six easily. Measured on the Guition with a camera
+running: 17 of the 18 pictures in a five-second window were whole panels, 132
+KiB each, at 476 KiB/s — and `0 whole` in the same window at rest, so it was
+not the thirty-second redraw. This is what the `whole` counter was added to
+find, and it found it in one run.
 
 ## Calibration — run it once per board, always
 
