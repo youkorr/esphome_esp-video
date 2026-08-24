@@ -127,12 +127,19 @@ def command_for(panel):
         "height",
         "rotate",
         "touch_rotate",
+        "render_width",
+        "render_height",
         "fps",
         "quality",
         "capture_quality",
         "rect_cost",
     ):
         value = panel.get(key)
+        # Zero means "not set" for the render size, because that is what an
+        # add-on's number field offers when somebody wants to turn it off:
+        # there is no way to leave it empty.
+        if key in ("render_width", "render_height") and value in (0, "0"):
+            continue
         if value not in (None, ""):
             argv += [f"--{key.replace('_', '-')}", str(value)]
     for key in (

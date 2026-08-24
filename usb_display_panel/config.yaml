@@ -1,5 +1,5 @@
 name: ESP32-P4 Panel
-version: "1.17.0"
+version: "1.18.0"
 slug: usb_display_panel
 description: Renders Home Assistant dashboards onto ESPHome usb_display panels over the network, with touch coming back
 url: https://github.com/youkorr/esphome_esp-video
@@ -52,6 +52,12 @@ options:
       height: 600
       rotate: "180"
       touch_rotate: "180"
+      # Draw smaller and let the board's accelerator scale up. Must match the
+      # component's render_width/render_height exactly. Measured on an
+      # 800x1280 panel with 640x1024 here: 3.3 ms of work per picture instead
+      # of 8.7, and 13 KiB instead of 18. Leave both out for no scaling.
+      render_width: 0
+      render_height: 0
       touch_mirror_x: false
       touch_mirror_y: false
 schema:
@@ -74,6 +80,8 @@ schema:
       height: int(16,4096)
       rotate: list(0|90|180|270)
       touch_rotate: list(0|90|180|270)
+      render_width: int(0,4096)?
+      render_height: int(0,4096)?
       touch_mirror_x: bool?
       touch_mirror_y: bool?
       fps: float?

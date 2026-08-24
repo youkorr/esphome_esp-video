@@ -58,6 +58,18 @@ class USBDisplay : public Component
     this->width_ = width;
     this->height_ = height;
   }
+  /// The size the host actually draws on, when that is smaller than the panel.
+  ///
+  /// Rendering at the panel's size and sending it is not the only option. The
+  /// machine at the other end pays for every pixel four times over -- painting
+  /// it, encoding it, comparing it with the last one, encoding it again -- and
+  /// the accelerator on this board can scale a picture up for nothing, being a
+  /// DMA engine that is otherwise idle. So the host may draw smaller and say
+  /// so, and what arrives is stretched to the panel on the way to it.
+  void set_render_resolution(uint16_t width, uint16_t height) {
+    this->render_width_ = width;
+    this->render_height_ = height;
+  }
   void set_frame_buffers(uint8_t count) { this->frame_buffer_count_ = count; }
   void set_max_frame_bytes(size_t bytes) { this->max_frame_bytes_ = bytes; }
   /// Also enforced here, not only advertised: a host that ignores the figure
@@ -160,9 +172,10 @@ class USBDisplay : public Component
   static void decode_task(void *param);
   void run_decode_task();
 
-  // Turns the decoded frame into rot_buffer_ with the P4's pixel-processing
-  // accelerator. Nothing here touches the CPU: it is a DMA engine that reads
-  // one buffer and writes the other.
+  // Turns and scales the decoded frame into rot_buffer_ with the P4's
+  // pixel-processing accelerator. Nothing here touches the CPU: it is a DMA
+  // engine that reads one buffer and writes the other, and it does the turn
+  // and the scale in the same pass. The name predates the scaling.
   bool rotate_(const Frame &frame, uint16_t padded_width, uint16_t padded_height);
   bool allocate_rotation_();
   /// Where a rectangle sent for the unrotated panel lands once the panel is
@@ -207,6 +220,11 @@ class USBDisplay : public Component
   display::Display *display_{nullptr};
   uint16_t width_{1024};
   uint16_t height_{600};
+  // What the host draws on. Zero until setup(), which fills it in from the
+  // panel's own size when nothing else was configured.
+  uint16_t render_width_{0};
+  uint16_t render_height_{0};
+  bool scaling_{false};
   uint8_t frame_buffer_count_{4};
   size_t max_frame_bytes_{128 * 1024};
   uint32_t min_frame_interval_ms_{0};
