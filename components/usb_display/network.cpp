@@ -64,10 +64,14 @@ void USBDisplay::queue_touch_(const touchscreen::TouchPoints_t &points) {
   this->last_touch_valid_ = true;
 
   if (xQueueSend(this->touch_queue_, &event, 0) != pdTRUE) {
+    // Make room by dropping the OLDEST, and send the new one either way. The
+    // last event of a press is the release, so a full queue that drops the
+    // newest drops exactly that, and a sender left holding a button that was
+    // let go does not act on it until some later release happens to get
+    // through. That was worth twenty seconds of apparent latency once.
     TouchEvent discarded;
-    if (xQueueReceive(this->touch_queue_, &discarded, 0) == pdTRUE) {
-      xQueueSend(this->touch_queue_, &event, 0);
-    }
+    xQueueReceive(this->touch_queue_, &discarded, 0);
+    xQueueSend(this->touch_queue_, &event, 0);
   }
 }
 #endif  // USE_TOUCHSCREEN
@@ -181,8 +185,12 @@ void USBDisplay::run_network_task() {
       ::setsockopt(client, IPPROTO_TCP, TCP_KEEPINTVL, &keepintvl, sizeof(keepintvl));
       ::setsockopt(client, IPPROTO_TCP, TCP_KEEPCNT, &keepcnt, sizeof(keepcnt));
 
-      // OPTIMISATION HAUT DÉBIT : Fenêtre de réception TCP élargie à ~96 Ko (3 * 32 Ko)
-      // Empêche le PC de s'arrêter d'envoyer pendant que le P4 décode la frame.
+      // A ceiling on what the socket will hold, not the TCP receive window --
+      // that is TCP_WND, set from __init__.py, and it is the one that decides
+      // how much the sender may have in flight. This sits above it so it never
+      // binds first. It also needs CONFIG_LWIP_SO_RCVBUF to exist at all:
+      // without it lwip does not implement the option and the call below fails
+      // with ENOPROTOOPT, which is what the warning is for.
       int rcvbuf = 3 * (int) NET_READ_SIZE;
       if (::setsockopt(client, SOL_SOCKET, SO_RCVBUF, &rcvbuf, sizeof(rcvbuf)) < 0) {
           ESP_LOGW(TAG, "Could not set SO_RCVBUF");

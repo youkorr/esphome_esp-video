@@ -273,11 +273,34 @@ async def to_code(config):
         # JPEG out of this board reaches rates this could not take in. Set
         # only when frames actually arrive over the network; these are
         # device-wide and not worth spending on a board that is USB-only.
-        esp32.add_idf_sdkconfig_option("CONFIG_LWIP_TCP_WND_DEFAULT", 28800)
+        # 64800 is 45 segments of the default 1440-byte MSS, and the largest
+        # multiple of it that still fits the 16-bit window field a header
+        # carries without window scaling. What it buys is a ceiling: a window
+        # is how much may be in flight before the sender must stop and wait, so
+        # the most that can arrive is the window divided by the round trip.
+        # 28800 gave 23 Mbit/s at a 10 ms round trip and 11.5 at 20, and a busy
+        # five-second window on a panel has been measured at 6.2 -- close
+        # enough on a loaded radio to be worth the room. This doubles it.
+        esp32.add_idf_sdkconfig_option("CONFIG_LWIP_TCP_WND_DEFAULT", 64800)
+        # Deliberately not raised with it. This one is the send side, and this
+        # board sends touches: a few bytes at a time. It is left where it is
+        # rather than lowered because these options are device-wide, and a
+        # camera serving JPEG out of the same board is the one thing here that
+        # does need a send buffer.
         esp32.add_idf_sdkconfig_option("CONFIG_LWIP_TCP_SND_BUF_DEFAULT", 28800)
-        # How many segments may queue for the socket before lwip drops them
-        # and asks for them again, which is what a burst of a large frame is.
-        esp32.add_idf_sdkconfig_option("CONFIG_LWIP_TCP_RECVMBOX_SIZE", 32)
+        # How many segments may queue for the socket before lwip drops them and
+        # asks for them again, which is what a burst of a large frame is. This
+        # is not free to choose: it has to hold a whole window's worth, and
+        # Espressif's rule is TCP_WND / TCP_MSS + 2, so 64800 over 1440 plus
+        # two is 47. Raising the window without raising this would have made
+        # things worse rather than better -- a window the stack invites the
+        # sender to fill and then drops the tail of.
+        esp32.add_idf_sdkconfig_option("CONFIG_LWIP_TCP_RECVMBOX_SIZE", 64)
+        # Without this, lwip does not implement SO_RCVBUF at all and the
+        # setsockopt in network.cpp fails with ENOPROTOOPT -- silently until
+        # that call learned to complain. It is a ceiling on what one socket
+        # will hold, sitting above the window rather than replacing it.
+        esp32.add_idf_sdkconfig_option("CONFIG_LWIP_SO_RCVBUF", True)
 
     # The descriptors have to be compiled into TinyUSB itself, which only a
     # real IDF component can do (see that component's CMakeLists).

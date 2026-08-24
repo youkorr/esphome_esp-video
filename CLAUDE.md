@@ -115,14 +115,41 @@ does not act on it until some later release happens to get through. Identical
 consecutive events are deduped (a finger resting still says the same thing 50×/s).
 
 **Network tuning that matters** (`network.cpp` + `__init__.py`): `NET_READ_SIZE
-= 16384`, `SO_RCVBUF = 3 ×` that, `SO_KEEPALIVE`, `TCP_NODELAY`,
-`NET_RECV_TIMEOUT_S = 30` (silence is the *normal* state — a still dashboard
-sends nothing; the heartbeat is what proves life), select slice 5 ms (that is
-how long a contact can sit in the queue). `__init__.py` raises
-`CONFIG_LWIP_TCP_WND_DEFAULT` / `SND_BUF_DEFAULT` to 28800 and
-`RECVMBOX_SIZE` to 32 — **only when `port:` is present.** The receive window is
-the hard ceiling for inbound throughput; sending and receiving are not
-symmetric on lwip.
+= 32768`, `SO_KEEPALIVE` with `TCP_KEEPIDLE 10 / KEEPINTVL 5 / KEEPCNT 3`,
+`TCP_NODELAY`, `NET_RECV_TIMEOUT_S = 30` enforced by the loop itself against
+the last successful read (silence is the *normal* state — a still dashboard
+sends nothing; the heartbeat every three seconds is what proves life), select
+slice 5 ms (that is how long a contact can sit in the queue). All of the
+`__init__.py` options below are set **only when `port:` is present**, because
+they are device-wide and a USB-only board should not pay for them.
+
+**The receive window is the whole inbound ceiling, and three settings have to
+move together.** A window is how much a sender may have in flight before it
+must stop and wait, so the most that can arrive is the window divided by the
+round trip — nothing else about the link enters into it. `TCP_WND_DEFAULT` is
+**64800**, which is 45 segments of the default 1440-byte MSS and the largest
+multiple of it that fits the 16-bit window field a header carries without
+window scaling. It was 28800, which is 23 Mbit/s at a 10 ms round trip and
+11.5 at 20; a busy five-second window on a panel has been measured at 6.2, so
+on a loaded radio the old value was closer than it looked.
+
+`RECVMBOX_SIZE` is **64** and is not free to choose: Espressif's rule is
+`TCP_WND / TCP_MSS + 2`, which is 47 here. Raising the window without raising
+this makes things worse rather than better — the stack invites the sender to
+fill a window it will then drop the tail of.
+
+`SND_BUF_DEFAULT` stays at 28800 and is deliberately *not* raised with the
+window. Sending and receiving are not symmetric on lwip, and this board sends
+touches: a few bytes. It is not lowered either, because the options are
+device-wide and a camera serving JPEG out of the same board is the one thing
+that does need a send buffer.
+
+**`SO_RCVBUF` is not the window, and it needs `CONFIG_LWIP_SO_RCVBUF` to exist
+at all.** Without that option lwip does not implement it and `setsockopt`
+fails with `ENOPROTOOPT` — which it had been doing silently for as long as the
+call had been there, since nothing checked the return. It is a ceiling on what
+one socket will hold, set above the window so that it never binds first; the
+window is what actually governs.
 
 **Sleep/wake.** `usb_display.sleep` / `usb_display.wake` actions, registered
 `synchronous=True`. The board sends `'S'` + a byte so the sender can stop
