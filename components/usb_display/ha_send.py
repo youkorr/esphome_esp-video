@@ -786,6 +786,22 @@ def main():
     parser.add_argument("--width", type=int, default=1024)
     parser.add_argument("--height", type=int, default=600)
     parser.add_argument(
+        "--render-width",
+        type=int,
+        help="draw at this width instead of the panel's, and let the board's "
+        "pixel-processing accelerator scale it up. Every pixel is paid for "
+        "four times here -- painted, encoded, compared with the last one, "
+        "encoded again -- and on the board the scaling is free, being a DMA "
+        "engine that is otherwise idle. Must match the component's "
+        "render_width, which refuses a size that would not land on whole "
+        "panel pixels",
+    )
+    parser.add_argument(
+        "--render-height",
+        type=int,
+        help="the other half of --render-width. Give both or neither",
+    )
+    parser.add_argument(
         "--rotate",
         type=int,
         choices=(0, 90, 180, 270),
@@ -942,9 +958,28 @@ def main():
 
     # The browser renders at the panel's shape. A quarter turn means the page is
     # taller than it is wide, and the panel is the other way round.
-    page_w, page_h = args.width, args.height
+    # What is drawn and sent, which is the panel's size unless the board has
+    # been told the host will draw smaller. --width and --height stay the
+    # panel's throughout, because that is what a contact is reported in.
+    # Zero is how a form with no empty state says "not set", so it means the
+    # same as leaving them out.
+    if args.render_width == 0:
+        args.render_width = None
+    if args.render_height == 0:
+        args.render_height = None
+    if (args.render_width is None) != (args.render_height is None):
+        parser.error("--render-width and --render-height go together")
+    send_w = args.render_width if args.render_width is not None else args.width
+    send_h = args.render_height if args.render_height is not None else args.height
+    if send_w > args.width or send_h > args.height:
+        parser.error(
+            f"--render-width/--render-height {send_w}x{send_h} is larger than "
+            f"the panel's {args.width}x{args.height}; the board scales up, not down"
+        )
+
+    page_w, page_h = send_w, send_h
     if args.rotate in (90, 270):
-        page_w, page_h = args.height, args.width
+        page_w, page_h = send_h, send_w
 
     transposes = getattr(Image, "Transpose", Image)
     transpose = {
@@ -960,7 +995,7 @@ def main():
         endpoint = connect_tcp(args.host, args.port)
         try:
             calibrate(
-                endpoint, page_w, page_h, args.width, args.height, transpose,
+                endpoint, page_w, page_h, send_w, send_h, transpose,
                 args.quality,
             )
         finally:
@@ -979,6 +1014,13 @@ def main():
 
     interval = 1.0 / args.fps if args.fps > 0 else 0.0
     rect_cost = (
+        # From the PANEL, not from what is drawn. The rule protects the board,
+        # and the board's cost for a whole picture barely shrinks when the host
+        # draws smaller: the decode does, but the accelerator's pass and the
+        # write to the display are still panel-sized. Judging by the render
+        # size makes the fraction larger, saturates it sooner, and sends whole
+        # pictures more often -- measured on one page, 49.9 KiB/s that way
+        # against 34.5 this way, which is the opposite of the point.
         rect_cost_fraction(args.width, args.height)
         if args.rect_cost is None
         else args.rect_cost
@@ -990,7 +1032,7 @@ def main():
     if args.stats:
         print(
             f"One rectangle costs {rect_cost:.3f} of a whole panel at "
-            f"{args.width}x{args.height}, so anything from "
+            f"{send_w}x{send_h}, so anything from "
             f"{int(1.0 / rect_cost) + 1} of them is sent whole"
         )
 
@@ -1057,7 +1099,7 @@ def main():
         current = None
         # How often each tile has been in a rectangle, for --show-changes.
         heat = np.zeros(
-            ((args.height + TILE - 1) // TILE, (args.width + TILE - 1) // TILE),
+            ((send_h + TILE - 1) // TILE, (send_w + TILE - 1) // TILE),
             dtype=np.int32,
         )
 
@@ -1132,9 +1174,9 @@ def main():
                             image = image.convert("RGB")
                         if transpose is not None:
                             image = image.transpose(transpose)
-                        if image.size != (args.width, args.height):
+                        if image.size != (send_w, send_h):
                             image = image.resize(
-                                (args.width, args.height), Image.BILINEAR
+                                (send_w, send_h), Image.BILINEAR
                             )
                         current = np.asarray(image)
 
@@ -1153,7 +1195,7 @@ def main():
                         # stay wrong forever, because nothing would ever mark
                         # that area as changed again.
                         if previous is None or stale:
-                            rectangles = [(0, 0, args.width, args.height)]
+                            rectangles = [(0, 0, send_w, send_h)]
                             last_full = started
                             fulls += 1
                         else:
@@ -1161,11 +1203,11 @@ def main():
                             covered = sum(w * h for _, _, w, h in rectangles)
                             # Redraw everything only when doing so is actually
                             # cheaper than the pieces.
-                            panel = args.width * args.height
+                            panel = send_w * send_h
                             if covered / panel + rect_cost * len(
                                 rectangles
                             ) > 1.0:
-                                rectangles = [(0, 0, args.width, args.height)]
+                                rectangles = [(0, 0, send_w, send_h)]
                                 last_full = started
                                 fulls += 1
 

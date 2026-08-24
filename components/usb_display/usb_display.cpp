@@ -119,8 +119,17 @@ void USBDisplay::setup() {
   // them, so it decodes a 1024x600 frame into 1024x608 and refuses a buffer
   // sized for 1024x600. Round both axes up; the real pixels stay at the top
   // left of that area, so drawing skips the padding rather than showing it.
-  this->padded_width_ = (this->width_ + 15) & ~15;
-  this->padded_height_ = (this->height_ + 15) & ~15;
+  // Nothing configured means the host draws at the panel's own size.
+  if (this->render_width_ == 0 || this->render_height_ == 0) {
+    this->render_width_ = this->width_;
+    this->render_height_ = this->height_;
+  }
+  this->scaling_ = this->render_width_ != this->width_ || this->render_height_ != this->height_;
+
+  // The decoder writes what the host sent, which is the render size and not
+  // the panel's.
+  this->padded_width_ = (this->render_width_ + 15) & ~15;
+  this->padded_height_ = (this->render_height_ + 15) & ~15;
 
   // The driver's own allocator: the decode output is written by DMA, so the
   // buffer has to sit on a cache line and occupy a whole number of them. It
@@ -140,7 +149,8 @@ void USBDisplay::setup() {
   this->out_width_ = quarter_turn ? this->height_ : this->width_;
   this->out_height_ = quarter_turn ? this->width_ : this->height_;
 
-  if (this->rotation_ != 0 && !this->allocate_rotation_()) {
+  // The accelerator is needed for either job, and does both in one pass.
+  if ((this->rotation_ != 0 || this->scaling_) && !this->allocate_rotation_()) {
     this->mark_failed(LOG_STR("Rotation setup failed"));
     return;
   }
@@ -227,33 +237,45 @@ bool USBDisplay::allocate_rotation_() {
 }
 
 void USBDisplay::place_(const Frame &frame, uint16_t &x, uint16_t &y, uint16_t &w, uint16_t &h) const {
+  // The rectangle arrives in the host's coordinates, which are the render size
+  // and not always the panel's. Bring it into panel coordinates first, because
+  // the turn below is described against the panel.
+  //
+  // The division is exact by construction, not by luck: the configuration is
+  // refused unless a tile-aligned coordinate lands on a whole panel pixel, so
+  // there is no rounding here to accumulate into a seam. In 32 bits because
+  // 1280 x 800 overflows 16 before the divide.
+  const uint16_t fx = (uint16_t) ((uint32_t) frame.x * this->width_ / this->render_width_);
+  const uint16_t fy = (uint16_t) ((uint32_t) frame.y * this->height_ / this->render_height_);
+  const uint16_t fw = (uint16_t) ((uint32_t) frame.width * this->width_ / this->render_width_);
+  const uint16_t fh = (uint16_t) ((uint32_t) frame.height * this->height_ / this->render_height_);
+
   // Turning the panel moves a rectangle as well as its contents. Everything
-  // here is clockwise, the way a mounting is described, and measured against
-  // the unrotated panel the host thinks it is drawing on.
+  // here is clockwise, the way a mounting is described.
   switch (this->rotation_) {
     case 90:
-      x = (uint16_t) (this->height_ - frame.y - frame.height);
-      y = frame.x;
-      w = frame.height;
-      h = frame.width;
+      x = (uint16_t) (this->height_ - fy - fh);
+      y = fx;
+      w = fh;
+      h = fw;
       break;
     case 180:
-      x = (uint16_t) (this->width_ - frame.x - frame.width);
-      y = (uint16_t) (this->height_ - frame.y - frame.height);
-      w = frame.width;
-      h = frame.height;
+      x = (uint16_t) (this->width_ - fx - fw);
+      y = (uint16_t) (this->height_ - fy - fh);
+      w = fw;
+      h = fh;
       break;
     case 270:
-      x = frame.y;
-      y = (uint16_t) (this->width_ - frame.x - frame.width);
-      w = frame.height;
-      h = frame.width;
+      x = fy;
+      y = (uint16_t) (this->width_ - fx - fw);
+      w = fh;
+      h = fw;
       break;
     default:
-      x = frame.x;
-      y = frame.y;
-      w = frame.width;
-      h = frame.height;
+      x = fx;
+      y = fy;
+      w = fw;
+      h = fh;
       break;
   }
 }
@@ -273,12 +295,22 @@ bool USBDisplay::rotate_(const Frame &frame, uint16_t padded_width, uint16_t pad
       angle = PPA_SRM_ROTATION_ANGLE_90;
       break;
     default:
-      return false;
+      // No turn at all is a legitimate reason to be here: the accelerator is
+      // also what scales, and a panel drawn at its own size but rendered
+      // smaller needs this pass without needing a rotation.
+      if (!this->scaling_)
+        return false;
+      angle = PPA_SRM_ROTATION_ANGLE_0;
+      break;
   }
 
   const bool quarter_turn = this->rotation_ == 90 || this->rotation_ == 270;
-  const uint16_t out_w = quarter_turn ? frame.height : frame.width;
-  const uint16_t out_h = quarter_turn ? frame.width : frame.height;
+  // What comes out is the rectangle at the panel's scale, which is what will
+  // be drawn; place_ works the destination out the same way.
+  const uint16_t scaled_w = (uint16_t) ((uint32_t) frame.width * this->width_ / this->render_width_);
+  const uint16_t scaled_h = (uint16_t) ((uint32_t) frame.height * this->height_ / this->render_height_);
+  const uint16_t out_w = quarter_turn ? scaled_h : scaled_w;
+  const uint16_t out_h = quarter_turn ? scaled_w : scaled_h;
 
   ppa_srm_oper_config_t srm = {};
   // The decoded rectangle sits at the top left of a buffer rounded up to whole
@@ -302,8 +334,8 @@ bool USBDisplay::rotate_(const Frame &frame, uint16_t padded_width, uint16_t pad
   srm.out.srm_cm = PPA_SRM_COLOR_MODE_RGB565;
 
   srm.rotation_angle = angle;
-  srm.scale_x = 1.0f;
-  srm.scale_y = 1.0f;
+  srm.scale_x = (float) this->width_ / (float) this->render_width_;
+  srm.scale_y = (float) this->height_ / (float) this->render_height_;
   srm.mode = PPA_TRANS_MODE_BLOCKING;
 
   esp_err_t err = ppa_do_scale_rotate_mirror(this->ppa_client_, &srm);
@@ -445,8 +477,9 @@ void USBDisplay::feed_(const uint8_t *data, size_t len, bool may_wait) {
     // that redraws only what changed sends small ones, and that is most of
     // where its speed comes from.
     const bool usable = header->type == UDISP_TYPE_JPG && header->width > 0 && header->height > 0 &&
-                        header->x + header->width <= this->width_ && header->y + header->height <= this->height_ &&
-                        header->payload_total > 0 && header->payload_total <= this->max_frame_bytes_;
+                        header->x + header->width <= this->render_width_ &&
+                        header->y + header->height <= this->render_height_ && header->payload_total > 0 &&
+                        header->payload_total <= this->max_frame_bytes_;
     if (!usable) {
       // Silently dropping these is how a sender configured for the wrong size
       // looks exactly like a sender that is not running at all.
@@ -456,8 +489,8 @@ void USBDisplay::feed_(const uint8_t *data, size_t len, bool may_wait) {
                  "Ignoring frames: host sends type=%u %ux%u at %u,%u of %u bytes, which is not a JPEG rectangle "
                  "inside %ux%u of at most %u bytes",
                  (unsigned) header->type, (unsigned) header->width, (unsigned) header->height, (unsigned) header->x,
-                 (unsigned) header->y, (unsigned) header->payload_total, (unsigned) this->width_,
-                 (unsigned) this->height_, (unsigned) this->max_frame_bytes_);
+                 (unsigned) header->y, (unsigned) header->payload_total, (unsigned) this->render_width_,
+                 (unsigned) this->render_height_, (unsigned) this->max_frame_bytes_);
       }
       // Best effort: if the length is plausible this stays in step, and if it
       // is not there was nothing to stay in step with.
@@ -540,7 +573,7 @@ void USBDisplay::run_decode_task() {
     // picture behind with nothing to correct it. Not reading the socket for a
     // moment says "slow down" without losing anything, which is what the wait
     // for a free buffer already does.
-    const bool whole_panel = frame->width >= this->width_ && frame->height >= this->height_;
+    const bool whole_panel = frame->width >= this->render_width_ && frame->height >= this->render_height_;
     //
     // The unit being limited is the picture, not the rectangle. A sender that
     // redraws only what changed splits one picture across several rectangles,
@@ -705,6 +738,10 @@ void USBDisplay::loop() {
 void USBDisplay::dump_config() {
   ESP_LOGCONFIG(TAG, "USB Extended Display:");
   ESP_LOGCONFIG(TAG, "  Resolution: %ux%u", (unsigned) this->width_, (unsigned) this->height_);
+  if (this->scaling_) {
+    ESP_LOGCONFIG(TAG, "  Host draws %ux%u, scaled up by the pixel-processing accelerator", (unsigned) this->render_width_,
+                  (unsigned) this->render_height_);
+  }
   // Which identifiers the board actually enumerates as, and how many
   // interfaces. Both decide which driver a host binds, and neither could be
   // read back off a log before.
@@ -741,8 +778,8 @@ void USBDisplay::dump_config() {
   ESP_LOGCONFIG(TAG, "  Host sender: UDISP.PY, on the drive this board presents");
   ESP_LOGCONFIG(TAG, "    python UDISP.PY --width %u --height %u", (unsigned) this->width_, (unsigned) this->height_);
 #else
-  ESP_LOGCONFIG(TAG, "  Host sender: python udisp_send.py --width %u --height %u", (unsigned) this->width_,
-                (unsigned) this->height_);
+  ESP_LOGCONFIG(TAG, "  Host sender: python udisp_send.py --width %u --height %u", (unsigned) this->render_width_,
+                (unsigned) this->render_height_);
 #endif
   if (this->is_failed())
     ESP_LOGCONFIG(TAG, "  State: FAILED");

@@ -91,6 +91,8 @@ CONF_USB_SPEED = "usb_speed"
 CONF_SENDER_DRIVE = "sender_drive"
 CONF_JPEG_QUALITY = "jpeg_quality"
 CONF_MAX_FPS = "max_fps"
+CONF_RENDER_WIDTH = "render_width"
+CONF_RENDER_HEIGHT = "render_height"
 CONF_TOUCHSCREEN_ID = "touchscreen_id"
 CONF_SPEAKER_ID = "speaker_id"
 CONF_ON_AUDIO_START = "on_audio_start"
@@ -212,6 +214,16 @@ CONFIG_SCHEMA = cv.All(
             # note that a quarter turn swaps the axes, so a 1024x600 stream on a
             # panel turned 90 degrees needs a 600x1024 panel to land on.
             cv.Optional(CONF_ROTATION, default=0): cv.one_of(0, 90, 180, 270, int=True),
+            # The size the host draws on, when that is to be smaller than the
+            # panel. What it buys is at the other end: the machine rendering
+            # the page pays for every pixel four times -- painting, encoding,
+            # comparing with the last one, encoding again -- and this board's
+            # pixel-processing accelerator scales the result up for nothing,
+            # being a DMA engine that is otherwise idle. 640x1024 for an
+            # 800x1280 panel is 64% of the pixels, so about a third off every
+            # stage, for a picture that is softer but not by much.
+            cv.Optional(CONF_RENDER_WIDTH): cv.int_range(min=16, max=4096),
+            cv.Optional(CONF_RENDER_HEIGHT): cv.int_range(min=16, max=4096),
             cv.Optional(CONF_USB_SPEED, default="high"): cv.enum(
                 _USB_SPEEDS, lower=True
             ),
@@ -246,7 +258,86 @@ CONFIG_SCHEMA = cv.All(
     # The hardware JPEG decoder and the High-Speed USB PHY are both ESP32-P4.
     esp32.only_on_variant(supported=[esp32.VARIANT_ESP32P4]),
     _warn_about_espressif_driver,
+    _validate_render_size,
 )
+
+
+# The tile the sender compares and cuts on. Every rectangle it produces has
+# its origin and its size on this grid, so these are the coordinates that have
+# to land on whole panel pixels once scaled.
+_SENDER_TILE = 64
+
+
+def _validate_render_size(config):
+    """Refuse a render size that would not land on whole panel pixels.
+
+    A rectangle arrives in the host's coordinates and is multiplied by
+    panel / render to find where it goes. If that division is not exact the
+    rectangles no longer meet: measured on the arithmetic, 533x853 into
+    800x1280 leaves 2079 panel pixels that no rectangle ever covers, which is
+    a scatter of stale pixels that only the thirty-second redraw clears.
+
+    Two ways to be safe. An exact integer ratio works whatever the tile is,
+    because every coordinate scales exactly. Otherwise the render size has to
+    sit on the tile grid and divide a tile's worth of panel, which is what
+    makes every multiple of the tile exact.
+    """
+    width, height = config[CONF_WIDTH], config[CONF_HEIGHT]
+    render_w = config.get(CONF_RENDER_WIDTH)
+    render_h = config.get(CONF_RENDER_HEIGHT)
+    if render_w is None and render_h is None:
+        return config
+    if render_w is None or render_h is None:
+        raise cv.Invalid(
+            f"{CONF_RENDER_WIDTH} and {CONF_RENDER_HEIGHT} go together: give "
+            f"both or neither"
+        )
+    if render_w > width or render_h > height:
+        raise cv.Invalid(
+            f"the render size {render_w}x{render_h} is larger than the panel's "
+            f"{width}x{height}. The accelerator here scales up, not down"
+        )
+    if width * render_h != height * render_w:
+        raise cv.Invalid(
+            f"{render_w}x{render_h} is not the same shape as the panel's "
+            f"{width}x{height}, so the picture would be stretched. Keep the "
+            f"two ratios equal"
+        )
+    if config[CONF_ROTATION] != 0:
+        raise cv.Invalid(
+            f"rendering smaller is not supported together with rotation "
+            f"({config[CONF_ROTATION]} degrees). The accelerator can do both "
+            f"in one pass, but that combination has never been run on a board "
+            f"and is refused rather than guessed at"
+        )
+
+    def lands_whole(render, panel):
+        if panel % render == 0:
+            return True
+        return render % _SENDER_TILE == 0 and (_SENDER_TILE * panel) % render == 0
+
+    if not lands_whole(render_w, width) or not lands_whole(render_h, height):
+        suggestions = [
+            f"{width // n}x{height // n}"
+            for n in (2, 4)
+            if width % n == 0 and height % n == 0
+        ]
+        tiled = [
+            f"{w}x{h}"
+            for w in range(_SENDER_TILE, width + 1, _SENDER_TILE)
+            for h in [w * height // width]
+            if width * h == height * w
+            and (_SENDER_TILE * width) % w == 0
+            and (_SENDER_TILE * height) % h == 0
+            and h % _SENDER_TILE == 0
+        ]
+        raise cv.Invalid(
+            f"{render_w}x{render_h} does not divide {width}x{height} into whole "
+            f"pixels, so the rectangles would not meet and parts of the panel "
+            f"would never be redrawn. Try one of: "
+            f"{', '.join(dict.fromkeys(suggestions + tiled)) or 'none available'}"
+        )
+    return config
 
 
 async def to_code(config):
@@ -256,6 +347,8 @@ async def to_code(config):
     disp = await cg.get_variable(config[CONF_DISPLAY_ID])
     cg.add(var.set_display(disp))
     cg.add(var.set_resolution(config[CONF_WIDTH], config[CONF_HEIGHT]))
+    if (render_w := config.get(CONF_RENDER_WIDTH)) is not None:
+        cg.add(var.set_render_resolution(render_w, config[CONF_RENDER_HEIGHT]))
     cg.add(var.set_frame_buffers(config[CONF_FRAME_BUFFERS]))
     cg.add(var.set_max_frame_bytes(config[CONF_MAX_FRAME_BYTES]))
     cg.add(var.set_rotation(config[CONF_ROTATION]))

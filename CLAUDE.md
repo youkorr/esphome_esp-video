@@ -339,6 +339,40 @@ The board's own log line is where that shows — `dropped (… decode …)` clim
 means the real fixed cost is above the 1.5 ms this is built on, and
 `--rect-cost 0.14` is the step back before 0.18.
 
+**The host may draw smaller than the panel, and the PPA scales it up.**
+`render_width:` / `render_height:` on the component, `--render-width` /
+`--render-height` on the sender, and they must agree. What it buys is measured
+on a dashboard-shaped picture, per picture, on the machine running the sender:
+
+| drawn at | decode | diff | encode | total | bytes |
+|----------|--------|------|--------|-------|-------|
+| 800×1280 | 7.1 ms | 1.1 | 0.4 | **8.7 ms** | 18.0 KiB |
+| 640×1024 | 2.3 ms | 0.7 | 0.3 | **3.3 ms** | 13.0 KiB |
+| 400×640  | 1.3 ms | 0.2 | 0.2 | **1.7 ms** | 7.5 KiB |
+
+38% of the work at 1.25×, better than the 64% the pixel ratio suggests, because
+the decode dominates and does not scale linearly. The board pays one PPA pass
+it was not making before, on silicon that was idle.
+
+**Not every size divides.** A rectangle arrives in the host's coordinates and is
+multiplied by panel/render; if that is not exact the rectangles stop meeting.
+Checked with a standalone g++ harness over every tile of every candidate:
+533×853 into 800×1280 — the 1.5× that was very nearly offered — leaves **2079
+panel pixels no rectangle ever covers**, a scatter of stale pixels that only
+the thirty-second redraw clears. 640×1024 and 400×640 are exact, gap-free and
+overlap-free. The rule the schema enforces: an exact integer ratio, or a render
+size on the 64 grid that divides `64 × panel`. Rotation together with scaling is
+refused rather than guessed at — the PPA does both in one pass, but that
+combination has never run on a board.
+
+**`rect_cost_fraction` takes the PANEL size even when drawing smaller.** The
+rule protects the board, and the board's cost for a whole picture barely
+shrinks: the decode does, but the accelerator's pass and the write to the
+display are still panel-sized. Judging by the render size makes the fraction
+larger (0.165 against 0.106), saturates it at seven rectangles instead of ten,
+and sends whole pictures far more often — measured on one page, **49.9 KiB/s
+that way against 34.5 this way**, which is the opposite of the point.
+
 ## Calibration — run it once per board, always
 
 ```
