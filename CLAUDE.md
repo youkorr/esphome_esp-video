@@ -270,7 +270,16 @@ add-on options.
 - `queue_touch_` uses `touchscreen::TouchPoints_t` and must stay inside
   `#ifdef USE_TOUCHSCREEN`. Touch is decoupled from `CFG_TUD_HID`.
 - `cc1plus` was OOM-killed compiling `esp-tflite-micro`; `compile_process_limit:
-  1` under `esphome:` is the workaround.
+  1` under `esphome:` is the workaround -- but check two versions before
+  believing it did anything. The native ESP-IDF build path read the option and
+  threw it away, so ninja kept running at full parallelism: esphome/esphome
+  PR 17857, merged 2026-07-26 for **ESPHome 2026.7.3**, is what forwards it to
+  `idf.py` as `IDF_PY_BUILD_JOBS` -- and that variable is itself ignored in
+  silence by **ESP-IDF below 5.5.5** (and by 6.0.x). Both gates have to be
+  open. The tell that neither is: ninja starts another object while the killed
+  one is still in the log. What does not depend on any version is dropping
+  `micro_wake_word`, which is the only thing pulling `esp-tflite-micro` in at
+  all.
 - A 9.4 fps "mystery" turned out to be the webcam dropping frame rate in low
   light, not `max_framerate`. Check the physical world before the code.
 - The user once pasted a Home Assistant long-lived token in plaintext. It was
