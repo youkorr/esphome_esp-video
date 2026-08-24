@@ -251,6 +251,25 @@ KiB each, at 476 KiB/s — and `0 whole` in the same window at rest, so it was
 not the thirty-second redraw. This is what the `whole` counter was added to
 find, and it found it in one run.
 
+Measured again on the same panel after the fraction became geometry-aware:
+`whole` per five-second window fell from 14–17 out of 18 pictures to 1–11, and
+`rectangles/s` rose from about 5 to about 13, which is the same update arriving
+in pieces instead of whole. Within that one run, at an unchanged 3.4–3.8
+pictures a second, the counter accounts for nearly all of the cost: windows at
+`0 whole` cost **16–30 KiB/s**, at `1 whole` 46–51, and at 6–11 whole 295–422.
+So the two regimes are worth keeping apart — where the change is genuinely
+small but scattered it went from ~338 KiB/s to ~20, and where the camera is
+really refreshing it is about a quarter better, 132 KiB a picture down to ~100.
+That second one is real change and no sender setting will remove it. The
+before-and-after is across two runs of a live dashboard rather than a
+controlled A/B; the within-run table is the solid part.
+
+The risk this trades into is the board's: about 13 rectangles a second instead
+of 5, each costing it a header, its own JPEG tables and one more DMA transfer.
+The board's own log line is where that shows — `dropped (… decode …)` climbing
+means the real fixed cost is above the 1.5 ms this is built on, and
+`--rect-cost 0.14` is the step back before 0.18.
+
 ## Calibration — run it once per board, always
 
 ```
