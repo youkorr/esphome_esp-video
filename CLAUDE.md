@@ -202,10 +202,22 @@ contact up the return channel, same page, same run: 12.7 rectangles/s standing,
 is to say the one frame and nothing else — against **45.0** with the window,
 back to 16 afterwards.
 
-Not unlimited, deliberately. With no ceiling at all a page mid-transition hands
-over sixty frames a second, and a whole panel at 800×1280 is 130 KiB: megabytes
-a second that neither the link nor the board can take. Fifteen is smooth and
-still an eighth of what the browser would offer.
+Not unlimited, but not for the reason it first seemed. **The link is not the
+constraint in either direction** — outbound the C6 was measured above 25 Mbit/s
+serving a UVC camera through `esp32_camera_web_server`, and inbound, which is
+the direction that matters here, the 28800-byte receive window over the round
+trip gives 23 Mbit/s at 10 ms and 46 at 5. The busiest window ever recorded on
+a panel was 6.2 Mbit/s.
+
+What binds during a transition is the machine running the sender. Nearly every
+picture then is a whole panel, and decoding, diffing and re-encoding one at
+800×1280 costs around 40 ms: `loop` falls from 62 Hz to 43 and the sender tops
+out near **seven pictures a second** whatever it is allowed. So `URGENT_FPS =
+15` does not bind there at all; what it stops is the other case, a small cheap
+change being sent sixty times a second because a finger touched the panel. The
+lever on transitions is the cost of a whole panel — a lower `--quality`, or
+rendering smaller and letting the PPA scale up — not the frame limit and not
+the network.
 
 **`TouchMap` works in normalised fractions and yields all 8 dihedral
 candidates.** Working in pixels failed on the Tab5 by 454 px: `swap_xy` is
@@ -215,6 +227,16 @@ pure scaling (1.838 / 0.620) with no rotation. Fractions make that disappear.
 
 **`Injector` holds the press back until release** so a >12 px movement
 (`DRAG_THRESHOLD`) becomes `mouse.wheel(-dx, -dy)` instead of a click.
+
+**A panel does not have to show Home Assistant, and `--token` is the switch.**
+Nothing in the pipeline is particular to Home Assistant: the token exists only
+because a browser with no keyboard cannot get past a login screen. Given one,
+the sender writes it into storage and waits for the `home-assistant` element;
+given none, it does neither and renders whatever the URL points at — verified
+end to end against an ordinary page with a CSS animation, a canvas and a
+button, 85 pictures at 19.4 rectangles/s. Leaving the token out is the ask, not
+a mistake: it used to be a hard `parser.error`, and the thirty-second wait for
+a dashboard element that was never coming was the other half of the problem.
 
 **Token injection.** The long-lived token is written into local storage the way
 the frontend writes it after a login, which is what gets a browser with no
@@ -332,6 +354,11 @@ Three boards, all confirmed working: **Waveshare ESP32-P4-WIFI6-Touch-LCD-7B**
 (1024×600), **M5Stack Tab5** (720×1280 portrait, used landscape at 270°),
 **Guition 10"** (800×1280).
 
+- the C6 radio: **above 25 Mbit/s** measured outbound, serving a UVC webcam
+  through `esp32_camera_web_server`. Inbound is a different ceiling and a lower
+  one — `CONFIG_LWIP_TCP_WND_DEFAULT` of 28800 over the round trip, so about
+  23 Mbit/s at 10 ms — but both are far above anything this sends: the busiest
+  five-second window ever recorded was 758 KiB/s, which is 6.2 Mbit/s
 - touch end to end: 3–22 ms
 - reactivity floor ≈ 105 ms, dominated by Chromium's repaint and screencast
   delivery, not by this pipeline
@@ -393,8 +420,7 @@ add-on options.
 - The keyboard, if it ever comes back, should start from the two cases that
   actually exist (the dashboard search magnifier and Assist) and change nothing
   else.
-- `components/esp32_camera_web_server`'s `shared_ptr` mutex fix lives on a
-  branch and still needs its own upstream PR.
+
 
 ## Repository conventions
 
