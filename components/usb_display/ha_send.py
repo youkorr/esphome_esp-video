@@ -589,6 +589,17 @@ class Screencast:
         better, being only a request the page is free to ignore. The animation
         domain acts on the engine that drives them and does not care where the
         keyframes were declared.
+
+        What it does not reach is anything that is not an animation. A card
+        that draws itself on a canvas from requestAnimationFrame, a camera
+        tile, a video: none of them go through that engine and none of them
+        stop. Measured on one page carrying all three kinds at once -- a
+        keyframe animation in a shadow root, a canvas loop and a setInterval
+        rewriting text -- 57.3 frames a second before and 59.2 after, because
+        the canvas alone is enough to keep the page moving. Each on its own,
+        frozen: 0.2 for the animation, 59.7 for the canvas, unchanged for the
+        interval. This is worth trying and worth measuring, not worth
+        assuming.
         """
         self._session.send("Animation.enable")
         self._session.send("Animation.setPlaybackRate", {"playbackRate": 0})
@@ -768,9 +779,11 @@ def main():
         "--freeze-animations",
         action="store_true",
         help="hold the page's animations still. A pulsing icon or a spinner "
-        "keeps the whole pipeline running for a picture nobody is watching; "
-        "freezing costs that card its movement and nothing else. Live data, a "
-        "camera and a graph that receives new points all keep updating",
+        "keeps the whole pipeline running for a picture nobody is watching. "
+        "Only animations: a camera, a video and a card that draws itself on a "
+        "canvas do not go through the animation engine and do not stop -- one "
+        "of those on the page is enough for this to change nothing at all. "
+        "Try it with --stats and keep it only if the idle rate drops",
     )
     parser.add_argument(
         "--no-touch", action="store_true", help="do not replay the panel's contacts"
