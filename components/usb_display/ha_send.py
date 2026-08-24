@@ -537,6 +537,33 @@ class Screencast:
 
     def take(self):
         """The newest frame since the last call, or None if nothing moved."""
+        frame, self._latest = self._latest, None
+        return frame
+
+    def request(self, discard=False):
+        """Let the browser produce another frame.
+
+        The acknowledgement is not a formality: it is the flow control. Chromium
+        keeps about three frames in flight and then waits to be told they
+        arrived, so acknowledging on every turn of the loop -- a hundred and
+        twenty times a second -- asks it to paint and encode at its own full
+        rate, and the frame limit then throws the surplus away once it has
+        already been paid for. Measured on an animated page at 800x1280: 59.8
+        frames a second produced when acknowledging freely, 28.5 when
+        acknowledging at ten a second and 12.0 at four. The pictures that stop
+        being made are exactly the ones that were being discarded.
+
+        discard drops whatever is already in hand along with the
+        acknowledgement. That is for the moment a press has just been replayed:
+        a frame waiting at that instant was painted before the finger landed
+        and shows nothing of it, so letting it through would spend the free
+        pass on the wrong picture -- the mistake that once made a press feel
+        205 ms slow instead of 105. Nothing is lost by dropping it, because a
+        picture that is not sent does not advance what the next difference is
+        measured against.
+        """
+        if discard:
+            self._latest = None
         for session_id in self._unacked:
             try:
                 self._session.send(
@@ -545,8 +572,6 @@ class Screencast:
             except Exception:  # noqa: BLE001 - a closed page is handled by the caller
                 pass
         self._unacked.clear()
-        frame, self._latest = self._latest, None
-        return frame
 
     def pause(self):
         """Stop the browser producing frames at all."""
@@ -939,6 +964,15 @@ def main():
                         last_send = started
                         pending_urgent = False
 
+                    # Ask for another picture only once there is somewhere to
+                    # put it. Holding the acknowledgement back is what stops
+                    # the browser painting frames this loop would only throw
+                    # away -- see Screencast.request. A pump early, so the next
+                    # one is ready when the interval is up rather than being
+                    # started then.
+                    if pending is None and started - last_send >= interval - PUMP_MS / 1000.0:
+                        capture.request()
+
                     if shot is not None:
                         image = Image.open(io.BytesIO(shot))
                         # A JPEG frame already arrives as RGB, and convert()
@@ -1054,6 +1088,10 @@ def main():
                         injector.handle(reports)
                         if URGENT_AFTER_INPUT:
                             urgent = True
+                            # Do not wait for the interval to ask for the
+                            # picture that answers this press, and do not
+                            # accept one painted before it landed.
+                            capture.request(discard=True)
                         if args.show_touches:
                             print(
                                 f"[{time.strftime('%H:%M:%S')}"
