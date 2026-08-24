@@ -57,7 +57,17 @@ def say(text):
 # and long enough that repeating it per panel is only a way to get one of them
 # wrong -- and the rest follow because there is no sense in a rule that applies
 # to one key.
-SHARED_KEYS = ("token", "url", "port", "fps", "quality", "capture_quality", "stats")
+SHARED_KEYS = (
+    "token",
+    "url",
+    "port",
+    "fps",
+    "quality",
+    "capture_quality",
+    "rect_cost",
+    "freeze_animations",
+    "stats",
+)
 
 
 def load_panels():
@@ -97,6 +107,7 @@ def load_panels():
                     "fps",
                     "quality",
                     "capture_quality",
+                    "rect_cost",
                 )
                 if os.environ.get(key.upper())
             }
@@ -119,11 +130,18 @@ def command_for(panel):
         "fps",
         "quality",
         "capture_quality",
+        "rect_cost",
     ):
         value = panel.get(key)
         if value not in (None, ""):
             argv += [f"--{key.replace('_', '-')}", str(value)]
-    for key in ("touch_mirror_x", "touch_mirror_y", "no_touch", "stats"):
+    for key in (
+        "touch_mirror_x",
+        "touch_mirror_y",
+        "no_touch",
+        "freeze_animations",
+        "stats",
+    ):
         # Accept the string forms a hand-written JSON file may carry.
         value = panel.get(key)
         if value is True or str(value).lower() in ("true", "yes", "1"):
