@@ -279,8 +279,7 @@ add-on options.
 - The keyboard, if it ever comes back, should start from the two cases that
   actually exist (the dashboard search magnifier and Assist) and change nothing
   else.
-- `components/esp32_camera_web_server`'s `shared_ptr` mutex fix lives on a
-  branch and still needs its own upstream PR.
+
 
 ## Repository conventions
 
