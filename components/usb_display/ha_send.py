@@ -758,6 +758,34 @@ def main():
             )
         if not args.token:
             parser.error("--token is required (or set HA_TOKEN)")
+        # A token of the wrong shape is worth refusing here rather than in the
+        # browser. Home Assistant answers a bad one by redirecting to its login
+        # page, and all this sender can see of that is a page that is not a
+        # dashboard -- so it says to check --url, the scheme and the port, and
+        # sends you looking in the one place the fault is not.
+        #
+        # Two things about the shape are certain and cost nothing to check. It
+        # is a JWT, so it has three parts separated by dots. It is signed with
+        # HS256, whose signature is 32 bytes, which is 43 base64url characters
+        # and never any other number. The way it gets broken is being copied
+        # out of the dialog by hand and pasted into a console, which truncates
+        # it -- silently, and by a different amount each time.
+        args.token = args.token.strip()
+        parts = args.token.split(".")
+        if len(parts) != 3:
+            parser.error(
+                f"the token is not a JWT: it has {len(parts)} dot-separated "
+                f"parts and a Home Assistant token has three. Copy it again."
+            )
+        if len(parts[2]) != 43:
+            parser.error(
+                f"the token's signature is {len(parts[2])} characters and "
+                f"every Home Assistant token's is 43, so this one was cut or "
+                f"joined while being copied. Consoles do that to a long paste. "
+                f"Copy it in Home Assistant with the dialog's copy button and "
+                f"take it from the clipboard without retyping it: in "
+                f"PowerShell, $env:HA_TOKEN = (Get-Clipboard -Raw).Trim()"
+            )
 
     try:
         from PIL import Image
