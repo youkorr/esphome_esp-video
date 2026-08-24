@@ -228,6 +228,16 @@ pure scaling (1.838 / 0.620) with no rotation. Fractions make that disappear.
 **`Injector` holds the press back until release** so a >12 px movement
 (`DRAG_THRESHOLD`) becomes `mouse.wheel(-dx, -dy)` instead of a click.
 
+**A panel does not have to show Home Assistant, and `--token` is the switch.**
+Nothing in the pipeline is particular to Home Assistant: the token exists only
+because a browser with no keyboard cannot get past a login screen. Given one,
+the sender writes it into storage and waits for the `home-assistant` element;
+given none, it does neither and renders whatever the URL points at — verified
+end to end against an ordinary page with a CSS animation, a canvas and a
+button, 85 pictures at 19.4 rectangles/s. Leaving the token out is the ask, not
+a mistake: it used to be a hard `parser.error`, and the thirty-second wait for
+a dashboard element that was never coming was the other half of the problem.
+
 **Token injection.** The long-lived token is written into local storage the way
 the frontend writes it after a login, which is what gets a browser with no
 keyboard past the login screen. Home Assistant frontend fields live in nested

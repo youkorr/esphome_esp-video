@@ -50,17 +50,26 @@ and every panel inherits them; a panel that sets one for itself keeps its own.
 The token in particular is the same for a whole house, and long enough that
 repeating it per panel is mostly a way to get one of them wrong.
 
-The token is still required even here, where this runs beside Home Assistant.
-An add-on is given a SUPERVISOR_TOKEN, but that authenticates to the Supervisor
-rather than to Home Assistant as a user: it cannot log a browser in. Only a
-long-lived access token can.
+The token is what gets a browser with no keyboard past Home Assistant's login
+screen, and it is still needed even here, where this runs beside Home
+Assistant. An add-on is given a SUPERVISOR_TOKEN, but that authenticates to the
+Supervisor rather than to Home Assistant as a user: it cannot log a browser in.
+Only a long-lived access token can.
+
+**A panel does not have to show Home Assistant.** Nothing else in this is
+particular to it: point a panel's `url` at any page -- a train board, a weather
+site, a photo frame, something you built -- leave its `token` empty, and the
+page is rendered, cut into rectangles and sent exactly the same way, with
+touches replayed into it. Leaving the token out is how you ask for that: with
+one, the sender writes it into the page's storage and waits for a Home
+Assistant dashboard to appear; without one it does neither.
 
 | Option | What it is |
 |---|---|
 | `name` | What this panel is called in the log |
 | `host`, `port` | The panel's address, and its `port:` |
-| `url` | The dashboard to render. From inside an add-on this is `http://homeassistant:8123/...` -- see below |
-| `token` | A long-lived access token |
+| `url` | The page to render. A Home Assistant dashboard, or any other site. From inside an add-on a Home Assistant address is `http://homeassistant:8123/...` -- see below |
+| `token` | A long-lived access token. Leave it empty for a page that is not Home Assistant |
 | `width`, `height` | Must match the component's |
 | `rotate` | Turns the picture, for a panel not mounted upright |
 | `touch_rotate`, `touch_mirror_x`, `touch_mirror_y` | From `--calibrate` |

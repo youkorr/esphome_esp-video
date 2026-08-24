@@ -1,17 +1,24 @@
 #!/usr/bin/env python3
-"""Put a Home Assistant dashboard on an ESPHome usb_display panel, over Wi-Fi.
+"""Put a web page on an ESPHome usb_display panel, over Wi-Fi.
 
-The panel is not running Home Assistant and is not running a browser. A machine
-that is on anyway -- the Home Assistant server itself, or anything beside it --
-renders the dashboard in a browser with no window, and sends the picture to the
-panel. Touches come back over the same socket and are replayed into that
-browser, so the panel behaves like the screen of the machine doing the
-rendering.
+The panel is not running a browser. A machine that is on anyway -- the Home
+Assistant server itself, or anything beside it -- renders the page in a browser
+with no window, and sends the picture to the panel. Touches come back over the
+same socket and are replayed into that browser, so the panel behaves like the
+screen of the machine doing the rendering.
+
+A Home Assistant dashboard is what this was written for and what --token is
+for: a browser with no keyboard cannot get past a login screen, so the token is
+written into storage the way the frontend writes it after one. Nothing else
+about this is particular to Home Assistant. Leave --token out and any page at
+all is rendered, diffed and sent by the same code.
 
     ./ha_send.py --calibrate --host 192.168.1.9 --width 1024 --height 600
     ./ha_send.py --host 192.168.1.9 --width 1024 --height 600 \
         --url http://homeassistant.local:8123/lovelace/0 --token <long-lived> \
         --touch-rotate 0
+    ./ha_send.py --host 192.168.1.9 --width 1024 --height 600 \
+        --url https://example.com/ --touch-rotate 0
 
 Calibrate first, once per board. There is no way to know from here which way a
 panel reports its contacts: it depends on how the touch controller is wired and
@@ -771,7 +778,10 @@ def main():
     parser.add_argument(
         "--token",
         default=os.environ.get("HA_TOKEN"),
-        help="a Home Assistant long-lived access token, or $HA_TOKEN",
+        help="a Home Assistant long-lived access token, or $HA_TOKEN. Only "
+        "Home Assistant needs one: leave it out and any other page is "
+        "rendered and sent the same way, with nothing written into its "
+        "storage and no dashboard waited for",
     )
     parser.add_argument("--width", type=int, default=1024)
     parser.add_argument("--height", type=int, default=600)
@@ -887,8 +897,12 @@ def main():
                 f"is the name of the setting and not part of the address: the "
                 f"value alone is what goes in."
             )
-        if not args.token:
-            parser.error("--token is required (or set HA_TOKEN)")
+        # A token is only what gets past Home Assistant's login screen, and
+        # nothing else needs one. Any other page -- a train board, a photo
+        # frame, a weather site, something somebody built -- is rendered,
+        # diffed and sent by exactly the same code, so leaving --token out is
+        # how you ask for one of those. It is not a mistake to refuse.
+        #
         # A token of the wrong shape is worth refusing here rather than in the
         # browser. Home Assistant answers a bad one by redirecting to its login
         # page, and all this sender can see of that is a page that is not a
@@ -901,22 +915,25 @@ def main():
         # and never any other number. The way it gets broken is being copied
         # out of the dialog by hand and pasted into a console, which truncates
         # it -- silently, and by a different amount each time.
-        args.token = args.token.strip()
-        parts = args.token.split(".")
-        if len(parts) != 3:
-            parser.error(
-                f"the token is not a JWT: it has {len(parts)} dot-separated "
-                f"parts and a Home Assistant token has three. Copy it again."
-            )
-        if len(parts[2]) != 43:
-            parser.error(
-                f"the token's signature is {len(parts[2])} characters and "
-                f"every Home Assistant token's is 43, so this one was cut or "
-                f"joined while being copied. Consoles do that to a long paste. "
-                f"Copy it in Home Assistant with the dialog's copy button and "
-                f"take it from the clipboard without retyping it: in "
-                f"PowerShell, $env:HA_TOKEN = (Get-Clipboard -Raw).Trim()"
-            )
+        if args.token:
+            args.token = args.token.strip()
+            parts = args.token.split(".")
+            if len(parts) != 3:
+                parser.error(
+                    f"the token is not a JWT: it has {len(parts)} "
+                    f"dot-separated parts and a Home Assistant token has "
+                    f"three. Copy it again."
+                )
+            if len(parts[2]) != 43:
+                parser.error(
+                    f"the token's signature is {len(parts[2])} characters and "
+                    f"every Home Assistant token's is 43, so this one was cut "
+                    f"or joined while being copied. Consoles do that to a long "
+                    f"paste. Copy it in Home Assistant with the dialog's copy "
+                    f"button and take it from the clipboard without retyping "
+                    f"it: in PowerShell, "
+                    f"$env:HA_TOKEN = (Get-Clipboard -Raw).Trim()"
+                )
 
     try:
         from PIL import Image
@@ -982,9 +999,14 @@ def main():
         context = browser.new_context(
             viewport={"width": page_w, "height": page_h}, device_scale_factor=1
         )
-        install_token(context, args.url, args.token)
+        if args.token:
+            install_token(context, args.url, args.token)
         page = context.new_page()
-        print(f"Opening {args.url} at {page_w}x{page_h}")
+        print(
+            f"Opening {args.url} at {page_w}x{page_h}"
+            + ("" if args.token else " (no token, so this is not treated as "
+                                     "Home Assistant)")
+        )
         # Not networkidle: the frontend holds a websocket open for as long as it
         # runs, and waiting for the network to go quiet would wait forever.
         try:
@@ -992,10 +1014,14 @@ def main():
         except Exception as err:  # noqa: BLE001 - re-raised after the diagnosis
             explain_unreachable(args.url, err)
             raise
-        try:
-            page.wait_for_selector("home-assistant", timeout=30000)
-        except Exception:  # noqa: BLE001 - a page without it is still worth sending
-            print("Warning: this does not look like a Home Assistant page")
+        if args.token:
+            # Only worth waiting for when Home Assistant is what was asked for.
+            # On any other page the element never appears and the wait is
+            # thirty seconds of nothing.
+            try:
+                page.wait_for_selector("home-assistant", timeout=30000)
+            except Exception:  # noqa: BLE001 - a page without it is still worth sending
+                print("Warning: this does not look like a Home Assistant page")
         # The dashboard paints in stages -- shell, then cards, then their data --
         # and the first picture is the one full redraw everything else is a
         # difference from. Let it settle before taking it.
@@ -1005,6 +1031,9 @@ def main():
                 "Warning: Home Assistant is asking to log in, so the token was "
                 "not accepted. Check --url points at the same address the token "
                 "was created on, scheme and port included."
+                if args.token
+                else "Warning: this page went to a Home Assistant login screen. "
+                "It needs a token: pass --token, or set HA_TOKEN."
             )
 
         touch_map = TouchMap(
