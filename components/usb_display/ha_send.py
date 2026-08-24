@@ -491,6 +491,11 @@ class Screencast:
         self._quality = quality
         self._latest = None
         self._unacked = []
+        # How many pictures the browser has actually made. The count that
+        # matters is this one against the count sent: the gap between them is
+        # work paid for and thrown away, and it is invisible from every other
+        # number this prints.
+        self.produced = 0
         self._session.on("Page.screencastFrame", self._on_frame)
         self._running = True
         self._start()
@@ -534,6 +539,7 @@ class Screencast:
     def _on_frame(self, params):
         self._latest = base64.b64decode(params["data"])
         self._unacked.append(params["sessionId"])
+        self.produced += 1
 
     def take(self):
         """The newest frame since the last call, or None if nothing moved."""
@@ -963,6 +969,7 @@ def main():
             pictures = 0
             loops = 0
             pending = None
+            fulls = 0
             last_send = 0.0
             last_sent = time.monotonic()
             # Assumed awake until the panel says otherwise; it announces its
@@ -1048,6 +1055,7 @@ def main():
                         if previous is None or stale:
                             rectangles = [(0, 0, args.width, args.height)]
                             last_full = started
+                            fulls += 1
                         else:
                             rectangles = changed_rectangles(previous, current)
                             covered = sum(w * h for _, _, w, h in rectangles)
@@ -1059,6 +1067,7 @@ def main():
                             ) > 1.0:
                                 rectangles = [(0, 0, args.width, args.height)]
                                 last_full = started
+                                fulls += 1
 
                         for x, y, w, h in rectangles:
                             buffer = io.BytesIO()
@@ -1147,7 +1156,20 @@ def main():
                         elapsed = now - stats_at
                         print(
                             f"{pictures / elapsed:.1f} pictures/s, "
+                            # What the browser made, against what was worth
+                            # sending. Every frame counted here was painted and
+                            # encoded whether or not it was used, so a number
+                            # far above the one before it is the cost of
+                            # pictures nobody will ever see.
+                            f"{capture.produced / elapsed:.1f} made/s, "
                             f"{rectangles_sent / elapsed:.1f} rectangles/s, "
+                            # How many of those pictures gave up on rectangles
+                            # and sent the whole panel. A dashboard costing
+                            # hundreds of kilobytes a second is usually doing
+                            # this, and the rectangle count alone does not say
+                            # so -- a whole panel is one rectangle, and so is a
+                            # card that grew.
+                            f"{fulls} whole, "
                             f"{bytes_sent / elapsed / 1024:.1f} KiB/s, "
                             # How often touches are looked at. Anything much
                             # below --fps means the loop is the bottleneck, and
@@ -1172,6 +1194,7 @@ def main():
                             print("  busiest areas: " + "; ".join(spots))
                             heat[:] = 0
                         rectangles_sent = bytes_sent = pictures = loops = 0
+                        capture.produced = fulls = 0
                         stats_at = now
             except OSError as err:
                 print(f"Lost the panel ({err}), waiting for it to come back")
