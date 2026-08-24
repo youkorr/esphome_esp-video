@@ -202,10 +202,22 @@ contact up the return channel, same page, same run: 12.7 rectangles/s standing,
 is to say the one frame and nothing else — against **45.0** with the window,
 back to 16 afterwards.
 
-Not unlimited, deliberately. With no ceiling at all a page mid-transition hands
-over sixty frames a second, and a whole panel at 800×1280 is 130 KiB: megabytes
-a second that neither the link nor the board can take. Fifteen is smooth and
-still an eighth of what the browser would offer.
+Not unlimited, but not for the reason it first seemed. **The link is not the
+constraint in either direction** — outbound the C6 was measured above 25 Mbit/s
+serving a UVC camera through `esp32_camera_web_server`, and inbound, which is
+the direction that matters here, the 28800-byte receive window over the round
+trip gives 23 Mbit/s at 10 ms and 46 at 5. The busiest window ever recorded on
+a panel was 6.2 Mbit/s.
+
+What binds during a transition is the machine running the sender. Nearly every
+picture then is a whole panel, and decoding, diffing and re-encoding one at
+800×1280 costs around 40 ms: `loop` falls from 62 Hz to 43 and the sender tops
+out near **seven pictures a second** whatever it is allowed. So `URGENT_FPS =
+15` does not bind there at all; what it stops is the other case, a small cheap
+change being sent sixty times a second because a finger touched the panel. The
+lever on transitions is the cost of a whole panel — a lower `--quality`, or
+rendering smaller and letting the PPA scale up — not the frame limit and not
+the network.
 
 **`TouchMap` works in normalised fractions and yields all 8 dihedral
 candidates.** Working in pixels failed on the Tab5 by 454 px: `swap_xy` is
@@ -332,6 +344,11 @@ Three boards, all confirmed working: **Waveshare ESP32-P4-WIFI6-Touch-LCD-7B**
 (1024×600), **M5Stack Tab5** (720×1280 portrait, used landscape at 270°),
 **Guition 10"** (800×1280).
 
+- the C6 radio: **above 25 Mbit/s** measured outbound, serving a UVC webcam
+  through `esp32_camera_web_server`. Inbound is a different ceiling and a lower
+  one — `CONFIG_LWIP_TCP_WND_DEFAULT` of 28800 over the round trip, so about
+  23 Mbit/s at 10 ms — but both are far above anything this sends: the busiest
+  five-second window ever recorded was 758 KiB/s, which is 6.2 Mbit/s
 - touch end to end: 3–22 ms
 - reactivity floor ≈ 105 ms, dominated by Chromium's repaint and screencast
   delivery, not by this pipeline
