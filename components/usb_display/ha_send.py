@@ -656,6 +656,12 @@ class Screencast:
         # work paid for and thrown away, and it is invisible from every other
         # number this prints.
         self.produced = 0
+        # How long the browser takes to hand a picture over after being let
+        # go, as a running average. The acknowledgement has to be sent that
+        # long before a picture is wanted, not an instant before, or every one
+        # of them arrives a whole interval late -- see request().
+        self.lead = 0.030
+        self._asked_at = None
         self._session.on("Page.screencastFrame", self._on_frame)
         self._running = True
         self._start()
@@ -697,6 +703,12 @@ class Screencast:
         self._session.send("Page.startScreencast", options)
 
     def _on_frame(self, params):
+        if self._asked_at is not None:
+            # Smoothed, because one frame's paint says little: a page settles,
+            # a card grows, the machine gets busy. Weighted towards the recent
+            # so it follows the page it is actually on.
+            self.lead = 0.7 * self.lead + 0.3 * (time.monotonic() - self._asked_at)
+            self._asked_at = None
         self._latest = base64.b64decode(params["data"])
         self._unacked.append(params["sessionId"])
         self.produced += 1
@@ -730,6 +742,8 @@ class Screencast:
         """
         if discard:
             self._latest = None
+        if self._unacked and self._asked_at is None:
+            self._asked_at = time.monotonic()
         for session_id in self._unacked:
             try:
                 self._session.send(
@@ -851,7 +865,11 @@ KEYBOARD_LAYOUTS = {
         _letters("azertyuiop"),
         _letters("qsdfghjklm"),
         [("Shift", 1.5, _SHIFT)] + _letters("wxcvbn'-") + [("\u232b", 1.5, _BACK)],
-        [("Hide", 1.5, _HIDE)] + _letters("éèàç")
+        # The at sign is on the bottom row here, where qwerty carries it in
+        # the same place. It was missing, and a keyboard you cannot type an
+        # address into is a keyboard you cannot sign in with -- which is the
+        # whole point of keeping a profile.
+        [("Hide", 1.5, _HIDE)] + _letters("@éèàç")
         + [("", 4.0, _SPACE)] + _letters(".") + [("Enter", 2.0, _ENTER)],
     ],
 }
@@ -2141,10 +2159,23 @@ def main():
                     # Ask for another picture only once there is somewhere to
                     # put it. Holding the acknowledgement back is what stops
                     # the browser painting frames this loop would only throw
-                    # away -- see Screencast.request. A pump early, so the next
-                    # one is ready when the interval is up rather than being
-                    # started then.
-                    if pending is None and started - last_send >= limit - PUMP_MS / 1000.0:
+                    # away -- see Screencast.request.
+                    #
+                    # How early matters, and one pump was far too early to be
+                    # early enough. A paint and an encode take twenty to forty
+                    # milliseconds and the pump is eight, so the picture landed
+                    # after the deadline it was meant for and went out on the
+                    # next one: measured on a page that never settles, 20.9
+                    # pictures a second reaching the panel at --fps 30 against
+                    # 26.3 from the sender that acknowledged freely. That is
+                    # the whole of "the old one was smoother on video". Asking
+                    # a measured paint-time ahead instead keeps one picture in
+                    # flight and no more.
+                    # With a margin over the average, because being late by a
+                    # little costs a whole interval and being early costs
+                    # nothing but a picture waiting a few milliseconds in hand.
+                    lead = min(max(capture.lead * 1.5, PUMP_MS / 1000.0), limit)
+                    if pending is None and started - last_send >= limit - lead:
                         capture.request()
 
                     if shot is not None:
