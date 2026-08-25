@@ -897,15 +897,50 @@ KEYBOARD_INIT_JS = r"""
   addEventListener('focusout', () => setTimeout(tell, 0), true);
 
   window.__udispKb = {
-    show(html) {
+    // The stylesheet goes in through the CSSOM rather than as a <style>
+    // element, because a page's style-src can forbid the element and cannot
+    // forbid this. Falls back to the element where constructable sheets are
+    // not available.
+    dress(css) {
+      try {
+        if (!this.sheet) {
+          this.sheet = new CSSStyleSheet();
+          document.adoptedStyleSheets = [...document.adoptedStyleSheets, this.sheet];
+        }
+        this.sheet.replaceSync(css);
+        return;
+      } catch (err) { /* the element below */ }
+      let s = document.getElementById(ID + '_css');
+      if (!s) {
+        s = document.createElement('style');
+        s.id = ID + '_css';
+        document.documentElement.appendChild(s);
+      }
+      s.textContent = css;
+    },
+    show(css, keys) {
       const d = box();
-      d.innerHTML = html;
+      this.dress(css);
+      // Built out of the DOM, never out of an HTML string. YouTube -- and
+      // Google, and GitHub, and a good many others -- require Trusted Types,
+      // and there `d.innerHTML = ...` throws outright: it took the whole
+      // sender down every thirteen seconds, restarting for ever. Nothing
+      // below can be refused by any policy.
+      d.replaceChildren();
+      for (const k of keys) {
+        const e = document.createElement('div');
+        e.className = k.w ? 'k w' : 'k';
+        e.setAttribute('data-i', k.i);
+        e.style.cssText = k.s;
+        e.textContent = k.t;
+        d.appendChild(e);
+      }
       // Whatever hide() left behind. It sets display:none INLINE, and an
-      // inline style beats any selector in the sheet below -- so failing to
-      // clear it here was a keyboard that could never be seen again for the
-      // rest of the page's life, however many times it was asked to show.
-      // Reported from a panel as having to restart the add-on, which is the
-      // only thing that ever gave it a new document.
+      // inline style beats any selector in the sheet -- so failing to clear
+      // it here was a keyboard that could never be seen again for the rest of
+      // the page's life, however many times it was asked to show. Reported
+      // from a panel as having to restart the add-on, which is the only thing
+      // that ever gave it a new document.
       d.style.removeProperty('display');
       let layered = false;
       try {
@@ -946,7 +981,7 @@ KEYBOARD_INIT_JS = r"""
         if (d.matches(':popover-open')) d.hidePopover();
       } catch (err) { /* falls through to the style below */ }
       d.style.display = 'none';
-      d.innerHTML = '';
+      d.replaceChildren();
     },
     highlight(index) {
       const d = document.getElementById(ID);
@@ -1029,6 +1064,28 @@ KEYBOARD_INIT_JS = r"""
 """
 
 
+class _Safe:
+    """Swallows what a keystroke may throw.
+
+    A page that closes, navigates or refuses mid-press must cost that
+    keystroke and not the panel's picture.
+    """
+
+    def __init__(self, wrapped):
+        self._wrapped = wrapped
+
+    def __getattr__(self, name):
+        method = getattr(self._wrapped, name)
+
+        def call(*args, **kwargs):
+            try:
+                return method(*args, **kwargs)
+            except Exception as err:  # noqa: BLE001 - one lost keystroke
+                print(f"Keyboard: the page would not take that key ({err})")
+
+        return call
+
+
 class Keyboard:
     """Draws the keys, and turns a contact inside them into a keystroke.
 
@@ -1057,6 +1114,9 @@ class Keyboard:
         # Hide was pressed while the field kept its focus, so the keys are to
         # stay down until they are asked for again.
         self.dismissed = False
+        # Set when a page refuses to have it drawn at all. Cleared by the next
+        # page, since the refusal belongs to the document and not to the panel.
+        self.broken = False
         self.visible = False
         key_h = max(KEY_MIN_H, round(page_h * KEY_H_FRACTION))
         self.height = key_h * len(self._rows)
@@ -1095,9 +1155,18 @@ class Keyboard:
         return key["label"].upper() if self._shift else key["label"]
 
     def _render(self):
+        """The stylesheet, and one entry per key -- not markup.
+
+        Nothing here is an HTML string any more. A page may forbid building
+        elements out of one: YouTube requires Trusted Types, and the assignment
+        threw "This document requires \'TrustedHTML\' assignment", which took
+        the whole sender down with it rather than merely losing the keyboard.
+        Handing over the pieces and letting the page put nodes together with
+        the DOM cannot be refused by any policy, and the escaping goes away
+        with it.
+        """
         font = max(14, int(self.keys[0]["h"] * 0.42))
-        parts = [
-            "<style>"
+        css = (
             "#__udisp_kb{position:fixed;left:0;right:0;bottom:0;top:auto;"
             "margin:0;padding:0;border:0;width:100%;max-width:100%;"
             f"height:{self.height}px;max-height:none;overflow:visible;"
@@ -1127,30 +1196,39 @@ class Keyboard:
             f"#__udisp_kb .w{{background:#1e2027;color:#b9bcc6;"
             f"font-size:{max(11, int(font * 0.6))}px;}}"
             "#__udisp_kb .on{background:#3d7de0;color:#fff;}"
-            "</style>"
-        ]
+        )
+        keys = []
         for key in self.keys:
-            wide = "" if key["action"] == "char" else " w"
-            label = (
-                self._label(key)
-                .replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-            )
             # Drawn inset, hit whole. The gap between keys belongs to the key
             # it is drawn out of, so a finger landing on a seam still presses
             # something rather than nothing.
-            parts.append(
-                f'<div class="k{wide}" data-i="{key["i"]}" style="'
-                f'left:{key["x"] + GAP:.1f}px;'
-                f'top:{key["y"] - self.top + GAP:.1f}px;'
-                f'width:{key["w"] - 2 * GAP:.1f}px;'
-                f'height:{key["h"] - 2 * GAP}px">{label}</div>'
-            )
-        return "".join(parts)
+            keys.append({
+                "i": key["i"],
+                "w": key["action"] != "char",
+                "t": self._label(key),
+                "s": (f'left:{key["x"] + GAP:.1f}px;'
+                      f'top:{key["y"] - self.top + GAP:.1f}px;'
+                      f'width:{key["w"] - 2 * GAP:.1f}px;'
+                      f'height:{key["h"] - 2 * GAP}px'),
+            })
+        return css, keys
 
     def _show(self):
-        layered = self._page.evaluate(
-            "html => window.__udispKb.show(html)", self._render()
-        )
+        css, keys = self._render()
+        try:
+            layered = self._page.evaluate(
+                "a => window.__udispKb.show(a[0], a[1])", [css, keys]
+            )
+        except Exception as err:  # noqa: BLE001 - never worth the whole sender
+            # The keyboard is an accessory. A page that will not let it be
+            # drawn must cost the keyboard and nothing else -- YouTube's
+            # Trusted Types policy took the entire sender down every thirteen
+            # seconds, restarting for ever, over an overlay nobody could have
+            # missed being absent.
+            self.broken = True
+            print(f"Keyboard: this page will not have it drawn ({err}). "
+                  f"Carrying on without it.")
+            return
         self.visible = True
         if not layered and not self._warned:
             self._warned = True
@@ -1216,6 +1294,7 @@ class Keyboard:
         """The page it was drawn on has gone; the overlay went with it."""
         self.visible = False
         self.dismissed = False
+        self.broken = False
         self._shift = False
         self._pending = []
         self._reported = False
@@ -1252,6 +1331,8 @@ class Keyboard:
         most obviously needed. The top frame is asked first because it is the
         usual answer, and the rest only if it says no.
         """
+        if self.broken:
+            return
         answer = None
         for frame in self._page.frames:
             try:
@@ -1350,7 +1431,7 @@ class Keyboard:
             self._shift = not self._shift
             self._show()
             return False
-        keyboard = self._page.keyboard
+        keyboard = _Safe(self._page.keyboard)
         if action == _BACK:
             keyboard.press("Backspace")
         elif action == _ENTER:
