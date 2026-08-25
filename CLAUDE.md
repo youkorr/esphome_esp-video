@@ -321,6 +321,25 @@ Three consequences worth keeping:
   decide which key a contact hit, so the drawing and the hit test cannot drift.
   Keys are drawn inset by `GAP` and hit whole, so a finger on a seam still
   presses something.
+- **A keyboard that does not come up and a page with nothing to type into are
+  the same silence, so the sender now breaks it.** Every report of it "not
+  appearing" cost a round trip to find out what had been tapped.
+  `focus()` returns the road to whatever holds focus alongside the yes/no, and
+  a road that leads nowhere typable is printed once per distinct road, capped
+  at eight. Measured against a **real** Home Assistant frontend — installed
+  and onboarded for the purpose, because pages merely shaped like it had
+  stopped being evidence — the road to its search field is seven elements and
+  every step is a shadow root: `HOME-ASSISTANT > HOME-ASSISTANT-MAIN >
+  HA-CONFIG-ENTITIES > HASS-TABS-SUBPAGE-DATA-TABLE > SEARCH-INPUT >
+  HA-TEXTFIELD > INPUT`. The whole loop was then run against it with a fake
+  panel and the keyboard came up correctly, which is what turned "it does not
+  work on Home Assistant" into "it works on the pages I can reach, and the log
+  will name the one I cannot".
+- **`BLUR_GRACE_S = 0.4`, because a blur that lasts a frame is not somebody
+  putting the keyboard away.** Home Assistant's tables and dialogs re-render
+  and a field can lose focus while they do. Taking the keys down and putting
+  them back is a whole panel of change each way, and from the other side of
+  the glass it reads as a keyboard that will not stay.
 - **The page says when focus moves, and every frame is asked what has it.**
   Looking only after a tap was the first design and it was wrong twice over.
   A tap is indeed the only thing that moves focus, but what a tap *starts* can
@@ -502,7 +521,7 @@ the dashboard, where it is invisible while the keys go on working.
 ahead of the `pip install` as well as the `ADD`s, so a bump refetches
 everything — at the cost of the browser download on each update.
 `report_browser()` prints the Chromium version at startup and warns below 114,
-so this is never diagnosed by guesswork again. Currently **1.24.0**.
+so this is never diagnosed by guesswork again. Currently **1.25.0**.
 
 `run.py` supervises one `ha_send.py` per panel: `SHARED_KEYS` lets the token,
 url, port, fps, quality, capture_quality, urgent_fps, urgent_window and stats be

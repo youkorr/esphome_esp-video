@@ -827,6 +827,10 @@ KEY_MIN_H = 40
 KEY_H_FRACTION = 0.075
 # Drawn between the keys, not taken out of them: the seam is still hittable.
 GAP = 3
+# How long focus has to have been gone before the keys are taken down. Long
+# enough to ride out a re-render that blurs a field for a frame, short enough
+# that putting the keyboard away still feels immediate.
+BLUR_GRACE_S = 0.4
 
 # Installed on the context rather than the page, so it survives every
 # navigation -- including the one that parks the page on about:blank while the
@@ -935,21 +939,55 @@ KEYBOARD_INIT_JS = r"""
         view: [innerWidth, innerHeight],
       };
     },
-    typable() {
-      // Through shadow roots: a Home Assistant text field is several deep, and
-      // document.activeElement stops at the outermost host.
+    // What has focus, and the road taken to it. The road is the useful half
+    // when the answer is no: "nothing is waiting for text" says nothing about
+    // why, and the only way to find out what a panel actually tapped is to be
+    // told what it landed on. Measured on a real dashboard's search field, the
+    // road is seven elements long and every step of it is a shadow root:
+    // HOME-ASSISTANT > HOME-ASSISTANT-MAIN > HA-CONFIG-ENTITIES >
+    // HASS-TABS-SUBPAGE-DATA-TABLE > SEARCH-INPUT > HA-TEXTFIELD > INPUT.
+    focus() {
+      const road = [];
       let a = document.activeElement;
-      while (a && a.shadowRoot && a.shadowRoot.activeElement) {
-        a = a.shadowRoot.activeElement;
+      while (a) {
+        road.push(a.tagName + (a.id ? '#' + a.id : ''));
+        if (a.shadowRoot) {
+          if (a.shadowRoot.activeElement) { a = a.shadowRoot.activeElement; continue; }
+          break;
+        }
+        // A custom element with nothing visible inside it may be holding a
+        // closed shadow root. Say so rather than reporting a bare tag name.
+        if (a.tagName.indexOf('-') !== -1) road.push('(shadow root ferme?)');
+        break;
       }
-      if (!a) return false;
-      if (a.isContentEditable) return true;
-      const tag = a.tagName;
-      if (tag === 'TEXTAREA') return true;
-      if (tag !== 'INPUT') return false;
-      const type = (a.getAttribute('type') || 'text').toLowerCase();
-      return ['button', 'checkbox', 'radio', 'submit', 'reset', 'range',
-              'color', 'file', 'image', 'hidden'].indexOf(type) === -1;
+      let yes = false;
+      if (a) {
+        const tag = a.tagName;
+        if (a.isContentEditable || tag === 'TEXTAREA') {
+          yes = true;
+        } else if (tag === 'INPUT') {
+          const type = (a.getAttribute('type') || 'text').toLowerCase();
+          yes = ['button', 'checkbox', 'radio', 'submit', 'reset', 'range',
+                 'color', 'file', 'image', 'hidden'].indexOf(type) === -1;
+        } else {
+          // Widened for a field this cannot see into. A closed shadow root
+          // stops the descent at the host, and a host that says it is a text
+          // box, or that has a text box in it, is one.
+          const role = (a.getAttribute('role') || '').toLowerCase();
+          if (['textbox', 'searchbox', 'combobox'].indexOf(role) !== -1) {
+            yes = true;
+          } else if (tag.indexOf('-') !== -1) {
+            const inner = 'input:not([type=button]):not([type=checkbox]),'
+                        + 'textarea,[contenteditable=""],[contenteditable=true]';
+            yes = !!(a.querySelector && a.querySelector(inner))
+               || !!(a.shadowRoot && a.shadowRoot.querySelector(inner));
+          }
+        }
+      }
+      return {yes: yes, road: road.join(' > ') || '(rien)'};
+    },
+    typable() {
+      return window.__udispKb.focus().yes;
     },
   };
 })();
@@ -974,6 +1012,10 @@ class Keyboard:
         # Said once per page, the first time the keyboard goes up.
         self._reported = False
         self._warned = False
+        # When focus was first seen to have left, and the roads already
+        # explained, so a log says each thing once rather than per tap.
+        self._blur_at = None
+        self._roads = set()
         self.visible = False
         key_h = max(KEY_MIN_H, round(page_h * KEY_H_FRACTION))
         self.height = key_h * len(self._rows)
@@ -1108,6 +1150,7 @@ class Keyboard:
         )
 
     def hide(self):
+        self._blur_at = None
         if not self.visible:
             return
         self.visible = False
@@ -1123,6 +1166,8 @@ class Keyboard:
         self._shift = False
         self._pending = []
         self._reported = False
+        self._blur_at = None
+        self._roads = set()
 
     def request_sync(self, when):
         """Look at what has focus, now or shortly.
@@ -1154,17 +1199,23 @@ class Keyboard:
         most obviously needed. The top frame is asked first because it is the
         usual answer, and the rest only if it says no.
         """
-        wanted = False
+        answer = None
         for frame in self._page.frames:
             try:
-                if frame.evaluate(
-                    "window.__udispKb ? window.__udispKb.typable() : false"
-                ):
-                    wanted = True
-                    break
+                said = frame.evaluate(
+                    "window.__udispKb ? window.__udispKb.focus() : null"
+                )
             except Exception:  # noqa: BLE001 - a frame mid-navigation, or gone
                 continue
+            # The top frame's answer is the one worth explaining when nothing
+            # is waiting for text, so keep the first and stop at the first yes.
+            answer = answer or said
+            if said and said.get("yes"):
+                answer = said
+                break
+        wanted = bool(answer and answer.get("yes"))
         if wanted:
+            self._blur_at = None
             # Drawn again even when it is already up. A dialog that opened
             # since the last look entered the top layer after the keyboard did
             # and is painting over it; re-entering puts the keys back on top.
@@ -1172,7 +1223,39 @@ class Keyboard:
             # finds nothing and none of this reaches the panel.
             self._show()
         elif self.visible:
-            self.hide()
+            # A blur that lasts an instant is not somebody putting the keyboard
+            # away. Home Assistant's tables and dialogs re-render, and a field
+            # can lose focus for a frame while they do; taking the keys down
+            # and putting them back is a whole panel of change each way, and
+            # from the other side of the glass it reads as a keyboard that
+            # will not stay. So the answer has to hold before it is acted on.
+            now = time.monotonic()
+            if self._blur_at is None:
+                self._blur_at = now
+                self.request_sync(BLUR_GRACE_S)
+            elif now - self._blur_at >= BLUR_GRACE_S * 0.9:
+                self._blur_at = None
+                self.hide()
+        else:
+            self._explain(answer)
+
+    def _explain(self, answer):
+        """Say why the keyboard did not come up, once per distinct reason.
+
+        Every report of it "not appearing" has so far cost a round trip to
+        find out what was tapped, because a keyboard that never appears and a
+        page with nothing to type into produce exactly the same silence. This
+        prints the road to whatever has focus instead. Deduplicated and
+        capped, because it would otherwise say the same thing on every tap on
+        the background.
+        """
+        if answer is None or len(self._roads) >= 8:
+            return
+        road = answer.get("road") or "(rien)"
+        if road in self._roads:
+            return
+        self._roads.add(road)
+        print(f"Keyboard: nothing here takes text; focus is {road}")
 
     def highlight(self, key):
         try:
