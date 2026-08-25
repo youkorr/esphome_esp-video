@@ -101,6 +101,13 @@ cursor in the top half.
 Set `keyboard` to `azerty` or `qwerty` for the layout the letters are in, or to
 `off` to leave it out.
 
+The keys are the ones a search needs: digits, letters, Shift for one capital,
+the erase key `⌫` at the right of the fourth row, Enter, a space bar, and Hide
+to put the keyboard away without losing what you were typing. There is no
+forward delete and no layer of symbols; a touch keyboard is not a desk one, and
+every key that was added beyond what a search needs is a key that had to be
+found.
+
 The log names the browser at startup — `Browser: Chromium 141.0.7390.37` — and
 warns if it is older than 114, which is where the API that puts the keyboard
 above Home Assistant's own dialogs arrived. An add-on update refetches the

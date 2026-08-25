@@ -837,7 +837,12 @@ KEYBOARD_LAYOUTS = {
         _letters("1234567890"),
         _letters("qwertyuiop"),
         _letters("asdfghjkl"),
-        [("Shift", 1.5, _SHIFT)] + _letters("zxcvbnm") + [("Back", 1.5, _BACK)],
+        # The erase key carries the glyph rather than a word, because a word
+        # has to be in some language and this one was reported as missing
+        # outright: "tu as oublie une touche celle de supprimer je le trouve
+        # pas". It was there, labelled Back. The symbol needs no translating
+        # and no reading.
+        [("Shift", 1.5, _SHIFT)] + _letters("zxcvbnm") + [("\u232b", 1.5, _BACK)],
         [("Hide", 1.5, _HIDE)] + _letters("@-_") + [("", 4.0, _SPACE)]
         + _letters(".") + [("Enter", 2.0, _ENTER)],
     ],
@@ -845,7 +850,7 @@ KEYBOARD_LAYOUTS = {
         _letters("1234567890"),
         _letters("azertyuiop"),
         _letters("qsdfghjklm"),
-        [("Shift", 1.5, _SHIFT)] + _letters("wxcvbn'-") + [("Back", 1.5, _BACK)],
+        [("Shift", 1.5, _SHIFT)] + _letters("wxcvbn'-") + [("\u232b", 1.5, _BACK)],
         [("Hide", 1.5, _HIDE)] + _letters("éèàç")
         + [("", 4.0, _SPACE)] + _letters(".") + [("Enter", 2.0, _ENTER)],
     ],
@@ -932,7 +937,7 @@ KEYBOARD_INIT_JS = r"""
       d.replaceChildren();
       for (const k of keys) {
         const e = document.createElement('div');
-        e.className = k.w ? 'k w' : 'k';
+        e.className = 'k' + (k.w ? ' f' : '') + (k.s ? ' s' : '');
         e.setAttribute('data-i', k.i);
         e.style.cssText = k.s;
         e.textContent = k.t;
@@ -1195,9 +1200,13 @@ class Keyboard:
             "border:1px solid #33353f;border-radius:8px;background:#2a2c34;"
             f"font-size:{font}px;line-height:1;display:flex;"
             "align-items:center;justify-content:center;overflow:hidden;}"
-            # A word does not fit a key at the size a letter wants.
-            f"#__udisp_kb .w{{background:#1e2027;color:#b9bcc6;"
-            f"font-size:{max(11, int(font * 0.6))}px;}}"
+            # Everything that is not a letter, so the two kinds of key are
+            # told apart at a glance.
+            "#__udisp_kb .f{background:#1e2027;color:#b9bcc6;}"
+            # A word does not fit a key at the size a letter wants; a single
+            # symbol does, and wants it -- an erase key shrunk to the size of
+            # the word Shift is one nobody finds.
+            f"#__udisp_kb .s{{font-size:{max(11, int(font * 0.6))}px;}}"
             "#__udisp_kb .on{background:#3d7de0;color:#fff;}"
         )
         keys = []
@@ -1205,10 +1214,12 @@ class Keyboard:
             # Drawn inset, hit whole. The gap between keys belongs to the key
             # it is drawn out of, so a finger landing on a seam still presses
             # something rather than nothing.
+            label = self._label(key)
             keys.append({
                 "i": key["i"],
                 "w": key["action"] != "char",
-                "t": self._label(key),
+                "s": len(label) > 1,
+                "t": label,
                 "s": (f'left:{key["x"] + GAP:.1f}px;'
                       f'top:{key["y"] - self.top + GAP:.1f}px;'
                       f'width:{key["w"] - 2 * GAP:.1f}px;'
