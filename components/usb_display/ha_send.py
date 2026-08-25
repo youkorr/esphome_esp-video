@@ -1713,6 +1713,17 @@ def main():
         "Try it with --stats and keep it only if the idle rate drops",
     )
     parser.add_argument(
+        "--browser",
+        default="",
+        metavar="PATH",
+        help="run this browser instead of the one Playwright brought. Its own "
+        "is built without the proprietary codecs, so it has no H.264 and no "
+        "AAC and no DRM: YouTube starts a video on VP9 and then stops with "
+        "'un probleme est survenu'. A Chromium packaged by a distribution "
+        "usually has them -- /usr/bin/chromium on Debian. It does not make "
+        "video good here, only possible: see the README",
+    )
+    parser.add_argument(
         "--profile",
         default="",
         metavar="DIR",
@@ -1930,11 +1941,11 @@ def main():
             print(f"Browser: keeping its profile in {args.profile}")
             context = playwright.chromium.launch_persistent_context(
                 args.profile, args=BROWSER_ARGS, viewport=view,
-                device_scale_factor=1,
+                device_scale_factor=1, executable_path=args.browser or None,
             )
         else:
             context = playwright.chromium.launch(
-                args=BROWSER_ARGS
+                args=BROWSER_ARGS, executable_path=args.browser or None
             ).new_context(viewport=view, device_scale_factor=1)
         if args.token:
             install_token(context, args.url, args.token)

@@ -107,6 +107,26 @@ above Home Assistant's own dialogs arrived. An add-on update refetches the
 browser, so an old one there means the image was built long ago and rebuilt
 from cache.
 
+## Video, and why it is the worst thing to ask of this
+
+Measured on the browser this ships with: no H.264, no AAC, no DRM. VP9, AV1 and
+Opus are there. YouTube negotiates a format through Media Source Extensions,
+starts a video on what it can, and then stops with "un probleme est survenu"
+when it needs one of the missing ones. A Chromium packaged by a distribution
+usually carries them, and `--browser /usr/bin/chromium` on the sender points at
+one -- that path is not offered in this form, because it would not help as much
+as it sounds.
+
+Even with every codec, video is what this pipeline is worst at. It sends the
+part of the picture that changed, and a video changes all of it every frame, so
+every picture is a whole panel: about 100 KiB, and the machine running the
+sender tops out near seven a second whatever it is allowed. And there is no
+sound at all -- the panel's speaker is a USB sound card fed by whatever the
+cable is plugged into, and nothing carries audio over the network.
+
+A silent slideshow at seven frames a second, costing a core of the server. Worth
+knowing before spending an evening on it.
+
 ## Staying signed in
 
 Set `keep_profile` and the browser keeps its profile between restarts, one
