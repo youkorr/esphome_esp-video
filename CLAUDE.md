@@ -321,10 +321,18 @@ Three consequences worth keeping:
   decide which key a contact hit, so the drawing and the hit test cannot drift.
   Keys are drawn inset by `GAP` and hit whole, so a finger on a seam still
   presses something.
-- **Focus is only looked at after a tap**, because a tap is the only thing that
-  can change it — one round trip per tap rather than a poll. Twice, at 0 and
-  450 ms, because Home Assistant opens its search in a dialog that animates in
-  before focusing its field.
+- **The page says when focus moves, and every frame is asked what has it.**
+  Looking only after a tap was the first design and it was wrong twice over.
+  A tap is indeed the only thing that moves focus, but what a tap *starts* can
+  finish much later than the 450 ms it was given — a dialog that animates in,
+  an editor that takes focus once its document has loaded. And
+  `document.activeElement` in the top frame is the `<iframe>` element, not the
+  field inside it, so **every Home Assistant ingress add-on** — File editor,
+  Terminal, anything with a web interface — reported "nothing is waiting for
+  text". Reproduced with a fake panel: the keyboard never appeared at all. So
+  a `__udispFocusChanged` binding is installed on the *context*, which puts it
+  in every frame, and `sync()` walks `page.frames` and takes the first yes.
+  The tap-triggered looks stay as a fallback.
 
 Tested end to end against a fake panel sending real contacts, both layouts: a
 plain field, a field in a shadow root, a field in a native modal `<dialog>`,

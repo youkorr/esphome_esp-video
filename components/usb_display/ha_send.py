@@ -817,6 +817,22 @@ KEYBOARD_INIT_JS = r"""
     }
     return d;
   }
+  // Focus was only ever looked at after a tap, on the reasoning that a tap is
+  // the only thing that can move it. True, but not the whole story: what a tap
+  // starts can finish much later -- a dialog that animates in, an editor that
+  // takes focus once its document has loaded -- and a look taken 450 ms after
+  // the finger lifted misses all of it. So the page says so instead. The
+  // binding is installed on the context, which means it exists in every frame,
+  // including the iframe a Home Assistant ingress add-on lives in.
+  const tell = () => {
+    if (window.__udispFocusChanged) {
+      try { window.__udispFocusChanged(); } catch (err) { /* not installed */ }
+    }
+  };
+  addEventListener('focusin', tell, true);
+  // focusout runs before the new focus lands, so ask again once it has.
+  addEventListener('focusout', () => setTimeout(tell, 0), true);
+
   window.__udispKb = {
     show(html) {
       const d = box();
@@ -1096,10 +1112,27 @@ class Keyboard:
         self.sync()
 
     def sync(self):
-        try:
-            wanted = bool(self._page.evaluate("window.__udispKb.typable()"))
-        except Exception:  # noqa: BLE001 - a page mid-navigation answers later
-            return
+        """Is anything, anywhere in the page, waiting for text?
+
+        Every frame is asked, not only the top one. A Home Assistant add-on
+        reached through ingress -- File editor, Terminal, anything with a web
+        interface -- is shown inside an iframe, and from the document that
+        holds it `document.activeElement` is the <iframe> element itself, not
+        the field inside. Asking only the top frame therefore says "nothing is
+        waiting for text" for the whole class of pages where the keyboard is
+        most obviously needed. The top frame is asked first because it is the
+        usual answer, and the rest only if it says no.
+        """
+        wanted = False
+        for frame in self._page.frames:
+            try:
+                if frame.evaluate(
+                    "window.__udispKb ? window.__udispKb.typable() : false"
+                ):
+                    wanted = True
+                    break
+            except Exception:  # noqa: BLE001 - a frame mid-navigation, or gone
+                continue
         if wanted:
             # Drawn again even when it is already up. A dialog that opened
             # since the last look entered the top layer after the keyboard did
@@ -1596,10 +1629,26 @@ def main():
         )
         if args.token:
             install_token(context, args.url, args.token)
+        # Filled in once the keyboard exists, which is after the page. The
+        # binding has to be installed before the page is created so that every
+        # frame has it, including ones the page makes later.
+        keyboard_holder = {}
         if args.keyboard != "off":
             # On the context, so it survives every navigation the sender makes
             # -- parking the page while the panel sleeps, and bringing it back.
             context.add_init_script(KEYBOARD_INIT_JS)
+            # Called from the page whenever focus moves, in whatever frame.
+            # It only notes that a look is due: this runs inside Playwright's
+            # own dispatch, and calling back into the page from here would be
+            # asking it a question while it is in the middle of answering one.
+            context.expose_function(
+                "__udispFocusChanged",
+                lambda: (
+                    keyboard_holder["kb"].request_sync(0.0)
+                    if "kb" in keyboard_holder
+                    else None
+                ),
+            )
         page = context.new_page()
         print(
             f"Opening {args.url} at {page_w}x{page_h}"
@@ -1632,6 +1681,7 @@ def main():
             else Keyboard(page, page_w, page_h, args.keyboard)
         )
         if keyboard is not None:
+            keyboard_holder["kb"] = keyboard
             # A page can arrive with a field already focused.
             keyboard.request_sync(0.5)
         injector = None if args.no_touch else Injector(page, touch_map, keyboard)
