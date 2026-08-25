@@ -529,6 +529,23 @@ Three boards, all confirmed working: **Waveshare ESP32-P4-WIFI6-Touch-LCD-7B**
 - with a camera in the dashboard: 14.2 pictures/s, 1141 KiB/s
 - 0 dropped frames on the board
 
+**Presence is the other half of `--blank-after`, and the board's own YAML is
+where it lives.** Parking the page costs about three seconds on wake; a
+presence sensor spends them while somebody is still crossing the room, so
+nobody ever sees the wait. `presence_entity:` is a substitution in both Home
+Assistant examples, wired to a `binary_sensor: platform: homeassistant` whose
+`on_press` wakes the panel and whose `on_release` starts the countdown, and
+the timeout script will not turn the backlight off while the sensor reads
+present. An entity that does not exist leaves the sensor with no state, which
+reads as off, so the panel behaves exactly as it did before — timer and touch.
+
+`set_awake()` **only tells the sender**. It does not touch the backlight and it
+does not stop the panel drawing; those are the YAML's job, and the Guition
+example had been turning the backlight off without ever calling
+`usb_display.sleep`, so the sender went on rendering and transmitting for a
+black screen. A sleeping board does drop contacts at `queue_touch_`, which is
+what stops the tap that wakes it from also pressing whatever was underneath.
+
 `yaml/p4-home-assistant.yaml` is the **validated** Waveshare firmware. It
 deliberately contains no `token:`, `url:` or `panels:` — those belong in the
 add-on options.
@@ -556,6 +573,16 @@ add-on options.
   (`NameError`). Prefer narrow, anchored edits in `ha_send.py`; it is ~46 KB.
 - `queue_touch_` uses `touchscreen::TouchPoints_t` and must stay inside
   `#ifdef USE_TOUCHSCREEN`. Touch is decoupled from `CFG_TUD_HID`.
+- **Two example configs were shipped that do not compile, and a "parse check"
+  is what let them through.** `esphome config` found both in one run: a
+  fallback hotspot SSID of `${name} Fallback Hotspot` over the 32-character
+  limit in the two Guition files, and a `microphone_type:` that the es8311
+  schema has never had. `tools/checkyaml.py` runs the real thing — it writes
+  throwaway secrets, points `external_components` at the working tree rather
+  than at whatever `main` holds, and reports. esphome is a large install and
+  belongs in a virtualenv of its own; the tool takes `--esphome` or `$ESPHOME`.
+  Its one blind spot is `micro_wake_word`, which downloads its model from
+  github.com while validating, and it says so rather than blaming the file.
 - **A validator referenced before it is defined is a NameError at import
   time**, and it reaches the board's build rather than any YAML check: the
   schema is a module-level expression, so every name it uses must already be
