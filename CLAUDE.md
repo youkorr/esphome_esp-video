@@ -295,8 +295,21 @@ made the earlier attempts hard does not arise at all.
 
 Three consequences worth keeping:
 
-- **It goes in the top layer through the popover API**, not on a large
-  z-index. Home Assistant opens its dialogs as native modals and the top layer
+- **It goes in the top layer through the popover API**, and the fallback for
+  a browser that refuses one needs `z-index: 2147483647` *and* a transparent
+  `dialog::backdrop`. Shipped once without either: the keyboard was drawn
+  under Home Assistant's shell, and the report was *"il est invisible est
+  quand je touche en bas des lettres s'affichent dans la recherche"* — which
+  is the signature of this whole class of fault. The keys keep working
+  because the hit test is arithmetic in the sender and never asks the page
+  what is on top of what, so **the keys working proves nothing about the
+  keyboard being visible**. The `::backdrop` half is separate and was measured:
+  a modal dialog dims at 60%, so the keys came through at 40% of their colour,
+  (16,17,21) against (42,44,52), which on a dark dashboard reads as not drawn
+  at all. `_show()` returns whether the top layer was reached and the sender
+  says so in the log, once per page, along with the overlay's rect, display,
+  z-index and the number of open modal dialogs.
+- **Not on a large z-index alone**, when the popover is available. Home Assistant opens its dialogs as native modals and the top layer
   paints above every z-index there is. A `popover="manual"` is in that same
   layer *without* making anything inert, which is exactly the distinction the
   fourth attempt got wrong. `showPopover()` is called again on every sync, even
@@ -530,6 +543,14 @@ add-on options.
   modal `<dialog>` makes everything outside it inert. What exists now drops the
   assumption instead — see **The keyboard** below. Do not put event handlers,
   focus, or `pointer-events` back on it.
+- **`page.screenshot()` is not what the panel receives, and testing the two
+  halves separately proved nothing about the whole.** The keyboard was checked
+  for function against a fake panel (the keys typed) and for looks against a
+  page screenshot (it was drawn). It shipped invisible on a real dashboard,
+  because nothing had ever looked at the pixels that actually came down the
+  socket. The fake panel now reassembles the rectangles it receives into a
+  picture and the test reads a colour out of it — which is the only check that
+  can fail the way the user did.
 - A string replacement that spanned too far silently deleted `send_picture`,
   `_target_picture`, `calibrate` and `Screencast`. A test caught it
   (`NameError`). Prefer narrow, anchored edits in `ha_send.py`; it is ~46 KB.

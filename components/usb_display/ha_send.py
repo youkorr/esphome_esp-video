@@ -821,6 +821,7 @@ KEYBOARD_INIT_JS = r"""
     show(html) {
       const d = box();
       d.innerHTML = html;
+      let layered = false;
       try {
         // Shown again even when it is already showing, because the top layer
         // stacks in the order things entered it: a dialog opened after the
@@ -830,13 +831,27 @@ KEYBOARD_INIT_JS = r"""
         // in between.
         if (d.matches(':popover-open')) d.hidePopover();
         d.showPopover();
+        layered = true;
       } catch (err) {
-        // No popover support, or it refused. A plain fixed element still
-        // paints; it only loses to a modal dialog, which is better than
-        // losing always.
-        d.removeAttribute('popover');
-        d.style.display = 'block';
+        // The popover was refused this once. The attribute stays: refusing it
+        // once is no reason never to try again, and taking it away was how a
+        // single failure turned into a keyboard that could never reach the top
+        // layer for the rest of the page's life. The style rule below carries
+        // both a display and the largest z-index there is, so what is left is
+        // an ordinary fixed element above everything except the top layer --
+        // wrong only against a modal dialog, instead of invisible against the
+        // whole of Home Assistant.
       }
+      // And the one thing a z-index still cannot beat is a modal dialog's
+      // backdrop, which is in the top layer with the dialog. Measured on a
+      // dialog dimming at 60%: the keys came through at 40% of their colour,
+      // which on a dark dashboard is indistinguishable from not being drawn
+      // at all. So in this mode the page loses its dim behind a dialog while
+      // the keyboard is up, which is a great deal better than losing the
+      // keyboard. Only in this mode: one that reached the top layer is above
+      // the backdrop already, and the page keeps its dim.
+      document.documentElement.classList.toggle('__udisp_kb_flat', !layered);
+      return layered;
     },
     hide() {
       const d = document.getElementById(ID);
@@ -855,6 +870,23 @@ KEYBOARD_INIT_JS = r"""
         const k = d.querySelector('[data-i="' + index + '"]');
         if (k) k.classList.add('on');
       }
+    },
+    probe() {
+      const d = document.getElementById(ID);
+      if (!d) return {missing: true};
+      const r = d.getBoundingClientRect();
+      const s = getComputedStyle(d);
+      let open = null;
+      try { open = d.matches(':popover-open'); } catch (err) { open = 'unsupported'; }
+      return {
+        open: open,
+        rect: [Math.round(r.x), Math.round(r.y),
+               Math.round(r.width), Math.round(r.height)],
+        display: s.display, visibility: s.visibility, opacity: s.opacity,
+        z: s.zIndex, parent: d.parentElement ? d.parentElement.tagName : null,
+        dialogs: document.querySelectorAll('dialog[open]').length,
+        view: [innerWidth, innerHeight],
+      };
     },
     typable() {
       // Through shadow roots: a Home Assistant text field is several deep, and
@@ -892,6 +924,9 @@ class Keyboard:
         self._rows = KEYBOARD_LAYOUTS[layout]
         self._shift = False
         self._pending = []
+        # Said once per page, the first time the keyboard goes up.
+        self._reported = False
+        self._warned = False
         self.visible = False
         key_h = max(KEY_MIN_H, round(page_h * KEY_H_FRACTION))
         self.height = key_h * len(self._rows)
@@ -937,6 +972,13 @@ class Keyboard:
             "margin:0;padding:0;border:0;width:100%;max-width:100%;"
             f"height:{self.height}px;max-height:none;overflow:visible;"
             "background:#15161a;color:#f2f2f5;display:block;"
+            # Only reached when the popover was refused -- the top layer is
+            # above every z-index and does not need one. Without it that
+            # fallback is a fixed element at z-index auto, which Home
+            # Assistant's own shell paints straight over: invisible, while the
+            # keys go on working, because the hit test is arithmetic here and
+            # never asks the page what is on top.
+            "z-index:2147483647;"
             # Nothing here is ever the target of anything: the sender takes the
             # contact before the page sees it. This is what keeps the field's
             # focus, and it is the difference between this attempt and the
@@ -945,6 +987,8 @@ class Keyboard:
             "font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;"
             "-webkit-font-smoothing:antialiased;}"
             "#__udisp_kb::backdrop{background:transparent;}"
+            "html.__udisp_kb_flat dialog::backdrop"
+            "{background:transparent !important;}"
             "#__udisp_kb .k{position:absolute;box-sizing:border-box;"
             "border:1px solid #33353f;border-radius:8px;background:#2a2c34;"
             f"font-size:{font}px;line-height:1;display:flex;"
@@ -974,8 +1018,47 @@ class Keyboard:
         return "".join(parts)
 
     def _show(self):
-        self._page.evaluate("html => window.__udispKb.show(html)", self._render())
+        layered = self._page.evaluate(
+            "html => window.__udispKb.show(html)", self._render()
+        )
         self.visible = True
+        if not layered and not self._warned:
+            self._warned = True
+            print(
+                "Warning: this browser refused the popover API, so the "
+                "keyboard is drawn in the page rather than in the top layer. "
+                "It works, but a native modal dialog can paint over it. "
+                "Rebuilding the add-on without a cached image gets a newer "
+                "Chromium and this goes away."
+            )
+        if not self._reported:
+            self._reported = True
+            self._describe()
+
+    def _describe(self):
+        """Say once what the overlay actually became.
+
+        A keyboard painted underneath the page looks exactly like one that was
+        never drawn: the keys still work either way, because the hit test is
+        arithmetic in here and never asks the page what is on top of what. The
+        only way to tell the two apart from a log is to ask the page.
+        """
+        try:
+            s = self._page.evaluate("window.__udispKb.probe()")
+        except Exception as err:  # noqa: BLE001 - the answer is the diagnosis
+            print(f"Keyboard: the page would not answer ({err})")
+            return
+        if not s or s.get("missing"):
+            print("Keyboard: the overlay is not in the page at all")
+            return
+        x, y, w, h = s["rect"]
+        print(
+            f"Keyboard: {w}x{h} at {x},{y} in a {s['view'][0]}x{s['view'][1]} "
+            f"page, top layer {s['open']}, display {s['display']}, "
+            f"visibility {s['visibility']}, opacity {s['opacity']}, "
+            f"z-index {s['z']}, under <{s['parent']}>, "
+            f"{s['dialogs']} modal dialog(s) open"
+        )
 
     def hide(self):
         if not self.visible:
@@ -992,6 +1075,7 @@ class Keyboard:
         self.visible = False
         self._shift = False
         self._pending = []
+        self._reported = False
 
     def request_sync(self, when):
         """Look at what has focus, now or shortly.
