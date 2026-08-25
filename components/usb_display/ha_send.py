@@ -208,6 +208,37 @@ DRAG_THRESHOLD = 12
 SLEEP_PUMP_MS = 100
 
 
+# The popover API is what puts the on-screen keyboard in the top layer, above
+# Home Assistant's own modal dialogs. It arrived in Chromium 114.
+POPOVER_SINCE = 114
+
+
+def report_browser(browser, keyboard_wanted):
+    """Name the browser once, and say so if it is too old for the keyboard.
+
+    A stale Chromium is invisible from everywhere else: pages render, touches
+    land, nothing errors. The only symptom is a keyboard drawn underneath the
+    dashboard rather than above it, which looks exactly like one that is not
+    drawn at all -- the keys still work, because the hit test is arithmetic in
+    here and never asks the page what is on top. An add-on image built long ago
+    and rebuilt from a cached layer is how you come to be running one without
+    ever having chosen to.
+    """
+    version = browser.version
+    print(f"Browser: Chromium {version}")
+    try:
+        major = int(version.split(".")[0])
+    except (ValueError, IndexError):  # a version string of some other shape
+        return
+    if keyboard_wanted and major < POPOVER_SINCE:
+        print(
+            f"Warning: Chromium {major} is older than {POPOVER_SINCE}, where "
+            f"the popover API arrived, so the keyboard will be drawn in the "
+            f"page rather than above it and Home Assistant's own dialogs will "
+            f"cover it. Rebuild the add-on to get a current browser."
+        )
+
+
 def install_token(context, url, token):
     """Write the token where the frontend expects to find it after a login.
 
@@ -1624,6 +1655,7 @@ def main():
 
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(args=BROWSER_ARGS)
+        report_browser(browser, args.keyboard != "off")
         context = browser.new_context(
             viewport={"width": page_w, "height": page_h}, device_scale_factor=1
         )
