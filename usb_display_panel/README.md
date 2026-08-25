@@ -90,7 +90,13 @@ bottom of the page, and it goes away again when nothing is waiting for text.
 A contact that lands on it is never replayed as a click: it is turned into a
 keystroke and the page is told nothing about it, which is how the field being
 typed into keeps its focus. That holds through a Home Assistant card's shadow
-roots and through a native modal dialog, both of which are tested.
+roots, through a native modal dialog, through the iframe every ingress add-on
+is shown in -- File editor, Terminal, anything with a web interface -- and into
+a `contenteditable` editor. All four are tested.
+
+It covers the bottom of the screen while it is up, and it does not move out of
+the way of a field underneath it. On a page that is one large editor, put the
+cursor in the top half.
 
 Set `keyboard` to `azerty` or `qwerty` for the layout the letters are in, or to
 `off` to leave it out.
