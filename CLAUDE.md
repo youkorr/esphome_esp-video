@@ -491,10 +491,18 @@ asks for a tap on each, and prints `--touch-rotate` / `--touch-mirror-x` /
 `repository.yaml` at the repo root.
 
 **Version bump trap: `config.yaml` version and `Dockerfile`'s `ARG BUNDLE` must
-move together.** Docker caches `ADD` from a URL on the URL string alone, so an
-add-on update shipped stale sender code. The fix is the version-carrying
-`ARG BUNDLE` + a `RUN` that writes it *before* the `ADD`s, which invalidates
-everything after it. Currently **1.21.0**.
+move together.** Docker caches a layer on its command string alone, and every
+string in that Dockerfile is fixed — the `pip install` never changes and the
+`ADD` URLs never change — so a box that built the image once reused all of it
+however many times the add-on was updated. First that shipped stale sender
+code. Then it turned out to be shipping a stale *browser* too, which is worse:
+the keyboard's top layer needs Chromium 114, and an older one draws it under
+the dashboard, where it is invisible while the keys go on working.
+`ARG BUNDLE` + the `RUN` that writes it therefore sit **first in the file**,
+ahead of the `pip install` as well as the `ADD`s, so a bump refetches
+everything — at the cost of the browser download on each update.
+`report_browser()` prints the Chromium version at startup and warns below 114,
+so this is never diagnosed by guesswork again. Currently **1.24.0**.
 
 `run.py` supervises one `ha_send.py` per panel: `SHARED_KEYS` lets the token,
 url, port, fps, quality, capture_quality, urgent_fps, urgent_window and stats be
