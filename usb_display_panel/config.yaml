@@ -1,5 +1,5 @@
 name: ESP32-P4 Panel
-version: "1.28.0"
+version: "1.29.0"
 slug: usb_display_panel
 description: Renders Home Assistant dashboards onto ESPHome usb_display panels over the network, with touch coming back
 url: https://github.com/youkorr/esphome_esp-video
@@ -60,6 +60,11 @@ options:
   # still holds the last picture it was sent. Short sleeps never reach the
   # delay and stay instant. 0 leaves the page running.
   blank_after: 300
+  # Keep the browser's profile between restarts, one directory per panel under
+  # the add-on's own storage. Without it every restart is a first visit: a site
+  # signed into is signed out again, and a consent banner comes back. With it,
+  # sign in once from the panel's keyboard and it stays signed in.
+  keep_profile: true
   stats: true
   panels:
     - name: salon
@@ -88,6 +93,7 @@ schema:
   urgent_window: float?
   keyboard: list(off|qwerty|azerty)?
   blank_after: float?
+  keep_profile: bool?
   stats: bool?
   panels:
     - name: str
@@ -109,4 +115,5 @@ schema:
       urgent_window: float?
       keyboard: list(off|qwerty|azerty)?
       blank_after: float?
+      keep_profile: bool?
       stats: bool?

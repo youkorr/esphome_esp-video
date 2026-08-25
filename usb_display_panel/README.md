@@ -107,6 +107,17 @@ above Home Assistant's own dialogs arrived. An add-on update refetches the
 browser, so an old one there means the image was built long ago and rebuilt
 from cache.
 
+## Staying signed in
+
+Set `keep_profile` and the browser keeps its profile between restarts, one
+directory per panel under the add-on's own storage. Without it every restart is
+a first visit: a site signed into is signed out again, and a consent banner
+comes back. With it, sign in once using the on-screen keyboard and it stays
+signed in.
+
+One directory per panel is not a choice: Chromium locks a profile, and a second
+browser pointed at the same one refuses to start.
+
 ## What a sleeping panel costs
 
 Stopping the picture does not stop the page. A panel that has gone dark stops
