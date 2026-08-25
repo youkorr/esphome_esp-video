@@ -460,8 +460,23 @@ never settles, sent against made: at `--fps 4`, 3.9/s against **59.5**/s before,
 frame on a second, quite different page. `Screencast.request()` now acknowledges
 only when there is somewhere to put the result — and at once, with the frame in
 hand thrown away, when a press has just been replayed, because that one was
-painted before the finger landed. Not free: about 4–5% fewer pictures actually
-reach the panel.
+painted before the finger landed.
+
+**How early it acknowledges is the whole difference between paced and jerky.**
+It was one pump, eight milliseconds, and a paint plus an encode takes twenty to
+forty: every picture therefore landed *after* the deadline it was meant for and
+went out on the next one. Measured against a page that never settles, pictures
+actually reaching a fake panel at `--fps 30`: **26.3/s** from a free-running
+sender against **20.9/s** paced — which is the whole of a report that an older
+copy of this project, kept aside, was smoother on video and animation. It is
+the same architecture and an earlier version of the same files, so the
+difference had to be something added since, and it was. `Screencast.lead` is
+now the measured time from acknowledgement to arrival, smoothed across frames,
+and the acknowledgement goes out `1.5 × lead` before the deadline; the margin
+is there because being early costs a picture waiting a few milliseconds in
+hand and being late costs a whole interval. That gives **24.9/s against 26.2**,
+and matches at `--fps 10`. The saving is untouched: 6.0 made/s at `--fps 4`
+against the 59.5 of free-running, 34% waste against 93%.
 
 **`--freeze-animations` only freezes animations, and that is less than it
 sounds.** It goes through the protocol's `Animation` domain, not CSS, because
@@ -578,7 +593,7 @@ the dashboard, where it is invisible while the keys go on working.
 ahead of the `pip install` as well as the `ADD`s, so a bump refetches
 everything — at the cost of the browser download on each update.
 `present_browser()` prints the Chromium version at startup and warns below 114,
-so this is never diagnosed by guesswork again. Currently **1.29.0**.
+so this is never diagnosed by guesswork again. Currently **1.31.0**.
 
 `run.py` supervises one `ha_send.py` per panel: `SHARED_KEYS` lets the token,
 url, port, fps, quality, capture_quality, urgent_fps, urgent_window and stats be
