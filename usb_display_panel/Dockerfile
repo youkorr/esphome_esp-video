@@ -6,7 +6,15 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-RUN pip install --no-cache-dir playwright pillow numpy \
+# --upgrade, and it matters more than it looks. Docker caches this layer on
+# the command string alone, and the string had not changed since the add-on
+# was first built -- so a box that built the image a year ago went on using
+# the Chromium it downloaded then, however many times the add-on was updated
+# afterwards. The keyboard is drawn in the browser's top layer through the
+# popover API, which needs Chromium 114 or newer; on an older one it falls
+# back to being drawn in the page. Changing this line at all is what forces
+# the browser to be fetched again.
+RUN pip install --no-cache-dir --upgrade playwright pillow numpy \
     && playwright install --with-deps chromium \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/* /root/.cache/pip
@@ -26,7 +34,7 @@ ARG RAW=https://raw.githubusercontent.com/youkorr/esphome_esp-video/${BRANCH}/co
 # which is a great deal harder to notice than a build error. Writing the
 # version into the image first invalidates everything after it, so a new
 # version really does fetch new senders.
-ARG BUNDLE=1.21.0
+ARG BUNDLE=1.22.0
 RUN echo "${BUNDLE}" > /app/BUNDLE
 
 ADD ${RAW}/udisp_send.py /app/udisp_send.py
