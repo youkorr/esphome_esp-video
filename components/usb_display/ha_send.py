@@ -239,6 +239,34 @@ def report_browser(browser, keyboard_wanted):
         )
 
 
+def disguise(browser, wanted):
+    """What the browser should say it is, or None to leave it alone.
+
+    A headless Chromium announces itself as one -- "HeadlessChrome/141..." --
+    and sets navigator.webdriver. Plenty of sites read those and serve
+    something else for them: a cut-down page, an interstitial, or a flat
+    refusal. YouTube says "navigateur non compatible" and there is then no
+    search box on the page at all, which from a panel looks exactly like a
+    keyboard that will not come up.
+
+    The version is taken from the browser rather than made up, so the platform
+    token stays right on whatever this is running on.
+    """
+    if wanted == "off":
+        return None
+    if wanted:
+        return wanted
+    try:
+        session = browser.new_browser_cdp_session()
+        real = session.send("Browser.getVersion")["userAgent"]
+        session.detach()
+    except Exception:  # noqa: BLE001 - not worth failing to start over
+        return None
+    if "Headless" not in real:
+        return None
+    return real.replace("HeadlessChrome/", "Chrome/").replace("Headless", "")
+
+
 def install_token(context, url, token):
     """Write the token where the frontend expects to find it after a login.
 
@@ -1019,10 +1047,13 @@ class Keyboard:
         # Said once per page, the first time the keyboard goes up.
         self._reported = False
         self._warned = False
-        # When focus was first seen to have left, and the roads already
-        # explained, so a log says each thing once rather than per tap.
+        # When focus was first seen to have left, plus what the last look
+        # found and how many have been taken, so the log traces focus moving
+        # instead of repeating itself.
         self._blur_at = None
-        self._roads = set()
+        self._road = None
+        self._looks = 0
+        self._said = 0
         # Hide was pressed while the field kept its focus, so the keys are to
         # stay down until they are asked for again.
         self.dismissed = False
@@ -1189,7 +1220,7 @@ class Keyboard:
         self._pending = []
         self._reported = False
         self._blur_at = None
-        self._roads = set()
+        self._road = None
 
     def request_sync(self, when):
         """Look at what has focus, now or shortly.
@@ -1277,13 +1308,20 @@ class Keyboard:
         capped, because it would otherwise say the same thing on every tap on
         the background.
         """
-        if answer is None or len(self._roads) >= 8:
+        if answer is None or self._said >= 40:
             return
         road = answer.get("road") or "(rien)"
-        if road in self._roads:
+        self._looks += 1
+        # Every change, so the log traces focus moving from one thing to the
+        # next; and one in fifteen regardless, so a road that never changes
+        # while somebody is tapping still proves the looks are happening at
+        # all. Saying it every time would fill the log from the background.
+        if road == self._road and self._looks % 15:
             return
-        self._roads.add(road)
-        print(f"Keyboard: nothing here takes text; focus is {road}")
+        self._road = road
+        self._said += 1
+        print(f"Keyboard: nothing here takes text (look {self._looks}); "
+              f"focus is {road}")
 
     def highlight(self, key):
         try:
@@ -1591,6 +1629,16 @@ def main():
         "Try it with --stats and keep it only if the idle rate drops",
     )
     parser.add_argument(
+        "--user-agent",
+        default="",
+        metavar="STRING",
+        help="what the browser says it is. Empty, the default, takes its own "
+        "and drops the word Headless from it, because a page that is told it "
+        "is talking to an automated browser may refuse to serve its real "
+        "self -- YouTube says so outright. 'off' leaves it untouched; "
+        "anything else is used verbatim",
+    )
+    parser.add_argument(
         "--keyboard",
         choices=("off", "qwerty", "azerty"),
         default="qwerty",
@@ -1775,9 +1823,20 @@ def main():
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(args=BROWSER_ARGS)
         report_browser(browser, args.keyboard != "off")
+        user_agent = disguise(browser, args.user_agent)
         context = browser.new_context(
-            viewport={"width": page_w, "height": page_h}, device_scale_factor=1
+            viewport={"width": page_w, "height": page_h},
+            device_scale_factor=1,
+            user_agent=user_agent,
         )
+        if user_agent is not None:
+            print(f"Browser: saying it is {user_agent}")
+            # The other half of the same tell. A page that looks at one
+            # usually looks at the other.
+            context.add_init_script(
+                "Object.defineProperty(navigator, 'webdriver', "
+                "{get: () => undefined});"
+            )
         if args.token:
             install_token(context, args.url, args.token)
         # Filled in once the keyboard exists, which is after the page. The
