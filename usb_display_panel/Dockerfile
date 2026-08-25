@@ -6,14 +6,26 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-# --upgrade, and it matters more than it looks. Docker caches this layer on
-# the command string alone, and the string had not changed since the add-on
-# was first built -- so a box that built the image a year ago went on using
-# the Chromium it downloaded then, however many times the add-on was updated
-# afterwards. The keyboard is drawn in the browser's top layer through the
-# popover API, which needs Chromium 114 or newer; on an older one it falls
-# back to being drawn in the page. Changing this line at all is what forces
-# the browser to be fetched again.
+# Bump this with the version in config.yaml, and note where it sits: FIRST,
+# ahead of everything that downloads anything.
+#
+# Docker caches a layer on its command string alone, and every string below is
+# fixed -- the pip install never changes, and the ADD URLs never change. So a
+# box that built this image once went on reusing all of it however many times
+# the add-on was updated: the same senders, and the same Chromium it happened
+# to download that day. That second one is not cosmetic. The on-screen keyboard
+# is drawn in the browser's top layer through the popover API, which arrived in
+# Chromium 114; on anything older it falls back to being drawn in the page,
+# where Home Assistant's own shell covers it -- invisible, while the keys go on
+# working, which is a fault that takes a long time to recognise.
+#
+# Writing the version out here invalidates every layer after it, so an add-on
+# update really does fetch a current Playwright, a current Chromium and current
+# senders. It costs the browser download on each update, which is the price of
+# not running a year-old browser without knowing it.
+ARG BUNDLE=1.24.0
+RUN echo "${BUNDLE}" > /app/BUNDLE
+
 RUN pip install --no-cache-dir --upgrade playwright pillow numpy \
     && playwright install --with-deps chromium \
     && apt-get clean \
@@ -25,17 +37,6 @@ RUN pip install --no-cache-dir --upgrade playwright pillow numpy \
 # would do anyway.
 ARG BRANCH=main
 ARG RAW=https://raw.githubusercontent.com/youkorr/esphome_esp-video/${BRANCH}/components/usb_display
-
-# Bump this with the version in config.yaml.
-#
-# ADD from a URL is cached on the URL alone, and this URL never changes: an
-# add-on rebuilt after an update would happily reuse the layer holding the
-# senders it fetched weeks ago. Nothing fails -- it simply runs the old code,
-# which is a great deal harder to notice than a build error. Writing the
-# version into the image first invalidates everything after it, so a new
-# version really does fetch new senders.
-ARG BUNDLE=1.23.0
-RUN echo "${BUNDLE}" > /app/BUNDLE
 
 ADD ${RAW}/udisp_send.py /app/udisp_send.py
 ADD ${RAW}/ha_send.py /app/ha_send.py
