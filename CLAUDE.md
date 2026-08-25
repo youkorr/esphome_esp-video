@@ -261,6 +261,20 @@ pure scaling (1.838 / 0.620) with no rotation. Fractions make that disappear.
 **`Injector` holds the press back until release** so a >12 px movement
 (`DRAG_THRESHOLD`) becomes `mouse.wheel(-dx, -dy)` instead of a click.
 
+**A headless browser says so, and sites read it.** The UA carries
+`HeadlessChrome/` and `navigator.webdriver` is true; measured on the shipped
+build, both. Plenty of sites serve something else for that — a cut-down page,
+an interstitial, or a refusal — and YouTube says *"navigateur non compatible"*
+outright. When it does, there is no search box on the page at all, which from
+a panel is indistinguishable from a keyboard that will not come up: it was
+reported as the second. `disguise()` takes the browser's own UA through
+`Browser.getVersion` (so the platform token stays right on whatever is running
+it), drops the word Headless, and hides `webdriver`. `--user-agent off` keeps
+the honest one, a string uses it verbatim. **Not verified against YouTube** —
+no route to it from where this was written — and it fixes nothing about the
+codecs: that build has no H.264, no AAC and no EME, so a video may still
+refuse where a search box now works.
+
 **A panel does not have to show Home Assistant, and `--token` is the switch.**
 Nothing in the pipeline is particular to Home Assistant: the token exists only
 because a browser with no keyboard cannot get past a login screen. Given one,
@@ -533,7 +547,7 @@ the dashboard, where it is invisible while the keys go on working.
 ahead of the `pip install` as well as the `ADD`s, so a bump refetches
 everything — at the cost of the browser download on each update.
 `report_browser()` prints the Chromium version at startup and warns below 114,
-so this is never diagnosed by guesswork again. Currently **1.26.0**.
+so this is never diagnosed by guesswork again. Currently **1.27.0**.
 
 `run.py` supervises one `ha_send.py` per panel: `SHARED_KEYS` lets the token,
 url, port, fps, quality, capture_quality, urgent_fps, urgent_window and stats be
