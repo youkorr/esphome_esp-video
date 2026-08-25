@@ -343,6 +343,17 @@ Three consequences worth keeping:
   sets, and `note_tap` clears it on any tap **above** the keys — never inside
   the band, or a keyboard put away to reach what was under it would spring back
   the moment that thing was touched.
+- **The overlay is built out of the DOM, never out of an HTML string, and
+  its stylesheet goes in through the CSSOM.** YouTube requires Trusted Types,
+  where `innerHTML = ...` throws `This document requires 'TrustedHTML'
+  assignment` — and that took the *whole sender* down every thirteen seconds,
+  restarting for ever, over an overlay whose absence nobody would have minded.
+  Google, GitHub and many banks set the same policy. `createElement` +
+  `textContent` cannot be refused by any policy, and a constructable
+  `CSSStyleSheet` cannot be refused by a `style-src` either. The wider lesson
+  is the safety net that came with it: **the keyboard is an accessory and must
+  never cost the picture.** `_show()` sets `broken` and carries on, and every
+  keystroke goes through `_Safe`.
 - **The sender owns the geometry.** The same numbers position each key and
   decide which key a contact hit, so the drawing and the hit test cannot drift.
   Keys are drawn inset by `GAP` and hit whole, so a finger on a seam still
@@ -547,7 +558,7 @@ the dashboard, where it is invisible while the keys go on working.
 ahead of the `pip install` as well as the `ADD`s, so a bump refetches
 everything — at the cost of the browser download on each update.
 `report_browser()` prints the Chromium version at startup and warns below 114,
-so this is never diagnosed by guesswork again. Currently **1.27.0**.
+so this is never diagnosed by guesswork again. Currently **1.28.0**.
 
 `run.py` supervises one `ha_send.py` per panel: `SHARED_KEYS` lets the token,
 url, port, fps, quality, capture_quality, urgent_fps, urgent_window and stats be
