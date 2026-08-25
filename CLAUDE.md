@@ -267,13 +267,26 @@ build, both. Plenty of sites serve something else for that — a cut-down page,
 an interstitial, or a refusal — and YouTube says *"navigateur non compatible"*
 outright. When it does, there is no search box on the page at all, which from
 a panel is indistinguishable from a keyboard that will not come up: it was
-reported as the second. `disguise()` takes the browser's own UA through
+reported as the second. `present_browser()` takes the browser's own UA through
 `Browser.getVersion` (so the platform token stays right on whatever is running
 it), drops the word Headless, and hides `webdriver`. `--user-agent off` keeps
 the honest one, a string uses it verbatim. **Not verified against YouTube** —
 no route to it from where this was written — and it fixes nothing about the
 codecs: that build has no H.264, no AAC and no EME, so a video may still
 refuse where a search box now works.
+
+**A profile on disk is what makes signing in worth doing.** Without
+`--profile` the browser is launched into a directory it throws away, so every
+restart is a first visit: a site signed into is signed out, and a consent
+banner is back. `launch_persistent_context` keeps cookies, local storage and
+the rest. **One directory per panel and never shared** — Chromium locks a
+profile and a second browser pointed at the same one will not start. The add-on
+puts them under `/data/profiles/<panel>`, which is its own persistent volume.
+Verified by writing a cookie and a local-storage entry and restarting the
+sender: without a profile the second run found `rien` twice, with one it found
+`cookie + localStorage`. It also changes how the browser is launched — a
+persistent context has no `Browser` object — which is why the version and the
+user agent are now asked of a page's CDP session in `present_browser()`.
 
 **A panel does not have to show Home Assistant, and `--token` is the switch.**
 Nothing in the pipeline is particular to Home Assistant: the token exists only
@@ -557,8 +570,8 @@ the dashboard, where it is invisible while the keys go on working.
 `ARG BUNDLE` + the `RUN` that writes it therefore sit **first in the file**,
 ahead of the `pip install` as well as the `ADD`s, so a bump refetches
 everything — at the cost of the browser download on each update.
-`report_browser()` prints the Chromium version at startup and warns below 114,
-so this is never diagnosed by guesswork again. Currently **1.28.0**.
+`present_browser()` prints the Chromium version at startup and warns below 114,
+so this is never diagnosed by guesswork again. Currently **1.29.0**.
 
 `run.py` supervises one `ha_send.py` per panel: `SHARED_KEYS` lets the token,
 url, port, fps, quality, capture_quality, urgent_fps, urgent_window and stats be
@@ -700,9 +713,10 @@ add-on options.
   layer of symbols, and does not move out of the way of a field it covers. All
   three were left out deliberately: the fifth attempt worked because it added
   nothing beyond the three cases that are tested.
-- The keyboard has been tested against a plain field, a field in a shadow root
-  and a field in a native modal dialog, all synthesised. It has **not** been
-  tested against Home Assistant's own search or Assist on a real board.
+- The keyboard has been tested against a real Home Assistant frontend, and
+  against synthesised versions of a plain field, a shadow root, a native modal
+  dialog, an ingress iframe, a `contenteditable` editor and a Trusted Types
+  page. It has **not** been tried against Assist on a real board.
 - `--blank-after` frees the page but not the browser: Chromium stays running
   with an empty tab. One browser serving several panels is the next step.
 

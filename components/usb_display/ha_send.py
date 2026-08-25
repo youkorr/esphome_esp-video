@@ -213,58 +213,61 @@ SLEEP_PUMP_MS = 100
 POPOVER_SINCE = 114
 
 
-def report_browser(browser, keyboard_wanted):
-    """Name the browser once, and say so if it is too old for the keyboard.
+def present_browser(session, keyboard_wanted, wanted_agent):
+    """Name the browser, warn if it is too old, and settle what it says it is.
+
+    Both answers come out of one Browser.getVersion, and it is asked through a
+    page's session rather than through the browser object, because a profile
+    kept on disk is launched as a context and has no browser object to ask.
 
     A stale Chromium is invisible from everywhere else: pages render, touches
     land, nothing errors. The only symptom is a keyboard drawn underneath the
     dashboard rather than above it, which looks exactly like one that is not
     drawn at all -- the keys still work, because the hit test is arithmetic in
-    here and never asks the page what is on top. An add-on image built long ago
-    and rebuilt from a cached layer is how you come to be running one without
-    ever having chosen to.
+    here and never asks the page what is on top.
+
+    And a headless one announces itself, in the user agent and in
+    navigator.webdriver alike. Plenty of sites read those and serve something
+    else: a cut-down page, an interstitial, or a refusal. YouTube says
+    "navigateur non compatible", and there is then no search box on the page at
+    all -- which from a panel looks exactly like a keyboard that will not come
+    up, and was reported as one. The replacement is built from the browser's
+    own string, so the platform token stays right wherever this runs.
+
+    Returns the user agent that was set, or None if it was left alone.
     """
-    version = browser.version
-    print(f"Browser: Chromium {version}")
     try:
-        major = int(version.split(".")[0])
-    except (ValueError, IndexError):  # a version string of some other shape
-        return
-    if keyboard_wanted and major < POPOVER_SINCE:
+        version = session.send("Browser.getVersion")
+    except Exception as err:  # noqa: BLE001 - not worth failing to start over
+        print(f"Browser: could not be asked what it is ({err})")
+        return None
+    print(f"Browser: {version.get('product', 'unknown')}")
+    try:
+        major = int(version["product"].split("/")[1].split(".")[0])
+    except (KeyError, ValueError, IndexError):
+        major = None
+    if keyboard_wanted and major is not None and major < POPOVER_SINCE:
         print(
             f"Warning: Chromium {major} is older than {POPOVER_SINCE}, where "
             f"the popover API arrived, so the keyboard will be drawn in the "
             f"page rather than above it and Home Assistant's own dialogs will "
             f"cover it. Rebuild the add-on to get a current browser."
         )
-
-
-def disguise(browser, wanted):
-    """What the browser should say it is, or None to leave it alone.
-
-    A headless Chromium announces itself as one -- "HeadlessChrome/141..." --
-    and sets navigator.webdriver. Plenty of sites read those and serve
-    something else for them: a cut-down page, an interstitial, or a flat
-    refusal. YouTube says "navigateur non compatible" and there is then no
-    search box on the page at all, which from a panel looks exactly like a
-    keyboard that will not come up.
-
-    The version is taken from the browser rather than made up, so the platform
-    token stays right on whatever this is running on.
-    """
-    if wanted == "off":
+    if wanted_agent == "off":
         return None
-    if wanted:
-        return wanted
+    agent = wanted_agent
+    if not agent:
+        real = version.get("userAgent", "")
+        if "Headless" not in real:
+            return None
+        agent = real.replace("HeadlessChrome/", "Chrome/").replace("Headless", "")
     try:
-        session = browser.new_browser_cdp_session()
-        real = session.send("Browser.getVersion")["userAgent"]
-        session.detach()
-    except Exception:  # noqa: BLE001 - not worth failing to start over
+        session.send("Emulation.setUserAgentOverride", {"userAgent": agent})
+    except Exception as err:  # noqa: BLE001 - the honest one still works
+        print(f"Browser: would not be disguised ({err})")
         return None
-    if "Headless" not in real:
-        return None
-    return real.replace("HeadlessChrome/", "Chrome/").replace("Headless", "")
+    print(f"Browser: saying it is {agent}")
+    return agent
 
 
 def install_token(context, url, token):
@@ -1710,6 +1713,16 @@ def main():
         "Try it with --stats and keep it only if the idle rate drops",
     )
     parser.add_argument(
+        "--profile",
+        default="",
+        metavar="DIR",
+        help="keep the browser's profile in this directory, so a site signed "
+        "into stays signed in and a banner dismissed stays dismissed. One "
+        "directory per panel: Chromium locks a profile and a second browser "
+        "pointed at the same one will not start. Empty throws the profile "
+        "away on exit, which is what it did before",
+    )
+    parser.add_argument(
         "--user-agent",
         default="",
         metavar="STRING",
@@ -1902,22 +1915,27 @@ def main():
         )
 
     with sync_playwright() as playwright:
-        browser = playwright.chromium.launch(args=BROWSER_ARGS)
-        report_browser(browser, args.keyboard != "off")
-        user_agent = disguise(browser, args.user_agent)
-        context = browser.new_context(
-            viewport={"width": page_w, "height": page_h},
-            device_scale_factor=1,
-            user_agent=user_agent,
-        )
-        if user_agent is not None:
-            print(f"Browser: saying it is {user_agent}")
-            # The other half of the same tell. A page that looks at one
-            # usually looks at the other.
-            context.add_init_script(
-                "Object.defineProperty(navigator, 'webdriver', "
-                "{get: () => undefined});"
+        view = {"width": page_w, "height": page_h}
+        if args.profile:
+            # A profile on disk, so that what somebody signs into stays signed
+            # in. Cookies, local storage and the rest live here instead of in a
+            # directory the browser throws away when it exits -- which is why
+            # a panel showing YouTube met the consent banner again on every
+            # restart, and why signing into anything at all was pointless.
+            #
+            # One directory per panel, and not negotiable: Chromium locks a
+            # profile, and a second browser pointed at the same one refuses to
+            # start.
+            os.makedirs(args.profile, exist_ok=True)
+            print(f"Browser: keeping its profile in {args.profile}")
+            context = playwright.chromium.launch_persistent_context(
+                args.profile, args=BROWSER_ARGS, viewport=view,
+                device_scale_factor=1,
             )
+        else:
+            context = playwright.chromium.launch(
+                args=BROWSER_ARGS
+            ).new_context(viewport=view, device_scale_factor=1)
         if args.token:
             install_token(context, args.url, args.token)
         # Filled in once the keyboard exists, which is after the page. The
@@ -1940,7 +1958,19 @@ def main():
                     else None
                 ),
             )
-        page = context.new_page()
+        # A persistent context opens a page itself; a fresh browser does not.
+        page = context.pages[0] if context.pages else context.new_page()
+        user_agent = present_browser(
+            context.new_cdp_session(page), args.keyboard != "off",
+            args.user_agent,
+        )
+        if user_agent is not None:
+            # The other half of the same tell. A page that reads one usually
+            # reads the other.
+            context.add_init_script(
+                "Object.defineProperty(navigator, 'webdriver', "
+                "{get: () => undefined});"
+            )
         print(
             f"Opening {args.url} at {page_w}x{page_h}"
             + ("" if args.token else " (no token, so this is not treated as "

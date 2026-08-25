@@ -68,6 +68,7 @@ SHARED_KEYS = (
     "urgent_window",
     "keyboard",
     "blank_after",
+    "keep_profile",
     "rect_cost",
     "freeze_animations",
     "stats",
@@ -146,9 +147,32 @@ def load_panels():
     return []
 
 
+# Where a panel's browser profile lives. /data is the add-on's own persistent
+# volume, so what somebody signs into survives a restart and an update.
+PROFILES = "/data/profiles"
+
+
+def profile_for(panel):
+    """This panel's profile directory, or None if it is not to keep one.
+
+    One per panel and never shared: Chromium locks a profile directory, and a
+    second browser pointed at the same one refuses to start at all. The name
+    comes from the panel's own, reduced to something a filesystem is happy
+    with, and falls back to its address when it has none.
+    """
+    if str(panel.get("keep_profile", True)).lower() in ("false", "no", "0"):
+        return None
+    who = str(panel.get("name") or panel.get("host") or "panel")
+    safe = "".join(c if c.isalnum() or c in "-_" else "-" for c in who)
+    return os.path.join(PROFILES, safe or "panel")
+
+
 def command_for(panel):
     """One panel's options, as the command line ha_send.py expects."""
     argv = [sys.executable, "-u", SENDER]
+    profile = profile_for(panel)
+    if profile:
+        argv += ["--profile", profile]
     for key in (
         "host",
         "port",
