@@ -840,6 +840,7 @@ class Screencast:
 # a row is laid out across the full width whatever its units add up to, so rows
 # need not agree on a total.
 _SHIFT, _BACK, _ENTER, _SPACE, _HIDE = "shift", "back", "enter", "space", "hide"
+_LAYER = "layer"
 
 
 def _letters(text):
@@ -857,8 +858,8 @@ KEYBOARD_LAYOUTS = {
         # pas". It was there, labelled Back. The symbol needs no translating
         # and no reading.
         [("Shift", 1.5, _SHIFT)] + _letters("zxcvbnm") + [("\u232b", 1.5, _BACK)],
-        [("Hide", 1.5, _HIDE)] + _letters("@-_") + [("", 4.0, _SPACE)]
-        + _letters(".") + [("Enter", 2.0, _ENTER)],
+        [("?123", 1.5, _LAYER), ("Hide", 1.5, _HIDE)] + _letters("@-_")
+        + [("", 4.0, _SPACE)] + _letters(".") + [("Enter", 2.0, _ENTER)],
     ],
     "azerty": [
         _letters("1234567890"),
@@ -869,8 +870,22 @@ KEYBOARD_LAYOUTS = {
         # the same place. It was missing, and a keyboard you cannot type an
         # address into is a keyboard you cannot sign in with -- which is the
         # whole point of keeping a profile.
-        [("Hide", 1.5, _HIDE)] + _letters("@éèàç")
-        + [("", 4.0, _SPACE)] + _letters(".") + [("Enter", 2.0, _ENTER)],
+        [("?123", 1.5, _LAYER), ("Hide", 1.5, _HIDE)] + _letters("@éèàç")
+        + [("", 3.5, _SPACE)] + _letters(".") + [("Enter", 2.0, _ENTER)],
+    ],
+    # The same five rows, so the band a contact is tested against never moves,
+    # and every character a password is likely to want. Asked for by somebody
+    # trying to sign into a Jellyfin server from a panel, which is the first
+    # time anything here needed more than a search box does. The layers key
+    # sits where a phone puts it, bottom left.
+    "symbols": [
+        _letters("1234567890"),
+        _letters("!\"#$%&'()*"),
+        _letters("+-=/:;,.?@"),
+        [("ABC", 1.5, _LAYER)] + _letters("_[]{}<>\\")
+        + [("\u232b", 1.5, _BACK)],
+        [("Hide", 1.5, _HIDE)] + _letters("~|`^")
+        + [("", 4.0, _SPACE)] + [("Enter", 2.0, _ENTER)],
     ],
 }
 
@@ -1124,7 +1139,8 @@ class Keyboard:
 
     def __init__(self, page, page_w, page_h, layout):
         self._page = page
-        self._rows = KEYBOARD_LAYOUTS[layout]
+        self._letters = KEYBOARD_LAYOUTS[layout]
+        self._symbols = False
         self._shift = False
         self._pending = []
         # Said once per page, the first time the keyboard goes up.
@@ -1144,22 +1160,30 @@ class Keyboard:
         # page, since the refusal belongs to the document and not to the panel.
         self.broken = False
         self.visible = False
-        key_h = max(KEY_MIN_H, round(page_h * KEY_H_FRACTION))
-        self.height = key_h * len(self._rows)
+        self._key_h = max(KEY_MIN_H, round(page_h * KEY_H_FRACTION))
+        # Both layers are five rows, deliberately: the band a contact is
+        # tested against must not move when the layer does, or a finger on its
+        # way to a key would land on the page instead.
+        self.height = self._key_h * len(self._letters)
         self.top = page_h - self.height
         self.width = page_w
+        self._lay()
+
+    def _lay(self):
+        """Position every key of the layer now showing."""
+        rows = KEYBOARD_LAYOUTS["symbols"] if self._symbols else self._letters
         self.keys = []
-        for row, entries in enumerate(self._rows):
+        for row, entries in enumerate(rows):
             units = sum(u for _, u, _ in entries) or 1.0
             x = 0.0
             for label, u, action in entries:
-                w = page_w * u / units
+                w = self.width * u / units
                 self.keys.append({
                     "i": len(self.keys),
                     "x": x,
-                    "y": self.top + row * key_h,
+                    "y": self.top + row * self._key_h,
                     "w": w,
-                    "h": key_h,
+                    "h": self._key_h,
                     "label": label,
                     "action": action,
                 })
@@ -1458,6 +1482,12 @@ class Keyboard:
             # and every tap down there eaten.
             self.dismissed = True
             self.hide()
+            return False
+        if action == _LAYER:
+            self._symbols = not self._symbols
+            self._shift = False
+            self._lay()
+            self._show()
             return False
         if action == _SHIFT:
             self._shift = not self._shift

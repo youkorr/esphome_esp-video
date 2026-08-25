@@ -593,7 +593,7 @@ the dashboard, where it is invisible while the keys go on working.
 ahead of the `pip install` as well as the `ADD`s, so a bump refetches
 everything — at the cost of the browser download on each update.
 `present_browser()` prints the Chromium version at startup and warns below 114,
-so this is never diagnosed by guesswork again. Currently **1.31.0**.
+so this is never diagnosed by guesswork again. Currently **1.32.0**.
 
 `run.py` supervises one `ha_send.py` per panel: `SHARED_KEYS` lets the token,
 url, port, fps, quality, capture_quality, urgent_fps, urgent_window and stats be
@@ -731,10 +731,14 @@ add-on options.
 
 - The reactivity floor (~105 ms) is Chromium's, not ours. Anything below that
   needs a different capture path.
-- The keyboard has no accents beyond the five on the azerty bottom row, no
-  layer of symbols, and does not move out of the way of a field it covers. All
-  three were left out deliberately: the fifth attempt worked because it added
-  nothing beyond the three cases that are tested.
+- The keyboard has no accents beyond the four on the azerty bottom row and
+  does not move out of the way of a field it covers. Both were left out
+  deliberately. The layer of symbols was too, until somebody tried to sign
+  into a Jellyfin server from a panel: a password is the first thing here that
+  needs more than a search box does, and `?123` is what that bought. Both
+  layers are five rows on purpose — the band a contact is tested against must
+  not move when the layer does, or a finger on its way to a key would land on
+  the page instead.
 - The keyboard has been tested against a real Home Assistant frontend, and
   against synthesised versions of a plain field, a shadow root, a native modal
   dialog, an ingress iframe, a `contenteditable` editor and a Trusted Types

@@ -103,10 +103,11 @@ Set `keyboard` to `azerty` or `qwerty` for the layout the letters are in, or to
 
 The keys are the ones a search needs: digits, letters, Shift for one capital,
 the erase key `⌫` at the right of the fourth row, Enter, a space bar, and Hide
-to put the keyboard away without losing what you were typing. There is no
-forward delete and no layer of symbols; a touch keyboard is not a desk one, and
-every key that was added beyond what a search needs is a key that had to be
-found.
+to put the keyboard away without losing what you were typing. `?123` at the bottom left swaps
+the letters for a layer of symbols -- everything a password is likely to want,
+and back with `ABC`. There is no forward delete: a touch keyboard is not a desk
+one, and every key added beyond what is actually needed is another key to have
+to find.
 
 The log names the browser at startup — `Browser: Chromium 141.0.7390.37` — and
 warns if it is older than 114, which is where the API that puts the keyboard
