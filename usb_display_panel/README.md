@@ -101,6 +101,12 @@ cursor in the top half.
 Set `keyboard` to `azerty` or `qwerty` for the layout the letters are in, or to
 `off` to leave it out.
 
+The log names the browser at startup — `Browser: Chromium 141.0.7390.37` — and
+warns if it is older than 114, which is where the API that puts the keyboard
+above Home Assistant's own dialogs arrived. An add-on update refetches the
+browser, so an old one there means the image was built long ago and rebuilt
+from cache.
+
 ## What a sleeping panel costs
 
 Stopping the picture does not stop the page. A panel that has gone dark stops
