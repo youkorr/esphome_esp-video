@@ -265,7 +265,12 @@ pure scaling (1.838 / 0.620) with no rotation. Fractions make that disappear.
 Nothing in the pipeline is particular to Home Assistant: the token exists only
 because a browser with no keyboard cannot get past a login screen. Given one,
 the sender writes it into storage and waits for the `home-assistant` element;
-given none, it does neither and renders whatever the URL points at — verified
+given none, it does neither and renders whatever the URL points at. In the
+add-on the token is a *shared* setting, so a panel showing an ordinary site
+would inherit the house's one: `home_assistant: false` on that panel is the
+switch, and all it does is drop the token before the sender is started.
+`--no-token` is the same thing for a hand run where `$HA_TOKEN` is set.
+Verified
 end to end against an ordinary page with a CSS animation, a canvas and a
 button, 85 pictures at 19.4 rectangles/s. Leaving the token out is the ask, not
 a mistake: it used to be a hard `parser.error`, and the thirty-second wait for

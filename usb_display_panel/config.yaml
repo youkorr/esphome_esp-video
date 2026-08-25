@@ -1,5 +1,5 @@
 name: ESP32-P4 Panel
-version: "1.19.0"
+version: "1.20.0"
 slug: usb_display_panel
 description: Renders Home Assistant dashboards onto ESPHome usb_display panels over the network, with touch coming back
 url: https://github.com/youkorr/esphome_esp-video
@@ -52,6 +52,13 @@ options:
       height: 600
       rotate: "180"
       touch_rotate: "180"
+      # false for a panel showing something that is not Home Assistant -- a
+      # train board, a weather site, a page you built yourself. The token is
+      # shared across panels, so without this such a panel would inherit the
+      # house's token and be treated as a dashboard. Nothing else changes:
+      # the page is rendered, cut into rectangles and sent the same way, and
+      # touches are replayed into it the same way.
+      home_assistant: true
       touch_mirror_x: false
       touch_mirror_y: false
 schema:
@@ -74,6 +81,7 @@ schema:
       height: int(16,4096)
       rotate: list(0|90|180|270)
       touch_rotate: list(0|90|180|270)
+      home_assistant: bool?
       touch_mirror_x: bool?
       touch_mirror_y: bool?
       fps: float?

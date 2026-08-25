@@ -90,7 +90,7 @@ def load_panels():
                 # nobody filled in arrives as "", and a plain merge would let
                 # that blank the shared one. The token is where this bites:
                 # every panel would silently lose it.
-                return [
+                merged = [
                     {
                         **shared,
                         **{
@@ -101,6 +101,20 @@ def load_panels():
                     }
                     for panel in panels
                 ]
+                # A panel that is not showing Home Assistant must not be given
+                # the house's token -- and the token is shared, so without this
+                # it would inherit one, have it written into that site's
+                # storage, and then wait thirty seconds for a dashboard that
+                # was never coming. Dropping the token is the whole switch: the
+                # sender already treats a panel with none as an ordinary page.
+                for panel in merged:
+                    if str(panel.pop("home_assistant", True)).lower() in (
+                        "false",
+                        "no",
+                        "0",
+                    ):
+                        panel.pop("token", None)
+                return merged
             # A file holding a single panel is a reasonable thing to write.
             if config.get("host"):
                 return [config]

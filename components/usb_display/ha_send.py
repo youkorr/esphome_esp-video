@@ -866,6 +866,13 @@ def main():
         "CPU for a picture the panel cannot tell apart",
     )
     parser.add_argument(
+        "--no-token",
+        action="store_true",
+        help="ignore any token, $HA_TOKEN included, and render the page as an "
+        "ordinary web page. Only Home Assistant needs one; this is how to say "
+        "a page is not Home Assistant when the environment disagrees",
+    )
+    parser.add_argument(
         "--urgent-fps",
         type=float,
         default=URGENT_FPS,
@@ -939,6 +946,8 @@ def main():
                 f"is the name of the setting and not part of the address: the "
                 f"value alone is what goes in."
             )
+        if args.no_token:
+            args.token = None
         # A token is only what gets past Home Assistant's login screen, and
         # nothing else needs one. Any other page -- a train board, a photo
         # frame, a weather site, something somebody built -- is rendered,
