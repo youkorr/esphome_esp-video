@@ -1,5 +1,5 @@
 name: ESP32-P4 Panel
-version: "1.20.0"
+version: "1.21.0"
 slug: usb_display_panel
 description: Renders Home Assistant dashboards onto ESPHome usb_display panels over the network, with touch coming back
 url: https://github.com/youkorr/esphome_esp-video
@@ -44,6 +44,22 @@ options:
   # under the finger.
   urgent_fps: 30
   urgent_window: 2.0
+  # The on-screen keyboard, drawn by the browser whenever a text field takes
+  # focus -- the dashboard's search, Assist, the search box of an ordinary
+  # site. A panel has no keys, so without it those are dead ends. It takes no
+  # room when nothing is waiting for text. Set it to the layout you want the
+  # letters in, or off to leave it out.
+  keyboard: qwerty
+  # How long a panel has to have been dark before its page is let go of.
+  # Stopping the picture does not stop the page: it goes on painting and
+  # running its timers for a screen nobody can see, and measured on a
+  # container, a sleeping panel still cost 1.1 seconds of CPU every ten. Past
+  # this delay the page is parked and that falls to 0.15. It is loaded again
+  # when the panel wakes, which takes about three seconds -- three seconds
+  # showing the dashboard as it was, not a black screen, because the board
+  # still holds the last picture it was sent. Short sleeps never reach the
+  # delay and stay instant. 0 leaves the page running.
+  blank_after: 300
   stats: true
   panels:
     - name: salon
@@ -70,6 +86,8 @@ schema:
   capture_quality: int(0,100)?
   urgent_fps: float?
   urgent_window: float?
+  keyboard: list(off|qwerty|azerty)?
+  blank_after: float?
   stats: bool?
   panels:
     - name: str
@@ -89,4 +107,6 @@ schema:
       capture_quality: int(0,100)?
       urgent_fps: float?
       urgent_window: float?
+      keyboard: list(off|qwerty|azerty)?
+      blank_after: float?
       stats: bool?
