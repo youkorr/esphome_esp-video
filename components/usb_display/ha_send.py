@@ -202,6 +202,10 @@ BROWSER_ARGS = [
 # a tap. Small enough that a deliberate drag is recognised at once, large
 # enough that the wobble of a fingertip on a press is not.
 DRAG_THRESHOLD = 12
+# How long to wait between looks while the panel is dark. Long enough that the
+# loop stops costing anything, short enough that it is lost in the hundred
+# milliseconds the browser takes to repaint after the tap that woke it.
+SLEEP_PUMP_MS = 100
 
 
 def install_token(context, url, token):
@@ -228,6 +232,35 @@ def install_token(context, url, token):
     context.add_init_script(
         f"window.localStorage.setItem('hassTokens', {json.dumps(json.dumps(tokens))});"
     )
+
+
+def open_page(page, args):
+    """Navigate to the page and wait for it to be worth photographing.
+
+    Called again every time the page has been parked while the panel slept, so
+    the waits belong here rather than inline: a dashboard that came back
+    without them would be photographed as an empty shell and that empty shell
+    would become the picture every later difference is measured against.
+    """
+    # Not networkidle: the frontend holds a websocket open for as long as it
+    # runs, and waiting for the network to go quiet would wait forever.
+    try:
+        page.goto(args.url, wait_until="domcontentloaded", timeout=60000)
+    except Exception as err:  # noqa: BLE001 - re-raised after the diagnosis
+        explain_unreachable(args.url, err)
+        raise
+    if args.token:
+        # Only worth waiting for when Home Assistant is what was asked for. On
+        # any other page the element never appears and the wait is thirty
+        # seconds of nothing.
+        try:
+            page.wait_for_selector("home-assistant", timeout=30000)
+        except Exception:  # noqa: BLE001 - a page without it is still worth sending
+            print("Warning: this does not look like a Home Assistant page")
+    # The dashboard paints in stages -- shell, then cards, then their data --
+    # and the first picture is the one full redraw everything else is a
+    # difference from. Let it settle before taking it.
+    page.wait_for_timeout(3000)
 
 
 def explain_unreachable(url, error):
@@ -697,11 +730,350 @@ class Screencast:
         self.pause()
 
 
+
+# The on-screen keyboard.
+#
+# A panel has no keys, so a page whose point is to type -- the dashboard's
+# search, Assist, the search box of an ordinary web site -- is a dead end. The
+# keyboard has to be drawn by the browser, because the panel shows nothing else,
+# and it has to put characters into a field that may live several shadow roots
+# deep inside a Home Assistant card.
+#
+# Four earlier attempts failed, and every one of them failed the same way: the
+# keyboard was built as something the page could interact with, so it fought the
+# page for focus, and the last attempt moved it into a native modal <dialog>,
+# which makes everything outside it inert and broke the only two cases that
+# existed.
+#
+# So this one is not something the page can interact with at all. The overlay is
+# inert decoration: pointer-events: none, no focus, no listeners, no handlers.
+# It cannot take focus away from the field because nothing ever reaches it. What
+# reaches it is the sender: a contact that lands inside the keyboard's rectangle
+# is never replayed as a click, it is turned into a keystroke and delivered with
+# the protocol's own input domain, which puts text into whatever has focus
+# without needing to find the element first. The whole shadow-root problem
+# simply does not arise.
+#
+# The overlay goes in the top layer through the popover API rather than on a
+# large z-index, because Home Assistant opens its dialogs as native modals and
+# the top layer paints above every z-index there is. A manual popover is in that
+# same layer without making anything inert -- which is exactly the distinction
+# the fourth attempt got wrong.
+
+# The layouts. Each row is a list of (label, width in key units, what it does);
+# a row is laid out across the full width whatever its units add up to, so rows
+# need not agree on a total.
+_SHIFT, _BACK, _ENTER, _SPACE, _HIDE = "shift", "back", "enter", "space", "hide"
+
+
+def _letters(text):
+    return [(c, 1.0, "char") for c in text]
+
+
+KEYBOARD_LAYOUTS = {
+    "qwerty": [
+        _letters("1234567890"),
+        _letters("qwertyuiop"),
+        _letters("asdfghjkl"),
+        [("Shift", 1.5, _SHIFT)] + _letters("zxcvbnm") + [("Back", 1.5, _BACK)],
+        [("Hide", 1.5, _HIDE)] + _letters("@-_") + [("", 4.0, _SPACE)]
+        + _letters(".") + [("Enter", 2.0, _ENTER)],
+    ],
+    "azerty": [
+        _letters("1234567890"),
+        _letters("azertyuiop"),
+        _letters("qsdfghjklm"),
+        [("Shift", 1.5, _SHIFT)] + _letters("wxcvbn'-") + [("Back", 1.5, _BACK)],
+        [("Hide", 1.5, _HIDE)] + _letters("éèàç")
+        + [("", 4.0, _SPACE)] + _letters(".") + [("Enter", 2.0, _ENTER)],
+    ],
+}
+
+# The overlay is a fixed share of the page's height whatever the panel is, so a
+# key is about the same fraction of a finger everywhere: five rows at 7.5% each.
+# Below this a key on a 1024x600 panel stops being reliably hittable.
+KEY_MIN_H = 40
+KEY_H_FRACTION = 0.075
+# Drawn between the keys, not taken out of them: the seam is still hittable.
+GAP = 3
+
+# Installed on the context rather than the page, so it survives every
+# navigation -- including the one that parks the page on about:blank while the
+# panel sleeps, and the one that brings it back.
+KEYBOARD_INIT_JS = r"""
+(() => {
+  const ID = '__udisp_kb';
+  function box() {
+    let d = document.getElementById(ID);
+    if (!d) {
+      d = document.createElement('div');
+      d.id = ID;
+      // Manual, so nothing the page does dismisses it and nothing outside it
+      // becomes inert. This is the whole reason it is a popover and not a div
+      // on a large z-index: Home Assistant's dialogs are native modals, and
+      // the top layer paints above any z-index whatever.
+      d.setAttribute('popover', 'manual');
+      document.documentElement.appendChild(d);
+    }
+    return d;
+  }
+  window.__udispKb = {
+    show(html) {
+      const d = box();
+      d.innerHTML = html;
+      try {
+        // Shown again even when it is already showing, because the top layer
+        // stacks in the order things entered it: a dialog opened after the
+        // keyboard would otherwise paint over the keys and its backdrop would
+        // grey them. Leaving and re-entering puts it back on top. It costs
+        // nothing visible -- both happen in one task, so no frame is painted
+        // in between.
+        if (d.matches(':popover-open')) d.hidePopover();
+        d.showPopover();
+      } catch (err) {
+        // No popover support, or it refused. A plain fixed element still
+        // paints; it only loses to a modal dialog, which is better than
+        // losing always.
+        d.removeAttribute('popover');
+        d.style.display = 'block';
+      }
+    },
+    hide() {
+      const d = document.getElementById(ID);
+      if (!d) return;
+      try {
+        if (d.matches(':popover-open')) d.hidePopover();
+      } catch (err) { /* falls through to the style below */ }
+      d.style.display = 'none';
+      d.innerHTML = '';
+    },
+    highlight(index) {
+      const d = document.getElementById(ID);
+      if (!d) return;
+      for (const k of d.querySelectorAll('.on')) k.classList.remove('on');
+      if (index >= 0) {
+        const k = d.querySelector('[data-i="' + index + '"]');
+        if (k) k.classList.add('on');
+      }
+    },
+    typable() {
+      // Through shadow roots: a Home Assistant text field is several deep, and
+      // document.activeElement stops at the outermost host.
+      let a = document.activeElement;
+      while (a && a.shadowRoot && a.shadowRoot.activeElement) {
+        a = a.shadowRoot.activeElement;
+      }
+      if (!a) return false;
+      if (a.isContentEditable) return true;
+      const tag = a.tagName;
+      if (tag === 'TEXTAREA') return true;
+      if (tag !== 'INPUT') return false;
+      const type = (a.getAttribute('type') || 'text').toLowerCase();
+      return ['button', 'checkbox', 'radio', 'submit', 'reset', 'range',
+              'color', 'file', 'image', 'hidden'].indexOf(type) === -1;
+    },
+  };
+})();
+"""
+
+
+class Keyboard:
+    """Draws the keys, and turns a contact inside them into a keystroke.
+
+    The geometry is computed here and the same numbers are used twice: once to
+    position each key absolutely in the overlay, and once to decide which key a
+    contact landed on. There is no second source of truth to drift from the
+    first, which is what makes hit testing arithmetic rather than a round trip
+    to the page.
+    """
+
+    def __init__(self, page, page_w, page_h, layout):
+        self._page = page
+        self._rows = KEYBOARD_LAYOUTS[layout]
+        self._shift = False
+        self._pending = []
+        self.visible = False
+        key_h = max(KEY_MIN_H, round(page_h * KEY_H_FRACTION))
+        self.height = key_h * len(self._rows)
+        self.top = page_h - self.height
+        self.width = page_w
+        self.keys = []
+        for row, entries in enumerate(self._rows):
+            units = sum(u for _, u, _ in entries) or 1.0
+            x = 0.0
+            for label, u, action in entries:
+                w = page_w * u / units
+                self.keys.append({
+                    "i": len(self.keys),
+                    "x": x,
+                    "y": self.top + row * key_h,
+                    "w": w,
+                    "h": key_h,
+                    "label": label,
+                    "action": action,
+                })
+                x += w
+
+    def contains(self, x, y):
+        return self.visible and y >= self.top
+
+    def hit(self, x, y):
+        for key in self.keys:
+            if (key["x"] <= x < key["x"] + key["w"]
+                    and key["y"] <= y < key["y"] + key["h"]):
+                return key
+        return None
+
+    def _label(self, key):
+        if key["action"] != "char":
+            return key["label"]
+        return key["label"].upper() if self._shift else key["label"]
+
+    def _render(self):
+        font = max(14, int(self.keys[0]["h"] * 0.42))
+        parts = [
+            "<style>"
+            "#__udisp_kb{position:fixed;left:0;right:0;bottom:0;top:auto;"
+            "margin:0;padding:0;border:0;width:100%;max-width:100%;"
+            f"height:{self.height}px;max-height:none;overflow:visible;"
+            "background:#15161a;color:#f2f2f5;display:block;"
+            # Nothing here is ever the target of anything: the sender takes the
+            # contact before the page sees it. This is what keeps the field's
+            # focus, and it is the difference between this attempt and the
+            # four before it.
+            "pointer-events:none;"
+            "font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;"
+            "-webkit-font-smoothing:antialiased;}"
+            "#__udisp_kb::backdrop{background:transparent;}"
+            "#__udisp_kb .k{position:absolute;box-sizing:border-box;"
+            "border:1px solid #33353f;border-radius:8px;background:#2a2c34;"
+            f"font-size:{font}px;line-height:1;display:flex;"
+            "align-items:center;justify-content:center;overflow:hidden;}"
+            # A word does not fit a key at the size a letter wants.
+            f"#__udisp_kb .w{{background:#1e2027;color:#b9bcc6;"
+            f"font-size:{max(11, int(font * 0.6))}px;}}"
+            "#__udisp_kb .on{background:#3d7de0;color:#fff;}"
+            "</style>"
+        ]
+        for key in self.keys:
+            wide = "" if key["action"] == "char" else " w"
+            label = (
+                self._label(key)
+                .replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+            )
+            # Drawn inset, hit whole. The gap between keys belongs to the key
+            # it is drawn out of, so a finger landing on a seam still presses
+            # something rather than nothing.
+            parts.append(
+                f'<div class="k{wide}" data-i="{key["i"]}" style="'
+                f'left:{key["x"] + GAP:.1f}px;'
+                f'top:{key["y"] - self.top + GAP:.1f}px;'
+                f'width:{key["w"] - 2 * GAP:.1f}px;'
+                f'height:{key["h"] - 2 * GAP}px">{label}</div>'
+            )
+        return "".join(parts)
+
+    def _show(self):
+        self._page.evaluate("html => window.__udispKb.show(html)", self._render())
+        self.visible = True
+
+    def hide(self):
+        if not self.visible:
+            return
+        self.visible = False
+        self._shift = False
+        try:
+            self._page.evaluate("window.__udispKb.hide()")
+        except Exception:  # noqa: BLE001 - a page mid-navigation needs no hiding
+            pass
+
+    def forget(self):
+        """The page it was drawn on has gone; the overlay went with it."""
+        self.visible = False
+        self._shift = False
+        self._pending = []
+
+    def request_sync(self, when):
+        """Look at what has focus, now or shortly.
+
+        Focus only ever changes here because a finger touched something, so
+        there is no need to watch for it: one look after each tap is enough and
+        costs one round trip. Shortly, as well as now, because Home Assistant
+        opens its search in a dialog that animates in and focuses its field
+        when it lands -- a look taken the instant the tap was replayed sees the
+        dialog that is not there yet.
+        """
+        self._pending.append(time.monotonic() + when)
+
+    def tick(self, now):
+        if not self._pending or now < min(self._pending):
+            return
+        self._pending = [t for t in self._pending if t > now]
+        self.sync()
+
+    def sync(self):
+        try:
+            wanted = bool(self._page.evaluate("window.__udispKb.typable()"))
+        except Exception:  # noqa: BLE001 - a page mid-navigation answers later
+            return
+        if wanted:
+            # Drawn again even when it is already up. A dialog that opened
+            # since the last look entered the top layer after the keyboard did
+            # and is painting over it; re-entering puts the keys back on top.
+            # The pixels do not change when nothing else did, so the tile diff
+            # finds nothing and none of this reaches the panel.
+            self._show()
+        elif self.visible:
+            self.hide()
+
+    def highlight(self, key):
+        try:
+            self._page.evaluate(
+                "i => window.__udispKb.highlight(i)", -1 if key is None else key["i"]
+            )
+        except Exception:  # noqa: BLE001 - only the shading is lost
+            pass
+
+    def commit(self, key):
+        """Deliver the key. True if what has focus may have changed."""
+        self.highlight(None)
+        action = key["action"]
+        if action == _HIDE:
+            # Only the drawing goes away; the field keeps its focus, so the
+            # next tap on a key brings it back rather than starting over.
+            self.hide()
+            return False
+        if action == _SHIFT:
+            self._shift = not self._shift
+            self._show()
+            return False
+        keyboard = self._page.keyboard
+        if action == _BACK:
+            keyboard.press("Backspace")
+        elif action == _ENTER:
+            # A search that submits usually closes what it was typed into.
+            keyboard.press("Enter")
+            return True
+        elif action == _SPACE:
+            keyboard.type(" ")
+        else:
+            keyboard.type(self._label(key))
+            if self._shift:
+                # One capital, the way a phone does it.
+                self._shift = False
+                self._show()
+        return False
+
+
 class Injector:
     """Replays the panel's contacts into the browser.
 
     One pointer, because a dashboard is a list of things to press and the second
     finger has nothing to do.
+
+    A contact that lands on the on-screen keyboard never becomes a click. It is
+    read as a keystroke and the page is told nothing about it, so whatever was
+    being typed into keeps its focus.
 
     A finger does two things a mouse does not do with one button: it taps, and
     it drags to scroll. Which one it was is only known once it has moved, so the
@@ -713,16 +1085,22 @@ class Injector:
     landed.
     """
 
-    def __init__(self, page, touch_map):
+    def __init__(self, page, touch_map, keyboard=None):
         self._page = page
         self._map = touch_map
+        self._keyboard = keyboard
         # Where the finger landed, and where it was last seen. None between
         # gestures.
         self._start = None
         self._last = None
         self._scrolling = False
+        # The gesture began on the keyboard, and which key it is still on.
+        self._on_keyboard = False
+        self._key = None
 
     def handle(self, reports):
+        """Replay the contacts. True if any of them reached the page."""
+        clicked = False
         # Every report, in order. Collapsing a run of them down to its last
         # position would be cheaper but wrong: the first position of a run is
         # where the finger landed and the rest is how far it travelled, and a
@@ -733,16 +1111,31 @@ class Injector:
         for contacts in reports:
             point = None if not contacts else contacts[0][1:]
             if point is None:
-                self._finish()
+                clicked = self._finish() or clicked
                 continue
             x, y = self._map.to_page(*point)
             if self._start is None:
-                # The finger has just landed. Put the pointer there so a scroll
-                # goes to whatever is under it -- a dashboard has panes that
-                # scroll on their own -- but do not press yet.
-                self._page.mouse.move(x, y)
+                if self._keyboard is not None and self._keyboard.contains(x, y):
+                    # Not the page's. The pointer is not even moved there, so
+                    # nothing about this contact is visible to the page and the
+                    # field being typed into keeps its focus.
+                    self._on_keyboard = True
+                    self._key = self._keyboard.hit(x, y)
+                    self._keyboard.highlight(self._key)
+                else:
+                    # The finger has just landed. Put the pointer there so a
+                    # scroll goes to whatever is under it -- a dashboard has
+                    # panes that scroll on their own -- but do not press yet.
+                    self._page.mouse.move(x, y)
                 self._start = self._last = (x, y)
                 self._scrolling = False
+                continue
+            if self._on_keyboard:
+                # Sliding off a key abandons it, the way it does on a phone.
+                if self._key is not None and self._keyboard.hit(x, y) is not self._key:
+                    self._key = None
+                    self._keyboard.highlight(None)
+                self._last = (x, y)
                 continue
             if not self._scrolling and (
                 abs(x - self._start[0]) + abs(y - self._start[1]) >= DRAG_THRESHOLD
@@ -755,21 +1148,42 @@ class Injector:
                     # page, which is a negative wheel.
                     self._page.mouse.wheel(-dx, -dy)
             self._last = (x, y)
+        return clicked
 
     def _finish(self):
-        """The finger left. A gesture that never travelled was a tap."""
-        if self._start is not None and not self._scrolling:
+        """The finger left. A gesture that never travelled was a tap.
+
+        True when the page was clicked, which is the sender's cue to look at
+        what has focus now.
+        """
+        clicked = False
+        if self._on_keyboard:
+            if self._key is not None:
+                # Enter usually closes what was being typed into, so the key
+                # says whether focus is worth looking at again.
+                clicked = self._keyboard.commit(self._key)
+            else:
+                self._keyboard.highlight(None)
+        elif self._start is not None and not self._scrolling:
             self._page.mouse.move(*self._last)
             self._page.mouse.down()
             self._page.mouse.up()
-        self._start = self._last = None
-        self._scrolling = False
+            clicked = True
+        self._reset()
+        return clicked
 
     def release(self):
         # A lost connection is not a tap: drop the gesture rather than clicking
         # wherever the finger happened to be.
+        if self._on_keyboard and self._keyboard is not None:
+            self._keyboard.highlight(None)
+        self._reset()
+
+    def _reset(self):
         self._start = self._last = None
         self._scrolling = False
+        self._on_keyboard = False
+        self._key = None
 
 
 def main():
@@ -908,6 +1322,26 @@ def main():
         "canvas do not go through the animation engine and do not stop -- one "
         "of those on the page is enough for this to change nothing at all. "
         "Try it with --stats and keep it only if the idle rate drops",
+    )
+    parser.add_argument(
+        "--keyboard",
+        choices=("off", "qwerty", "azerty"),
+        default="qwerty",
+        help="draw an on-screen keyboard whenever a text field takes focus, so "
+        "a search box is not a dead end on a panel with no keys. It appears "
+        "only while something is waiting for text and takes no room otherwise",
+    )
+    parser.add_argument(
+        "--blank-after",
+        type=float,
+        default=300.0,
+        metavar="SECONDS",
+        help="after this long with the panel asleep, park the page on a blank "
+        "one. Stopping the picture does not stop the page -- it goes on "
+        "painting and running its timers for a screen nobody can see -- and "
+        "only navigating away does. The page is loaded again when the panel "
+        "wakes, so the delay is what keeps a short sleep instant. 0 leaves it "
+        "running",
     )
     parser.add_argument(
         "--no-touch", action="store_true", help="do not replay the panel's contacts"
@@ -1078,31 +1512,17 @@ def main():
         )
         if args.token:
             install_token(context, args.url, args.token)
+        if args.keyboard != "off":
+            # On the context, so it survives every navigation the sender makes
+            # -- parking the page while the panel sleeps, and bringing it back.
+            context.add_init_script(KEYBOARD_INIT_JS)
         page = context.new_page()
         print(
             f"Opening {args.url} at {page_w}x{page_h}"
             + ("" if args.token else " (no token, so this is not treated as "
                                      "Home Assistant)")
         )
-        # Not networkidle: the frontend holds a websocket open for as long as it
-        # runs, and waiting for the network to go quiet would wait forever.
-        try:
-            page.goto(args.url, wait_until="domcontentloaded", timeout=60000)
-        except Exception as err:  # noqa: BLE001 - re-raised after the diagnosis
-            explain_unreachable(args.url, err)
-            raise
-        if args.token:
-            # Only worth waiting for when Home Assistant is what was asked for.
-            # On any other page the element never appears and the wait is
-            # thirty seconds of nothing.
-            try:
-                page.wait_for_selector("home-assistant", timeout=30000)
-            except Exception:  # noqa: BLE001 - a page without it is still worth sending
-                print("Warning: this does not look like a Home Assistant page")
-        # The dashboard paints in stages -- shell, then cards, then their data --
-        # and the first picture is the one full redraw everything else is a
-        # difference from. Let it settle before taking it.
-        page.wait_for_timeout(3000)
+        open_page(page, args)
         if "/auth/authorize" in page.url:
             print(
                 "Warning: Home Assistant is asking to log in, so the token was "
@@ -1122,7 +1542,15 @@ def main():
             args.touch_mirror_x,
             args.touch_mirror_y,
         )
-        injector = None if args.no_touch else Injector(page, touch_map)
+        keyboard = (
+            None
+            if args.keyboard == "off" or args.no_touch
+            else Keyboard(page, page_w, page_h, args.keyboard)
+        )
+        if keyboard is not None:
+            # A page can arrive with a field already focused.
+            keyboard.request_sync(0.5)
+        injector = None if args.no_touch else Injector(page, touch_map, keyboard)
         capture = Screencast(page, page_w, page_h, args.capture_quality)
         if args.freeze_animations:
             capture.freeze_animations()
@@ -1156,6 +1584,9 @@ def main():
             # state as soon as a sender connects, so this is only the first
             # instant.
             awake = True
+            # When it went dark, and whether the page has been let go of.
+            asleep_since = 0.0
+            parked = False
             # Until when a press has the frame limit raised for it. Everything
             # painted before the press is dropped when it lands, so there is no
             # question of the window covering a picture that predates it.
@@ -1170,8 +1601,47 @@ def main():
                     # look sits untouched for the rest of it, which is most of
                     # what "the animation is sluggish" is made of. The interval
                     # still caps how often anything is sent, below.
-                    page.wait_for_timeout(PUMP_MS)
+                    # A dark panel needs none of that beat. Nothing is
+                    # being sent to it, and the only thing worth hearing is
+                    # the byte that says it woke up -- which is read once a
+                    # turn whatever the turn costs. The beat itself is not
+                    # free: every one of them is a round trip through the
+                    # browser's protocol, and at eight milliseconds that is a
+                    # hundred and twenty-five a second for nothing.
+                    page.wait_for_timeout(PUMP_MS if awake else SLEEP_PUMP_MS)
                     started = time.monotonic()
+
+                    # Stopping the picture does not stop the page. Measured
+                    # with the screencast stopped and the panel dark: 59.8
+                    # animation frames a second and 20 timer callbacks a
+                    # second, still being painted and run for a screen nobody
+                    # can see. Neither of the obvious levers touches it --
+                    # 58.5 with the renderer throttled twentyfold, 59.8 with
+                    # the page declared frozen through the lifecycle API --
+                    # and navigating away is the only thing that does: 0.0 and
+                    # 0.0. So a panel that has been dark for a while gives its
+                    # page up altogether, and the server stops paying for it.
+                    #
+                    # The delay is the whole design. A panel woken inside it
+                    # comes back instantly because nothing was given up; only
+                    # one left dark long enough that nobody is about to look
+                    # at it pays the reload. And what it pays is not a black
+                    # screen: the board still holds the last picture it was
+                    # sent, so the wait shows a stale dashboard rather than
+                    # nothing.
+                    if (args.blank_after and not awake and not parked
+                            and started - asleep_since >= args.blank_after):
+                        print("Panel asleep, letting the page go")
+                        if keyboard is not None:
+                            keyboard.forget()
+                        try:
+                            page.goto("about:blank", wait_until="domcontentloaded")
+                            parked = True
+                        except Exception as err:  # noqa: BLE001
+                            # Try again after another delay rather than on
+                            # every turn of the loop.
+                            print(f"Could not park the page ({err})")
+                            asleep_since = started
 
                     frame = capture.take()
                     if frame is not None:
@@ -1289,6 +1759,17 @@ def main():
                             awake = body
                             print("Panel " + ("awake" if awake else "asleep"))
                             if awake:
+                                if parked:
+                                    print("Loading the page again")
+                                    parked = False
+                                    open_page(page, args)
+                                    if keyboard is not None:
+                                        keyboard.forget()
+                                        keyboard.request_sync(0.5)
+                                    if args.freeze_animations:
+                                        # The animation domain was told about
+                                        # a document that no longer exists.
+                                        capture.freeze_animations()
                                 capture.resume()
                                 # It has been showing nothing; whatever it had
                                 # is no longer what should be there.
@@ -1296,6 +1777,7 @@ def main():
                                 if injector is not None:
                                     injector.release()
                             else:
+                                asleep_since = started
                                 capture.pause()
                     if args.show_touches and reports:
                         # With the time on them, because "the panel reacts
@@ -1314,7 +1796,14 @@ def main():
                             else:
                                 print(f"[{stamp}] touch released")
                     if injector is not None and reports:
-                        injector.handle(reports)
+                        if injector.handle(reports) and keyboard is not None:
+                            # Focus only ever moves because something was
+                            # tapped, so this is the only moment it is worth
+                            # asking about -- and twice, because Home
+                            # Assistant opens its search in a dialog that
+                            # animates in before focusing its field.
+                            keyboard.request_sync(0.0)
+                            keyboard.request_sync(0.45)
                         if URGENT_AFTER_INPUT:
                             urgent_until = time.monotonic() + args.urgent_window
                             # Nothing painted before the finger landed shows
@@ -1329,6 +1818,8 @@ def main():
 
                     loops += 1
                     now = time.monotonic()
+                    if keyboard is not None:
+                        keyboard.tick(now)
                     if args.stats and now - stats_at >= 5.0:
                         elapsed = now - stats_at
                         print(

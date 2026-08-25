@@ -283,6 +283,71 @@ shadow roots: `focusin` `composedPath()[0]` is the reliable target, and values
 must go through the native setter plus a composed bubbling `input` event for
 Lit/Polymer to notice.
 
+**The keyboard is not something the page can touch, and that is the whole
+design.** Four attempts failed because the keyboard was built as a widget: it
+took focus, so the field lost it. The fifth is inert decoration —
+`pointer-events: none`, no listeners, no focus, nothing. A contact that lands
+inside its rectangle is intercepted by `Injector` and never replayed as a
+click, so the page is never told it happened and the field keeps its focus.
+The character is delivered with `page.keyboard`, which puts it into whatever
+has focus without needing to find the element — so the shadow-root problem that
+made the earlier attempts hard does not arise at all.
+
+Three consequences worth keeping:
+
+- **It goes in the top layer through the popover API**, not on a large
+  z-index. Home Assistant opens its dialogs as native modals and the top layer
+  paints above every z-index there is. A `popover="manual"` is in that same
+  layer *without* making anything inert, which is exactly the distinction the
+  fourth attempt got wrong. `showPopover()` is called again on every sync, even
+  when it is already showing: the top layer stacks in entry order, so a dialog
+  opened after the keyboard would paint over it. Measured by reading the pixel
+  at a key's centre with a modal dialog open: (37,39,46) before re-stacking,
+  the full (42,44,52) after.
+- **The sender owns the geometry.** The same numbers position each key and
+  decide which key a contact hit, so the drawing and the hit test cannot drift.
+  Keys are drawn inset by `GAP` and hit whole, so a finger on a seam still
+  presses something.
+- **Focus is only looked at after a tap**, because a tap is the only thing that
+  can change it — one round trip per tap rather than a poll. Twice, at 0 and
+  450 ms, because Home Assistant opens its search in a dialog that animates in
+  before focusing its field.
+
+Tested end to end against a fake panel sending real contacts, both layouts: a
+plain field, a field in a shadow root, a field in a native modal `<dialog>`,
+shift (one capital then back to lower case), backspace, Enter, the accented
+keys, and a full-width button underneath the keyboard that must never be
+clicked and never is.
+
+**A sleeping panel still costs the server, and stopping the picture is not
+what stops it.** `Screencast.pause()` only stops the pictures; the page goes on
+painting and running its timers for a screen nobody can see — measured with the
+panel dark, 59.8 animation frames a second and 20 timer callbacks a second.
+Neither obvious lever touches it: 58.5 with the renderer throttled twentyfold
+through `Emulation.setCPUThrottlingRate`, 59.8 with the page declared frozen
+through `Page.setWebLifecycleState`. Only navigating away does: 0.0 and 0.0.
+
+Two things were done about it, and they are independent:
+
+- **`SLEEP_PUMP_MS = 100`** — the loop's beat while the panel is dark. At
+  `PUMP_MS = 8` it is 125 round trips a second through the browser's protocol
+  for a panel that is being sent nothing. This is free and needs no option.
+- **`--blank-after`**, default 300 s — past that, `page.goto("about:blank")`.
+  The delay is the design: a panel woken inside it never gave its page up, so a
+  short sleep stays instant, and only one dark long enough that nobody is about
+  to look at it pays the reload.
+
+Measured over ten seconds of sleep, CPU of the whole process tree: **1.73 s
+before either change, 0.98–1.11 s with the slower beat alone, 0.15–0.17 s with
+both** — 90% off the original. Waking costs 0.10 s unparked against **3.12 s**
+parked, and those three seconds show the dashboard as it was rather than a
+black screen, because the board still holds the last picture it was sent.
+
+`install_token` uses `context.add_init_script`, and so does the keyboard, so
+both survive the round trip to `about:blank` and back with nothing to redo. The
+animation freeze does not — `Animation.setPlaybackRate` is re-applied after a
+reload.
+
 **`FULL_REDRAW_SECONDS = 30.0`** — however little changes, redraw everything
 this often, so a rectangle lost to a busy board or a socket hiccup does not stay
 wrong forever.
@@ -408,7 +473,7 @@ asks for a tap on each, and prints `--touch-rotate` / `--touch-mirror-x` /
 move together.** Docker caches `ADD` from a URL on the URL string alone, so an
 add-on update shipped stale sender code. The fix is the version-carrying
 `ARG BUNDLE` + a `RUN` that writes it *before* the `ADD`s, which invalidates
-everything after it. Currently **1.15.0**.
+everything after it. Currently **1.21.0**.
 
 `run.py` supervises one `ha_send.py` per panel: `SHARED_KEYS` lets the token,
 url, port, fps, quality, capture_quality, urgent_fps, urgent_window and stats be
@@ -457,13 +522,14 @@ add-on options.
 
 ## Mistakes already made — please do not repeat them
 
-- **The on-screen keyboard: four failed rounds, then removed on request.** Each
-  failure came from *adding* something. `modalAbove` (relocating the keyboard
-  into a `<dialog>`) fixed a case that had been invented and broke the only two
-  that existed. A native modal `<dialog>` makes everything outside it inert,
-  including the top layer. The user's instruction was *"je voudrais que tu
-  retire tous les clavier ont reviendra plustard"* — it is gone; do not
-  reintroduce it unasked.
+- **The on-screen keyboard: four failed rounds, removed, then asked for again
+  and rebuilt.** Every one of the four failures came from *adding* something,
+  and all four shared one assumption: that the keyboard was a thing the page
+  interacts with. `modalAbove` (relocating it into a `<dialog>`) fixed a case
+  that had been invented and broke the only two that existed, because a native
+  modal `<dialog>` makes everything outside it inert. What exists now drops the
+  assumption instead — see **The keyboard** below. Do not put event handlers,
+  focus, or `pointer-events` back on it.
 - A string replacement that spanned too far silently deleted `send_picture`,
   `_target_picture`, `calibrate` and `Screencast`. A test caught it
   (`NameError`). Prefer narrow, anchored edits in `ha_send.py`; it is ~46 KB.
@@ -510,9 +576,15 @@ add-on options.
 
 - The reactivity floor (~105 ms) is Chromium's, not ours. Anything below that
   needs a different capture path.
-- The keyboard, if it ever comes back, should start from the two cases that
-  actually exist (the dashboard search magnifier and Assist) and change nothing
-  else.
+- The keyboard has no accents beyond the five on the azerty bottom row, no
+  layer of symbols, and does not move out of the way of a field it covers. All
+  three were left out deliberately: the fifth attempt worked because it added
+  nothing beyond the three cases that are tested.
+- The keyboard has been tested against a plain field, a field in a shadow root
+  and a field in a native modal dialog, all synthesised. It has **not** been
+  tested against Home Assistant's own search or Assist on a real board.
+- `--blank-after` frees the page but not the browser: Chromium stays running
+  with an empty tab. One browser serving several panels is the next step.
 
 
 ## Repository conventions

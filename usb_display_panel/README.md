@@ -45,8 +45,9 @@ See the header of `esp32p4-panel.service` for the six commands.
 
 ## Options
 
-`token`, `url`, `port`, `fps`, `quality` and `stats` can be set once at the top
-and every panel inherits them; a panel that sets one for itself keeps its own.
+Everything except a panel's own name, address, size and calibration can be set
+once at the top and every panel inherits it; a panel that sets one for itself
+keeps its own.
 The token in particular is the same for a whole house, and long enough that
 repeating it per panel is mostly a way to get one of them wrong.
 
@@ -75,7 +76,43 @@ Assistant dashboard to appear; without one it does neither.
 | `touch_rotate`, `touch_mirror_x`, `touch_mirror_y` | From `--calibrate` |
 | `fps` | Upper bound on how often a change is acted on |
 | `quality` | JPEG quality, 1..95 |
+| `keyboard` | The on-screen keyboard's layout, or `off`. See below |
+| `blank_after` | Seconds dark before a sleeping panel's page is let go of. See below |
 | `stats` | Print what is being sent every five seconds |
+
+## The keyboard
+
+A panel has no keys, so a page whose point is to type -- the dashboard's
+search, Assist, the search box of an ordinary site -- would otherwise be a dead
+end. Whenever a text field takes focus the browser draws a keyboard across the
+bottom of the page, and it goes away again when nothing is waiting for text.
+
+A contact that lands on it is never replayed as a click: it is turned into a
+keystroke and the page is told nothing about it, which is how the field being
+typed into keeps its focus. That holds through a Home Assistant card's shadow
+roots and through a native modal dialog, both of which are tested.
+
+Set `keyboard` to `azerty` or `qwerty` for the layout the letters are in, or to
+`off` to leave it out.
+
+## What a sleeping panel costs
+
+Stopping the picture does not stop the page. A panel that has gone dark stops
+being sent anything, but the dashboard it stopped showing goes on painting and
+running its timers -- measured with the screencast stopped, 59.8 animation
+frames a second and 20 timer callbacks a second, for a screen nobody can see.
+Neither throttling the renderer nor declaring the page frozen changes that;
+only navigating away does.
+
+So after `blank_after` seconds dark, the page is parked on a blank one.
+Measured on a container over ten seconds of sleep: 1.1 seconds of CPU with the
+page still running against 0.15 with it parked.
+
+It is loaded again when the panel wakes, which takes about three seconds. That
+is three seconds showing the dashboard as it was rather than a black screen --
+the board still holds the last picture it was sent. The delay is what keeps a
+short sleep instant: a panel woken inside it never gave its page up. Set
+`blank_after` to 0 to leave the page running.
 
 ## What it costs
 

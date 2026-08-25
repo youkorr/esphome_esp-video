@@ -66,6 +66,8 @@ SHARED_KEYS = (
     "capture_quality",
     "urgent_fps",
     "urgent_window",
+    "keyboard",
+    "blank_after",
     "rect_cost",
     "freeze_animations",
     "stats",
@@ -163,6 +165,8 @@ def command_for(panel):
         "capture_quality",
         "urgent_fps",
         "urgent_window",
+        "keyboard",
+        "blank_after",
         "rect_cost",
     ):
         value = panel.get(key)
