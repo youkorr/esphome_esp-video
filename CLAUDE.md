@@ -367,6 +367,13 @@ Three consequences worth keeping:
   is the safety net that came with it: **the keyboard is an accessory and must
   never cost the picture.** `_show()` sets `broken` and carries on, and every
   keystroke goes through `_Safe`.
+- **A label has to be in some language; a symbol does not.** The erase key
+  was `Back`, and was reported missing outright — *"tu as oublie une touche
+  celle de supprimer je le trouve pas"* — by somebody looking at the keyboard
+  it was on. It is `⌫` now, at the letter size rather than the small size the
+  word keys use, because an erase key shrunk to fit the word Shift is one
+  nobody finds. Checked against tofu before shipping: a glyph with no drawing
+  measures the same width as U+FFFF, and this one does not.
 - **The sender owns the geometry.** The same numbers position each key and
   decide which key a contact hit, so the drawing and the hit test cannot drift.
   Keys are drawn inset by `GAP` and hit whole, so a finger on a seam still
