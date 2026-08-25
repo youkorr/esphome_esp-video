@@ -872,6 +872,13 @@ KEYBOARD_INIT_JS = r"""
     show(html) {
       const d = box();
       d.innerHTML = html;
+      // Whatever hide() left behind. It sets display:none INLINE, and an
+      // inline style beats any selector in the sheet below -- so failing to
+      // clear it here was a keyboard that could never be seen again for the
+      // rest of the page's life, however many times it was asked to show.
+      // Reported from a panel as having to restart the add-on, which is the
+      // only thing that ever gave it a new document.
+      d.style.removeProperty('display');
       let layered = false;
       try {
         // Shown again even when it is already showing, because the top layer
@@ -1016,6 +1023,9 @@ class Keyboard:
         # explained, so a log says each thing once rather than per tap.
         self._blur_at = None
         self._roads = set()
+        # Hide was pressed while the field kept its focus, so the keys are to
+        # stay down until they are asked for again.
+        self.dismissed = False
         self.visible = False
         key_h = max(KEY_MIN_H, round(page_h * KEY_H_FRACTION))
         self.height = key_h * len(self._rows)
@@ -1160,9 +1170,21 @@ class Keyboard:
         except Exception:  # noqa: BLE001 - a page mid-navigation needs no hiding
             pass
 
+    def note_tap(self, x, y):
+        """A tap that went to the page rather than to a key.
+
+        Above the keys it undoes a dismissal, so touching a field again is how
+        the keyboard comes back. Inside the band it does not: a keyboard put
+        away to reach what was underneath must not spring up the moment that
+        thing is touched.
+        """
+        if self.dismissed and y < self.top:
+            self.dismissed = False
+
     def forget(self):
         """The page it was drawn on has gone; the overlay went with it."""
         self.visible = False
+        self.dismissed = False
         self._shift = False
         self._pending = []
         self._reported = False
@@ -1214,6 +1236,10 @@ class Keyboard:
                 answer = said
                 break
         wanted = bool(answer and answer.get("yes"))
+        if wanted and self.dismissed:
+            # Asked to go away while this same field still holds focus. A tap
+            # anywhere above the keys undoes it -- see note_tap.
+            return
         if wanted:
             self._blur_at = None
             # Drawn again even when it is already up. A dialog that opened
@@ -1235,8 +1261,10 @@ class Keyboard:
                 self.request_sync(BLUR_GRACE_S)
             elif now - self._blur_at >= BLUR_GRACE_S * 0.9:
                 self._blur_at = None
+                self.dismissed = False
                 self.hide()
         else:
+            self.dismissed = False
             self._explain(answer)
 
     def _explain(self, answer):
@@ -1270,8 +1298,14 @@ class Keyboard:
         self.highlight(None)
         action = key["action"]
         if action == _HIDE:
-            # Only the drawing goes away; the field keeps its focus, so the
-            # next tap on a key brings it back rather than starting over.
+            # The field keeps its focus, which is the point -- putting the keys
+            # away is not giving up on what was being typed. But that means the
+            # next look finds something typable and would put them straight
+            # back, so the dismissal has to be remembered. Reported from a
+            # panel as the keys still swallowing the bottom of the screen after
+            # Hide, which is exactly what that re-showing was: nothing drawn,
+            # and every tap down there eaten.
+            self.dismissed = True
             self.hide()
             return False
         if action == _SHIFT:
@@ -1354,6 +1388,8 @@ class Injector:
                     self._key = self._keyboard.hit(x, y)
                     self._keyboard.highlight(self._key)
                 else:
+                    if self._keyboard is not None:
+                        self._keyboard.note_tap(x, y)
                     # The finger has just landed. Put the pointer there so a
                     # scroll goes to whatever is under it -- a dashboard has
                     # panes that scroll on their own -- but do not press yet.

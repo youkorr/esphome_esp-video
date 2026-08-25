@@ -317,6 +317,18 @@ Three consequences worth keeping:
   opened after the keyboard would paint over it. Measured by reading the pixel
   at a key's centre with a modal dialog open: (37,39,46) before re-stacking,
   the full (42,44,52) after.
+- **`hide()` sets `display:none` INLINE, so `show()` has to clear it.** An
+  inline style beats every selector in the sheet, so the one line that failed
+  to clear it made the keyboard unshowable for the rest of the page's life —
+  reported as having to restart the add-on, which was the only thing that ever
+  gave it a new document. Its twin: `Hide` left the field focused (deliberately
+  — putting the keys away is not giving up on what was being typed), so the
+  next look found something typable and set `visible` back to true over an
+  overlay that could no longer be drawn. A keyboard nobody could see, eating
+  every tap along the bottom of the screen. `dismissed` is what `Hide` now
+  sets, and `note_tap` clears it on any tap **above** the keys — never inside
+  the band, or a keyboard put away to reach what was under it would spring back
+  the moment that thing was touched.
 - **The sender owns the geometry.** The same numbers position each key and
   decide which key a contact hit, so the drawing and the hit test cannot drift.
   Keys are drawn inset by `GAP` and hit whole, so a finger on a seam still
@@ -521,7 +533,7 @@ the dashboard, where it is invisible while the keys go on working.
 ahead of the `pip install` as well as the `ADD`s, so a bump refetches
 everything — at the cost of the browser download on each update.
 `report_browser()` prints the Chromium version at startup and warns below 114,
-so this is never diagnosed by guesswork again. Currently **1.25.0**.
+so this is never diagnosed by guesswork again. Currently **1.26.0**.
 
 `run.py` supervises one `ha_send.py` per panel: `SHARED_KEYS` lets the token,
 url, port, fps, quality, capture_quality, urgent_fps, urgent_window and stats be
