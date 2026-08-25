@@ -13,6 +13,19 @@
 
 substitutions:
   name: guition-10-home-assistant
+  # Le capteur de presence qui rallume la dalle AVANT qu'un doigt arrive.
+  # N'importe quelle entite binaire de Home Assistant : un mmWave, un
+  # detecteur de mouvement, une camera qui detecte une personne.
+  #
+  # L'interet n'est pas le confort mais le cout. Sans presence, la dalle ne se
+  # rallume qu'au toucher, donc l'emetteur doit garder la page vivante pour que
+  # le reveil soit instantane. Avec, le rechargement se fait pendant que vous
+  # traversez la piece, et l'add-on peut lacher la page pour de bon
+  # (blank_after) sans que personne ne voie jamais l'attente.
+  #
+  # Si l'entite n'existe pas, rien ne casse : le capteur reste a l'arret, les
+  # declencheurs ne partent jamais, et la dalle se comporte comme avant.
+  presence_entity: binary_sensor.presence_salon
 
 esphome:
   name: ${name}
@@ -49,7 +62,9 @@ wifi:
   ssid: !secret wifi_ssid
   password: !secret wifi_password
   ap:
-    ssid: ${name} Fallback Hotspot
+    # Pas ${name} : le nom de l'appareil suivi de " Fallback Hotspot" depasse
+    # les 32 caracteres qu'un SSID autorise, et esphome refuse la configuration.
+    ssid: Guition Fallback
     password: !secret ap_password
 
 captive_portal:
@@ -116,7 +131,6 @@ audio_dac:
     sample_rate: 44100
     use_mclk: true
     use_microphone: true
-    microphone_type: analog
     mic_gain: 24DB
 
 i2s_audio:
@@ -244,6 +258,24 @@ globals:
     restore_value: false
     initial_value: '0'
 
+# ---------------------------------------------------------------------------
+#  Presence : rallumer avant qu'on touche, ne pas s'eteindre devant quelqu'un
+# ---------------------------------------------------------------------------
+binary_sensor:
+  - platform: homeassistant
+    id: room_presence
+    entity_id: ${presence_entity}
+    internal: true
+    on_press:
+      # Reveiller l'emetteur d'abord : il a une image entiere a refaire, et
+      # s'il avait lache la page il doit la recharger. C'est ce temps-la qu'on
+      # veut passer pendant que la personne traverse la piece.
+      - usb_display.wake: udisp
+      - light.turn_on: backlight
+    on_release:
+      # La piece se vide : un compte a rebours neuf.
+      - script.execute: screen_timeout
+
 script:
   - id: screen_timeout
     mode: restart
@@ -253,7 +285,19 @@ script:
             lambda: 'return id(screen_off_delay) > 0;'
           then:
             - delay: !lambda 'return id(screen_off_delay) * 1000;'
-            - light.turn_off: backlight
+            # Ne pas s'eteindre au nez de quelqu'un. Le compte a rebours ne
+            # repart pas ici : c'est on_release du capteur qui en lance un neuf
+            # quand la piece se vide. Sans entite de presence, le capteur est a
+            # l'arret, la condition est vraie, et c'est le comportement d'avant.
+            - if:
+                condition:
+                  binary_sensor.is_off: room_presence
+                then:
+                  - light.turn_off: backlight
+                  # Et le dire : sans cette ligne l'emetteur continue de rendre,
+                  # d'encoder et d'envoyer pour une dalle noire. C'est aussi ce
+                  # qui autorise l'add-on a lacher la page.
+                  - usb_display.sleep: udisp
 
 touchscreen:
   - platform: gsl3680
@@ -272,6 +316,10 @@ touchscreen:
     # ESPHome appelle listener->update() AVANT ce declencheur, donc le contact
     # part deja vers l'expediteur pendant que le retroeclairage se rallume.
     on_touch:
+      # L'emetteur d'abord : il a une image entiere a renvoyer. Le toucher qui
+      # reveille n'est pas transmis a la page -- la carte le retient tant
+      # qu'elle dort -- donc il ne presse rien au passage.
+      - usb_display.wake: udisp
       - light.turn_on: backlight
       - script.execute: screen_timeout
 
@@ -286,6 +334,9 @@ display:
     auto_clear_enabled: false
 
 usb_display:
+  # Nomme, parce que usb_display.sleep et usb_display.wake ont besoin de le
+  # designer.
+  id: udisp
   display_id: main_screen
   touchscreen_id: my_touch
   port: 5000

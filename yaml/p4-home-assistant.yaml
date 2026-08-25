@@ -9,6 +9,21 @@
 
 substitutions:
   name: p4-home-assistant
+  # Le capteur de presence qui rallume la dalle AVANT qu'un doigt arrive.
+  # N'importe quelle entite binaire de Home Assistant fait l'affaire : un
+  # mmWave, un detecteur de mouvement, une camera avec detection de personne.
+  #
+  # Ce que ca change n'est pas le confort mais le cout : sans presence la dalle
+  # dort sur minuterie et ne se rallume qu'au toucher, donc l'emetteur doit
+  # garder la page vivante pour que le reveil soit instantane. Avec la
+  # presence, le rechargement de la page se fait pendant que vous marchez vers
+  # l'ecran, et l'add-on peut lacher la page pour de bon (blank_after) sans que
+  # personne ne voie jamais l'attente.
+  #
+  # Si l'entite n'existe pas, rien ne casse : le capteur reste sans etat, les
+  # declencheurs ci-dessous ne partent jamais et la dalle se comporte
+  # exactement comme avant, minuterie et toucher.
+  presence_entity: binary_sensor.presence_salon
 
 esphome:
   name: ${name}
@@ -217,6 +232,25 @@ globals:
     restore_value: no
     initial_value: '60'
 
+# ---------------------------------------------------------------------------
+#  Presence : rallumer avant qu'on touche, ne pas s'eteindre devant quelqu'un
+# ---------------------------------------------------------------------------
+binary_sensor:
+  - platform: homeassistant
+    id: room_presence
+    entity_id: ${presence_entity}
+    internal: true
+    on_press:
+      # Quelqu'un entre. Reveiller l'emetteur d'abord : il a une image entiere
+      # a refaire, et s'il avait lache la page il doit la recharger. C'est
+      # justement ce temps-la qu'on veut passer pendant que la personne
+      # traverse la piece plutot que devant l'ecran.
+      - usb_display.wake: udisp
+      - light.turn_on: backlight
+    on_release:
+      # La piece se vide : on repart pour un compte a rebours neuf.
+      - script.execute: screen_timeout
+
 script:
   - id: screen_timeout
     mode: restart
@@ -226,11 +260,20 @@ script:
             lambda: 'return id(screen_off_delay) > 0;'
           then:
             - delay: !lambda 'return id(screen_off_delay) * 1000;'
-            - light.turn_off: backlight
-            # Et on le dit : l'emetteur arrete de rendre et d'envoyer, la
-            # liaison reste ouverte. Sans cette ligne le rendu continue pour
-            # une dalle noire.
-            - usb_display.sleep: udisp
+            # Ne pas s'eteindre au nez de quelqu'un qui est encore la. Le
+            # compte a rebours ne reprend pas ici : c'est on_release du capteur
+            # qui en lance un neuf quand la piece se vide. Et si l'entite de
+            # presence n'existe pas, le capteur est a l'arret, donc cette
+            # condition est vraie et le comportement est celui d'avant.
+            - if:
+                condition:
+                  binary_sensor.is_off: room_presence
+                then:
+                  - light.turn_off: backlight
+                  # Et on le dit : l'emetteur arrete de rendre et d'envoyer, la
+                  # liaison reste ouverte. Sans cette ligne le rendu continue
+                  # pour une dalle noire.
+                  - usb_display.sleep: udisp
 
 number:
   - platform: usb_display
