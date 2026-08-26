@@ -490,6 +490,22 @@ ran at 59.7/s, and one such card on the page took a three-mover page from 57.3
 to 59.2 — no effect whatever. Ack pacing helps those; freezing does not. Try it
 with `--stats` and keep it only if the idle rate drops.
 
+**`--stats` also reports `panel wait`, which is the one bottleneck the loop
+cannot otherwise see.** The socket is blocking, so when the board is behind the
+write stalls inside `sendall` and *nothing else happens at all* — no browser
+pumped, no contact read. Reading true was checked against a fake panel drained
+through a token bucket: **0%** at 4000 KiB/s, **55–60%** at 350. Worth having
+because it settles an argument in one line: a stutter with `panel wait` near
+zero is not the panel and not the network, whatever it looks like.
+
+Also measured while building it, and worth keeping: a slow panel degrades
+*gracefully*. At 4000 / 700 / 350 KiB/s the rectangles arrived at 21.5 / 17.3 /
+8.6 a second with median gaps of 46 / 58 / 114 ms and **no gap above half a
+second in any run**. So blocking writes throttle the sender smoothly; they do
+not produce freezes. A periodic multi-second stall is coming from somewhere
+else — for Jellyfin, most likely its own transcoder, which cannot direct-play
+to a browser with no H.264 and serves HLS in three-second segments.
+
 **`--stats` reports `made/s` and `whole` because nothing else could.**
 `pictures/s`, `rectangles/s` and `KiB/s` all describe what was *sent*, and what
 is sent is decided by the page; the cost that matters is paid before that
@@ -593,7 +609,7 @@ the dashboard, where it is invisible while the keys go on working.
 ahead of the `pip install` as well as the `ADD`s, so a bump refetches
 everything — at the cost of the browser download on each update.
 `present_browser()` prints the Chromium version at startup and warns below 114,
-so this is never diagnosed by guesswork again. Currently **1.32.0**.
+so this is never diagnosed by guesswork again. Currently **1.33.0**.
 
 `run.py` supervises one `ha_send.py` per panel: `SHARED_KEYS` lets the token,
 url, port, fps, quality, capture_quality, urgent_fps, urgent_window and stats be
