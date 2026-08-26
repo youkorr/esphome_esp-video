@@ -2099,6 +2099,7 @@ def main():
             last_full = 0.0
             rectangles_sent = 0
             bytes_sent = 0
+            blocked = 0.0
             pictures = 0
             loops = 0
             pending = None
@@ -2260,10 +2261,20 @@ def main():
                                 buffer, format="JPEG", quality=args.quality
                             )
                             payload = buffer.getvalue()
+                            # Timed, because a socket that will not take any
+                            # more is the one bottleneck this loop cannot see
+                            # any other way. The write blocks when the board
+                            # is behind, and while it blocks nothing else
+                            # happens at all -- no browser pumped, no contact
+                            # read. A large share here means the panel is the
+                            # limit; a small one means it is not, and the
+                            # stutter is somewhere else entirely.
+                            blocked_at = time.monotonic()
                             endpoint.write(
                                 build_header(w, h, len(payload), frame_id, x, y)
                                 + payload
                             )
+                            blocked += time.monotonic() - blocked_at
                             rectangles_sent += 1
                             bytes_sent += len(payload)
 
@@ -2377,6 +2388,9 @@ def main():
                             # card that grew.
                             f"{fulls} whole, "
                             f"{bytes_sent / elapsed / 1024:.1f} KiB/s, "
+                            # What share of the wall clock went into a write
+                            # that the panel would not accept yet.
+                            f"panel wait {blocked / elapsed * 100:.0f}%, "
                             # How often touches are looked at. Anything much
                             # below --fps means the loop is the bottleneck, and
                             # a press waits that long before it is even read.
@@ -2400,6 +2414,7 @@ def main():
                             print("  busiest areas: " + "; ".join(spots))
                             heat[:] = 0
                         rectangles_sent = bytes_sent = pictures = loops = 0
+                        blocked = 0.0
                         capture.produced = fulls = 0
                         stats_at = now
             except OSError as err:
