@@ -201,7 +201,7 @@ BROWSER_ARGS = [
 # How far a finger has to travel before the gesture is scrolling rather than
 # a tap. Small enough that a deliberate drag is recognised at once, large
 # enough that the wobble of a fingertip on a press is not.
-DRAG_THRESHOLD = 8#12
+DRAG_THRESHOLD = 4#12
 # How long to wait between looks while the panel is dark. Long enough that the
 # loop stops costing anything, short enough that it is lost in the hundred
 # milliseconds the browser takes to repaint after the tap that woke it.
