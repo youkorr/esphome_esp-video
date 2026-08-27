@@ -119,7 +119,7 @@ def rect_cost_fraction(width, height):
 #
 # Growing such a rectangle backwards costs a few pixels sent twice and fixes
 # it outright.
-MIN_RECT = 64
+MIN_RECT = 128 #64
 # However little changes, redraw everything this often. A dropped rectangle --
 # the board was busy, the socket hiccuped -- would otherwise stay wrong on the
 # panel forever, because nothing would ever mark that area as changed again.
