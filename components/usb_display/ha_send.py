@@ -70,7 +70,7 @@ from udisp_send import build_header, build_heartbeat, connect_tcp  # noqa: E402
 # Small tiles find changes precisely and cost many rectangles; large ones cost
 # few rectangles and send unchanged pixels along with the changed ones. 64 is a
 # compromise that keeps a clock's worth of change down to one or two tiles.
-TILE = 264 #64
+TILE = 128 #64
 # What one rectangle costs the board on top of its pixels, as a fraction of a
 # whole-panel decode. Measured: the panel decodes in 8.5 ms and each rectangle
 # adds roughly 1.5 ms of fixed work on top of its share of that.
@@ -119,11 +119,11 @@ def rect_cost_fraction(width, height):
 #
 # Growing such a rectangle backwards costs a few pixels sent twice and fixes
 # it outright.
-MIN_RECT = 264 #64
+MIN_RECT =  64
 # However little changes, redraw everything this often. A dropped rectangle --
 # the board was busy, the socket hiccuped -- would otherwise stay wrong on the
 # panel forever, because nothing would ever mark that area as changed again.
-FULL_REDRAW_SECONDS = 5 #30.0
+FULL_REDRAW_SECONDS = 30.0
 # How long to let the browser run between looks. Short, because this is
 # what bounds how stale a change can be before it is even noticed; not
 # zero, because each look is a round trip into the browser.
@@ -186,7 +186,7 @@ URGENT_FPS = 30.0
 # something makes the browser pay attention to it again.
 BROWSER_ARGS = [
     "--hide-scrollbars",
-    #"--disable-gpu",
+    "--disable-gpu",
     # A video nobody clicked on is still a video that should play here.
     "--autoplay-policy=no-user-gesture-required",
     # Do not stop a stream because the page it is on is not in front.
@@ -201,7 +201,7 @@ BROWSER_ARGS = [
 # How far a finger has to travel before the gesture is scrolling rather than
 # a tap. Small enough that a deliberate drag is recognised at once, large
 # enough that the wobble of a fingertip on a press is not.
-DRAG_THRESHOLD = 3#12
+DRAG_THRESHOLD = 8#12
 # How long to wait between looks while the panel is dark. Long enough that the
 # loop stops costing anything, short enough that it is lost in the hundred
 # milliseconds the browser takes to repaint after the tap that woke it.
