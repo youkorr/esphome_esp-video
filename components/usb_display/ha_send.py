@@ -186,7 +186,7 @@ URGENT_FPS = 30.0
 # something makes the browser pay attention to it again.
 BROWSER_ARGS = [
     "--hide-scrollbars",
-    "--disable-gpu",
+    #"--disable-gpu",
     # A video nobody clicked on is still a video that should play here.
     "--autoplay-policy=no-user-gesture-required",
     # Do not stop a stream because the page it is on is not in front.
