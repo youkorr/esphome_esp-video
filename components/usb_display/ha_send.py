@@ -119,11 +119,11 @@ def rect_cost_fraction(width, height):
 #
 # Growing such a rectangle backwards costs a few pixels sent twice and fixes
 # it outright.
-MIN_RECT = 256 #64
+MIN_RECT = 1024 #64
 # However little changes, redraw everything this often. A dropped rectangle --
 # the board was busy, the socket hiccuped -- would otherwise stay wrong on the
 # panel forever, because nothing would ever mark that area as changed again.
-FULL_REDRAW_SECONDS = 30.0
+FULL_REDRAW_SECONDS = 5 #30.0
 # How long to let the browser run between looks. Short, because this is
 # what bounds how stale a change can be before it is even noticed; not
 # zero, because each look is a round trip into the browser.
