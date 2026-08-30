@@ -627,15 +627,36 @@ A single turn of the loop took three seconds. `PanelWriter` moves the write to
 a thread holding **one whole picture** — all-or-nothing, because a rectangle is
 never resent — and the loop asks `ready()` before it decodes anything. A link
 that cannot keep up therefore costs *pictures*, which is the right thing to
-lose, and `--stats` counts them as `skipped`. `SO_SNDBUF` is set to 65536 in
-`connect_tcp`, which is the board's own receive window (`TCP_WND_DEFAULT`
-64800): nothing above it is ever in flight, so the surplus was pure queue and
-capping it costs no throughput. On a link that keeps up neither change is
-visible — 24.0 pictures/s against 24.3, 70.5 Hz against 73.1.
+lose, and `--stats` counts them as `skipped`.
+
+**`SO_SNDBUF` was capped at 65536 alongside it, and that half was wrong and is
+gone.** The argument for it was that 65536 is the board's own receive window,
+so anything above it is pure queue and capping it costs no throughput. The
+argument was never measured against a fast link, and it was a ceiling the user
+had not asked for: reported as *"tu fais ce que je t'ai pas demandé, tu réduis
+le débit ?"*, with a VLC capture showing the board sustaining **25 932 kb/s,
+3549 frames, 0 lost, 0 corrupted** — 130 KiB pictures at 25 a second. Removed.
+
+The thread is the half that was worth keeping, and it is free. Measured against
+1.34.0 on the same page, same run, drains at 800 / 4000 / unthrottled KiB/s:
+**800.0 against 800.1, 1168.5 against 1183.7, 1187.7 against 1179.8 KiB/s** —
+the same to within noise at every rate, while the worst single turn of the loop
+goes from **2902 ms to 34 ms** and the loop from 48.9 Hz to 87.6.
+
+The lesson worth keeping is not about buffers. **A ceiling nobody asked for is
+a bug even when the reasoning behind it is sound**, and this one was defended
+with arithmetic instead of a measurement for two releases.
 
 `panel wait` therefore means something different now: it is the writer thread's
 time, not the loop's, so it can sit near 100% without a stutter. When it does,
 `skipped` is what the link is costing.
+
+**What the radio actually does, measured by the user with VLC** against the
+board serving its camera: 25 932 kb/s sustained, 460 660 KiB over the run,
+3549 frames displayed, **0 lost and 0 corrupted** — which is 130 KiB a picture
+at 25 a second. That is outbound and `usb_display` is inbound, so it is not the
+same path; but it is the same radio, and it settles that the link is not what
+stands between this and video at the panel's own resolution.
 
 **Where the second actually goes, measured phase by phase.** At 30 whole
 800×1280 panels a second, quality 60, the loop's own budget adds to 1000 ms/s
@@ -793,7 +814,7 @@ the dashboard, where it is invisible while the keys go on working.
 ahead of the `pip install` as well as the `ADD`s, so a bump refetches
 everything — at the cost of the browser download on each update.
 `present_browser()` prints the Chromium version at startup and warns below 114,
-so this is never diagnosed by guesswork again. Currently **1.38.0**.
+so this is never diagnosed by guesswork again. Currently **1.39.0**.
 
 `run.py` supervises one `ha_send.py` per panel: `SHARED_KEYS` lets the token,
 url, port, fps, quality, capture_quality, urgent_fps, urgent_window and stats be
