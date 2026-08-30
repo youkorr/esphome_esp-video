@@ -79,6 +79,7 @@ Assistant dashboard to appear; without one it does neither.
 | `keyboard` | The on-screen keyboard's layout, or `off`. See below |
 | `blank_after` | Seconds dark before a sleeping panel's page is let go of. See below |
 | `browser` | Which browser renders the pages. `auto` prefers one with the video codecs, `off` keeps Playwright's own, or give a full path. See below |
+| `render_width`, `render_height` | Draw smaller than the panel and let the board scale it up. The one real lever on what video costs. Per panel, and the board needs the same two numbers. See below |
 | `stats` | Print what is being sent every five seconds |
 
 ## The keyboard
@@ -150,15 +151,49 @@ lacks from a stream that went away from a site refusing to serve.
 `browser: off` keeps Playwright's own whatever is installed, and a full path
 names one exactly.
 
-Even with every codec, video is what this pipeline is worst at. It sends the
-part of the picture that changed, and a video changes all of it every frame, so
-every picture is a whole panel: about 100 KiB, and the machine running the
-sender tops out near seven a second whatever it is allowed. And there is no
-sound at all -- the panel's speaker is a USB sound card fed by whatever the
-cable is plugged into, and nothing carries audio over the network.
+### What video actually costs, and why 25 Mbit/s is not enough
 
-A silent slideshow at seven frames a second, costing a core of the server. Worth
-knowing before spending an evening on it.
+Even with every codec, video is what this pipeline is worst at, and the reason
+is worth stating plainly: **every picture sent is an independent JPEG of the
+whole panel.** There is no coding between one picture and the next. A real
+video codec sends the *difference* from the previous frame with motion
+compensation, which is why a 1080p stream fits in 5 Mbit/s. Whole JPEGs cost
+five to ten times that for the same picture.
+
+So the board's radio is not the problem. Measured on a photographic
+full-screen picture -- detail everywhere, as a film has:
+
+| drawn at | quality | per picture | at 24 pictures/s | at 15 pictures/s |
+|---|---|---|---|---|
+| 800x1280 | 80 | 254 KiB | **47.7 Mbit/s** | 29.8 Mbit/s |
+| 800x1280 | 60 | 171 KiB | 32.0 Mbit/s | 20.0 Mbit/s |
+| 800x1280 | 45 | 142 KiB | 26.6 Mbit/s | 16.6 Mbit/s |
+| 640x1024 | 60 | 110 KiB | 20.6 Mbit/s | 12.9 Mbit/s |
+| 640x1024 | 45 | 92 KiB | 17.1 Mbit/s | 10.7 Mbit/s |
+| 400x640 | 60 | 43 KiB | **8.1 Mbit/s** | 5.1 Mbit/s |
+
+The best a panel has ever been measured receiving is about 25 Mbit/s. The top
+row of that table asks for twice it. That is the whole of "the video lags very
+hard": the settings are asking for more than the link will ever carry, and
+what does not fit is simply not shown.
+
+A dashboard never runs into this, because only the part that changed is sent
+and most of a dashboard does not change.
+
+**The lever that works is `render_width` / `render_height`.** The page is drawn
+smaller and the board's accelerator scales it up to the panel -- silicon that
+is otherwise idle. It is the only setting that cuts the cost of a picture
+several-fold rather than by a quarter. Both numbers go on the panel here *and*
+under `usb_display:` on the board, and they have to match. They must keep the
+panel's shape and divide it into whole pixels: for an 800x1280 panel,
+`400x640` and `640x1024` both do. Set them to 0 or leave them out to draw at
+full size.
+
+For video, motion matters more than sharpness, so `400x640` with `fps: 24` is
+usually the better picture even though it is the smaller one.
+
+And there is no sound at all -- the panel's speaker is a USB sound card fed by
+whatever the cable is plugged into, and nothing carries audio over the network.
 
 ## Staying signed in
 

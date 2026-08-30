@@ -111,8 +111,16 @@ def check(path, esphome):
               "unreachable from here, so the rest of the file went unchecked")
         return 0
     print(f"  ECHEC  {path}")
-    lines = [l for l in both.splitlines()
-             if l.strip() and not l.startswith("INFO ")]
+    # esphome echoes the whole resolved configuration and puts each complaint
+    # inline, next to the key it is about. Printing the first lines therefore
+    # prints the echo and hides the message -- which cost two round trips to
+    # find out that a config had been rejected over something else entirely.
+    # Anything shaped like `key: value` is the echo; what is left is the fault.
+    echo = re.compile(r"^\s*-?\s*[\w.]+:\s*\S*\s*$")
+    lines = [
+        l for l in both.splitlines()
+        if l.strip() and not l.startswith("INFO ") and not echo.match(l)
+    ]
     for line in lines[:14]:
         print(f"         {line}")
     return 1
