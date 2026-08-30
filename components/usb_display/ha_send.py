@@ -59,6 +59,7 @@ import io
 import json
 import os
 import sys
+import threading
 import time
 
 # udisp_send.py is next to this file and owns the wire format. Importing it
@@ -627,6 +628,103 @@ def calibrate(endpoint, page_w, page_h, panel_w, panel_h, transpose, quality):
         )
     print("Add those options to the command line to keep this.\n")
     return best
+
+
+class PanelWriter:
+    """Keeps the socket's blocking write off the loop.
+
+    ``sendall`` does not return until the board has taken the bytes, and while
+    it waits nothing else in the loop happens at all: the browser is not
+    pumped, no contact is read, no picture is made. That is harmless while the
+    link keeps up and it is the whole of the stutter when it does not. A radio
+    that goes away for a couple of hundred milliseconds leaves whatever was in
+    flight to drain afterwards, and at video rates that is hundreds of
+    kilobytes -- so the loop stops for as long as the drain takes, which is
+    what "it freezes and then carries on" looks like from the panel. Measured
+    on a real one: a quarter of a five-second window spent inside this call,
+    and whole windows at 99%.
+
+    Writing from a thread turns a stall into the right kind of loss. The loop
+    never waits; a link that cannot keep up costs *pictures*, and a picture is
+    exactly the thing that is safe to lose, because the one after it replaces
+    it entirely.
+
+    One picture is held and no more, and it is all-or-nothing. A rectangle is
+    never resent, so half a picture would leave that part of the panel wrong
+    until the thirty-second redraw -- the same reason the board's own rate
+    limit decides per picture and not per rectangle.
+    """
+
+    def __init__(self, endpoint):
+        self._endpoint = endpoint
+        self._wake = threading.Condition()
+        # The one picture in hand, as a list of ready-made byte strings. It is
+        # cleared only once the last of them has gone out, so a loop asking
+        # whether it may hand over another is really asking whether the panel
+        # has caught up.
+        self._slot = None
+        self._error = None
+        self._stop = False
+        # Still worth counting even though the loop no longer pays it: it is
+        # the measure of whether the panel is the limit.
+        self.blocked = 0.0
+        self._thread = threading.Thread(
+            target=self._run, name="panel-writer", daemon=True
+        )
+        self._thread.start()
+
+    def _run(self):
+        while True:
+            with self._wake:
+                while self._slot is None and not self._stop:
+                    self._wake.wait()
+                if self._stop:
+                    return
+                blobs = self._slot
+            at = time.monotonic()
+            try:
+                for blob in blobs:
+                    self._endpoint.write(blob)
+            except OSError as err:  # noqa: PERF203
+                # Handed to the loop, which owns reconnecting.
+                with self._wake:
+                    self._error = err
+                    self._slot = None
+                    self._wake.notify_all()
+                return
+            with self._wake:
+                self.blocked += time.monotonic() - at
+                self._slot = None
+                self._wake.notify_all()
+
+    def ready(self):
+        """Whether the last picture is out and another may be handed over."""
+        with self._wake:
+            if self._error is not None:
+                raise self._error
+            return self._slot is None
+
+    def offer(self, blobs):
+        """Hand over a whole picture. Only call this after ``ready()``."""
+        with self._wake:
+            if self._error is not None:
+                raise self._error
+            self._slot = blobs
+            self._wake.notify()
+
+    def take_blocked(self):
+        """Seconds spent writing since the last time this was asked."""
+        with self._wake:
+            spent, self.blocked = self.blocked, 0.0
+        return spent
+
+    def close(self):
+        with self._wake:
+            self._stop = True
+            self._wake.notify_all()
+        # Never wait on a write that may itself be stuck: the socket is about
+        # to be closed under it, and the thread is a daemon.
+        self._thread.join(timeout=0.5)
 
 
 class Screencast:
@@ -2095,6 +2193,7 @@ def main():
         # rather than ending, so this can be left running as a service.
         while True:
             endpoint = connect_tcp(args.host, args.port)
+            writer = PanelWriter(endpoint)
             previous = None
             last_full = 0.0
             rectangles_sent = 0
@@ -2109,6 +2208,12 @@ def main():
             worst_turn = 0.0
             turn_at = time.monotonic()
             pictures = 0
+            # Pictures thrown away because the last one had not finished
+            # going out. This is the loop declining to queue behind a panel
+            # that is behind, and it is the intended behaviour rather than a
+            # fault -- but a large number means the link, not the sender, is
+            # what sets the frame rate.
+            skipped = 0
             loops = 0
             pending = None
             fulls = 0
@@ -2180,8 +2285,20 @@ def main():
                             print(f"Could not park the page ({err})")
                             asleep_since = started
 
+                    # Asked before the frame is taken, because it gates
+                    # both what is decoded and what is sent -- and because it
+                    # raises whatever the writer thread hit, so a lost socket
+                    # still reaches the reconnect below.
+                    free = writer.ready()
                     frame = capture.take()
                     if frame is not None:
+                        # A finished picture thrown away because the panel had
+                        # not finished taking the one before it. This is the
+                        # link setting the frame rate, and it is the intended
+                        # behaviour -- the loop declines to queue rather than
+                        # stopping to wait -- but it is the number that says so.
+                        if pending is not None and not free:
+                            skipped += 1
                         pending = frame
                     # Inside the window that a press opens, the faster limit.
                     # Nothing needs to be said about which frame the press
@@ -2194,7 +2311,8 @@ def main():
                     # latest, so a frame held here is replaced rather than
                     # queued.
                     shot = None
-                    if pending is not None and started - last_send >= limit:
+                    if (pending is not None and free
+                            and started - last_send >= limit):
                         shot, pending = pending, None
                         last_send = started
 
@@ -2241,9 +2359,17 @@ def main():
                     # panel that has just reconnected and knows nothing. A
                     # sleeping one is never a reason: only the heartbeat below
                     # goes out, which is enough to hold the connection open.
-                    if awake and image is not None and (
+                    want_send = awake and image is not None and (
                         shot is not None or previous is None or stale
-                    ):
+                    )
+                    # Nothing is queued behind a panel that is behind. Skipping
+                    # here rather than after the encode also saves the encode,
+                    # and leaving `previous` alone means the next picture is
+                    # diffed against the last one actually SENT -- so a skipped
+                    # frame costs nothing but itself.
+                    if want_send and not free:
+                        want_send = False
+                    if want_send:
                         # Everything, when there is nothing to compare against
                         # yet, and once in a while regardless: a rectangle lost
                         # to a busy board or a hiccuping socket would otherwise
@@ -2266,28 +2392,22 @@ def main():
                                 last_full = started
                                 fulls += 1
 
+                        blobs = []
                         for x, y, w, h in rectangles:
                             buffer = io.BytesIO()
                             image.crop((x, y, x + w, y + h)).save(
                                 buffer, format="JPEG", quality=args.quality
                             )
                             payload = buffer.getvalue()
-                            # Timed, because a socket that will not take any
-                            # more is the one bottleneck this loop cannot see
-                            # any other way. The write blocks when the board
-                            # is behind, and while it blocks nothing else
-                            # happens at all -- no browser pumped, no contact
-                            # read. A large share here means the panel is the
-                            # limit; a small one means it is not, and the
-                            # stutter is somewhere else entirely.
-                            blocked_at = time.monotonic()
-                            endpoint.write(
+                            blobs.append(
                                 build_header(w, h, len(payload), frame_id, x, y)
                                 + payload
                             )
-                            blocked += time.monotonic() - blocked_at
                             rectangles_sent += 1
                             bytes_sent += len(payload)
+                        # The whole picture in one handover, so the writer
+                        # cannot be interrupted halfway through it.
+                        writer.offer(blobs)
 
                         if args.show_changes:
                             for x, y, w, h in rectangles:
@@ -2304,8 +2424,8 @@ def main():
                             # of its rectangles.
                             frame_id = (frame_id + 1) & 0x3FF
                         last_sent = started
-                    elif started - last_sent >= HEARTBEAT_S:
-                        endpoint.write(build_heartbeat())
+                    elif started - last_sent >= HEARTBEAT_S and free:
+                        writer.offer([build_heartbeat()])
                         last_sent = started
 
                     reports = []
@@ -2384,6 +2504,7 @@ def main():
                         keyboard.tick(now)
                     if args.stats and now - stats_at >= 5.0:
                         elapsed = now - stats_at
+                        blocked += writer.take_blocked()
                         print(
                             f"{pictures / elapsed:.1f} pictures/s, "
                             # What the browser made, against what was worth
@@ -2403,7 +2524,15 @@ def main():
                             f"{bytes_sent / elapsed / 1024:.1f} KiB/s, "
                             # What share of the wall clock went into a write
                             # that the panel would not accept yet.
+                            # What share of the wall clock the writer
+                            # thread spent inside a write the panel would not
+                            # take yet. The loop no longer waits with it, so
+                            # this can sit near 100% without a stutter -- but
+                            # then `skipped` is what the link is costing.
                             f"panel wait {blocked / elapsed * 100:.0f}%, "
+                            # Pictures dropped rather than queued behind a
+                            # panel that had not finished taking the last one.
+                            f"{skipped} skipped, "
                             # The tail, which the averages above cannot show.
                             f"worst gap {worst_gap * 1000:.0f} ms, "
                             f"worst turn {worst_turn * 1000:.0f} ms, "
@@ -2430,6 +2559,7 @@ def main():
                             print("  busiest areas: " + "; ".join(spots))
                             heat[:] = 0
                         rectangles_sent = bytes_sent = pictures = loops = 0
+                        skipped = 0
                         blocked = worst_gap = worst_turn = 0.0
                         capture.produced = fulls = 0
                         stats_at = now
@@ -2438,6 +2568,7 @@ def main():
                 if injector is not None:
                     injector.release()
             finally:
+                writer.close()
                 endpoint.close()
 
 

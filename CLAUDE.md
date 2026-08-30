@@ -490,6 +490,48 @@ ran at 59.7/s, and one such card on the page took a three-mover page from 57.3
 to 59.2 — no effect whatever. Ack pacing helps those; freezing does not. Try it
 with `--stats` and keep it only if the idle rate drops.
 
+**The write is not allowed to stop the loop, and the kernel is not allowed to
+hoard.** These are two halves of one fault and both had to move. `sendall`
+does not return until the board has taken the bytes, and it is called from the
+loop, so while it waits *nothing else happens at all* — no browser pumped, no
+contact read, no picture made. And Linux, left alone, grows a send buffer into
+the megabytes, so a sender producing faster than the link drains does not block
+at all: it fills that buffer, and every picture in it is seconds old by the time
+the board decodes it. Together they are exactly the report — *"des lags toutes
+les 3 secondes et des fois il ce fige et reprend"*.
+
+Measured against a fake panel draining at 500 KiB/s with a third of a second of
+outage every three, which is what a Wi-Fi radio that goes away looks like:
+
+| | worst turn | loop | worst gap |
+|---|---|---|---|
+| as it was | **3007 ms** | 25.3 Hz | 479 ms |
+| send buffer bounded only | 479 ms | 48.4 Hz | 479 ms |
+| bounded + written from a thread | **68 ms** | **85.9 Hz** | 461 ms |
+
+A single turn of the loop took three seconds. `PanelWriter` moves the write to
+a thread holding **one whole picture** — all-or-nothing, because a rectangle is
+never resent — and the loop asks `ready()` before it decodes anything. A link
+that cannot keep up therefore costs *pictures*, which is the right thing to
+lose, and `--stats` counts them as `skipped`. `SO_SNDBUF` is set to 65536 in
+`connect_tcp`, which is the board's own receive window (`TCP_WND_DEFAULT`
+64800): nothing above it is ever in flight, so the surplus was pure queue and
+capping it costs no throughput. On a link that keeps up neither change is
+visible — 24.0 pictures/s against 24.3, 70.5 Hz against 73.1.
+
+`panel wait` therefore means something different now: it is the writer thread's
+time, not the loop's, so it can sit near 100% without a stutter. When it does,
+`skipped` is what the link is costing.
+
+**Where the second actually goes, measured phase by phase.** At 30 whole
+800×1280 panels a second, quality 60, the loop's own budget adds to 1000 ms/s
+with 4 ms unaccounted: **pump 550, decode 185, encode+send 145, diff 65,
+ack 42**. The pump is `wait_for_timeout(8)` — deliberate sleep, not work — so
+the real cost is about 440 ms/s and the sender is *not* CPU-bound at 30 fps.
+An earlier reading of this said it was, from timing only the long turns; long
+turns bill the pump for whatever arrived during it. Time the whole window and
+add a residual, or the conclusion inverts.
+
 **`--stats` also reports `panel wait`, which is the one bottleneck the loop
 cannot otherwise see.** The socket is blocking, so when the board is behind the
 write stalls inside `sendall` and *nothing else happens at all* — no browser
