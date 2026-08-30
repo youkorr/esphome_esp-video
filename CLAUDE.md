@@ -275,6 +275,41 @@ no route to it from where this was written — and it fixes nothing about the
 codecs: that build has no H.264, no AAC and no EME, so a video may still
 refuse where a search box now works.
 
+**The browser it downloads cannot play video, and that is what YouTube's
+"un probleme est survenu" is.** Measured on the exact build the add-on fetches,
+141.0.7390.37, through `MediaSource.isTypeSupported`: **H.264 no, AAC no, HLS
+no**, and `navigator.requestMediaKeySystemAccess` does not exist at all, so
+there is no DRM of any kind. VP9, VP8, AV1, Opus and Vorbis are all yes. A
+player picks its formats by asking those questions — not by reading the user
+agent — so a site that offers nothing else starts a video on what it can and
+stops when it needs one of the missing ones. A dashboard never notices.
+
+Three things came out of that, and only the first is a guess:
+
+- The add-on's image installs a second browser — `playwright install chrome`
+  first because Chrome carries Widevine too, the distribution's `chromium` when
+  there is no Chrome build for the architecture (Google publishes none for
+  arm64, and a Home Assistant box is often a Pi). **Neither is allowed to fail
+  the build**: the `RUN` ends in `; true`, because a panel that shows a
+  dashboard is worth more than one that plays video. **Not verified** — there
+  is no route to YouTube, to `deb.debian.org` or to `dl.google.com` from where
+  this was written, and no Docker daemon either, so that Debian builds Chromium
+  with `ffmpeg_branding=Chrome` is taken on reputation rather than measured.
+- `--browser` now defaults to `auto`: prefer a system browser from
+  `SYSTEM_BROWSERS`, and **fall back to Playwright's own if it will not start**.
+  That fallback is what makes preferring one safe, and it is exercised —
+  Ubuntu's `/usr/bin/chromium-browser` is a snap wrapper that does not run in a
+  container, `auto` picks it, it fails, and the sender carries on. `off` keeps
+  Playwright's whatever is installed; a path names one exactly.
+- `report_media()` prints the codec table at every start, and `MEDIA_INIT_JS`
+  reports the reason from the media element itself the first time each one
+  fails: `Media: format not supported: DEMUXER_ERROR_COULD_NOT_OPEN: ...`.
+  Before this, every cause of "the video stops" looked identical from the
+  panel. The listener sits on the **window in the capture phase** — a media
+  `error` does not bubble but the capture path still runs through the window —
+  so nothing has to be swept for as the page builds itself, and it writes
+  nothing into the page, so no Trusted Types policy can refuse it.
+
 **A profile on disk is what makes signing in worth doing.** Without
 `--profile` the browser is launched into a directory it throws away, so every
 restart is a first visit: a site signed into is signed out, and a consent
@@ -679,7 +714,7 @@ the dashboard, where it is invisible while the keys go on working.
 ahead of the `pip install` as well as the `ADD`s, so a bump refetches
 everything — at the cost of the browser download on each update.
 `present_browser()` prints the Chromium version at startup and warns below 114,
-so this is never diagnosed by guesswork again. Currently **1.34.0**.
+so this is never diagnosed by guesswork again. Currently **1.36.0**.
 
 `run.py` supervises one `ha_send.py` per panel: `SHARED_KEYS` lets the token,
 url, port, fps, quality, capture_quality, urgent_fps, urgent_window and stats be
