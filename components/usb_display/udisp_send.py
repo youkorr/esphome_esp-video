@@ -263,29 +263,6 @@ def connect_tcp(host, port):
             sock = socket.create_connection((host, port), timeout=5)
             sock.settimeout(None)
             sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-            # Bound what may sit in the kernel waiting to go out.
-            #
-            # This is the difference between a picture that is late and a
-            # picture that is stale. Left alone, Linux grows the send buffer
-            # into the megabytes, so a sender producing faster than the link
-            # drains does not block -- it fills that buffer, and every picture
-            # in it is already several seconds old by the time the board
-            # decodes it. Measured against a panel draining at 500 KiB/s with
-            # a third of a second of outage every three: a single write took
-            # 3.0 SECONDS to return, and what came out the far end was that
-            # far behind. It reads exactly like the video freezing and then
-            # catching up, which is how it was reported.
-            #
-            # Sixty-four kilobytes is the board's own receive window (64800),
-            # so nothing above it is ever in flight anyway -- the surplus is
-            # pure queue. With it, a link that cannot keep up makes the write
-            # block early, PanelWriter absorbs that off the loop, and the loop
-            # drops pictures instead of stacking them. The panel then shows
-            # fewer pictures, all of them recent.
-            try:
-                sock.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 65536)
-            except OSError:
-                pass
             print(f"Connected to {host}:{port}")
             return _TcpEndpoint(sock)
         except OSError as err:

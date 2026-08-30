@@ -172,25 +172,27 @@ full-screen picture -- detail everywhere, as a film has:
 | 640x1024 | 45 | 92 KiB | 17.1 Mbit/s | 10.7 Mbit/s |
 | 400x640 | 60 | 43 KiB | **8.1 Mbit/s** | 5.1 Mbit/s |
 
-The best a panel has ever been measured receiving is about 25 Mbit/s. The top
-row of that table asks for twice it. That is the whole of "the video lags very
-hard": the settings are asking for more than the link will ever carry, and
-what does not fit is simply not shown.
+What the radio does is a separate question, and it has been measured: a board
+serving its camera sustained **25 932 kb/s to VLC, 3549 frames, 0 lost and 0
+corrupted** -- 130 KiB pictures at 25 a second. So the link carries the fourth
+and fifth rows comfortably and the third at a squeeze. Nothing here caps it:
+the sender writes as fast as the socket will take, and the one place it used to
+bound the kernel's send buffer has been removed.
 
-A dashboard never runs into this, because only the part that changed is sent
-and most of a dashboard does not change.
+A dashboard never runs into any of this, because only the part that changed is
+sent and most of a dashboard does not change.
 
-**The lever that works is `render_width` / `render_height`.** The page is drawn
-smaller and the board's accelerator scales it up to the panel -- silicon that
-is otherwise idle. It is the only setting that cuts the cost of a picture
-several-fold rather than by a quarter. Both numbers go on the panel here *and*
-under `usb_display:` on the board, and they have to match. They must keep the
-panel's shape and divide it into whole pixels: for an 800x1280 panel,
-`400x640` and `640x1024` both do. Set them to 0 or leave them out to draw at
-full size.
+**If a panel does need less, `render_width` / `render_height` is the lever.**
+The page is drawn smaller and the board's accelerator scales it up -- silicon
+that is otherwise idle -- and it is the only setting that cuts the cost of a
+picture several-fold rather than by a quarter. It is **off by default and meant
+to stay off**: the panel's own resolution is the point. Both numbers go on the
+panel here *and* under `usb_display:` on the board, and they have to match, keep
+the panel's shape, and divide it into whole pixels -- for an 800x1280 panel,
+`400x640` and `640x1024` both do.
 
-For video, motion matters more than sharpness, so `400x640` with `fps: 24` is
-usually the better picture even though it is the smaller one.
+The setting that costs nothing to try first is `quality`. Going from 80 to 60 is
+a third off the bytes at the same resolution and the same frame rate.
 
 And there is no sound at all -- the panel's speaker is a USB sound card fed by
 whatever the cable is plugged into, and nothing carries audio over the network.
