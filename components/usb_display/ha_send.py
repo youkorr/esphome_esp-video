@@ -70,7 +70,7 @@ from udisp_send import build_header, build_heartbeat, connect_tcp  # noqa: E402
 # Small tiles find changes precisely and cost many rectangles; large ones cost
 # few rectangles and send unchanged pixels along with the changed ones. 64 is a
 # compromise that keeps a clock's worth of change down to one or two tiles.
-TILE = 128 #64
+TILE = 64
 # What one rectangle costs the board on top of its pixels, as a fraction of a
 # whole-panel decode. Measured: the panel decodes in 8.5 ms and each rectangle
 # adds roughly 1.5 ms of fixed work on top of its share of that.
