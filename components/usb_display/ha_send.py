@@ -13,11 +13,11 @@ written into storage the way the frontend writes it after one. Nothing else
 about this is particular to Home Assistant. Leave --token out and any page at
 all is rendered, diffed and sent by the same code.
 
-    ./ha_send.py --calibrate --host 192.168.1.9 --width 1024 --height 600
-    ./ha_send.py --host 192.168.1.9 --width 1024 --height 600 \
+    ./ha_send.py --calibrate --host "ip esp32P4" --width 1024 --height 600
+    ./ha_send.py --host "ip esp32P4"--width 1024 --height 600 \
         --url http://homeassistant.local:8123/lovelace/0 --token <long-lived> \
         --touch-rotate 0
-    ./ha_send.py --host 192.168.1.9 --width 1024 --height 600 \
+    ./ha_send.py --host "ip esp32P4"--width 1024 --height 600 \
         --url https://example.com/ --touch-rotate 0
 
 Calibrate first, once per board. There is no way to know from here which way a
@@ -119,7 +119,7 @@ def rect_cost_fraction(width, height):
 #
 # Growing such a rectangle backwards costs a few pixels sent twice and fixes
 # it outright.
-MIN_RECT = 64
+MIN_RECT =  64
 # However little changes, redraw everything this often. A dropped rectangle --
 # the board was busy, the socket hiccuped -- would otherwise stay wrong on the
 # panel forever, because nothing would ever mark that area as changed again.
