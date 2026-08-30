@@ -78,6 +78,7 @@ Assistant dashboard to appear; without one it does neither.
 | `quality` | JPEG quality, 1..95 |
 | `keyboard` | The on-screen keyboard's layout, or `off`. See below |
 | `blank_after` | Seconds dark before a sleeping panel's page is let go of. See below |
+| `browser` | Which browser renders the pages. `auto` prefers one with the video codecs, `off` keeps Playwright's own, or give a full path. See below |
 | `stats` | Print what is being sent every five seconds |
 
 ## The keyboard
@@ -117,13 +118,37 @@ from cache.
 
 ## Video, and why it is the worst thing to ask of this
 
-Measured on the browser this ships with: no H.264, no AAC, no DRM. VP9, AV1 and
-Opus are there. YouTube negotiates a format through Media Source Extensions,
-starts a video on what it can, and then stops with "un probleme est survenu"
-when it needs one of the missing ones. A Chromium packaged by a distribution
-usually carries them, and `--browser /usr/bin/chromium` on the sender points at
-one -- that path is not offered in this form, because it would not help as much
-as it sounds.
+Measured on the Chromium Playwright downloads, 141.0.7390.37: **no H.264, no
+AAC, no HLS**, and `navigator.requestMediaKeySystemAccess` does not even exist,
+so no DRM of any kind. VP9, VP8, AV1, Opus and Vorbis are all there. A dashboard
+never notices any of that. A video site does: its player chooses its formats by
+asking the browser what it can decode, and a stream it cannot decode ends as
+"un probleme est survenu" a few seconds in.
+
+So the image now carries a second browser -- Google Chrome where there is a
+build for the architecture, the distribution's Chromium otherwise, both of which
+have the codecs -- and `browser: auto`, the default, prefers it. If neither
+could be installed, or the one that was will not start, the sender falls back to
+Playwright's own and says so. Nothing about a dashboard changes either way.
+
+The log settles which happened, at every start:
+
+```
+Browser: running /usr/bin/google-chrome-stable
+Browser: decodes H.264 yes, AAC yes, VP9 yes, AV1 yes, Opus yes; DRM yes
+```
+
+and when a video stops anyway, the reason the browser gave for it:
+
+```
+Media: format not supported: DEMUXER_ERROR_NO_SUPPORTED_STREAMS
+```
+
+That line is worth quoting in a bug report -- it separates a codec the browser
+lacks from a stream that went away from a site refusing to serve.
+
+`browser: off` keeps Playwright's own whatever is installed, and a full path
+names one exactly.
 
 Even with every codec, video is what this pipeline is worst at. It sends the
 part of the picture that changed, and a video changes all of it every frame, so

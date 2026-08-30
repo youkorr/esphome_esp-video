@@ -209,9 +209,169 @@ DRAG_THRESHOLD = 12
 SLEEP_PUMP_MS = 100
 
 
+# Where a browser with the proprietary codecs is usually found.
+#
+# The Chromium that Playwright downloads is built without them. Measured on the
+# one this ships with, 141.0.7390.37: H.264 no, AAC no, HLS no, and
+# navigator.requestMediaKeySystemAccess does not even exist, so there is no DRM
+# of any kind. VP9, VP8, AV1, Opus and Vorbis are all there.
+#
+# For a dashboard none of that matters. For YouTube it decides whether a video
+# plays at all: the player picks its formats by asking isTypeSupported, and a
+# stream it cannot decode ends as "un probleme est survenu" a few seconds in --
+# which is exactly how it was reported. A Chromium packaged by a distribution
+# is built with ffmpeg_branding=Chrome and does have them, so preferring one
+# when it is installed costs nothing and fixes the whole class.
+#
+# Order matters: a real Chrome first, because it also carries Widevine.
+SYSTEM_BROWSERS = (
+    "/usr/bin/google-chrome-stable",
+    "/usr/bin/google-chrome",
+    "/usr/bin/chromium",
+    "/usr/bin/chromium-browser",
+    "/snap/bin/chromium",
+)
 # The popover API is what puts the on-screen keyboard in the top layer, above
 # Home Assistant's own modal dialogs. It arrived in Chromium 114.
 POPOVER_SINCE = 114
+
+
+# Reported from the page whenever a <video> or an <audio> gives up.
+#
+# Without this the only thing anybody can say is "the video stops", and every
+# cause looks the same from the panel. The element's own error carries
+# Chromium's internal reason -- DEMUXER_ERROR_NO_SUPPORTED_STREAMS for a format
+# it cannot decode, PIPELINE_ERROR_DECODE for one it started and could not
+# finish, a network reason for a stream that went away -- so one line of log
+# separates a codec problem from a link problem from a site refusing to serve.
+#
+# The listener sits on the window in the capture phase: an error on a media
+# element does not bubble, but the capture path still runs through the window,
+# so nothing has to be swept for or watched as the page builds itself. It
+# writes nothing into the page, so no Trusted Types policy can refuse it.
+MEDIA_INIT_JS = """
+(() => {
+  const CODES = {1: 'aborted', 2: 'network', 3: 'decode',
+                 4: 'format not supported'};
+  const said = new Set();
+  window.addEventListener('error', (ev) => {
+    try {
+      const el = ev.target;
+      if (!el || (el.tagName !== 'VIDEO' && el.tagName !== 'AUDIO')) return;
+      const err = el.error;
+      if (!err) return;
+      let what = CODES[err.code] || ('code ' + err.code);
+      if (err.message) what += ': ' + err.message;
+      if (said.has(what)) return;
+      said.add(what);
+      window.__udispMediaError(what);
+    } catch (e) { /* never cost the page anything */ }
+  }, true);
+})();
+"""
+
+# What the browser can actually decode. The player of any video site asks these
+# same questions before it chooses a format, so this is the list that decides
+# whether a video can play -- not the user agent, and not the version.
+MEDIA_PROBE_JS = """() => {
+  const ask = (t) => {
+    try {
+      return !!(window.MediaSource && MediaSource.isTypeSupported
+                && MediaSource.isTypeSupported(t));
+    } catch (e) { return false; }
+  };
+  return {
+    h264: ask('video/mp4; codecs="avc1.42E01E"'),
+    aac: ask('audio/mp4; codecs="mp4a.40.2"'),
+    vp9: ask('video/webm; codecs="vp9"'),
+    av1: ask('video/mp4; codecs="av01.0.05M.08"'),
+    opus: ask('audio/webm; codecs="opus"'),
+    eme: !!navigator.requestMediaKeySystemAccess,
+  };
+}"""
+
+
+def _launch(playwright, executable, profile, view, browser_args):
+    """Start the browser, and fall back to Playwright's own if it will not.
+
+    Preferring a system browser is only safe if being wrong about it costs
+    nothing. A path can exist and still not run -- a snap wrapper with no
+    snapd behind it, a package half-installed, a binary for another
+    architecture -- and the panel should not go dark over a browser that was
+    only ever a preference.
+    """
+    def start(path):
+        if profile:
+            os.makedirs(profile, exist_ok=True)
+            return playwright.chromium.launch_persistent_context(
+                profile, args=browser_args, viewport=view,
+                device_scale_factor=1, executable_path=path,
+            )
+        return playwright.chromium.launch(
+            args=browser_args, executable_path=path
+        ).new_context(viewport=view, device_scale_factor=1)
+
+    if executable is None:
+        return start(None)
+    try:
+        return start(executable)
+    except Exception as err:  # noqa: BLE001 - anything at all means fall back
+        # Collapsed, because Playwright's own message runs to several lines
+        # and a log that wraps is a log nobody reads.
+        why = " ".join(str(err).split())[:160]
+        print(f"Browser: {executable} would not start ({why}), "
+              f"using Playwright's own")
+        return start(None)
+
+
+def pick_browser(wanted):
+    """Settle which browser executable to run, and say why.
+
+    "auto" prefers a browser installed on the machine over the one Playwright
+    downloaded, for one reason only: the downloaded one has no proprietary
+    codecs. Everything else about it is fine, and if there is no system browser
+    the downloaded one is what runs, exactly as before.
+    """
+    if wanted in ("", "off", "none"):
+        return None
+    if wanted != "auto":
+        if not os.path.exists(wanted):
+            print(f"Browser: {wanted} is not there, using Playwright's own")
+            return None
+        return wanted
+    for path in SYSTEM_BROWSERS:
+        if os.path.exists(path):
+            return path
+    return None
+
+
+def report_media(page):
+    """Print what this browser can decode, and warn when a video site will fail.
+
+    Printed always rather than on demand, because the failure it predicts is
+    silent from here and unmistakable from the panel: the video starts, runs
+    for a few seconds and stops with a message from the site rather than from
+    the browser. Nothing in the sender's log said why until this line existed.
+    """
+    try:
+        can = page.evaluate(MEDIA_PROBE_JS)
+    except Exception as err:  # noqa: BLE001 - never fail to start over this
+        print(f"Browser: could not be asked what it decodes ({err})")
+        return
+    yes = lambda k: "yes" if can.get(k) else "no"  # noqa: E731
+    print(
+        f"Browser: decodes H.264 {yes('h264')}, AAC {yes('aac')}, "
+        f"VP9 {yes('vp9')}, AV1 {yes('av1')}, Opus {yes('opus')}; "
+        f"DRM {yes('eme')}"
+    )
+    if not can.get("h264") or not can.get("aac"):
+        print(
+            "Warning: this browser has no H.264 and no AAC, so a video site "
+            "that offers no other format will start a video and then stop it "
+            "-- YouTube says 'un probleme est survenu'. Install a Chromium "
+            "packaged by your distribution and the sender will prefer it, or "
+            "point --browser at one."
+        )
 
 
 def present_browser(session, keyboard_wanted, wanted_agent):
@@ -1871,14 +2031,16 @@ def main():
     )
     parser.add_argument(
         "--browser",
-        default="",
+        default="auto",
         metavar="PATH",
-        help="run this browser instead of the one Playwright brought. Its own "
-        "is built without the proprietary codecs, so it has no H.264 and no "
-        "AAC and no DRM: YouTube starts a video on VP9 and then stops with "
-        "'un probleme est survenu'. A Chromium packaged by a distribution "
-        "usually has them -- /usr/bin/chromium on Debian. It does not make "
-        "video good here, only possible: see the README",
+        help="which browser to run. 'auto', the default, prefers one installed "
+        "on this machine over the one Playwright downloaded, and falls back to "
+        "Playwright's if there is none or if it will not start. The downloaded "
+        "one is built without the proprietary codecs -- no H.264, no AAC, no "
+        "DRM at all -- so a video site that offers nothing else starts a video "
+        "and then stops it, which is what YouTube's 'un probleme est survenu' "
+        "is. A Chromium packaged by a distribution has them. Give a path to "
+        "name one exactly, or 'off' to keep Playwright's whatever is installed",
     )
     parser.add_argument(
         "--profile",
@@ -2084,6 +2246,11 @@ def main():
 
     with sync_playwright() as playwright:
         view = {"width": page_w, "height": page_h}
+        # Settled once, before anything is launched, so both paths below agree
+        # and the log says which browser is about to run.
+        executable = pick_browser(args.browser)
+        if executable:
+            print(f"Browser: running {executable}")
         if args.profile:
             # A profile on disk, so that what somebody signs into stays signed
             # in. Cookies, local storage and the rest live here instead of in a
@@ -2094,16 +2261,20 @@ def main():
             # One directory per panel, and not negotiable: Chromium locks a
             # profile, and a second browser pointed at the same one refuses to
             # start.
-            os.makedirs(args.profile, exist_ok=True)
             print(f"Browser: keeping its profile in {args.profile}")
-            context = playwright.chromium.launch_persistent_context(
-                args.profile, args=BROWSER_ARGS, viewport=view,
-                device_scale_factor=1, executable_path=args.browser or None,
+            context = _launch(
+                playwright, executable, args.profile, view, BROWSER_ARGS
             )
         else:
-            context = playwright.chromium.launch(
-                args=BROWSER_ARGS, executable_path=args.browser or None
-            ).new_context(viewport=view, device_scale_factor=1)
+            context = _launch(playwright, executable, None, view, BROWSER_ARGS)
+        # Installed on the context so it is in every frame of every page,
+        # including the ones a site makes for itself and the one that comes
+        # back after the page is parked. It is the line that names why a video
+        # stopped, which nothing in the log did before.
+        context.expose_function(
+            "__udispMediaError", lambda what: print(f"Media: {what}")
+        )
+        context.add_init_script(MEDIA_INIT_JS)
         if args.token:
             install_token(context, args.url, args.token)
         # Filled in once the keyboard exists, which is after the page. The
@@ -2132,6 +2303,7 @@ def main():
             context.new_cdp_session(page), args.keyboard != "off",
             args.user_agent,
         )
+        report_media(page)
         if user_agent is not None:
             # The other half of the same tell. A page that reads one usually
             # reads the other.

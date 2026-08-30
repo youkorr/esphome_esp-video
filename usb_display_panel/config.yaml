@@ -1,5 +1,5 @@
 name: ESP32-P4 Panel
-version: "1.35.0"
+version: "1.36.0"
 slug: usb_display_panel
 description: Renders Home Assistant dashboards onto ESPHome usb_display panels over the network, with touch coming back
 url: https://github.com/youkorr/esphome_esp-video
@@ -65,6 +65,15 @@ options:
   # signed into is signed out again, and a consent banner comes back. With it,
   # sign in once from the panel's keyboard and it stays signed in.
   keep_profile: true
+  # Which browser renders the pages. "auto" prefers one installed in the
+  # image -- Chrome, or the distribution's Chromium -- over the one Playwright
+  # downloads, for one reason: the downloaded one is built without the
+  # proprietary codecs, so it has no H.264 and no AAC and no DRM at all. A
+  # dashboard never notices; YouTube does, and stops a video after a few
+  # seconds with "un probleme est survenu". The sender prints which browser it
+  # started and what it can decode, so the log settles it. Set it to "off" to
+  # keep Playwright's own whatever is installed, or to a full path to name one.
+  browser: auto
   stats: true
   panels:
     - name: salon

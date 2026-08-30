@@ -23,13 +23,38 @@ WORKDIR /app
 # update really does fetch a current Playwright, a current Chromium and current
 # senders. It costs the browser download on each update, which is the price of
 # not running a year-old browser without knowing it.
-ARG BUNDLE=1.35.0
+ARG BUNDLE=1.36.0
 RUN echo "${BUNDLE}" > /app/BUNDLE
 
 RUN pip install --no-cache-dir --upgrade playwright pillow numpy \
     && playwright install --with-deps chromium \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/* /root/.cache/pip
+
+# A second browser, for one reason: the Chromium Playwright downloads is built
+# without the proprietary codecs. Measured on 141.0.7390.37 -- H.264 no, AAC
+# no, HLS no, and requestMediaKeySystemAccess does not even exist, so no DRM of
+# any kind. A dashboard never notices. YouTube does: its player chooses its
+# formats by asking the browser what it can decode, and one it cannot decode
+# ends as "un probleme est survenu" a few seconds in.
+#
+# Chrome carries the codecs and Widevine both, but Google publishes no arm64
+# Linux build, so a Home Assistant box on a Pi falls to the distribution's
+# Chromium -- which Debian builds with ffmpeg_branding=Chrome and which does
+# have them. The sender prefers whichever of these is installed and says in its
+# log which one it started and what it can decode.
+#
+# Nothing here is allowed to fail the build. A panel that shows a dashboard is
+# worth more than a panel that plays video, so if neither browser can be had,
+# the image is still the working image it was before -- the sender falls back
+# to Playwright's own, exactly as it did.
+RUN (playwright install --with-deps chrome \
+     || (apt-get update \
+         && apt-get install -y --no-install-recommends chromium) \
+     || echo "no codec-capable browser here; Playwright's own will be used") \
+    ; apt-get clean \
+    ; rm -rf /var/lib/apt/lists/* /root/.cache/pip \
+    ; true
 
 # Fetched rather than copied: a Home Assistant add-on builds with its own folder
 # as the context and cannot reach the components directory beside it. Rebuilding
