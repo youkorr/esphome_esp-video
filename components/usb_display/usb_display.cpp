@@ -218,6 +218,12 @@ bool USBDisplay::allocate_rotation_() {
   ppa_client_config_t ppa_config = {};
   ppa_config.oper_type = PPA_OPERATION_SRM;
   ppa_config.max_pending_trans_num = 1;
+  // Left at the driver's default until now, which is not a neutral choice on
+  // this part: the accelerator and the display controller read the same
+  // external memory, and a long burst holds it for longer at a time. See
+  // set_ppa_burst.
+  ppa_config.data_burst_length =
+      this->ppa_burst_ >= 128 ? PPA_DATA_BURST_LENGTH_128 : PPA_DATA_BURST_LENGTH_64;
   esp_err_t err = ppa_register_client(&ppa_config, &this->ppa_client_);
   if (err != ESP_OK) {
     ESP_LOGE(TAG, "ppa_register_client() failed: %s", esp_err_to_name(err));
@@ -338,7 +344,9 @@ bool USBDisplay::rotate_(const Frame &frame, uint16_t padded_width, uint16_t pad
   srm.scale_y = (float) this->height_ / (float) this->render_height_;
   srm.mode = PPA_TRANS_MODE_BLOCKING;
 
+  const uint32_t ppa_started = micros();
   esp_err_t err = ppa_do_scale_rotate_mirror(this->ppa_client_, &srm);
+  this->ppa_us_ += micros() - ppa_started;
   if (err != ESP_OK) {
     if (!this->logged_rotate_error_) {
       this->logged_rotate_error_ = true;
@@ -671,9 +679,13 @@ void USBDisplay::run_decode_task() {
       const bool dropping = this->frames_dropped_ > 0;
       if (!this->logged_stats_ || dropping != this->was_dropping_ ||
           fabsf(fps - this->last_fps_) >= STATS_FPS_EPSILON) {
-        ESP_LOGD(TAG, "%ux%u @ %.1f fps, %u us/draw, %u dropped (%u no buffer, %u too soon, %u decode, %u rotate)",
+        ESP_LOGD(TAG,
+                 "%ux%u @ %.1f fps, %u us/draw (%u in the PPA at %u-byte bursts), "
+                 "%u dropped (%u no buffer, %u too soon, %u decode, %u rotate)",
                  (unsigned) this->last_frame_w_, (unsigned) this->last_frame_h_, fps,
-                 (unsigned) (this->draw_us_ / this->frames_drawn_), (unsigned) this->frames_dropped_,
+                 (unsigned) (this->draw_us_ / this->frames_drawn_),
+                 (unsigned) (this->ppa_us_ / this->frames_drawn_), (unsigned) this->ppa_burst_,
+                 (unsigned) this->frames_dropped_,
                  (unsigned) this->dropped_no_buffer_, (unsigned) this->dropped_too_soon_, (unsigned) this->dropped_decode_,
                  (unsigned) this->dropped_rotate_);
         this->logged_stats_ = true;
@@ -688,6 +700,7 @@ void USBDisplay::run_decode_task() {
       this->dropped_decode_ = 0;
       this->dropped_rotate_ = 0;
       this->draw_us_ = 0;
+      this->ppa_us_ = 0;
     }
   }
 }

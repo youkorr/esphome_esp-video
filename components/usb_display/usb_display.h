@@ -78,6 +78,14 @@ class USBDisplay : public Component
   /// Clockwise, in degrees; 0, 90, 180 or 270. Done by the P4's pixel-processing
   /// accelerator, so it costs no CPU.
   void set_rotation(uint16_t degrees) { this->rotation_ = degrees; }
+  // How much the accelerator moves per burst. Measured in this author's LVGL
+  // work on the same silicon: a 64-byte burst leaves more external-memory
+  // bandwidth for the MIPI-DSI controller's own fetch of the framebuffer,
+  // which is the thing this competes with; a 128-byte burst gets the
+  // accelerator through its own work faster. Which one wins depends on how
+  // much of the panel is being redrawn, so it is measured rather than
+  // assumed -- the stats line reports the time spent in the accelerator.
+  void set_ppa_burst(uint16_t bytes) { this->ppa_burst_ = bytes; }
   /// TCP port to accept frames on, in addition to the USB interface. Zero
   /// leaves the board USB-only.
   void set_port(uint16_t port) { this->port_ = port; }
@@ -285,6 +293,7 @@ class USBDisplay : public Component
   // Rotation, for a panel that is not mounted the way the host sends its
   // frames. Null client means none was asked for and nothing is allocated.
   uint16_t rotation_{0};
+  uint16_t ppa_burst_{64};
   ppa_client_handle_t ppa_client_{nullptr};
   uint8_t *rot_buffer_{nullptr};
   size_t rot_buffer_len_{0};
@@ -345,6 +354,8 @@ class USBDisplay : public Component
   uint16_t last_frame_w_{0};
   uint16_t last_frame_h_{0};
   uint32_t draw_us_{0};
+  // Of draw_us_, the part spent inside the accelerator itself.
+  uint32_t ppa_us_{0};
   uint32_t stats_since_ms_{0};
   // The last frame rate reported, so a steady stream is not restated every five
   // seconds for as long as it runs.
