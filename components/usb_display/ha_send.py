@@ -203,6 +203,11 @@ BROWSER_ARGS = [
 # a tap. Small enough that a deliberate drag is recognised at once, large
 # enough that the wobble of a fingertip on a press is not.
 DRAG_THRESHOLD = 12
+# How long to wait for a page to say it has loaded before showing it anyway.
+# Nothing is given up by the wait ending: the browser goes on loading and the
+# screencast shows whatever paints. It is only the difference between a first
+# picture of a finished page and a first picture of one still arriving.
+LOAD_TIMEOUT_S = 30
 # How long to wait between looks while the panel is dark. Long enough that the
 # loop stops costing anything, short enough that it is lost in the hundred
 # milliseconds the browser takes to repaint after the tap that woke it.
@@ -465,13 +470,31 @@ def open_page(page, args):
     without them would be photographed as an empty shell and that empty shell
     would become the picture every later difference is measured against.
     """
+    from playwright.sync_api import TimeoutError as PageTimeout
+
     # Not networkidle: the frontend holds a websocket open for as long as it
     # runs, and waiting for the network to go quiet would wait forever.
     try:
-        page.goto(args.url, wait_until="domcontentloaded", timeout=60000)
-    except Exception as err:  # noqa: BLE001 - re-raised after the diagnosis
+        page.goto(args.url, wait_until="domcontentloaded", timeout=LOAD_TIMEOUT_S * 1000)
+    except PageTimeout:
+        # A page that is slow is not a page that is broken, and refusing to
+        # show it is the worse of the two failures. This took the whole sender
+        # down on a panel pointed at youtube.com: the navigation had committed
+        # and the site simply had not finished, so every sixty-one seconds the
+        # add-on threw its browser away and started again, for ever, and the
+        # panel never showed anything at all. The browser is still loading it;
+        # the screencast shows whatever paints, the way it does for every other
+        # change on the page.
+        print(
+            f"Warning: {args.url} had not finished loading after "
+            f"{LOAD_TIMEOUT_S}s -- showing it as it comes"
+        )
+    except Exception as err:  # noqa: BLE001 - the caller decides what to do
+        # This one really did fail: a name that does not resolve, a refused
+        # connection, a scheme nothing will serve. Say what is likely and let
+        # the caller try again rather than ending.
         explain_unreachable(args.url, err)
-        raise
+        return False
     if args.token:
         # Only worth waiting for when Home Assistant is what was asked for. On
         # any other page the element never appears and the wait is thirty
@@ -484,6 +507,7 @@ def open_page(page, args):
     # and the first picture is the one full redraw everything else is a
     # difference from. Let it settle before taking it.
     page.wait_for_timeout(3000)
+    return True
 
 
 def explain_unreachable(url, error):
@@ -2316,7 +2340,27 @@ def main():
             + ("" if args.token else " (no token, so this is not treated as "
                                      "Home Assistant)")
         )
-        open_page(page, args)
+        # A page that will not open is a reason to wait, not a reason to end.
+        # Ending means the add-on throws the browser away and starts the whole
+        # thing again, which fixes nothing a retry would not and costs the
+        # panel everything it was showing. After a few tries the loop starts
+        # anyway: the browser's own error page is at least a picture, and a
+        # sleep and a wake will navigate again.
+        # Three tries and no more. Retrying at all is for the add-on starting
+        # with the house, before the network is up; past that the page is not
+        # coming, and every extra wait here is a panel that has not even been
+        # connected to yet, because that happens below.
+        for attempt in range(3):
+            if open_page(page, args):
+                break
+            wait = min(5 * 2 ** attempt, 20)
+            print(f"Trying {args.url} again in {wait}s")
+            page.wait_for_timeout(wait * 1000)
+        else:
+            print(
+                f"Warning: {args.url} would not open. Carrying on, so the "
+                f"panel shows what the browser has and a wake tries again."
+            )
         if "/auth/authorize" in page.url:
             print(
                 "Warning: Home Assistant is asking to log in, so the token was "
@@ -2616,7 +2660,9 @@ def main():
                                 if parked:
                                     print("Loading the page again")
                                     parked = False
-                                    open_page(page, args)
+                                    if not open_page(page, args):
+                                        print("Warning: it would not open; "
+                                              "the next wake will try again")
                                     if keyboard is not None:
                                         keyboard.forget()
                                         keyboard.request_sync(0.5)

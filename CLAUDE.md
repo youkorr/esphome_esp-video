@@ -275,6 +275,34 @@ no route to it from where this was written — and it fixes nothing about the
 codecs: that build has no H.264, no AAC and no EME, so a video may still
 refuse where a search box now works.
 
+**A page that will not load must not end the sender.** `open_page` re-raised
+whatever `page.goto` threw, and nothing above it caught that, so a panel
+pointed at `https://www.youtube.com/` died on a sixty-second `Page.goto`
+timeout and the add-on restarted it — throwing the browser away and starting
+the whole thing again, every sixty-one seconds, for ever. The panel showed
+nothing at all, over a page that had *already committed and was painting*.
+
+Two things follow, and they are different failures:
+
+- **A slow page is not a broken one.** A timeout now warns and carries on.
+  Nothing is given up: the browser goes on loading, and the screencast shows
+  whatever paints, the way it does for every other change on the page.
+  `LOAD_TIMEOUT_S` is 30 rather than 60 for the same reason — being early is
+  free now, and thirty seconds of black is already a long time to look at.
+  Verified against a server that sends a page and then never finishes the
+  response: the sender was still alive after 70 s and had sent two pictures of
+  the half-painted page, where before it was dead at 60.
+- **A page that genuinely will not open** — a name that does not resolve, a
+  refused connection — is retried three times (5, 10, 20 s) and then the loop
+  starts anyway, so the panel shows the browser's own error page and a wake
+  navigates again. Retrying at all is for the add-on starting with the house
+  before the network is up; past that, every extra wait is a panel that has
+  not been connected to yet, because `connect_tcp` happens after this.
+
+`open_page` returns True or False now instead of raising, and both call sites
+— the first navigation and the one after the page was parked for a sleeping
+panel — check it.
+
 **The browser it downloads cannot play video, and that is what YouTube's
 "un probleme est survenu" is.** Measured on the exact build the add-on fetches,
 141.0.7390.37, through `MediaSource.isTypeSupported`: **H.264 no, AAC no, HLS
@@ -714,7 +742,7 @@ the dashboard, where it is invisible while the keys go on working.
 ahead of the `pip install` as well as the `ADD`s, so a bump refetches
 everything — at the cost of the browser download on each update.
 `present_browser()` prints the Chromium version at startup and warns below 114,
-so this is never diagnosed by guesswork again. Currently **1.36.0**.
+so this is never diagnosed by guesswork again. Currently **1.37.0**.
 
 `run.py` supervises one `ha_send.py` per panel: `SHARED_KEYS` lets the token,
 url, port, fps, quality, capture_quality, urgent_fps, urgent_window and stats be
