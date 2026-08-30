@@ -582,6 +582,29 @@ larger (0.165 against 0.106), saturates it at seven rectangles instead of ten,
 and sends whole pictures far more often — measured on one page, **49.9 KiB/s
 that way against 34.5 this way**, which is the opposite of the point.
 
+**The accelerator's burst length was never set, and it is not a neutral
+default.** The PPA and the MIPI-DSI controller read the same external memory,
+and a longer burst holds it for longer at a time. Measured by this author in
+`youkorr/lvgl_9.5` on the same silicon, for LVGL's *fill*: a 64-byte burst
+freed enough bandwidth for the display's own fetch to stop flickering under
+load, but cost throughput — lottie plus a live camera went from ~28 fps to ~17.
+Their conclusion there was 128 for fill, 64 for SRM and blend.
+
+`ppa_burst:` brings that knob here, defaulting to 64. **The LVGL answer is not
+automatically this one**: there the hot operation was a fill of small areas
+against a compositor, here it is one scale-rotate per rectangle against a
+video-rate stream. So the board's stats line now reports the microseconds spent
+inside the accelerator, next to the microseconds per draw, which is what
+decides it:
+
+    1280x800 @ 24.0 fps, 8200 us/draw (1900 in the PPA at 64-byte bursts), 0 dropped (...)
+
+**Not compiled or run.** There is no ESP-IDF toolchain where this was written,
+and `esphome config` validates YAML and codegen but never compiles C++. The
+field name and both enumerators are taken from working code in
+`youkorr/lvgl_9.5`, not from memory, so they exist on this IDF — but the change
+itself has only been schema-checked.
+
 ## Calibration — run it once per board, always
 
 ```

@@ -168,6 +168,8 @@ def _warn_about_espressif_driver(config):
 # The tile the sender compares and cuts on. Every rectangle it produces has
 # its origin and its size on this grid, so these are the coordinates that have
 # to land on whole panel pixels once scaled.
+CONF_PPA_BURST = "ppa_burst"
+
 _SENDER_TILE = 64
 
 
@@ -292,6 +294,17 @@ CONFIG_SCHEMA = cv.All(
             # note that a quarter turn swaps the axes, so a 1024x600 stream on a
             # panel turned 90 degrees needs a 600x1024 panel to land on.
             cv.Optional(CONF_ROTATION, default=0): cv.one_of(0, 90, 180, 270, int=True),
+            # How much the accelerator moves per burst of external memory.
+            # 64 leaves more bandwidth for the display controller's own fetch
+            # of the framebuffer, which is what this competes with; 128 gets
+            # the accelerator through its own work sooner. Measured in the
+            # author's LVGL work on the same silicon, where a fill at 64 cost
+            # a third of the refresh rate under load -- but that was a fill,
+            # and this is a scale-rotate once per rectangle, so the answer
+            # here is not the answer there. The board's stats line reports
+            # the microseconds spent in the accelerator, which is how to
+            # choose between them rather than argue about it.
+            cv.Optional(CONF_PPA_BURST, default=64): cv.one_of(64, 128, int=True),
             # The size the host draws on, when that is to be smaller than the
             # panel. What it buys is at the other end: the machine rendering
             # the page pays for every pixel four times -- painting, encoding,
@@ -352,6 +365,7 @@ async def to_code(config):
     cg.add(var.set_frame_buffers(config[CONF_FRAME_BUFFERS]))
     cg.add(var.set_max_frame_bytes(config[CONF_MAX_FRAME_BYTES]))
     cg.add(var.set_rotation(config[CONF_ROTATION]))
+    cg.add(var.set_ppa_burst(config[CONF_PPA_BURST]))
     cg.add(var.set_max_fps(config[CONF_MAX_FPS]))
     if (port := config.get(CONF_PORT)) is not None:
         cg.add(var.set_port(port))
