@@ -13,11 +13,11 @@ written into storage the way the frontend writes it after one. Nothing else
 about this is particular to Home Assistant. Leave --token out and any page at
 all is rendered, diffed and sent by the same code.
 
-    ./ha_send.py --calibrate --host 192.168.1.9 --width 1024 --height 600
-    ./ha_send.py --host 192.168.1.9 --width 1024 --height 600 \
+    ./ha_send.py --calibrate --host "ip esp32P4" --width 1024 --height 600
+    ./ha_send.py --host "ip esp32P4"--width 1024 --height 600 \
         --url http://homeassistant.local:8123/lovelace/0 --token <long-lived> \
         --touch-rotate 0
-    ./ha_send.py --host 192.168.1.9 --width 1024 --height 600 \
+    ./ha_send.py --host "ip esp32P4"--width 1024 --height 600 \
         --url https://example.com/ --touch-rotate 0
 
 Calibrate first, once per board. There is no way to know from here which way a
