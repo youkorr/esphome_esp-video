@@ -2100,6 +2100,14 @@ def main():
             rectangles_sent = 0
             bytes_sent = 0
             blocked = 0.0
+            # A stutter is a tail, and an average over five seconds hides a
+            # tail completely: a panel that freezes for half a second every
+            # three still reports a healthy mean. These two are what a stutter
+            # actually looks like -- the longest a picture went unsent, and
+            # the longest a single turn of the loop took, which localises it.
+            worst_gap = 0.0
+            worst_turn = 0.0
+            turn_at = time.monotonic()
             pictures = 0
             loops = 0
             pending = None
@@ -2136,6 +2144,9 @@ def main():
                     # hundred and twenty-five a second for nothing.
                     page.wait_for_timeout(PUMP_MS if awake else SLEEP_PUMP_MS)
                     started = time.monotonic()
+                    if awake:
+                        worst_turn = max(worst_turn, started - turn_at)
+                    turn_at = started
 
                     # Stopping the picture does not stop the page. Measured
                     # with the screencast stopped and the panel dark: 59.8
@@ -2284,6 +2295,8 @@ def main():
                                      x // TILE : (x + w) // TILE] += 1
 
                         if rectangles:
+                            if pictures:
+                                worst_gap = max(worst_gap, started - last_sent)
                             previous = current
                             pictures += 1
                             # One identifier per picture, so the board's rate
@@ -2391,6 +2404,9 @@ def main():
                             # What share of the wall clock went into a write
                             # that the panel would not accept yet.
                             f"panel wait {blocked / elapsed * 100:.0f}%, "
+                            # The tail, which the averages above cannot show.
+                            f"worst gap {worst_gap * 1000:.0f} ms, "
+                            f"worst turn {worst_turn * 1000:.0f} ms, "
                             # How often touches are looked at. Anything much
                             # below --fps means the loop is the bottleneck, and
                             # a press waits that long before it is even read.
@@ -2414,7 +2430,7 @@ def main():
                             print("  busiest areas: " + "; ".join(spots))
                             heat[:] = 0
                         rectangles_sent = bytes_sent = pictures = loops = 0
-                        blocked = 0.0
+                        blocked = worst_gap = worst_turn = 0.0
                         capture.produced = fulls = 0
                         stats_at = now
             except OSError as err:
