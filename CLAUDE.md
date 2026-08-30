@@ -275,6 +275,57 @@ no route to it from where this was written — and it fixes nothing about the
 codecs: that build has no H.264, no AAC and no EME, so a video may still
 refuse where a search box now works.
 
+**Video does not fit, and the arithmetic says so before any measurement of a
+link does.** Every picture sent is an **independent JPEG of the whole panel** —
+there is no coding between one picture and the next. A real codec sends the
+difference from the previous frame with motion compensation, which is why 1080p
+fits in 5 Mbit/s; whole JPEGs cost five to ten times that. Measured with Pillow
+on a photographic full-screen picture (smoothed noise plus grain — detail at
+every scale, as film has, without being pure noise no encoder keeps):
+
+| drawn at | q80 | q60 | q45 |
+|---|---|---|---|
+| 800×1280 | 254 KiB | 171 KiB | 142 KiB |
+| 640×1024 | 164 KiB | 110 KiB | 92 KiB |
+| 400×640 | 64 KiB | 43 KiB | 36 KiB |
+
+At 24 pictures a second the first cell is **47.7 Mbit/s**. The best a panel has
+ever been measured receiving is about 25. So "the video lags very hard at
+quality 80" is not a fault to find — it is the settings asking for twice the
+link, and this is the table that says which settings do not.
+
+Two traps in reading it. The synthetic `cadence.html` canvas is **not** a
+substitute: flat gradients gave 935 KiB/s at q80 where photographic content
+gives 6000, so any conclusion about video drawn from that page is wrong by a
+factor of six. And the board's *25 Mbit/s* is an outbound figure from a camera
+test; inbound is `TCP_WND_DEFAULT` (64800) over the round trip, which is
+3.2 MB/s at 20 ms — close to the same number by coincidence, not by cause.
+
+`render_width`/`render_height` is the only lever that cuts a picture
+several-fold rather than by a quarter, and **it is compatible with rotation as
+long as the rotation is the sender's**. The schema refuses `render_*` beside a
+non-zero board `rotation:` because the PPA would then do both in one pass,
+untried; `--rotate` on the sender rotates in Pillow and leaves the board at
+`rotation: 0`, so the combination is allowed and was verified end to end —
+`--rotate 90 --render-width 400 --render-height 640` on an 800×1280 panel, 77
+rectangles, **0 outside the frame and 0 pixels never covered**. The board half
+was validated with `esphome config`: `render_width: 400` / `render_height: 640`
+at `rotation: 0` is valid; 533×853 is refused.
+
+**An option under `options:` and not under `schema:` stops the add-on dead.**
+The Supervisor validates saved options against the schema and refuses an
+unknown key, so the add-on will not start at all — it is not a setting that
+quietly does nothing. Shipped once, on `browser:`, in 1.36.0. `esphome config`
+cannot see it and no Python test would: it is a rule about one YAML file's two
+halves, so `tools/checkaddon.py` is what checks it now (and that the panels
+example uses no key its own schema lacks, and that nothing required has no
+default). Run it on any change to `usb_display_panel/config.yaml`.
+
+`tools/checkyaml.py` used to hide the answer it existed to give: esphome echoes
+the whole resolved configuration with each complaint inline, so printing the
+first fourteen lines printed the echo. It now drops anything shaped like
+`key: value` and prints what is left.
+
 **A page that will not load must not end the sender.** `open_page` re-raised
 whatever `page.goto` threw, and nothing above it caught that, so a panel
 pointed at `https://www.youtube.com/` died on a sixty-second `Page.goto`
@@ -742,7 +793,7 @@ the dashboard, where it is invisible while the keys go on working.
 ahead of the `pip install` as well as the `ADD`s, so a bump refetches
 everything — at the cost of the browser download on each update.
 `present_browser()` prints the Chromium version at startup and warns below 114,
-so this is never diagnosed by guesswork again. Currently **1.37.0**.
+so this is never diagnosed by guesswork again. Currently **1.38.0**.
 
 `run.py` supervises one `ha_send.py` per panel: `SHARED_KEYS` lets the token,
 url, port, fps, quality, capture_quality, urgent_fps, urgent_window and stats be

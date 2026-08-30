@@ -1,5 +1,5 @@
 name: ESP32-P4 Panel
-version: "1.37.0"
+version: "1.38.0"
 slug: usb_display_panel
 description: Renders Home Assistant dashboards onto ESPHome usb_display panels over the network, with touch coming back
 url: https://github.com/youkorr/esphome_esp-video
@@ -103,6 +103,7 @@ schema:
   keyboard: list(off|qwerty|azerty)?
   blank_after: float?
   keep_profile: bool?
+  browser: str?
   stats: bool?
   panels:
     - name: str
@@ -125,4 +126,13 @@ schema:
       keyboard: list(off|qwerty|azerty)?
       blank_after: float?
       keep_profile: bool?
+      browser: str?
+      # Draw the page smaller than the panel and let the board's accelerator
+      # scale it up. This is the one lever that really cuts what full-screen
+      # video costs, because every picture sent is a whole panel and an
+      # independent JPEG. Both go together, they must keep the panel's shape,
+      # and the board needs the same two numbers as render_width/render_height
+      # under usb_display:. Leave them out, or 0, to draw at full size.
+      render_width: int(0,4096)?
+      render_height: int(0,4096)?
       stats: bool?
