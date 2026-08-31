@@ -956,7 +956,7 @@ the dashboard, where it is invisible while the keys go on working.
 ahead of the `pip install` as well as the `ADD`s, so a bump refetches
 everything — at the cost of the browser download on each update.
 `present_browser()` prints the Chromium version at startup and warns below 114,
-so this is never diagnosed by guesswork again. Currently **1.55.0**.
+so this is never diagnosed by guesswork again. Currently **1.56.0**.
 
 **And the image has to be told about every file, which is not the same as the
 repository having it.** `launcher.py` was written beside `run.py`, imported at
@@ -1219,6 +1219,46 @@ gesture**; after, the first one comes back in **357 ms** and the worst stall is
 -- unknown, not "no" -- then True or False for good. The 3-second settle goes
 with it: Home Assistant paints in stages and is worth letting settle, a
 launcher page has no such staging, so it gets 800 ms.
+
+**The token belongs to an ORIGIN, and the launcher is a different one.** A
+panel started on the launcher was handed `--url http://127.0.0.1:8099/`, so
+`install_token` derived its origin from that and wrote `hassUrl` naming the
+launcher. The frontend ignores a record whose `hassUrl` is not its own, so the
+Home Assistant tile opened on a login screen -- with the token sitting right
+there in that page's storage, naming somewhere else. Reported as *"malgree le
+un nouveaux token il ne va pas a la page de home assistant il me demande de me
+connecter"*, and it is not the token: any token would have done that.
+
+Measured against a **real** Home Assistant (2024.3.3, onboarded here, a real
+long-lived token minted through its own websocket API), same page, same token,
+only the origin differing:
+
+| token installed for | dashboard renders |
+|---|---|
+| the launcher's origin | **no** |
+| Home Assistant's origin | **yes** |
+
+`--token-url` names the address the token belongs to and defaults to `--url`;
+`run.py` sets it from the shared `url:` whenever it rewrites a panel's url to
+the launcher, and says so plainly when there is no address to attach it to.
+
+**The same guard closes a leak the launcher had just opened.** An init script
+runs on *every* document the context loads and `localStorage` belongs to
+whichever origin that document is on, so the house's long-lived token was
+being written into the storage of every site a panel visited -- YouTube,
+Jellyfin, anything on the launcher -- where any script on the page can read
+it. One dashboard per panel had hidden it; a page of links did not. The script
+now writes only when `window.location.origin` matches, checked in the browser
+rather than trusted from the sender.
+
+And a token pointed elsewhere is a panel saying outright that this page is not
+that dashboard, so the thirty-second wait for `home-assistant` is skipped
+entirely on a launcher page rather than merely being asked once.
+
+Verified end to end the way this project requires: the add-on's own command
+line, the real sender, the real Home Assistant, and a fake panel reassembling
+the rectangles off the socket into a picture -- which came back a logged-in
+dashboard, not a login screen.
 
 ## Sound for the page, board side
 

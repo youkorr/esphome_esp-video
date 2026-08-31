@@ -739,6 +739,14 @@ def present_browser(session, page, keyboard_wanted, wanted_agent):
     return agent
 
 
+def origin_of(url):
+    """Scheme and host, which is what a browser scopes storage to."""
+    from urllib.parse import urlsplit
+
+    parts = urlsplit(url)
+    return f"{parts.scheme}://{parts.netloc}"
+
+
 def install_token(context, url, token):
     """Write the token where the frontend expects to find it after a login.
 
@@ -747,10 +755,7 @@ def install_token(context, url, token):
     enough out that it is never reached; the frontend checks it before deciding
     to refresh.
     """
-    from urllib.parse import urlsplit
-
-    parts = urlsplit(url)
-    origin = f"{parts.scheme}://{parts.netloc}"
+    origin = origin_of(url)
     tokens = {
         "access_token": token,
         "token_type": "Bearer",
@@ -760,8 +765,26 @@ def install_token(context, url, token):
         "expires": int(time.time() * 1000) + 315360000000,
         "refresh_token": "",
     }
+    # Only on Home Assistant's own origin, and this is not tidiness.
+    #
+    # An init script runs on every document the context ever loads, and
+    # `localStorage` belongs to whichever origin that document is on. A panel
+    # that only ever showed one dashboard never noticed; a panel used as a
+    # launcher visits YouTube, Jellyfin and whatever else is on the page, and
+    # the house's long-lived token was being written into the storage of every
+    # one of them, where any script on the page can read it.
+    #
+    # The same guard is what fixes the login screen. The record carries the
+    # address it belongs to, and the frontend ignores one whose `hassUrl` is
+    # not its own -- so a token installed for the launcher's origin left Home
+    # Assistant asking to log in, with the record sitting right there in its
+    # storage naming somewhere else. Measured against a real Home Assistant:
+    # the dashboard renders when the origins agree and does not when they do
+    # not.
     context.add_init_script(
-        f"window.localStorage.setItem('hassTokens', {json.dumps(json.dumps(tokens))});"
+        f"if (window.location.origin === {json.dumps(origin)}) "
+        f"window.localStorage.setItem('hassTokens', "
+        f"{json.dumps(json.dumps(tokens))});"
     )
 
 
@@ -804,7 +827,11 @@ def open_page(page, args):
     # thirty seconds for it is bearable once at startup and is not bearable
     # every time the corner brings the panel home: the loop is blocked
     # throughout, so the panel simply stops for half a minute.
-    if args.token and open_page.is_home_assistant is not False:
+    # A token pointed somewhere else is a panel saying outright that this page
+    # is not that dashboard -- it starts on a launcher, and the token is for
+    # the tile. There is nothing here to wait thirty seconds for.
+    elsewhere = bool(args.token_url) and origin_of(args.token_url) != origin_of(args.url)
+    if args.token and not elsewhere and open_page.is_home_assistant is not False:
         try:
             page.wait_for_selector("home-assistant", timeout=30000)
             open_page.is_home_assistant = True
@@ -2543,6 +2570,15 @@ def main():
         "a page is not Home Assistant when the environment disagrees",
     )
     parser.add_argument(
+        "--token-url",
+        default=None,
+        help="the Home Assistant the token belongs to, when it is not the page "
+        "being opened. A panel started on a launcher opens a page of links, "
+        "and the token is for the dashboard behind one of them: without this "
+        "it would be installed for the launcher's address, and Home Assistant "
+        "would ask to log in. Defaults to --url",
+    )
+    parser.add_argument(
         "--urgent-fps",
         type=float,
         default=URGENT_FPS,
@@ -2891,7 +2927,7 @@ def main():
         # Which requests the page could not make. Silent on a page that works.
         watch_failed_requests(context)
         if args.token:
-            install_token(context, args.url, args.token)
+            install_token(context, args.token_url or args.url, args.token)
         # Filled in once the keyboard exists, which is after the page. The
         # binding has to be installed before the page is created so that every
         # frame has it, including ones the page makes later.

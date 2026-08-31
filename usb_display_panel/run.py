@@ -267,6 +267,7 @@ def command_for(panel):
         "port",
         "url",
         "token",
+        "token_url",
         "width",
         "height",
         "rotate",
@@ -381,6 +382,23 @@ def main():
                 f"but {why}, or point this panel at a page of its own")
             panel["url"] = ""
         else:
+            # The token belongs to Home Assistant, and the page this panel now
+            # opens is the launcher. Without saying so, the sender would
+            # install the token for the launcher's own address -- and the
+            # frontend ignores a record whose hassUrl is not its own, so the
+            # dashboard behind a tile would ask to log in with the token
+            # sitting unused in its storage. The shared url: is the house's
+            # Home Assistant address; that is what that field is for.
+            home = _config.get("url")
+            if given(panel.get("token")) and not given(panel.get("token_url")):
+                if given(home) and str(home).strip().lower() != LAUNCHER_KEYWORD:
+                    panel["token_url"] = home
+                else:
+                    say(f"[{panel.get('name', 'panel')}] this panel starts on "
+                        f"the launcher and has a token, but no Home Assistant "
+                        f"address to attach it to. Put the dashboard's address "
+                        f"in the url at the top of the options, or a tile "
+                        f"opening it will ask to log in.")
             panel["url"] = where
 
     missing = [p for p in panels if not p.get("host") or not p.get("url")]
