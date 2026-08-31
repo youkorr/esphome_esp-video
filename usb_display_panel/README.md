@@ -262,8 +262,21 @@ the panel's shape, and divide it into whole pixels -- for an 800x1280 panel,
 The setting that costs nothing to try first is `quality`. Going from 80 to 60 is
 a third off the bytes at the same resolution and the same frame rate.
 
-And there is no sound at all -- the panel's speaker is a USB sound card fed by
-whatever the cable is plugged into, and nothing carries audio over the network.
+**And the picture arrives without its sound**, which needs saying carefully
+because the panel is not short of audio hardware. A board like the Guition has
+an ES8311 codec on I2S, an ESPHome `speaker:`, a mixer, a resampler, a
+microphone and a `media_player:` entity -- Home Assistant can already play
+anything it likes on it. The `usb_display` component can also take audio in
+over USB, as a standard sound card, into that same speaker.
+
+What carries no audio is **this link**. The udisp protocol is rectangles one
+way and touches the other; there is no audio type in the wire format and no
+mention of audio anywhere in the network code. So a video rendered by the
+add-on plays its sound on the Home Assistant server, where nobody is listening,
+and the panel shows a silent picture. Sound over this path would need a new
+message type, a capture on the sender side that Chromium does not offer
+directly, and lip sync across Wi-Fi on top of a JPEG video path. It is a real
+feature, not a setting.
 
 ## Staying signed in
 

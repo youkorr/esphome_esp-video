@@ -190,9 +190,12 @@ BROWSER_ARGS = [
     "--disable-gpu",
     # A video nobody clicked on is still a video that should play here.
     "--autoplay-policy=no-user-gesture-required",
-    # No --mute-audio here, and that is deliberate. It was added once, on the
-    # argument that nothing carries audio over this path so decoding it is
-    # waste -- which is true, and was still the wrong thing to do unasked. A
+    # No --mute-audio here, and that is deliberate. It was added once on the
+    # argument that the panel has no sound -- which is not true of the panel,
+    # only of this link: the board has an ES8311 on I2S, an ESPHome speaker and
+    # a media_player entity, and takes audio in over USB. What has no audio is
+    # the udisp protocol, which is rectangles and touches. Even granting the
+    # narrower claim, it was the wrong thing to do unasked. A
     # site may treat a muted player differently from an audible one, and
     # muting is exactly the kind of change that turns "it does not work" into
     # a variable nobody remembers introducing. If it is ever wanted it belongs

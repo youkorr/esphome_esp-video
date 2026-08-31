@@ -371,12 +371,24 @@ starting and stopping as the pointer moves. The timeline was unreadable until
 each line named its element, so `who()` walks up to the nearest ancestor with
 an id and the line now begins `<inline-preview-player>` or `<movie_player>`.
 
-**`--mute-audio` is out, and it should never have gone in.** The argument was
-sound — nothing carries audio over this path, so decoding it is waste — and it
-was still a change nobody asked for, made in the middle of a diagnosis, in
-exactly the area the user then suspected. A site may treat a muted player
-differently from an audible one. If it is ever wanted it belongs behind an
-option. **This is the third time an unasked-for change had to be reverted**
+**`--mute-audio` is out, and both the change and its justification were
+wrong.** It was added on the argument that "nothing carries audio over this
+path" — stated as though the panel had no sound at all. It was challenged
+(*"est tu sur que l'audio fonctionne avec ce que dispose de esp32p4"*) and the
+challenge was right. The board is not short of audio: the Guition example has
+an **ES8311 codec on I2S** (control over I2C at 0x18, MCLK/BCLK/LRCLK on
+GPIO13/12/10, DOUT on GPIO09), an ESPHome `speaker:`, a mixer, a resampler, a
+microphone and a `media_player: platform: speaker` — Home Assistant can already
+play whatever it wants on that panel. `usb_display` itself takes audio in over
+USB as a sound card, into that same speaker.
+
+What has no audio is **the udisp link**, and only that: the wire format is
+rectangles one way and `'T'`/`'S'` the other, and `network.cpp` contains the
+word "audio" zero times. So the narrow claim was true and the way it was
+written was not. Even granting the narrow claim, muting was a change nobody
+asked for, made in the middle of a diagnosis, in exactly the area the user then
+suspected — a site may treat a muted player differently from an audible one. If
+it is ever wanted it belongs behind an option. **This is the third time an unasked-for change had to be reverted**
 (the send-buffer cap, the render-size advice, and now this): the pattern is
 always a defensible argument standing in for a measurement, and the cost is
 always the user's time.
@@ -995,6 +1007,14 @@ add-on options.
   against synthesised versions of a plain field, a shadow root, a native modal
   dialog, an ingress iframe, a `contenteditable` editor and a Trusted Types
   page. It has **not** been tried against Assist on a real board.
+- **Sound on the panel for a page the add-on renders** is the one obvious
+  capability the network path does not have. The hardware is all there and
+  already wired — ES8311 on I2S, an ESPHome speaker, a mixer, a `media_player`
+  entity, and a UAC input into the same speaker — so what is missing is
+  purely the link: a new udisp message type, a capture of the browser's audio
+  (Chromium's protocol does not offer one; it would take a virtual sink beside
+  the browser), a jitter buffer, and lip sync over Wi-Fi against a
+  JPEG-per-frame video path. A real feature, and the sync is the hard half.
 - `--blank-after` frees the page but not the browser: Chromium stays running
   with an empty tab. One browser serving several panels is the next step.
 
