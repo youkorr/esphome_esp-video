@@ -956,7 +956,7 @@ the dashboard, where it is invisible while the keys go on working.
 ahead of the `pip install` as well as the `ADD`s, so a bump refetches
 everything — at the cost of the browser download on each update.
 `present_browser()` prints the Chromium version at startup and warns below 114,
-so this is never diagnosed by guesswork again. Currently **1.45.0**.
+so this is never diagnosed by guesswork again. Currently **1.54.0**.
 
 `run.py` supervises one `ha_send.py` per panel: `SHARED_KEYS` lets the token,
 url, port, fps, quality, capture_quality, urgent_fps, urgent_window and stats be
@@ -967,6 +967,21 @@ shorter than 20 s; children are killed on SIGTERM.
 empty state, so a field nobody filled in arrives as `""`, and a plain
 `{**shared, **panel}` lets that blank the shared one — silently, and the token
 is where it bites.
+
+**And a space is a blank.** A field somebody cleared by hand arrives as `" "`,
+which is not `""` to Python and is the same thing entirely to the person who
+typed it. Sent as `--token " "`, it reached the JWT shape check, failed it, and
+the sender **exited before it opened a browser** — so the supervisor restarted
+it on the 5 → 120 s backoff for ever and the panel showed nothing at all, with
+a log blaming a token nobody had set. Found in a user's own configuration, in
+which `token: ' '` sat under a panel that had never worked.
+
+`given()` in `run.py` is the one place that decides whether a form field was
+filled in, and whitespace is not filled in. The sender guards the same case on
+its own, because it is run by hand too: a token that is only whitespace is
+announced once and ignored, never refused. **An accessory setting must never
+cost the picture** — the same rule the keyboard and the launcher live under,
+and the token is the setting most likely to arrive blank.
 
 **The add-on's form offers only what somebody should actually set** — ten
 settings, listed in its README. See the note above on what was taken out and

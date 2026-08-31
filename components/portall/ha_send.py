@@ -2710,6 +2710,23 @@ def main():
         # and never any other number. The way it gets broken is being copied
         # out of the dialog by hand and pasted into a console, which truncates
         # it -- silently, and by a different amount each time.
+        # A pasted token picks up spaces and newlines, and one made entirely
+        # of them is not a token at all: it is a field somebody meant to leave
+        # empty. An add-on's form has no empty state, so that is exactly how a
+        # blank arrives -- and refusing it outright is the worst of the three
+        # possible answers, because the sender then exits before it opens a
+        # browser and the supervisor restarts it for ever. The panel shows
+        # nothing, and the log blames a token nobody typed. Treat it as absent
+        # and say so: the page is rendered, and a page that turns out to need
+        # a login says so on its own screen.
+        if args.token is not None and not args.token.strip():
+            print(
+                "The token is blank, so it is being ignored. A panel showing "
+                "Home Assistant needs a real long-lived token; a panel showing "
+                "anything else needs none at all.",
+                flush=True,
+            )
+            args.token = None
         if args.token:
             args.token = args.token.strip()
             parts = args.token.split(".")

@@ -80,6 +80,23 @@ SHARED_KEYS = (
 )
 
 
+def given(value):
+    """Whether a form field was actually filled in.
+
+    An add-on's form has no empty state, so a field nobody meant to set
+    arrives as "" -- and a field somebody cleared by hand can arrive as a
+    single space, which is not the same thing to Python and is exactly the
+    same thing to the person who typed it. Both mean "not set", and treating
+    the second as a value is how a panel ended up being handed a token made
+    of one space.
+    """
+    if value is None:
+        return False
+    if isinstance(value, str) and not value.strip():
+        return False
+    return True
+
+
 def start_launcher(config):
     """Serve the page of links, if there are any, and say where it is.
 
@@ -143,7 +160,7 @@ def load_panels():
                 shared = {
                     key: config[key]
                     for key in SHARED_KEYS
-                    if config.get(key) not in (None, "")
+                    if given(config.get(key))
                 }
                 # A panel's own value wins -- but only if it is a value. An
                 # add-on's form has no empty state to speak of, so a field
@@ -156,7 +173,7 @@ def load_panels():
                         **{
                             key: value
                             for key, value in panel.items()
-                            if key not in SHARED_KEYS or value not in (None, "")
+                            if key not in SHARED_KEYS or given(value)
                         },
                     }
                     for panel in panels
@@ -257,7 +274,7 @@ def command_for(panel):
         # there is no way to leave it empty.
         if key in ("render_width", "render_height") and value in (0, "0"):
             continue
-        if value not in (None, ""):
+        if given(value):
             argv += [f"--{key.replace('_', '-')}", str(value)]
     # One line, because an add-on form has no repeatable field -- but split
     # the way a shell would, not on whitespace. The flag people actually need
