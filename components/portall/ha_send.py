@@ -2229,6 +2229,12 @@ class Injector:
         self._start = None
         self._last = None
         self._scrolling = False
+        # Whether a finger landed during the last handle(). The loop throws
+        # away everything painted before a press, and that is right for a press
+        # and ruinous for a drag: a finger moving at fifty reports a second
+        # would invalidate every frame the browser paints, so none would ever
+        # be sent and the page would appear to jump rather than follow.
+        self.began = False
         # The gesture began on the keyboard, and which key it is still on.
         self._on_keyboard = False
         self._key = None
@@ -2236,6 +2242,7 @@ class Injector:
     def handle(self, reports):
         """Replay the contacts. True if any of them reached the page."""
         clicked = False
+        self.began = False
         # Every report, in order. Collapsing a run of them down to its last
         # position would be cheaper but wrong: the first position of a run is
         # where the finger landed and the rest is how far it travelled, and a
@@ -2266,6 +2273,7 @@ class Injector:
                     self._page.mouse.move(x, y)
                 self._start = self._last = (x, y)
                 self._scrolling = False
+                self.began = True
                 continue
             if self._on_keyboard:
                 # Sliding off a key abandons it, the way it does on a phone.
@@ -3168,10 +3176,25 @@ def main():
                             keyboard.request_sync(0.45)
                         if URGENT_AFTER_INPUT:
                             urgent_until = time.monotonic() + args.urgent_window
-                            # Nothing painted before the finger landed shows
-                            # anything of it, in hand or still in the browser.
-                            pending = None
-                            capture.request(discard=True)
+                            # Nothing painted before the finger LANDED shows
+                            # anything of it, in hand or still in the browser,
+                            # so both are thrown away -- but only then.
+                            #
+                            # Doing it on every report is what made a swipe
+                            # erratic. A finger moving reports fifty times a
+                            # second; each report threw away the frame in hand
+                            # and asked the browser to start again, so almost
+                            # nothing painted during a drag ever survived long
+                            # enough to be sent. Measured on a scrolling page
+                            # with --urgent-fps 30: 8.3 rectangles a second
+                            # while the finger moved, a median gap of 77 ms and
+                            # a worst of 429 -- half a second of the page not
+                            # moving while the finger did. A frame painted
+                            # twenty milliseconds ago is a perfectly good
+                            # picture of a scroll in progress.
+                            if injector is None or injector.began:
+                                pending = None
+                                capture.request(discard=True)
                         if args.show_touches:
                             print(
                                 f"[{time.strftime('%H:%M:%S')}"

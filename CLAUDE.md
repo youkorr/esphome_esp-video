@@ -234,6 +234,41 @@ caught it; keep measuring. It is no longer a matter of picking the right frame:
 a press now throws away everything painted before it, in hand and in the
 browser both, so nothing that predates it can be shown.
 
+**Throwing away the frame in hand belongs to the LANDING, not to every
+report, and getting that wrong is what made swiping erratic.** A press
+discards everything painted before it — in hand and still in the browser —
+because none of it shows the press. Applied to every touch report, that is
+ruinous: a finger moving reports fifty times a second, each report threw away
+the frame in hand and asked the browser to start again, and almost nothing
+painted during a drag survived long enough to be sent.
+
+Measured on a scrolling page at `--urgent-fps 30`, three seconds of continuous
+finger:
+
+| | rect/s | median gap | worst gap |
+|---|---|---|---|
+| every report (as it was) | 8.3 | 77 ms | **429 ms** |
+| landing only (now) | 10.8 | 95 ms | **105 ms** |
+| the same page scrolling by itself, no finger at all | 9.7 | 103 ms | 110 ms |
+
+The third row is the control and it is what settles it: ~10 a second is what
+that machine gives for a full-page scroll at 800×1280, and with a finger it is
+now the same. The touch path costs nothing. Before, it cost half a second of
+the page standing still while the finger moved — which from the glass is a
+page that jumps rather than follows, and was reported as *"le swipe haut et bas
+c'est erratique"*.
+
+`Injector.began` is the flag, set only where a gesture starts. And the
+measuring matters as much as the fix: the first two rows alone would have
+looked like a modest improvement, and the median even got *worse*. It is the
+tail and the control together that say the fault is gone.
+
+**Scrolling itself was never wrong**, which is why this took so long to find.
+Measured against synthetic swipes: 400 px of finger scrolls 380 px of page in
+20, 40 or 8 steps alike, both directions, `deltaMode` 0, and no stray clicks.
+The missing 20 is `DRAG_THRESHOLD` — the travel before a drag is recognised as
+one — and it is left as it is: it reads as slight stiffness, never as jumping.
+
 **A press opens a window, because one free frame was never the thing that was
 needed.** One frame is enough to watch a button go down and useless for what a
 press usually starts: changing dashboard repaints the whole page over about a
