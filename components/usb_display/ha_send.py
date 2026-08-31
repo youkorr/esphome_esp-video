@@ -190,14 +190,13 @@ BROWSER_ARGS = [
     "--disable-gpu",
     # A video nobody clicked on is still a video that should play here.
     "--autoplay-policy=no-user-gesture-required",
-    # Nothing carries audio over this path -- the panel's speaker is a USB
-    # sound card fed by whatever the cable is plugged into, never by the
-    # network -- so every sample the browser decodes and every device it opens
-    # is work for a sound nobody can hear. Muting also takes a whole class of
-    # failure out of the picture: a container has no sound device, and a media
-    # pipeline that cannot open an output is a pipeline that can stop the
-    # video with no error on the element at all.
-    "--mute-audio",
+    # No --mute-audio here, and that is deliberate. It was added once, on the
+    # argument that nothing carries audio over this path so decoding it is
+    # waste -- which is true, and was still the wrong thing to do unasked. A
+    # site may treat a muted player differently from an audible one, and
+    # muting is exactly the kind of change that turns "it does not work" into
+    # a variable nobody remembers introducing. If it is ever wanted it belongs
+    # behind an option, not in the defaults.
     # Do not stop a stream because the page it is on is not in front.
     "--disable-background-media-suspend",
     "--disable-backgrounding-occluded-windows",
@@ -290,8 +289,20 @@ MEDIA_INIT_JS = """
       catch (e) { /* nothing to do */ }
     }
   };
+  const who = (el) => {
+    // Which player this is. A YouTube search page runs a hover preview
+    // alongside the real one and pauses it constantly, so a timeline that
+    // does not say which element it is describing is unreadable.
+    let node = el;
+    for (let i = 0; node && i < 6; i++) {
+      if (node.id) return node.id;
+      node = node.parentElement;
+    }
+    return el.tagName.toLowerCase();
+  };
   const state = (el) => {
     const bits = [
+      '<' + who(el) + '>',
       't=' + (el.currentTime || 0).toFixed(1),
       'ready=' + el.readyState,
       'net=' + el.networkState,

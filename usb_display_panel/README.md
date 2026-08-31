@@ -199,8 +199,20 @@ stops. The log says both halves:
 
 ```
 Network: rr1---sn-t0a7sn7d.googlevideo.com -- net::ERR_NAME_NOT_RESOLVED
-Media: pause: t=20.0 ready=4 net=2 paused page=visible focused buffered=0.0s
+Media: pause: <movie_player> t=20.0 ready=4 net=2 paused ... buffered=0.0s
 ```
+
+Read `buffered` before anything else: `0.0s` means the player had nothing left
+and stopped because of it, while a pause with ten or twenty seconds still in
+hand was somebody -- or the site -- pausing it on purpose. And read the name in
+angle brackets: a YouTube search page runs a hover preview beside the real
+player and pauses it constantly, so `<inline-preview-player>` lines are noise
+and `<movie_player>` lines are not.
+
+**On YouTube, one more thing after the DNS is right: let the advertisement
+play.** Pressing Skip and having the video stop a few seconds later is YouTube
+checking that its ads were shown, not a fault in the panel -- letting the ad run
+to the end plays the video normally. Nothing here can or should change that.
 
 `googlevideo.com` is where YouTube's video bytes come from, and those hostnames
 are generated per playback -- which is why changing video sometimes gets one
