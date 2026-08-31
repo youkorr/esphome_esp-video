@@ -341,6 +341,10 @@ class Portall : public Component
   size_t audio_block_used_{0};
   size_t last_packet_len_{0};
   uint32_t audio_resyncs_{0};
+  // Whether the speaker has EVER taken a byte. It is the whole difference
+  // between a speaker that is behind and one that is refusing the stream, and
+  // the two need opposite things done about them.
+  bool audio_ever_accepted_{false};
   // Buffers the speaker would not take whole. A few are normal at the start of
   // a stream; a steady stream of them is the board not keeping up.
   uint32_t audio_underruns_{0};

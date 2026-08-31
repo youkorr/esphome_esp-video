@@ -155,6 +155,8 @@ void Portall::flush_audio_block_() {
   // host is already sending the next block.
   const size_t length = this->audio_block_used_;
   const size_t written = this->speaker_->play(this->audio_block_, length);
+  if (written > 0)
+    this->audio_ever_accepted_ = true;
   if (written == length) {
     this->audio_block_used_ = 0;
     return;
@@ -182,7 +184,35 @@ void Portall::flush_audio_block_() {
     this->audio_block_used_ = 0;
     this->audio_resyncs_++;
     if (this->audio_resyncs_ == 1 || this->audio_resyncs_ % 100 == 0) {
-      ESP_LOGW(TAG, "Dropped a block: the speaker is not draining (%u times so far)", (unsigned) this->audio_resyncs_);
+      if (this->audio_ever_accepted_) {
+        // It has worked before, so this is the speaker falling behind: the
+        // panel is busy, or something else is holding the bus.
+        ESP_LOGW(TAG, "Dropped a block: the speaker is not draining (%u times so far)",
+                 (unsigned) this->audio_resyncs_);
+      } else {
+        // It has NEVER taken a byte, which is a different fault entirely and
+        // was reported as this same line repeating a hundred times a second.
+        //
+        // An ESPHome mixer refuses a source whose sample rate is not the one
+        // it is already running at: MixerSpeaker::start() returns
+        // ESP_ERR_INVALID_ARG, the source speaker is marked "Incompatible
+        // audio streams" and never gets a ring buffer, so every play() after
+        // that returns zero for as long as the board is up. portall sends
+        // 48000 Hz because that is what a browser produces, and these panels
+        // run their I2S at 44100 -- so a speaker_id: pointing straight at a
+        // mixer input, or at the raw I2S speaker under one, can never work.
+        //
+        // The fix is a resampler between the two, which is what
+        // yaml/guition-10-home-assistant.yaml wires up.
+        ESP_LOGE(TAG,
+                 "The speaker has not taken a single byte in %u blocks. It is refusing this stream rather than "
+                 "falling behind: portall sends %d Hz, %d bit, %d channel, and an ESPHome mixer refuses a source "
+                 "whose rate is not the one it already runs at. Point speaker_id: at a resampler whose "
+                 "output_speaker: is the mixer input, not at the mixer input or the I2S speaker itself -- see "
+                 "yaml/guition-10-home-assistant.yaml. Look for \"Incompatible audio streams\" on the speaker "
+                 "component above.",
+                 (unsigned) this->audio_resyncs_, PORTALL_AUDIO_RATE, PORTALL_AUDIO_BITS, PORTALL_AUDIO_CHANNELS);
+      }
     }
   }
 }
