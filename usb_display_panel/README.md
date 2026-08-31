@@ -160,17 +160,26 @@ the ad requests fail, and YouTube treats a client that loads no ads as one that
 is blocking them and refuses to play. It is very often the same box this add-on
 runs on.
 
-Nothing in the sender can fix that, because the browser's own lookups are what
-is being filtered. What it can do is send them somewhere else:
+**The fix is in the filter, not here**, because the browser's own lookups are
+what is being filtered and the add-on has no say in them. Two ways, in the
+order worth trying:
 
-```
-browser_args: --host-resolver-rules="MAP * 1.1.1.1"
-```
+1. **Exempt the machine running this add-on** in Pi-hole or AdGuard Home --
+   one client, one rule, and the rest of the house keeps its filtering. This
+   is the reliable one: it needs no list of domains to keep up to date.
+2. Or allow the ad domains YouTube checks for. It works, but the list moves.
 
-The browser then resolves through 1.1.1.1 and the rest of the house keeps its
-filtering. Quote a flag that contains spaces: the line is split the way a shell
-would split it. Anything else Chromium accepts can go here too -- it is the
-escape hatch for what has no setting of its own.
+**Do not try to point the browser at another DNS with `browser_args`.**
+`--host-resolver-rules="MAP * 1.1.1.1"` reads like a DNS setting and is not
+one: `MAP` sends a hostname to a given **machine**. Measured on the browser
+this ships with -- with `MAP * 127.0.0.1`, a request for
+`n-importe-quoi.example` was answered by the local web server. `MAP * 1.1.1.1`
+would therefore send every request the browser makes to 1.1.1.1, Home
+Assistant included, and the panel would show nothing at all.
+
+`browser_args` is still the escape hatch for anything Chromium accepts that
+has no setting of its own -- quote a flag that contains spaces, the line is
+split the way a shell would split it. It is simply not the tool for this.
 
 ### What video actually costs, and why 25 Mbit/s is not enough
 

@@ -2072,11 +2072,10 @@ def main():
         default=[],
         metavar="FLAG",
         help="an extra command-line flag for the browser, repeatable. The "
-        "escape hatch for anything this does not have a setting for -- most "
-        "usefully DNS, because a house that filters ads at the DNS server is "
-        "a house where YouTube sees no ads load and refuses to play: "
-        "--browser-arg --host-resolver-rules=MAP * 1.1.1.1 sends the "
-        "browser's lookups somewhere unfiltered",
+        "escape hatch for anything this does not have a setting of its own. "
+        "Note that --host-resolver-rules=MAP is NOT a way to choose a DNS "
+        "server: it sends a hostname to a given machine, and MAP * sends "
+        "every hostname there, dashboard included",
     )
     parser.add_argument(
         "--profile",

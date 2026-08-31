@@ -74,13 +74,16 @@ options:
   # started and what it can decode, so the log settles it. Set it to "off" to
   # keep Playwright's own whatever is installed, or to a full path to name one.
   browser: auto
-  # Extra command-line flags for the browser, separated by spaces. The escape
-  # hatch for anything with no setting of its own. The one that comes up: a
-  # house that filters ads at its DNS server is a house where YouTube sees no
-  # ads load and refuses to play -- "le contenu n'est pas disponible". Sending
-  # the browser's lookups somewhere unfiltered fixes that, and nothing else
-  # about the house changes:
-  #   --host-resolver-rules=MAP\ *\ 1.1.1.1
+  # Extra command-line flags for the browser, on one line, quoted the way a
+  # shell would quote them. The escape hatch for anything with no setting of
+  # its own; empty is the normal state and most panels never need it.
+  #
+  # It is NOT the place to choose a DNS server. --host-resolver-rules="MAP ..."
+  # looks like one and is not: it sends a hostname to a given MACHINE, and
+  # "MAP * 1.1.1.1" would send every request the browser makes to 1.1.1.1,
+  # Home Assistant included. Measured, not assumed. If YouTube says "le contenu
+  # n'est pas disponible", that is ad filtering at your DNS server, and the
+  # place to fix it is there -- see the README.
   browser_args: ""
   stats: true
   panels:
