@@ -350,6 +350,44 @@ both paid for themselves on the first run.
 `ad.doubleclick.net -- net::ERR_FAILED` was in the same log and is a side-show;
 it was the thing that looked most like a cause for two rounds.
 
+**The DNS fix was real, and what is left is YouTube checking its own ads.**
+After setting an upstream resolver, the next log carried **no
+`ERR_NAME_NOT_RESOLVED` at all** and the `googlevideo` failures were gone. What
+remained is a different shape, and the user found it by experiment rather than
+by reading anything: *"si vous laissez la pub sans appuyer sur skip il ne
+s'arrête pas"* — let the advertisement run to the end and playback is fine;
+press Skip and the video stops a few seconds later. `ad.doubleclick.net --
+net::ERR_FAILED` sits in the same window, and `ERR_FAILED` is not DNS.
+
+That is YouTube verifying its own advertising, and it is not something this
+project should engineer around. The honest answer to a panel is: let the ad
+play.
+
+**Two kinds of `pause` now appear, and the buffer number is what tells them
+apart.** `buffered=0.0s` is starvation — nothing left ahead of the playhead.
+`buffered=17.1s` with the video paused at `t=4.2` is nothing of the kind: it is
+the **hover preview** a YouTube search page runs beside the real player,
+starting and stopping as the pointer moves. The timeline was unreadable until
+each line named its element, so `who()` walks up to the nearest ancestor with
+an id and the line now begins `<inline-preview-player>` or `<movie_player>`.
+
+**`--mute-audio` is out, and it should never have gone in.** The argument was
+sound — nothing carries audio over this path, so decoding it is waste — and it
+was still a change nobody asked for, made in the middle of a diagnosis, in
+exactly the area the user then suspected. A site may treat a muted player
+differently from an audible one. If it is ever wanted it belongs behind an
+option. **This is the third time an unasked-for change had to be reverted**
+(the send-buffer cap, the render-size advice, and now this): the pattern is
+always a defensible argument standing in for a measurement, and the cost is
+always the user's time.
+
+**A separate thing surfaced in the same log and is worth keeping apart:**
+`panel wait 79%`, `worst gap 3441 ms`, `19 skipped` at 2.5 MB/s. That is the
+link to the panel saturating for three and a half seconds, and it has nothing
+to do with the video stopping — but if the machine running the sender is itself
+on Wi-Fi, pushing 2.5 MB/s at the panel competes with fetching the video, and
+the two faults can look like one.
+
 **The browser it downloads cannot play video, and that is what YouTube's
 "un probleme est survenu" is.** Measured on the exact build the add-on fetches,
 141.0.7390.37, through `MediaSource.isTypeSupported`: **H.264 no, AAC no, HLS
@@ -810,7 +848,7 @@ the dashboard, where it is invisible while the keys go on working.
 ahead of the `pip install` as well as the `ADD`s, so a bump refetches
 everything — at the cost of the browser download on each update.
 `present_browser()` prints the Chromium version at startup and warns below 114,
-so this is never diagnosed by guesswork again. Currently **1.44.0**.
+so this is never diagnosed by guesswork again. Currently **1.45.0**.
 
 `run.py` supervises one `ha_send.py` per panel: `SHARED_KEYS` lets the token,
 url, port, fps, quality, capture_quality, urgent_fps, urgent_window and stats be
