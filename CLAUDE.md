@@ -809,6 +809,27 @@ An earlier reading of this said it was, from timing only the long turns; long
 turns bill the pump for whatever arrived during it. Time the whole window and
 add a residual, or the conclusion inverts.
 
+**`--show-touches` used to print the word `injected` and nothing else**, which
+is worth recording because of what it could not answer. A panel reported that
+the fifth tile of a launcher opened the one above it -- a question about
+*where* a contact went and *what* was there, and the one option named for
+touches said neither. It now prints the panel coordinate, the page coordinate
+it maps to, and what the page has at that point:
+
+    contact at (476,640) on the panel -> (640,323) on the page
+    tap at (640,323) on a -> http://.../  [Service 5]
+
+The last line is `document.elementFromPoint`, asked once per tap and only under
+this flag, wrapped so a page that refuses costs the diagnostic and never the
+picture. It settles in one line whether the mapping is wrong or the page is not
+where it was thought to be.
+
+Measured against the reported case on the panel's own geometry -- 800x1280 at
+90 degrees, five links, taps computed through `TouchMap` and sent up the return
+channel -- all five tiles opened their own page. So the fault is in that
+panel's calibration rather than in the layout, which is exactly what the flag
+now makes visible from the other end.
+
 **`--stats` also reports `panel wait`, which is the one bottleneck the loop
 cannot otherwise see.** The socket is blocking, so when the board is behind the
 write stalls inside `sendall` and *nothing else happens at all* — no browser
@@ -956,7 +977,7 @@ the dashboard, where it is invisible while the keys go on working.
 ahead of the `pip install` as well as the `ADD`s, so a bump refetches
 everything — at the cost of the browser download on each update.
 `present_browser()` prints the Chromium version at startup and warns below 114,
-so this is never diagnosed by guesswork again. Currently **1.64.0**.
+so this is never diagnosed by guesswork again. Currently **1.65.0**.
 
 **And the image has to be told about every file, which is not the same as the
 repository having it.** `launcher.py` was written beside `run.py`, imported at

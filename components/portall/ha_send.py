@@ -2538,6 +2538,9 @@ class Injector:
         self._went_home = False
         # How far sideways out of the corner counts as asking to go home.
         self._swipe = max(40.0, page_w * HOME_SWIPE_FRACTION)
+        # --show-touches. Off, this costs nothing at all; on, it is the only
+        # thing that can answer "why did that tap open the wrong link".
+        self.verbose = False
         # The gesture began on the keyboard, and which key it is still on.
         self._on_keyboard = False
         self._key = None
@@ -2579,6 +2582,10 @@ class Injector:
                     # scroll goes to whatever is under it -- a dashboard has
                     # panes that scroll on their own -- but do not press yet.
                     self._page.mouse.move(x, y)
+                if self.verbose:
+                    print(f"[{time.strftime('%H:%M:%S')}] contact at "
+                          f"({point[0]:.0f},{point[1]:.0f}) on the panel -> "
+                          f"({x:.0f},{y:.0f}) on the page", flush=True)
                 self._start = self._last = (x, y)
                 self._scrolling = False
                 self.began = True
@@ -2722,12 +2729,42 @@ class Injector:
             else:
                 self._keyboard.highlight(None)
         elif self._start is not None and not self._scrolling and not self._went_home:
+            if self.verbose:
+                self._say_target(*self._last)
             self._page.mouse.move(*self._last)
             self._page.mouse.down()
             self._page.mouse.up()
             clicked = True
         self._reset()
         return clicked
+
+    def _say_target(self, x, y):
+        """Name what the page has at the point about to be clicked.
+
+        The coordinates alone say a tap landed somewhere; they cannot say it
+        landed on the wrong thing, and "the fifth tile opens the second one" is
+        a question about the page, not about arithmetic. So the page is asked
+        -- once, only under --show-touches, and never allowed to cost the
+        picture if it refuses.
+        """
+        try:
+            what = self._page.evaluate(
+                """p => {
+                    const e = document.elementFromPoint(p[0], p[1]);
+                    if (!e) return "nothing";
+                    const link = e.closest ? e.closest("a") : null;
+                    const target = link || e;
+                    const text = (target.textContent || "").trim().slice(0, 40);
+                    return target.tagName.toLowerCase()
+                        + (target.href ? " -> " + target.href : "")
+                        + (text ? "  [" + text + "]" : "");
+                }""",
+                [x, y],
+            )
+        except Exception as err:  # noqa: BLE001 - a diagnostic, never the picture
+            what = f"the page would not say ({err})"
+        print(f"[{time.strftime('%H:%M:%S')}] tap at ({x:.0f},{y:.0f}) on "
+              f"{what}", flush=True)
 
     def release(self):
         # A lost connection is not a tap: drop the gesture rather than clicking
@@ -2986,7 +3023,11 @@ def main():
         "--no-touch", action="store_true", help="do not replay the panel's contacts"
     )
     parser.add_argument(
-        "--show-touches", action="store_true", help="print the contacts as they arrive"
+        "--show-touches",
+        action="store_true",
+        help="print every contact: where it landed on the panel, where that is "
+        "on the page, and what the page has at that point. This is what "
+        "answers a tap that opens the wrong thing",
     )
     parser.add_argument(
         "--stats", action="store_true", help="print what is being sent every 5 seconds"
@@ -3326,6 +3367,8 @@ def main():
             None if args.no_touch
             else Injector(page, touch_map, keyboard, page_w, page_h)
         )
+        if injector is not None:
+            injector.verbose = args.show_touches
         # Shown when a page arrives and while a finger is held there, so the
         # gesture is discoverable by somebody who was never told about it. It
         # cannot be a button: a panel has no Back button and a site playing
@@ -3676,11 +3719,6 @@ def main():
                             if injector is None or injector.began:
                                 pending = None
                                 capture.request(discard=True)
-                        if args.show_touches:
-                            print(
-                                f"[{time.strftime('%H:%M:%S')}"
-                                f".{int(time.time() % 1 * 1000):03d}] injected"
-                            )
 
                     loops += 1
                     now = time.monotonic()
