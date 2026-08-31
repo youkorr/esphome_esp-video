@@ -237,6 +237,20 @@ BROWSER_ARGS = [
 # that second the tap is delivered normally, so the corner stays usable.
 HOME_CORNER_FRACTION = 0.14
 HOME_HOLD_S = 1.0
+# Or swipe sideways from that same corner, which is the gesture somebody
+# actually suggested after living with the hold -- and it is the better one to
+# find by accident, because a finger that lands and drags is what a person does
+# to a screen they are unsure of, while holding perfectly still for a second is
+# something you have to be told to do.
+#
+# Sideways rather than any direction, because the page under the corner scrolls
+# vertically and a swipe down from the top is how you scroll it. A tenth of the
+# page's width is far enough that nothing brushes it and short enough to be one
+# comfortable movement of a thumb: 128 px on a 1280-wide page, 102 on a 1024.
+HOME_SWIPE_FRACTION = 0.10
+# And it has to be more sideways than not, or a diagonal scroll that began in
+# the corner would take the panel home.
+HOME_SWIPE_STRAIGHTNESS = 1.5
 # The least time between two scroll injections.
 #
 # Every input dispatch costs a display frame. Measured on the shipped browser,
@@ -1700,6 +1714,174 @@ BLUR_GRACE_S = 0.4
 # Installed on the context rather than the page, so it survives every
 # navigation -- including the one that parks the page on about:blank while the
 # panel sleeps, and the one that brings it back.
+# How long the corner shows itself for after a page arrives. The gesture is
+# invisible otherwise: it was asked for, so the person who asked knows it, and
+# nobody else in the house ever would. Long enough to be noticed while somebody
+# is walking up to the panel, short enough not to become furniture.
+HOME_HINT_SECONDS = 5.0
+
+HOME_HINT_JS = r"""
+(() => {
+  const ID = '__portall_home';
+  // The same rules as the keyboard, for the same reasons, and this is the one
+  // place they are worth restating: the mark is decoration and nothing else.
+  // pointer-events: none, no listeners, no focus. A contact in the corner is
+  // decided by arithmetic in the sender before the page is told anything, so
+  // the mark must never be in a position to take a tap that was meant for what
+  // is underneath it -- which on Home Assistant is the menu button.
+  window.__portallHome = {
+    dress(css) {
+      // Through the CSSOM, because a page's style-src can forbid a <style>
+      // element and cannot forbid this.
+      try {
+        if (!this.sheet) {
+          this.sheet = new CSSStyleSheet();
+          document.adoptedStyleSheets = [...document.adoptedStyleSheets, this.sheet];
+        }
+        this.sheet.replaceSync(css);
+        return;
+      } catch (err) { /* the element below */ }
+      let s = document.getElementById(ID + '_css');
+      if (!s) {
+        s = document.createElement('style');
+        s.id = ID + '_css';
+        document.documentElement.appendChild(s);
+      }
+      s.textContent = css;
+    },
+    show(css, fraction) {
+      let d = document.getElementById(ID);
+      if (!d) {
+        d = document.createElement('div');
+        d.id = ID;
+        d.setAttribute('popover', 'manual');
+        document.documentElement.appendChild(d);
+      }
+      this.dress(css);
+      d.style.removeProperty('display');
+      // The fill is a variable rather than a class, so the sender owns the
+      // number and the page only draws it.
+      d.style.setProperty('--fill', String(fraction));
+      let layered = false;
+      try {
+        // Re-entered on every change: the top layer stacks in entry order, so
+        // a dialog opened after this one would otherwise paint over it.
+        if (d.matches(':popover-open')) d.hidePopover();
+        d.showPopover();
+        layered = true;
+      } catch (err) { /* the stylesheet carries a z-index for this case */ }
+      return layered;
+    },
+    hide() {
+      const d = document.getElementById(ID);
+      if (d) {
+        try { if (d.matches(':popover-open')) d.hidePopover(); } catch (err) {}
+        d.style.setProperty('display', 'none');
+      }
+    },
+  };
+})();
+"""
+
+
+class HomeHint:
+    """The mark in the corner that says the way home is there.
+
+    It draws exactly the rectangle the sender tests, from the same fraction, so
+    what somebody presses and what they see cannot drift apart -- the rule the
+    keyboard's geometry already lives under.
+
+    Three states and no animation: shown faintly when a page arrives, filling
+    while a finger is held in the corner, gone otherwise. No animation because
+    a corner that pulses is a corner that repaints, and a repaint is a
+    rectangle on the wire for as long as the panel is awake.
+    """
+
+    def __init__(self, page, page_w, page_h):
+        self._page = page
+        self._w = max(1.0, page_w * HOME_CORNER_FRACTION)
+        self._h = max(1.0, page_h * HOME_CORNER_FRACTION)
+        # What the page was last told, so a hold costs ten round trips rather
+        # than one per turn of the loop.
+        self._at = None
+        self.broken = False
+        self._warned = False
+
+    def _css(self):
+        # The wedge is anchored in the corner and drawn no larger than the
+        # rectangle that is actually tested, so it is never a promise the
+        # gesture does not keep.
+        size = min(self._w, self._h)
+        return f"""
+        #__portall_home {{
+          position: fixed; top: 0; left: 0; margin: 0; padding: 0; border: 0;
+          width: {size:.0f}px; height: {size:.0f}px;
+          pointer-events: none;
+          background: transparent;
+          overflow: visible; z-index: 2147483646;
+          border-bottom-right-radius: 100%;
+          /* Two layers: the quarter that fills as the finger is held, over a
+             faint quarter that says where to press. Both are conic gradients
+             from the corner itself, so the fill sweeps round the way a
+             progress ring does. */
+          /* From .25turn, which is three o'clock. A conic gradient centred on
+             the top-left corner only has one visible quadrant -- the one
+             between three o'clock and six -- and starting the sweep anywhere
+             else puts the whole of it off the screen. The first version
+             started at .5turn and drew a mark that existed, was open, was 84
+             pixels square and painted absolutely nothing. */
+          background-image:
+            conic-gradient(from .25turn at 0 0,
+              rgba(255,255,255,.85) 0turn,
+              rgba(255,255,255,.85) calc(var(--fill, 0) * .25turn),
+              transparent calc(var(--fill, 0) * .25turn)),
+            conic-gradient(from .25turn at 0 0,
+              rgba(255,255,255,.16) 0turn,
+              rgba(255,255,255,.16) .25turn,
+              transparent .25turn);
+          /* Against a white page as well as a dark one. */
+          filter: drop-shadow(0 0 2px rgba(0,0,0,.55));
+        }}
+        #__portall_home::backdrop {{ background: transparent; }}
+        """
+
+    def set(self, fraction):
+        """Draw the corner filled this far, or take it away with None."""
+        if self.broken:
+            return
+        # Rounded, because the eye cannot see a fiftieth of a quarter circle
+        # and every change is a round trip into the browser and a rectangle on
+        # the wire.
+        step = None if fraction is None else round(min(1.0, max(0.0, fraction)), 1)
+        if step == self._at:
+            return
+        self._at = step
+        try:
+            if step is None:
+                self._page.evaluate("window.__portallHome.hide()")
+                return
+            layered = self._page.evaluate(
+                "a => window.__portallHome.show(a[0], a[1])", [self._css(), step]
+            )
+        except Exception as err:  # noqa: BLE001 - an accessory, never the picture
+            # The same rule the keyboard lives under, learnt the same expensive
+            # way: a page that will not have an overlay drawn must cost the
+            # overlay and nothing else.
+            self.broken = True
+            print(f"Home: this page will not have the corner mark drawn "
+                  f"({err}). The gesture still works.")
+            return
+        if not layered and not self._warned:
+            self._warned = True
+            print("Home: the corner mark is drawn in the page rather than in "
+                  "the top layer, so a modal dialog can cover it. The gesture "
+                  "is unaffected.")
+
+    def forget(self):
+        """After a navigation there is a new document and nothing is drawn."""
+        self._at = None
+
+
 KEYBOARD_INIT_JS = r"""
 (() => {
   const ID = '__udisp_kb';
@@ -2347,10 +2529,15 @@ class Injector:
         # Scroll waiting to go out, and when one last did.
         self._wheel = [0, 0]
         self._wheel_at = 0.0
-        # A gesture that started in the corner: when it landed, and whether it
-        # has already been spent on going home.
+        # A gesture that started in the corner: when it landed, whether it
+        # began there at all, whether a sideways swipe out of it has fired, and
+        # whether it has already been spent on going home.
         self._corner_at = None
+        self._from_corner = False
+        self._home = False
         self._went_home = False
+        # How far sideways out of the corner counts as asking to go home.
+        self._swipe = max(40.0, page_w * HOME_SWIPE_FRACTION)
         # The gesture began on the keyboard, and which key it is still on.
         self._on_keyboard = False
         self._key = None
@@ -2395,12 +2582,14 @@ class Injector:
                 self._start = self._last = (x, y)
                 self._scrolling = False
                 self.began = True
-                # Top left, and only if it has not moved out of it since.
-                self._corner_at = (
-                    time.monotonic()
-                    if x <= self._corner[0] and y <= self._corner[1]
-                    else None
-                )
+                # Two questions, and they need two pieces of state. The hold
+                # asks whether the finger is STILL in the corner, so its clock
+                # is cleared the moment it leaves. The swipe asks where the
+                # finger CAME FROM, and a swipe leaves the corner immediately
+                # by definition -- so it cannot be asked of the same flag.
+                in_corner = x <= self._corner[0] and y <= self._corner[1]
+                self._corner_at = time.monotonic() if in_corner else None
+                self._from_corner = in_corner
                 self._went_home = False
                 continue
             if self._on_keyboard:
@@ -2410,6 +2599,26 @@ class Injector:
                     self._keyboard.highlight(None)
                 self._last = (x, y)
                 continue
+            # Sideways out of the corner: home, and the page is told nothing
+            # about any of it.
+            if self._from_corner and not self._went_home:
+                dx, dy = x - self._start[0], y - self._start[1]
+                if abs(dx) >= self._swipe:
+                    # Decided once, at the moment the finger has gone far
+                    # enough sideways, and never revisited. Asking again on
+                    # every later report let a long diagonal become a swipe
+                    # after the fact: a drag across the whole screen runs out
+                    # of screen vertically first, so its sideways travel goes
+                    # on growing while its downward travel cannot, and half a
+                    # screen later it satisfies a test it failed at the start.
+                    if abs(dx) > abs(dy) * HOME_SWIPE_STRAIGHTNESS:
+                        self._home = True
+                        self._went_home = True
+                        self._scrolling = False
+                        self._wheel = [0, 0]
+                        self._last = (x, y)
+                        continue
+                    self._from_corner = False
             # A hold is cancelled by leaving the corner, not by wandering
             # inside it. A finger resting on glass is never perfectly still --
             # measured against the panel's own geometry, eight page pixels of
@@ -2432,17 +2641,43 @@ class Injector:
                 self._wheel[0] += self._last[0] - x
                 self._wheel[1] += self._last[1] - y
             self._last = (x, y)
-        self._flush_wheel()
+        # A gesture that began in the corner and is still going sideways has
+        # not been decided yet, so its scroll is held rather than sent: a swipe
+        # that ends up going home must not have scrolled the page it was
+        # leaving on the way out. The moment it is clearly a vertical drag it
+        # is an ordinary scroll again and everything gathered goes out at once,
+        # so nothing is lost either way.
+        if not (self._from_corner and not self._went_home and self._undecided()):
+            self._flush_wheel()
         return clicked
 
-    def tick(self, now):
-        """True once, when a finger has been held in the corner long enough.
+    def corner_progress(self, now):
+        """How far a hold in the corner has got, 0..1, or None if none is.
 
-        Asked from the loop rather than driven by the contacts, because a
-        finger holding perfectly still reports nothing at all -- the board
-        drops an event identical to the one before it, which is what stops a
-        resting finger from saying the same thing fifty times a second.
+        The same clock the gesture itself is decided by, so what the mark
+        draws and what the sender is about to do cannot disagree.
         """
+        if self._corner_at is None or self._went_home:
+            return None
+        return min(1.0, (now - self._corner_at) / HOME_HOLD_S)
+
+    def tick(self, now):
+        """True once, when the corner has been asked to take the panel home.
+
+        Two ways ask for it. A swipe sideways out of the corner is decided in
+        handle(), where the movement is, and left here to be collected: one
+        place for the loop to look means the loop cannot learn about one and
+        miss the other.
+
+        The other is the hold, and it has to be asked from the loop rather than
+        driven by the contacts, because a finger holding perfectly still
+        reports nothing at all -- the board drops an event identical to the one
+        before it, which is what stops a resting finger from saying the same
+        thing fifty times a second.
+        """
+        if self._home:
+            self._home = False
+            return True
         if self._corner_at is None or self._went_home:
             return False
         if now - self._corner_at < HOME_HOLD_S:
@@ -2501,9 +2736,25 @@ class Injector:
             self._keyboard.highlight(None)
         self._reset()
 
+    def _undecided(self):
+        """A swipe out of the corner that could still turn out to be one.
+
+        Bounded on both sides, and the far side is the half that was missing:
+        once the finger has gone further sideways than the threshold without
+        having fired, it is not a swipe home and never will be, so it is a
+        scroll and must be let through. Without that, a drag out of the corner
+        that was merely too diagonal to count held its scroll for ever and the
+        page never moved at all.
+        """
+        if self._start is None or self._last is None:
+            return False
+        dx, dy = self._last[0] - self._start[0], self._last[1] - self._start[1]
+        return abs(dx) < self._swipe and abs(dx) >= abs(dy)
+
     def _reset(self):
         self._wheel = [0, 0]
         self._corner_at = None
+        self._from_corner = False
         self._went_home = False
         self._start = self._last = None
         self._scrolling = False
@@ -2973,6 +3224,9 @@ def main():
             "__udispMediaError", lambda what: print(f"Media: {what}")
         )
         context.add_init_script(MEDIA_INIT_JS)
+        # On the context, so it survives every navigation the panel makes --
+        # including the one the corner itself performs.
+        context.add_init_script(HOME_HINT_JS)
         # Which requests the page could not make. Silent on a page that works.
         watch_failed_requests(context)
         if args.token:
@@ -3072,6 +3326,14 @@ def main():
             None if args.no_touch
             else Injector(page, touch_map, keyboard, page_w, page_h)
         )
+        # Shown when a page arrives and while a finger is held there, so the
+        # gesture is discoverable by somebody who was never told about it. It
+        # cannot be a button: a panel has no Back button and a site playing
+        # full screen swallows whatever the page is given, which is why the
+        # gesture is decided in the sender. So the mark is decoration over the
+        # place the sender is already testing.
+        hint = None if args.no_touch else HomeHint(page, page_w, page_h)
+        hint_until = time.monotonic() + HOME_HINT_SECONDS
         capture = Screencast(page, page_w, page_h, args.capture_quality)
         if args.freeze_animations:
             capture.freeze_animations()
@@ -3427,6 +3689,20 @@ def main():
                     # is. Nothing else can offer that: there is no Back button
                     # on a panel, and a site playing full screen would swallow
                     # one anyway.
+                    # The mark, from the same clock the gesture uses: filling
+                    # while a finger is held there, faint for a few seconds
+                    # after a page arrives, and gone the rest of the time. Only
+                    # while the panel is awake -- a dark screen is shown
+                    # nothing at all.
+                    if hint is not None and awake:
+                        held = (None if injector is None
+                                else injector.corner_progress(now))
+                        if held is not None:
+                            hint.set(held)
+                        elif now < hint_until:
+                            hint.set(0.0)
+                        else:
+                            hint.set(None)
                     if injector is not None and injector.tick(now):
                         print(f"Home: back to {args.url}")
                         if not open_page(page, args):
@@ -3434,6 +3710,12 @@ def main():
                         if keyboard is not None:
                             keyboard.forget()
                             keyboard.request_sync(0.5)
+                        if hint is not None:
+                            # A new document, so nothing is drawn on it yet --
+                            # and the page somebody has just come home to is
+                            # exactly where the mark is worth showing again.
+                            hint.forget()
+                            hint_until = time.monotonic() + HOME_HINT_SECONDS
                         if args.freeze_animations:
                             capture.freeze_animations()
                         # A different page entirely; nothing of the old one is

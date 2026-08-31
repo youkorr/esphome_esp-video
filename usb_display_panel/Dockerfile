@@ -23,7 +23,7 @@ WORKDIR /app
 # update really does fetch a current Playwright, a current Chromium and current
 # senders. It costs the browser download on each update, which is the price of
 # not running a year-old browser without knowing it.
-ARG BUNDLE=1.59.0
+ARG BUNDLE=1.60.0
 RUN echo "${BUNDLE}" > /app/BUNDLE
 
 RUN pip install --no-cache-dir --upgrade playwright pillow numpy \

@@ -956,7 +956,7 @@ the dashboard, where it is invisible while the keys go on working.
 ahead of the `pip install` as well as the `ADD`s, so a bump refetches
 everything — at the cost of the browser download on each update.
 `present_browser()` prints the Chromium version at startup and warns below 114,
-so this is never diagnosed by guesswork again. Currently **1.59.0**.
+so this is never diagnosed by guesswork again. Currently **1.60.0**.
 
 **And the image has to be told about every file, which is not the same as the
 repository having it.** `launcher.py` was written beside `run.py`, imported at
@@ -1224,6 +1224,78 @@ in `Injector`, exactly like `keyboard.contains()`. A corner rather than an edge
 swipe because pages scroll sideways; held rather than tapped because a corner
 gets brushed and a whole second of stillness does not — and short of the
 second, the tap is delivered normally, so the corner stays usable.
+
+**A swipe sideways out of the corner is the other way home, and it is the one
+somebody actually suggested after living with the hold** -- *"le plus simple
+est le swipe droite ou gauche en haut a gauche de l'ecran"*. It is the better
+gesture to find by accident: a finger that lands and drags is what a person
+does to a screen they are unsure of, while holding perfectly still for a second
+is something you have to be told to do. Both work; neither replaces the other.
+
+Sideways rather than any direction, because the page under that corner scrolls
+vertically. `HOME_SWIPE_FRACTION = 0.10` of the page's width -- 128 px on a
+1280-wide page -- and `HOME_SWIPE_STRAIGHTNESS = 1.5`, so a diagonal drag stays
+a scroll.
+
+Three things had to be got right, and each was a real bug first:
+
+- **The hold and the swipe need two pieces of state.** The hold asks whether
+  the finger is STILL in the corner, so its clock is cleared the moment it
+  leaves; a swipe leaves the corner immediately by definition. `_from_corner`
+  is where it came from, `_corner_at` is whether it is still there.
+- **The decision is made ONCE, when the finger has gone far enough sideways.**
+  Asked again on every later report, a long diagonal became a swipe after the
+  fact: a drag across the whole screen runs out of screen vertically first, so
+  its sideways travel goes on growing while its downward travel cannot, and
+  half a screen later it passes a test it failed at the start.
+- **The scroll is held back only while the gesture could still be one**, which
+  is bounded on both sides. Held while `|dx| < swipe`, released the moment it
+  is clearly vertical or clearly too far to fire. The first version had only
+  the near side, so a drag out of the corner that was merely too diagonal to
+  count held its scroll for ever and the page never moved at all.
+
+Ten cases, all measured against the panel's own geometry: hold with 8 px of
+wander, quick tap, diagonal drag, swipe right, swipe left, a swipe that began
+outside the corner, a drag straight down, a hold in the middle of the page, and
+the corner's two edges.
+
+**The corner shows itself, and the mark is decoration in the keyboard's exact
+sense.** `HomeHint` -- popover in the top layer, stylesheet through the CSSOM,
+built out of the DOM, `pointer-events: none`, no listeners, no focus, and every
+failure caught into `broken` so a page that refuses it costs the mark and never
+the picture. It draws the same rectangle the sender tests, from the same
+fraction, so what is pressed and what is seen cannot drift.
+
+Faint for `HOME_HINT_SECONDS = 5` when a page arrives, filling while a finger
+is held, gone otherwise -- and no animation anywhere, because a corner that
+pulses is a corner that repaints, and a repaint is a rectangle on the wire for
+as long as the panel is awake.
+
+**It shipped invisible in its first version, and the reason is worth keeping:**
+a conic gradient centred on the top-left corner has exactly one visible
+quadrant, between three o'clock and six. The sweep started at `.5turn` and
+therefore drew entirely off the screen -- an element that existed, was open,
+was 84 pixels square, carried the right gradient, and painted nothing at all.
+`from .25turn` is right.
+
+Measured the only way that can fail the way a user does, on the pixels off the
+socket, on three pages -- plain, one with a native modal dialog open, and one
+with a Trusted Types policy:
+
+| | corner on arrival | five seconds later | while held |
+|---|---|---|---|
+| plain | (54,57,62) | (18,21,28) | (224,224,224) |
+| modal dialog | (53,54,59) | (15,18,25) | (224,224,224) |
+| Trusted Types | (54,57,62) | (18,21,28) | (224,224,224) |
+
+and the tap underneath still reached the page in the two cases where a page can
+take one. The third is not the mark's doing: a native modal dialog makes
+everything outside it inert, which is the browser's rule and the reason the
+keyboard was never allowed to be one.
+
+A first attempt at that table measured the harness's own button -- a browser's
+default button is near-white, it sat under the corner, and every reading came
+back 229 whatever the mark did. **Sample against a background you chose.**
 
 **`tick()` is asked by the loop, not driven by contacts**, because a finger
 holding perfectly still reports *nothing*: the board drops an event identical

@@ -161,8 +161,20 @@ The tiles size themselves to the panel. Measured at 800x1280, 1280x800 and
 1024x600 with six links in three groups: tiles no smaller than 350x166,
 566x118 and 454x107 px, and nothing runs off the side at any of them.
 
-**Hold the top-left corner for a second to come back.** That is the whole
-gesture, and it has to be a gesture rather than a button because a panel has no
+**Swipe sideways from the top-left corner to come back** -- left or right,
+either does. Land a finger in that corner and drag it a tenth of the screen
+sideways, and the panel goes home. Holding the same corner still for a second
+does the same thing, for anyone who learnt it that way first.
+
+**The corner shows itself**, so nobody has to be told: a quarter-circle appears
+there for five seconds whenever a page arrives, and fills as a finger is held.
+It is decoration and nothing else -- no listeners, no focus, `pointer-events:
+none` -- so a short tap in the corner still reaches whatever is underneath it,
+which on Home Assistant is the menu button. Measured on the pixels that
+actually reach the panel: faint when a page arrives, gone five seconds later,
+bright while a finger holds, and the button underneath still takes the tap.
+
+It has to be a gesture rather than a button because a panel has no
 keyboard, no address bar and no Back button, and a video playing full screen
 swallows everything the page is given. So the way home does not come from the
 page: a contact in that corner is tested by arithmetic in the sender, and if it
