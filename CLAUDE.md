@@ -956,7 +956,7 @@ the dashboard, where it is invisible while the keys go on working.
 ahead of the `pip install` as well as the `ADD`s, so a bump refetches
 everything — at the cost of the browser download on each update.
 `present_browser()` prints the Chromium version at startup and warns below 114,
-so this is never diagnosed by guesswork again. Currently **1.60.0**.
+so this is never diagnosed by guesswork again. Currently **1.61.0**.
 
 **And the image has to be told about every file, which is not the same as the
 repository having it.** `launcher.py` was written beside `run.py`, imported at

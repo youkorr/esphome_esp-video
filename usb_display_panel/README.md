@@ -123,7 +123,11 @@ panels:
     height: 1280
 ```
 
-`icon` is one character -- an emoji, a letter, anything that draws. Nothing is
+`icon` is what you type, not a name from a list: one emoji, one letter, two
+letters, any character your keyboard or the emoji picker gives you. On Windows,
+**Win + .** opens that picker. A word is accepted too and is simply set smaller
+so it stays inside its square. Nothing is looked up and nothing is downloaded,
+which is why there is no list to choose from. Nothing is
 fetched from the internet: a container has no promise of reaching it, and an
 icon pack that failed to load would leave holes where the labels should be, on
 the one screen where nobody can open a console to find out why. Leave it out

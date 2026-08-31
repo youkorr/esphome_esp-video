@@ -142,7 +142,14 @@ PAGE = """<!doctype html>
    display: grid; place-items: center; border-radius: 28%%;
    background: color-mix(in srgb, var(--accent) 28%%, transparent);
    font-size: clamp(24px, 5vw, 40px); line-height: 1;
+   /* The field asks for a character and somebody will type a word into it,
+      because nothing stops them. Left alone that word runs straight across
+      the name beside it. Clipped, and set smaller below when it is long, so
+      the worst case is a shortened label rather than two overlapping ones. */
+   overflow: hidden;
  }
+ .icon.long { font-size: clamp(12px, 2vw, 17px); font-weight: 700;
+              letter-spacing: -.02em; }
  /* Blocks, not spans. They are written as spans because an <a> may not
     contain a <div>, and a span left inline puts the description on the same
     line as the name with nothing between them. */
@@ -161,7 +168,7 @@ PAGE = """<!doctype html>
 """
 
 TILE = ('<a class="tile" href="%(url)s">'
-        '<span class="icon">%(icon)s</span>'
+        '<span class="icon%(icon_long)s">%(icon)s</span>'
         '<span class="text"><span class="name">%(name)s</span>%(desc)s</span>'
         '</a>')
 
@@ -221,6 +228,13 @@ def render(links, title="Panel", subtitle="", theme="dark",
             TILE % {
                 "url": html.escape(str(entry.get("url", "")), quote=True),
                 "icon": html.escape(str(entry.get("icon") or "\N{BULLET}")),
+                # Two characters still read at the full size -- "HA" is a
+                # perfectly good icon. Beyond that it is a word, and a word
+                # has to be set smaller to stay inside its square.
+                "icon_long": (
+                    " long"
+                    if len(str(entry.get("icon") or "")) > 2 else ""
+                ),
                 "name": html.escape(str(entry.get("name") or entry["url"])),
                 "desc": (
                     '<span class="desc">%s</span>'
