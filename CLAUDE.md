@@ -351,20 +351,33 @@ as one that is blocking them and refuses to play. Every panel in that house
 sees it, and nothing in the sender can be changed to fix it, because the
 browser's lookups are the thing being filtered.
 
-`--browser-arg` is the answer and it is deliberately generic: an extra browser
-flag, repeatable, appended after `BROWSER_ARGS` so it can override a default.
-The one that matters here is
-`--host-resolver-rules="MAP * 1.1.1.1"`, which sends the browser's own lookups
-somewhere unfiltered and leaves the rest of the house alone. Verified end to
-end: a hostname that does not resolve at all was mapped to 127.0.0.1 with this
-flag and the page loaded. In the add-on it is `browser_args`, one line, split
-**the way a shell splits it** — `shlex.split`, because the flag people need has
-spaces inside it and splitting on whitespace tore it into three flags that
-meant nothing.
+**The remedy is in the filter, and `--host-resolver-rules` is NOT it.** This
+was shipped once saying `--host-resolver-rules="MAP * 1.1.1.1"` would send the
+browser's lookups somewhere unfiltered. It does nothing of the kind, and the
+user asking "do I put 1.1.1.1 in the add-on?" is what caught it before they
+did. `MAP` sends a hostname to a given **machine**: measured on the shipped
+browser, `MAP * 127.0.0.1` had a request for `n-importe-quoi.example` answered
+by the local web server, so `MAP * 1.1.1.1` would have sent *every* request the
+browser makes — Home Assistant included — to 1.1.1.1, and the panel would have
+gone blank. The earlier "verification" was a mapping of one dead hostname to
+127.0.0.1, which proves `MAP` works and proves nothing about DNS: **the control
+case was never run.**
+
+What to tell somebody instead: exempt the machine running the add-on in
+Pi-hole or AdGuard Home. One client, one rule, no list of ad domains to keep
+up to date. Chromium's `--dns-over-https-*` flags are the only in-browser
+route and are **unverified from here** — a bogus DoH template fails exactly
+like an unresolvable host, so that test says nothing either.
+
+`--browser-arg` stays, because a generic escape hatch is worth having: an
+extra browser flag, repeatable, appended after `BROWSER_ARGS` so it can
+override a default. In the add-on it is `browser_args`, one line, split **the
+way a shell splits it** — `shlex.split`, because a flag that needs it has
+spaces inside and splitting on whitespace tore it into three flags that meant
+nothing.
 
 This does not replace the codec work: a browser with no H.264 still stops on a
-stream that offers nothing else. They are two different messages from YouTube
-and now two different remedies.
+stream that offers nothing else. They are two different messages from YouTube.
 
 **A page that will not load must not end the sender.** `open_page` re-raised
 whatever `page.goto` threw, and nothing above it caught that, so a panel
