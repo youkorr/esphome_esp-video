@@ -74,7 +74,7 @@ Assistant dashboard to appear; without one it does neither.
 | `width`, `height` | Must match the component's |
 | `rotate` | Turns the picture, for a panel not mounted upright |
 | `touch_rotate`, `touch_mirror_x`, `touch_mirror_y` | From `--calibrate` |
-| `fps` | Upper bound on how often a change is acted on |
+| `fps` | Upper bound on how often a change is acted on. 25 by default; the one setting that decides whether video looks like video. See below |
 | `quality` | JPEG quality, 1..95 |
 | `keyboard` | The on-screen keyboard's layout, or `off`. See below |
 | `blank_after` | Seconds dark before a sleeping panel's page is let go of. See below |
@@ -218,6 +218,26 @@ to the end plays the video normally. Nothing here can or should change that.
 are generated per playback -- which is why changing video sometimes gets one
 that resolves and playback works for a while. A dashboard never notices any of
 this, because it talks to one name and resolves it once.
+
+### `fps` is what decides whether a video looks like a video
+
+A touch lifts the frame limit to thirty for two seconds, which is what makes a
+dashboard feel quick. It is beside the point for anything you *watch*: nobody
+touches the panel while a film plays, so that window closes and the picture
+falls back to whatever `fps` says. Measured on a page moving continuously with
+no finger on it:
+
+| `fps` | pictures a second | gap between them |
+|---|---|---|
+| 10 | 9.5 | 105 ms |
+| 20 | 17.8 | 55 ms |
+| 25 (the default) | ~22 | ~45 ms |
+| 30 | 25.3 | 38 ms |
+
+A still dashboard costs nothing whatever this is set to -- what does not change
+is not sent -- so raising it only costs anything where something moves, which
+is exactly where the smoothness is wanted. Lower it for a panel that only ever
+shows a dashboard, or for a machine with other work to do.
 
 ### What video actually costs, and why 25 Mbit/s is not enough
 

@@ -234,6 +234,25 @@ caught it; keep measuring. It is no longer a matter of picking the right frame:
 a press now throws away everything painted before it, in hand and in the
 browser both, so nothing that predates it can be shown.
 
+**`fps` is what caps a video, and the urgent window hides that from every
+test that involves a finger.** A touch lifts the limit to `urgent_fps` for two
+seconds, so anything measured while poking the panel runs at 30 and looks fine.
+Nobody touches a panel while a film plays: the window closes and the picture
+falls back to `fps`. Measured on a page moving continuously with **no finger on
+it at all** — 9.5 pictures/s at `--fps 10`, 17.8 at 20, 25.3 at 30, with the
+per-picture size unchanged at 54.9 KiB, so it is purely the gate.
+
+The add-on's default was **10** and is now **25**. Ten was chosen for a
+dashboard and is right for one; it was also a ceiling nobody watching a video
+had asked for, and it is why *"ce n'est pas assez fluide"* survived two rounds
+of real fixes to the touch path. A still dashboard costs nothing whatever this
+is set to — what does not change is not sent — so the number only bites where
+something moves.
+
+The lesson is about *how it was hidden*: every swipe measurement in this
+session ran inside the urgent window, so none of them could see it. Measure the
+idle path with no input at all, or the gate that governs it stays invisible.
+
 **Throwing away the frame in hand belongs to the LANDING, not to every
 report, and getting that wrong is what made swiping erratic.** A press
 discards everything painted before it — in hand and still in the browser —

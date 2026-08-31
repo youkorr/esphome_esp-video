@@ -1,5 +1,5 @@
 name: ESP32-P4 Panel
-version: "1.49.0"
+version: "1.50.0"
 slug: usb_display_panel
 description: Renders Home Assistant dashboards onto ESPHome portall panels over the network, with touch coming back
 url: https://github.com/youkorr/esphome_esp-video
@@ -23,13 +23,21 @@ options:
   # address, and needs no token.
   url: http://homeassistant:8123/lovelace/0
   port: 5000
-  # The upper bound on how often a change is acted on. It only bounds pictures
-  # nobody asked for: for two seconds after every touch the sender lifts it to
-  # thirty a second by itself, which is what a dashboard transition needs, so a
-  # low number here does not make the panel feel slow. Lower it to 4 if the
-  # machine running this has other work to do; a still dashboard costs nothing
-  # whatever it is set to.
-  fps: 10
+  # The upper bound on how often a change is acted on, and the one setting that
+  # decides whether video looks like video.
+  #
+  # It was 10, on the reasoning that a touch lifts it to thirty for two seconds
+  # anyway. That is true and it is beside the point for anything you WATCH:
+  # nobody touches the panel while a film plays, so the window closes and the
+  # picture falls back to this number. Measured on a page moving continuously
+  # with no finger on it: 9.5 pictures a second at 10, 17.8 at 20, 25.3 at 30.
+  #
+  # A still dashboard costs nothing whatever this is set to -- what is not
+  # changing is not sent. It only bites when something moves, so the cost is
+  # a camera tile or a video, which is exactly where the smoothness is wanted.
+  # Lower it to 10 or 4 if the machine running this has other work to do, or if
+  # a panel of yours only ever shows a dashboard.
+  fps: 25
   quality: 80
   # The on-screen keyboard, drawn by the browser whenever a text field takes
   # focus -- the dashboard's search, Assist, the search box of an ordinary
