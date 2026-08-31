@@ -1101,6 +1101,50 @@ comments have warned about since the USB path.
 Validated with `esphome config`, with `micro_wake_word` removed for the run
 because it downloads its model from github while validating.
 
+## Sound for the page, server side
+
+**Playwright mutes the browser on every launch and says nothing about it.**
+This is the whole reason the first attempt captured silence, and it took an
+hour to find because every other indicator says the sound is fine: the page's
+own `AnalyserNode` reads **0.21 RMS**, PulseAudio shows a sink-input from
+Chromium `Corked: no`, `Mute: no`, volume 100% — and every sample in it is
+zero. Reading `/proc/<pid>/cmdline` of the running browser is what found it:
+
+    chrome-headless-shell ['--mute-audio']
+
+`ignore_default_args=["--mute-audio"]` is the fix, and it is passed **only**
+when sound is wanted, so `--audio off` keeps the quieter browser. With it:
+peak 9834 of 32767 for a page playing at gain 0.3, and a Goertzel over one
+second puts every bit of the energy at 440 Hz and none at 220, 660, 880 or
+1000. Both builds behave the same — it is Playwright, not the headless shell.
+
+**The capture is a sink nothing listens to.** Chromium's protocol offers no
+audio at all, so the only way is to give the browser an output and read it
+back: `pactl load-module module-null-sink`, `PULSE_SINK` in the browser's
+environment, and `parec` on its monitor. Works for any page, needs no
+extension and no real sound device — which a container does not have. One sink
+per panel, named after its host, so two panels never hear each other.
+
+`PageAudio` holds **half a second and no more** (`deque(maxlen=25)` of 20 ms
+blocks). Sound that could not be sent is sound whose moment has passed: a panel
+that is behind wants the newest samples, not a backlog to catch up through.
+
+**Sound goes out BETWEEN the rectangles of a picture, not behind them.**
+`PanelWriter._drain_audio()` runs before each blob and after the last, and the
+writer wakes for sound alone when no picture is in hand. A whole panel is a
+quarter of a megabyte and takes a tenth of a second to write on a busy link;
+audio queued behind that arrives in gaps, and a gap is a click.
+
+Verified end to end against a fake panel replaying the board's parser: browser
+→ null sink → `parec` → sender → socket → parser, **16.08 s of PCM, peak
+9834/32767, all the energy at 440 Hz and none at 220 or 880**, with rectangles
+arriving on the same socket at the same time. And `--audio off` creates no sink
+and prints no `Audio:` line.
+
+The add-on installs `pulseaudio` and `pulseaudio-utils` — non-fatal, like the
+browser — and `run.py` starts one server for all panels before spawning any.
+When there is none, the sender says so once and renders the picture regardless.
+
 ## The rename to portall
 
 `usb_display` became **`portall`** because the name had stopped describing the

@@ -23,7 +23,7 @@ WORKDIR /app
 # update really does fetch a current Playwright, a current Chromium and current
 # senders. It costs the browser download on each update, which is the price of
 # not running a year-old browser without knowing it.
-ARG BUNDLE=1.46.0
+ARG BUNDLE=1.47.0
 RUN echo "${BUNDLE}" > /app/BUNDLE
 
 RUN pip install --no-cache-dir --upgrade playwright pillow numpy \
@@ -54,6 +54,23 @@ RUN (playwright install --with-deps chrome \
      || echo "no codec-capable browser here; Playwright's own will be used") \
     ; apt-get clean \
     ; rm -rf /var/lib/apt/lists/* /root/.cache/pip \
+    ; true
+
+# A sound card that goes nowhere, so the browser has somewhere to play.
+#
+# Chromium's debugging protocol does not offer audio, so the only way to hear
+# what a page is playing is to give the browser an output and read it back. A
+# PulseAudio null sink is that output: no hardware, no permissions, and it
+# works for any page. Without this the panel shows a video and stays silent.
+#
+# Not allowed to fail the build either -- a panel that shows a dashboard is
+# worth more than one that has sound, and the sender says plainly when there
+# is no PulseAudio to capture through.
+RUN (apt-get update \
+     && apt-get install -y --no-install-recommends pulseaudio pulseaudio-utils \
+     || echo "no PulseAudio here; panels will be silent") \
+    ; apt-get clean \
+    ; rm -rf /var/lib/apt/lists/* \
     ; true
 
 # Fetched rather than copied: a Home Assistant add-on builds with its own folder

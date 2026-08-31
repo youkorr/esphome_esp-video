@@ -78,6 +78,31 @@ SHARED_KEYS = (
 )
 
 
+def start_pulseaudio():
+    """One sound server for the whole add-on, before any panel starts.
+
+    Each sender then makes its own null sink inside it, named after its panel,
+    so two panels never hear each other. Failing is not fatal: the senders say
+    so and render the picture regardless.
+    """
+    try:
+        done = subprocess.run(
+            ["pulseaudio", "--start", "--exit-idle-time=-1", "--disallow-exit"],
+            capture_output=True, text=True, timeout=30,
+        )
+    except (OSError, subprocess.SubprocessError) as err:
+        say(f"No sound: pulseaudio would not run ({err})")
+        return
+    # It warns about running as root every time and starts anyway, which is
+    # the normal case in a container and not worth printing.
+    if done.returncode != 0:
+        detail = (done.stderr or done.stdout).strip().splitlines()
+        say(f"No sound: pulseaudio exited {done.returncode}"
+            f"{' -- ' + detail[-1] if detail else ''}")
+        return
+    say("Sound server started")
+
+
 def load_panels():
     """Every panel to serve, as dictionaries of ha_send.py's options."""
     for path in ("/data/options.json", os.environ.get("UDISP_CONFIG")):
@@ -305,6 +330,7 @@ def main():
         thread = threading.Thread(target=serve, args=(panel, name, stop), daemon=True)
         thread.start()
         threads.append(thread)
+    start_pulseaudio()
     say(f"Serving {len(threads)} panel(s)")
 
     # The container lives as long as the panels do.

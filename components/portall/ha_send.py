@@ -55,9 +55,11 @@ what lets a browser with no keyboard get past the login screen.
 
 import argparse
 import base64
+import collections
 import io
 import json
 import os
+import subprocess
 import sys
 import threading
 import time
@@ -65,7 +67,15 @@ import time
 # udisp_send.py is next to this file and owns the wire format. Importing it
 # rather than restating the header keeps one definition of the protocol.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from udisp_send import build_header, build_heartbeat, connect_tcp  # noqa: E402
+from udisp_send import (  # noqa: E402
+    AUDIO_BITS,
+    AUDIO_CHANNELS,
+    AUDIO_RATE,
+    build_audio_header,
+    build_header,
+    build_heartbeat,
+    connect_tcp,
+)
 
 # The panel is divided into tiles and each is compared with the last picture.
 # Small tiles find changes precisely and cost many rectangles; large ones cost
@@ -365,7 +375,8 @@ MEDIA_PROBE_JS = """() => {
 }"""
 
 
-def _launch(playwright, executable, profile, view, browser_args):
+def _launch(playwright, executable, profile, view, browser_args,
+            ignore=(), env=None):
     """Start the browser, and fall back to Playwright's own if it will not.
 
     Preferring a system browser is only safe if being wrong about it costs
@@ -380,9 +391,11 @@ def _launch(playwright, executable, profile, view, browser_args):
             return playwright.chromium.launch_persistent_context(
                 profile, args=browser_args, viewport=view,
                 device_scale_factor=1, executable_path=path,
+                ignore_default_args=list(ignore), env=env,
             )
         return playwright.chromium.launch(
-            args=browser_args, executable_path=path
+            args=browser_args, executable_path=path,
+            ignore_default_args=list(ignore), env=env,
         ).new_context(viewport=view, device_scale_factor=1)
 
     if executable is None:
@@ -1068,6 +1081,110 @@ def calibrate(endpoint, page_w, page_h, panel_w, panel_h, transpose, quality):
     return best
 
 
+class PageAudio:
+    """The sound of the page, taken from a sink nothing is listening to.
+
+    Chromium's debugging protocol does not offer audio, so there is no way to
+    ask the browser for it. What there is: give the browser a sound card that
+    goes nowhere -- a PulseAudio null sink -- and read its monitor. That works
+    for any page, needs no extension, and needs no real sound device, which a
+    container does not have.
+
+    One sink per panel, named after it, so two panels do not hear each other.
+
+    **Playwright mutes the browser and does not say so.** Measured on the
+    shipped build: every launch carries `--mute-audio`, the sink-input appears
+    on PulseAudio unmuted and at full volume, and every sample in it is zero.
+    A page whose own AnalyserNode reads 0.21 RMS delivers silence to the sink.
+    So the capture is worthless without `ignore_default_args=["--mute-audio"]`,
+    and that is the whole difference between this working and not: with it,
+    peak 9834 of 32767 for a gain of 0.3, and a Goertzel over one second puts
+    every bit of the energy at 440 Hz and none at 220, 660, 880 or 1000.
+    """
+
+    # 20 ms a block: small enough that the panel's speaker never runs dry
+    # waiting for the next one, large enough that the sixteen-byte header is a
+    # rounding error rather than a third of what goes out.
+    BLOCK_MS = 20
+
+    def __init__(self, name):
+        self.sink = "portall_" + "".join(
+            c if c.isalnum() else "_" for c in name
+        )[:32]
+        self.block = AUDIO_RATE * self.BLOCK_MS // 1000 * (AUDIO_BITS // 8) * AUDIO_CHANNELS
+        self._module = None
+        self._parec = None
+        self._blocks = collections.deque(maxlen=25)  # half a second, no more
+        self._thread = None
+        self.dropped = 0
+        self.captured = 0
+
+    def start(self):
+        """True if there is sound to be had; False, with a reason, if not."""
+        try:
+            out = subprocess.run(
+                ["pactl", "load-module", "module-null-sink",
+                 f"sink_name={self.sink}",
+                 f"sink_properties=device.description={self.sink}"],
+                capture_output=True, text=True, timeout=10,
+            )
+        except (OSError, subprocess.SubprocessError) as err:
+            print(f"Audio: no PulseAudio here ({err}), the panel stays silent")
+            return False
+        if out.returncode != 0:
+            print(f"Audio: could not make a sink ({out.stderr.strip()}), "
+                  f"the panel stays silent")
+            return False
+        self._module = out.stdout.strip()
+        try:
+            self._parec = subprocess.Popen(
+                ["parec", f"--device={self.sink}.monitor", "--format=s16le",
+                 f"--rate={AUDIO_RATE}", f"--channels={AUDIO_CHANNELS}",
+                 f"--latency-msec={self.BLOCK_MS}"],
+                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+            )
+        except OSError as err:
+            print(f"Audio: parec would not run ({err}), the panel stays silent")
+            self.close()
+            return False
+        self._thread = threading.Thread(target=self._read, name="page-audio",
+                                        daemon=True)
+        self._thread.start()
+        print(f"Audio: capturing the page through {self.sink} at "
+              f"{AUDIO_RATE} Hz, {AUDIO_BITS} bit, {AUDIO_CHANNELS} channel")
+        return True
+
+    def _read(self):
+        stream = self._parec.stdout
+        while True:
+            chunk = stream.read(self.block)
+            if not chunk:
+                return
+            # Bounded on purpose. Sound that could not be sent is sound whose
+            # moment has passed: a panel that is behind wants the newest
+            # samples, not a backlog to catch up through.
+            if len(self._blocks) == self._blocks.maxlen:
+                self.dropped += 1
+            self._blocks.append(chunk)
+            self.captured += len(chunk)
+
+    def take(self, limit=8):
+        """Whatever has arrived since the last look, oldest first."""
+        out = []
+        while self._blocks and len(out) < limit:
+            out.append(self._blocks.popleft())
+        return out
+
+    def close(self):
+        if self._parec is not None:
+            self._parec.terminate()
+            self._parec = None
+        if self._module is not None:
+            subprocess.run(["pactl", "unload-module", self._module],
+                           capture_output=True, timeout=10, check=False)
+            self._module = None
+
+
 class PanelWriter:
     """Keeps the socket's blocking write off the loop.
 
@@ -1101,6 +1218,13 @@ class PanelWriter:
         # whether it may hand over another is really asking whether the panel
         # has caught up.
         self._slot = None
+        # Sound waits in its own queue and goes out BETWEEN the rectangles of
+        # a picture, not behind them. A whole panel is a quarter of a megabyte
+        # and takes a tenth of a second to write on a busy link; audio queued
+        # behind that arrives in gaps, and a gap is a click. Interleaving costs
+        # nothing -- they are two types on one wire and the board reads
+        # whichever turns up.
+        self._audio = collections.deque(maxlen=25)
         self._error = None
         self._stop = False
         # Still worth counting even though the loop no longer pays it: it is
@@ -1114,15 +1238,27 @@ class PanelWriter:
     def _run(self):
         while True:
             with self._wake:
-                while self._slot is None and not self._stop:
+                while self._slot is None and not self._audio and not self._stop:
                     self._wake.wait()
                 if self._stop:
                     return
                 blobs = self._slot
+            if blobs is None:
+                # Woken by sound alone, between pictures.
+                try:
+                    self._drain_audio()
+                except OSError as err:  # noqa: PERF203
+                    with self._wake:
+                        self._error = err
+                        self._wake.notify_all()
+                    return
+                continue
             at = time.monotonic()
             try:
                 for blob in blobs:
+                    self._drain_audio()
                     self._endpoint.write(blob)
+                self._drain_audio()
             except OSError as err:  # noqa: PERF203
                 # Handed to the loop, which owns reconnecting.
                 with self._wake:
@@ -1134,6 +1270,23 @@ class PanelWriter:
                 self.blocked += time.monotonic() - at
                 self._slot = None
                 self._wake.notify_all()
+
+    def _drain_audio(self):
+        """Everything waiting, written now. Called from the writer thread."""
+        while True:
+            with self._wake:
+                if not self._audio:
+                    return
+                block = self._audio.popleft()
+            self._endpoint.write(build_audio_header(len(block)) + block)
+
+    def offer_audio(self, block):
+        """Hand over one block of sound. Never blocks, never waits its turn."""
+        with self._wake:
+            if self._error is not None:
+                raise self._error
+            self._audio.append(block)
+            self._wake.notify()
 
     def ready(self):
         """Whether the last picture is out and another may be handed over."""
@@ -2321,6 +2474,16 @@ def main():
         "name one exactly, or 'off' to keep Playwright's whatever is installed",
     )
     parser.add_argument(
+        "--audio",
+        default="auto",
+        choices=["auto", "off"],
+        help="send the page's sound to the panel's speaker, so a video played "
+        "in the browser is heard where it is watched. 'auto' does it whenever "
+        "PulseAudio is there to capture through, and says why when it is not. "
+        "Home Assistant's own audio does not come this way and is unaffected: "
+        "the board has a media_player of its own",
+    )
+    parser.add_argument(
         "--browser-arg",
         action="append",
         default=[],
@@ -2537,6 +2700,14 @@ def main():
         view = {"width": page_w, "height": page_h}
         # Settled once, before anything is launched, so both paths below agree
         # and the log says which browser is about to run.
+        # Before the browser, because the browser has to be pointed at the
+        # sink and a sink that does not exist yet cannot be.
+        audio = None
+        if args.audio != "off":
+            candidate = PageAudio(args.host)
+            if candidate.start():
+                audio = candidate
+
         # Whatever the caller added, after the defaults, so it can override
         # one of them if it means to.
         browser_args = BROWSER_ARGS + list(args.browser_arg)
@@ -2545,6 +2716,16 @@ def main():
         executable = pick_browser(args.browser)
         if executable:
             print(f"Browser: running {executable}")
+        # Playwright puts --mute-audio on every launch and says nothing about
+        # it. With it there the capture below reads nothing but zeroes, however
+        # loudly the page is playing -- measured, 0.21 RMS inside the page and
+        # silence at the sink. Dropped only when the sound is wanted, so a
+        # panel with --audio off keeps the quieter browser.
+        launch_env = None
+        ignore = []
+        if audio is not None:
+            ignore = ["--mute-audio"]
+            launch_env = dict(os.environ, PULSE_SINK=audio.sink)
         if args.profile:
             # A profile on disk, so that what somebody signs into stays signed
             # in. Cookies, local storage and the rest live here instead of in a
@@ -2557,10 +2738,12 @@ def main():
             # start.
             print(f"Browser: keeping its profile in {args.profile}")
             context = _launch(
-                playwright, executable, args.profile, view, browser_args
+                playwright, executable, args.profile, view, browser_args,
+                ignore, launch_env,
             )
         else:
-            context = _launch(playwright, executable, None, view, browser_args)
+            context = _launch(playwright, executable, None, view, browser_args,
+                              ignore, launch_env)
         # Installed on the context so it is in every frame of every page,
         # including the ones a site makes for itself and the one that comes
         # back after the page is parked. It is the line that names why a video
@@ -2777,6 +2960,13 @@ def main():
                     # both what is decoded and what is sent -- and because it
                     # raises whatever the writer thread hit, so a lost socket
                     # still reaches the reconnect below.
+                    # Sound first, and every turn: it goes into its own queue
+                    # and out between rectangles, so it never waits behind a
+                    # picture. A panel that is asleep is sent none of it.
+                    if audio is not None and awake:
+                        for block in audio.take():
+                            writer.offer_audio(block)
+
                     free = writer.ready()
                     frame = capture.take()
                     if frame is not None:
