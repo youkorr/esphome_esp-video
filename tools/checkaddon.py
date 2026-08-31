@@ -104,20 +104,28 @@ def check_image(folder):
         if words and words[0].upper() in ("COPY", "ADD") and len(words) >= 3:
             shipped.update(pathlib.PurePosixPath(w).name for w in words[1:-1])
 
-    # What run.py needs. Only modules that exist as files beside it: anything
-    # else is a package pip installed and not this Dockerfile's business.
-    tree = ast.parse(entry.read_text())
-    needed = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            needed.update(a.name.split(".")[0] for a in node.names)
-        elif isinstance(node, ast.ImportFrom) and node.module and not node.level:
-            needed.add(node.module.split(".")[0])
-    local = {n for n in needed if (folder / f"{n}.py").exists()}
+    # What run.py needs, and what THOSE need in turn. Only modules that exist
+    # as files beside it: anything else is a package pip installed and not
+    # this Dockerfile's business. Following the chain matters -- run.py
+    # imports the launcher, and the launcher imports the logos, and the file
+    # two steps out is exactly the one nobody thinks to add a COPY for.
+    local, pending = set(), [entry]
+    while pending:
+        tree = ast.parse(pending.pop().read_text())
+        needed = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                needed.update(a.name.split(".")[0] for a in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.module and not node.level:
+                needed.add(node.module.split(".")[0])
+        for name in needed:
+            if (folder / f"{name}.py").exists() and name not in local:
+                local.add(name)
+                pending.append(folder / f"{name}.py")
     missing = sorted(n for n in local if f"{n}.py" not in shipped)
     if missing:
         faults.append(
-            f"run.py imports {', '.join(missing)}, and the Dockerfile never "
+            f"the add-on needs {', '.join(missing)}, and the Dockerfile never "
             f"copies {', '.join(n + '.py' for n in missing)} -- the add-on "
             f"will die on ModuleNotFoundError before serving a panel"
         )

@@ -23,7 +23,7 @@ WORKDIR /app
 # update really does fetch a current Playwright, a current Chromium and current
 # senders. It costs the browser download on each update, which is the price of
 # not running a year-old browser without knowing it.
-ARG BUNDLE=1.63.0
+ARG BUNDLE=1.64.0
 RUN echo "${BUNDLE}" > /app/BUNDLE
 
 RUN pip install --no-cache-dir --upgrade playwright pillow numpy \
@@ -89,6 +89,7 @@ ADD ${RAW}/ha_send.py /app/ha_send.py
 # served. Anything run.py imports has to be listed here.
 COPY run.py /app/run.py
 COPY launcher.py /app/launcher.py
+COPY logos.py /app/logos.py
 
 WORKDIR /app
 # Unbuffered, or the add-on log stays empty until something goes wrong.

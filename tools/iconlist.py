@@ -12,6 +12,9 @@ import pathlib
 import sys
 
 HERE = pathlib.Path(__file__).resolve().parent.parent
+# The launcher imports its logos the way it will inside the add-on's image,
+# where both sit in the same directory.
+sys.path.insert(0, str(HERE / "usb_display_panel"))
 spec = importlib.util.spec_from_file_location(
     "launcher", HERE / "usb_display_panel" / "launcher.py")
 launcher = importlib.util.module_from_spec(spec)
@@ -39,6 +42,27 @@ def main():
     print()
     print(f"{len(launcher.ICONS)} names onto "
           f"{len(set(launcher.ICONS.values()))} icons.")
+    print()
+    print("### Les logos de services")
+    print()
+    print("| service | les noms qui y mènent | service | les noms qui y mènent |")
+    print("|---|---|---|---|")
+    entries = [(slug, words.split()) for slug, words, _hex, _d
+               in sorted(launcher.logos.LOGO_LIST)]
+    half = (len(entries) + 1) // 2
+    for row in range(half):
+        cells = []
+        for column in range(2):
+            index = column * half + row
+            if index < len(entries):
+                slug, names = entries[index]
+                cells.append(slug + " | " + " ".join(f"`{n}`" for n in names))
+            else:
+                cells.append(" | ")
+        print("| " + " | ".join(cells) + " |")
+    print()
+    print(f"{len(launcher.logos.LOGO_LIST)} service logos, drawn from the "
+          f"add-on itself and never fetched.")
     return 0
 
 

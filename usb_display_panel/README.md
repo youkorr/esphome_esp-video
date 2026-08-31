@@ -131,6 +131,18 @@ it did before the list existed (on Windows, **Win + .** opens the emoji
 picker). A whole word is accepted too and is set smaller so it stays inside its
 square.
 
+**The services you are most likely to link to have their own logo** --
+`home-assistant`, `jellyfin`, `plex`, `youtube`, `proxmox`, `unraid`,
+`truenas`, `docker`, `portainer`, `grafana`, `nextcloud` and forty more. They
+are drawn from the add-on itself as inline shapes, in the brand's own colour,
+and never fetched: Homepage pulls those from an icon repository, and a panel is
+the one screen where nobody can find out why a picture did not load. A logo
+whose colour would disappear against the panel -- GitHub is nearly black, Sonos
+is black -- is drawn in the theme's ink instead.
+
+Prime Video is the exception on that list: it is not in the collection these
+come from, so `prime-video` gives a television.
+
 Nothing is downloaded for any of this. Every icon is a character the browser
 already has, and each one was checked against U+FFFF in the browser this add-on
 ships -- a glyph the font cannot draw measures exactly as wide as one that has
@@ -187,7 +199,7 @@ no drawing at all, and none of these do.
 | 🎬 | `jellyfin` `plex` `kodi` `film` `cinema` `movies` `movie` `media` | 🐈 | `chat-animal` `cat` `chaton` `kitten` |
 | ▶️ | `youtube` `video` `lecture` `play` `watch` | 🏊 | `piscine` `pool` `swimming` `spa` |
 | 🎥 | `netflix` `streaming` `projector` | 🍖 | `barbecue` `viande` `bbq` `grill` `meat` |
-| 📺 | `television` `tv` `televiseur` `screen` | 🔧 | `outils` `bricolage` `tools` `maintenance` `repair` |
+| 📺 | `television` `tv` `televiseur` `screen` `prime-video` `primevideo` `prime` `disneyplus` `disney` `canalplus` `molotov` | 🔧 | `outils` `bricolage` `tools` `maintenance` `repair` |
 | 🎵 | `musique` `spotify` `music` `song` `audio` | ⚙️ | `reglages` `parametres` `settings` `configuration` `setup` |
 | 📻 | `radio` `tuner` | ☕️ | `cafe` `coffee` `machine-a-cafe` `kettle` |
 | 🎙 | `podcast` `micro-studio` `recording` | 🍽 | `repas` `cuisine-table` `meal` `dinner` `restaurant` |
@@ -200,7 +212,39 @@ no drawing at all, and none of these do.
 | 🐳 | `docker` `portainer` `container` `containers` `whale` | ℹ️ | `info` `information` `aide` `help` `about` |
 | 🖧 | `serveur` `server` `cluster` `machines` `noeuds` `nodes` |  |  |
 
-520 names onto 116 icons.
+527 names onto 116 icons.
+
+### Les logos de services
+
+| service | les noms qui y mènent | service | les noms qui y mènent |
+|---|---|---|---|
+| adguard | `adguard` `adguardhome` | paperlessngx | `paperless` `paperlessngx` `paperless-ngx` |
+| audiobookshelf | `audiobookshelf` `abs` | pfsense | `pfsense` |
+| bitwarden | `bitwarden` | philipshue | `hue` `philipshue` `philips-hue` |
+| calibreweb | `calibre` `calibreweb` `calibre-web` | pihole | `pihole` `pi-hole` |
+| docker | `docker` | plex | `plex` |
+| duplicati | `duplicati` | portainer | `portainer` |
+| eclipsemosquitto | `mosquitto` `broker` | proxmox | `proxmox` `pve` |
+| emby | `emby` | qbittorrent | `qbittorrent` `qbit` |
+| esphome | `esphome` | radarr | `radarr` |
+| frigate | `frigate` | raspberrypi | `raspberrypi` `raspberry-pi` `pi` |
+| gitea | `gitea` `forgejo` | sonarr | `sonarr` |
+| github | `github` | sonos | `sonos` |
+| grafana | `grafana` | spotify | `spotify` |
+| homeassistant | `home-assistant` `homeassistant` `hass` `ha` `lovelace` | synology | `synology` `dsm` |
+| homebridge | `homebridge` | tailscale | `tailscale` |
+| immich | `immich` | transmission | `transmission` |
+| influxdb | `influxdb` `influx` | truenas | `truenas` `freenas` |
+| jellyfin | `jellyfin` | twitch | `twitch` |
+| mqtt | `mqtt` | ubiquiti | `ubiquiti` `unifi` |
+| netflix | `netflix` | unraid | `unraid` |
+| nextcloud | `nextcloud` | uptimekuma | `uptimekuma` `uptime-kuma` `kuma` |
+| nodered | `nodered` `node-red` | vaultwarden | `vaultwarden` |
+| openmediavault | `openmediavault` `omv` | wireguard | `wireguard` |
+| openwrt | `openwrt` | youtube | `youtube` `yt` |
+| opnsense | `opnsense` | zigbee2mqtt | `zigbee2mqtt` `z2m` |
+
+50 service logos, drawn from the add-on itself and never fetched.
 
 ## The keyboard
 

@@ -956,7 +956,7 @@ the dashboard, where it is invisible while the keys go on working.
 ahead of the `pip install` as well as the `ADD`s, so a bump refetches
 everything — at the cost of the browser download on each update.
 `present_browser()` prints the Chromium version at startup and warns below 114,
-so this is never diagnosed by guesswork again. Currently **1.63.0**.
+so this is never diagnosed by guesswork again. Currently **1.64.0**.
 
 **And the image has to be told about every file, which is not the same as the
 repository having it.** `launcher.py` was written beside `run.py`, imported at
@@ -1209,6 +1209,34 @@ Two details that are the difference between a list and a good one:
   row of full-colour emoji. Only for that block; adding it to an emoji is
   noise. Not applied to the empty-field bullet either, whose emoji form is a
   heavier mark than the quiet placeholder it is meant to be.
+
+**And then the real logos, because emoji are not what somebody means by the
+icon of Jellyfin.** Reported as missing for Home Assistant, Jellyfin, Prime
+Video, YouTube, Unraid and Proxmox -- three of which *did* resolve, to a
+clapperboard, a play triangle and a monitor. `home-assistant` genuinely had
+gone, dropped in the bilingual rewrite, which is a regression that reached a
+user.
+
+`logos.py` carries **50 service marks as inline SVG paths**, from
+simple-icons, which places them in the public domain under CC0 1.0; the marks
+stay the trademarks of the services they name, used to say which service a
+tile opens. **Carried, not fetched** -- Homepage pulls its icons from a
+repository, and a panel is the one screen where nobody can open a console to
+find out why a picture did not load.
+
+Two things had to be decided rather than copied:
+
+- **A brand colour that disappears is worse than no brand colour.** GitHub is
+  nearly black and Sonos is black outright; on a dark tile they are a hole. The
+  relative luminance decides, and the theme's ink is the fallback -- a
+  recognisable shape in the wrong colour beats a correct colour nobody can see.
+- **Prime Video is not in the collection**, so it is a name in the emoji list
+  and gets a television. Saying so is better than an empty square.
+
+`tools/checkaddon.py` now follows imports **transitively** -- run.py imports
+the launcher, the launcher imports the logos -- and it caught the missing
+`COPY logos.py` on its first run, which is the second time that check has paid
+for itself on the file it was written for.
 
 `tools/iconlist.py` prints the README's table from the dictionary, because a
 documented name that does not work is worse than no list at all.

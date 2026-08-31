@@ -30,6 +30,8 @@ import mimetypes
 import os
 import threading
 
+import logos
+
 # Inside the add-on's own container, which is where the senders run too, so
 # nothing of this is reachable from the network.
 PORT = 8099
@@ -158,7 +160,8 @@ ICON_NAMES = (
     ("\U0001F3AC", "jellyfin plex kodi film cinema movies movie media"),
     ("▶", "youtube video lecture play watch"),
     ("\U0001F3A5", "netflix streaming projector"),
-    ("\U0001F4FA", "television tv televiseur screen"),
+    ("\U0001F4FA", "television tv televiseur screen prime-video primevideo "
+     "prime disneyplus disney canalplus molotov"),
     ("\U0001F3B5", "musique spotify music song audio"),
     ("\U0001F4FB", "radio tuner"),
     ("\U0001F399", "podcast micro-studio recording"),
@@ -241,6 +244,38 @@ for _glyph, _words in ICON_NAMES:
         if _word in ICONS and ICONS[_word] != _glyph:
             raise ValueError(f"the icon name {_word!r} is used twice")
         ICONS[_word] = _glyph
+
+def _readable(hex_colour, dark):
+    """The brand colour, unless it would disappear against the panel.
+
+    GitHub is very nearly black and Sonos is black outright; on a dark tile
+    they are a hole rather than a logo, and the same is true of a white mark on
+    a light theme. Relative luminance decides it, and the theme's own ink is
+    what they fall back to -- a recognisable shape in the wrong colour beats a
+    correct colour nobody can see.
+    """
+    r, g, b = (int(hex_colour[i:i + 2], 16) / 255 for i in (1, 3, 5))
+    luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b
+    if dark and luminance < 0.22:
+        return "#e8ecf4"
+    if not dark and luminance > 0.82:
+        return "#161b26"
+    return hex_colour
+
+
+def logo_svg(value, dark):
+    """The inline drawing for a service name, or None if there is not one.
+
+    Inline because nothing here is fetched, and as a path rather than an image
+    so it takes the colour it is given -- see _readable above.
+    """
+    entry = logos.LOGOS.get(str(value or "").strip().lower())
+    if entry is None:
+        return None
+    colour, path = entry
+    return (f'<svg class="logo" viewBox="0 0 24 24" aria-hidden="true" '
+            f'fill="{_readable(colour, dark)}"><path d="{path}"/></svg>')
+
 
 def icon_for(value):
     """The glyph for what somebody typed: a name from the list, or the text.
@@ -340,6 +375,9 @@ PAGE = """<!doctype html>
  }
  .icon.long { font-size: clamp(12px, 2vw, 17px); font-weight: 700;
               letter-spacing: -.02em; }
+ /* A logo is a shape rather than a character, so it is sized as a fraction of
+    the square it sits in rather than by a font size. */
+ .icon .logo { width: 58%%; height: 58%%; display: block; }
  /* Blocks, not spans. They are written as spans because an <a> may not
     contain a <div>, and a span left inline puts the description on the same
     line as the name with nothing between them. */
@@ -417,14 +455,17 @@ def render(links, title="Panel", subtitle="", theme="dark",
         tiles = "".join(
             TILE % {
                 "url": html.escape(str(entry.get("url", "")), quote=True),
-                "icon": html.escape(icon_for(entry.get("icon"))),
+                "icon": (logo_svg(entry.get("icon"), dark)
+                         or html.escape(icon_for(entry.get("icon")))),
                 # Two characters still read at the full size -- "HA" is a
                 # perfectly good icon. Beyond that it is a word, and a word
                 # has to be set smaller to stay inside its square. Measured on
                 # what will be drawn, not on what was typed: a name from the
                 # list is one glyph however long the name is.
                 "icon_long": (
-                    " long"
+                    ""
+                    if logo_svg(entry.get("icon"), dark) is not None
+                    else " long"
                     if len(icon_for(entry.get("icon")).rstrip("\uFE0F")) > 2
                     else ""
                 ),
