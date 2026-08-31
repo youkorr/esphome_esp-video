@@ -190,6 +190,14 @@ BROWSER_ARGS = [
     "--disable-gpu",
     # A video nobody clicked on is still a video that should play here.
     "--autoplay-policy=no-user-gesture-required",
+    # Nothing carries audio over this path -- the panel's speaker is a USB
+    # sound card fed by whatever the cable is plugged into, never by the
+    # network -- so every sample the browser decodes and every device it opens
+    # is work for a sound nobody can hear. Muting also takes a whole class of
+    # failure out of the picture: a container has no sound device, and a media
+    # pipeline that cannot open an output is a pipeline that can stop the
+    # video with no error on the element at all.
+    "--mute-audio",
     # Do not stop a stream because the page it is on is not in front.
     "--disable-background-media-suspend",
     "--disable-backgrounding-occluded-windows",
@@ -258,7 +266,56 @@ MEDIA_INIT_JS = """
 (() => {
   const CODES = {1: 'aborted', 2: 'network', 3: 'decode',
                  4: 'format not supported'};
-  const said = new Set();
+  // A timeline, not just the errors, because the thing being chased does not
+  // error at all: a video plays for a few seconds and simply stops, and from
+  // the sender all that is visible is a page that has gone still. Which event
+  // fired, and what the element looked like when it did, is the difference
+  // between "the site paused it", "it ran out of data" and "the tab went
+  // invisible" -- three different faults that look identical from outside.
+  //
+  // Capped, because a playing video fires these often and a log nobody can
+  // read is no better than no log. Rate-limited too, so a stall that repeats
+  // does not fill the cap in one second.
+  const LIMIT = 40;
+  let said = 0;
+  let last = 0;
+  const say = (what) => {
+    const now = Date.now();
+    if (said >= LIMIT || now - last < 400) return;
+    last = now;
+    said += 1;
+    try { window.__udispMediaError(what); } catch (e) { /* never cost the page */ }
+    if (said === LIMIT) {
+      try { window.__udispMediaError('(further media events not listed)'); }
+      catch (e) { /* nothing to do */ }
+    }
+  };
+  const state = (el) => {
+    const bits = [
+      't=' + (el.currentTime || 0).toFixed(1),
+      'ready=' + el.readyState,
+      'net=' + el.networkState,
+      el.paused ? 'paused' : 'playing',
+      'page=' + document.visibilityState,
+      document.hasFocus() ? 'focused' : 'unfocused',
+    ];
+    if (el.buffered && el.buffered.length) {
+      bits.push('buffered=' +
+        (el.buffered.end(el.buffered.length - 1) - (el.currentTime || 0)).toFixed(1) + 's');
+    }
+    return bits.join(' ');
+  };
+  const WATCH = ['pause', 'playing', 'waiting', 'stalled', 'ended',
+                 'emptied', 'suspend', 'abort'];
+  for (const kind of WATCH) {
+    window.addEventListener(kind, (ev) => {
+      try {
+        const el = ev.target;
+        if (!el || (el.tagName !== 'VIDEO' && el.tagName !== 'AUDIO')) return;
+        say(kind + ': ' + state(el));
+      } catch (e) { /* never cost the page anything */ }
+    }, true);
+  }
   window.addEventListener('error', (ev) => {
     try {
       const el = ev.target;
@@ -267,9 +324,7 @@ MEDIA_INIT_JS = """
       if (!err) return;
       let what = CODES[err.code] || ('code ' + err.code);
       if (err.message) what += ': ' + err.message;
-      if (said.has(what)) return;
-      said.add(what);
-      window.__udispMediaError(what);
+      say('error ' + what + ' -- ' + state(el));
     } catch (e) { /* never cost the page anything */ }
   }, true);
 })();
