@@ -74,6 +74,111 @@ DEFAULT_PALETTE = "slate"
 # Homepage's own words for how much to blur what is behind the cards.
 BLURS = {"off": "0px", "sm": "4px", "md": "10px", "xl": "24px"}
 
+# The icons somebody can ask for by name, because hunting for an emoji in a
+# form field is not a thing anybody enjoys and a panel is filled in once. The
+# names are French, which is what the person filling in this form writes, with
+# the English word beside them where it is the one that comes to mind.
+#
+# Names are a convenience and not a restriction: anything not in here is drawn
+# as the characters themselves, so an emoji pasted straight into the field
+# works exactly as it did before this list existed.
+#
+# Every glyph was checked against U+FFFF in the browser the add-on ships --
+# a character the font cannot draw measures exactly as wide as one that has no
+# drawing by definition, which is how the erase key on the keyboard was checked
+# before it shipped. 115 glyphs, none undrawn.
+ICONS = {
+ # la maison et ses pieces
+ "maison": "\U0001F3E0", "home": "\U0001F3E0", "salon": "\U0001F6CB",
+ "canape": "\U0001F6CB", "cuisine": "\U0001F373", "chambre": "\U0001F6CF",
+ "lit": "\U0001F6CF", "salle-de-bain": "\U0001F6C1", "douche": "\U0001F6BF",
+ "toilettes": "\U0001F6BD", "bureau": "\U0001F5A5", "garage": "\U0001F697",
+ "jardin": "\U0001F333", "terrasse": "\U0001FAB4", "cave": "\U0001F377",
+ "grenier": "\U0001F4E6", "entree": "\U0001F6AA", "porte": "\U0001F6AA",
+ "door": "\U0001F6AA", "fenetre": "\U0001FA9F", "window": "\U0001FA9F",
+ "escalier": "\U0001FA9C", "couloir": "\U0001F6E4", "immeuble": "\U0001F3E2",
+ # lumiere et energie
+ "lumiere": "\U0001F4A1", "light": "\U0001F4A1", "lampe": "\U0001FA94",
+ "ampoule": "\U0001F4A1", "prise": "\U0001F50C", "energie": "⚡",
+ "electricite": "⚡", "batterie": "\U0001F50B", "solaire": "☀",
+ "compteur": "\U0001F4CA", "eolienne": "\U0001F4A8",
+ # climat
+ "chauffage": "\U0001F525", "radiateur": "\U0001F321", "temperature": "\U0001F321",
+ "climatisation": "❄", "ventilateur": "\U0001F32C", "fan": "\U0001F32C",
+ "humidite": "\U0001F4A7", "meteo": "⛅", "weather": "⛅",
+ "soleil": "☀", "pluie": "\U0001F327", "neige": "❄",
+ "vent": "\U0001F4A8", "feu": "\U0001F525", "nuage": "☁",
+ # securite
+ "alarme": "\U0001F6A8", "alarm": "\U0001F6A8", "serrure": "\U0001F512",
+ "lock": "\U0001F512", "cle": "\U0001F511", "camera": "\U0001F4F7",
+ "sonnette": "\U0001F514", "mouvement": "\U0001F6B6", "fumee": "\U0001F6A8",
+ "gaz": "\U0001F9EF", "surveillance": "\U0001F441", "bouclier": "\U0001F6E1",
+ # media
+ "jellyfin": "\U0001F3AC", "plex": "\U0001F3AC", "kodi": "\U0001F3AC",
+ "film": "\U0001F3AC", "cinema": "\U0001F3AC", "youtube": "▶",
+ "video": "▶", "netflix": "\U0001F3A5", "television": "\U0001F4FA",
+ "tv": "\U0001F4FA", "musique": "\U0001F3B5", "music": "\U0001F3B5",
+ "spotify": "\U0001F3B5", "radio": "\U0001F4FB", "podcast": "\U0001F399",
+ "photo": "\U0001F5BC", "immich": "\U0001F5BC", "livre": "\U0001F4D6",
+ "jeu": "\U0001F3AE", "game": "\U0001F3AE", "casque": "\U0001F3A7",
+ "haut-parleur": "\U0001F50A", "micro": "\U0001F3A4",
+ # machines et services
+ "docker": "\U0001F433", "portainer": "\U0001F433", "proxmox": "\U0001F5A5",
+ "serveur": "\U0001F5A5", "server": "\U0001F5A5", "nas": "\U0001F4BE",
+ "synology": "\U0001F4BE", "disque": "\U0001F4BE", "routeur": "\U0001F4E1",
+ "reseau": "\U0001F310", "network": "\U0001F310", "wifi": "\U0001F4F6",
+ "internet": "\U0001F310", "vpn": "\U0001F510", "pare-feu": "\U0001F9F1",
+ "terminal": "⌨", "code": "\U0001F4BB", "git": "\U0001F500",
+ "github": "\U0001F419", "base-de-donnees": "\U0001F5C3",
+ "sauvegarde": "\U0001F4BE", "backup": "\U0001F4BE", "nuage-fichiers": "☁",
+ "nextcloud": "☁", "telechargement": "⬇", "torrent": "⬇",
+ "grafana": "\U0001F4C8", "supervision": "\U0001F4C8", "uptime": "\U0001F4C8",
+ "mqtt": "\U0001F4E8", "zigbee": "\U0001F41D", "esphome": "\U0001F4DF",
+ "home-assistant": "\U0001F3E0", "frigate": "\U0001F4F9",
+ "paperless": "\U0001F4C4", "vaultwarden": "\U0001F5DD",
+ "adguard": "\U0001F6E1", "pihole": "\U0001F6E1", "imprimante": "\U0001F5A8",
+ "printer": "\U0001F5A8", "scanner": "\U0001F4C7", "ordinateur": "\U0001F4BB",
+ "tablette": "\U0001F4F1", "telephone": "\U0001F4DE",
+ # la vie de tous les jours
+ "agenda": "\U0001F4C5", "calendar": "\U0001F4C5", "horloge": "\U0001F551",
+ "clock": "\U0001F551", "minuteur": "⏱", "courses": "\U0001F6D2",
+ "liste": "\U0001F4CB", "taches": "✅", "poubelle": "\U0001F5D1",
+ "lessive": "\U0001F9FA", "aspirateur": "\U0001F9F9", "robot": "\U0001F916",
+ "voiture": "\U0001F697", "velo": "\U0001F6B2", "train": "\U0001F686",
+ "avion": "✈", "bus": "\U0001F68C", "colis": "\U0001F4E6",
+ "courrier": "✉", "message": "\U0001F4AC", "argent": "\U0001F4B6",
+ "banque": "\U0001F3E6", "sante": "⚕", "sport": "\U0001F3C3",
+ "chien": "\U0001F415", "chat": "\U0001F408", "plante": "\U0001FAB4",
+ "arrosage": "\U0001F6BF", "piscine": "\U0001F3CA", "barbecue": "\U0001F356",
+ "outils": "\U0001F527", "reglages": "⚙", "settings": "⚙",
+ "cafe": "☕", "repas": "\U0001F37D", "enfants": "\U0001F9F8",
+ "ecole": "\U0001F393", "travail": "\U0001F4BC", "vacances": "\U0001F334",
+ "etoile": "⭐", "coeur": "❤", "info": "ℹ",
+}
+
+
+def icon_for(value):
+    """The glyph for what somebody typed: a name from the list, or the text.
+
+    The variation selector matters more than it looks. Half of these are
+    characters that predate emoji -- an arrow, a snowflake, a cog -- and a
+    browser draws those as TEXT unless it is asked otherwise: thin, flat and
+    the colour of the label beside them, next to a row of full-colour emoji.
+    U+FE0F is what asks. Only for the old block: anything from U+1F000 up is
+    an emoji already and adding it there would be noise.
+    """
+    text = str(value or "").strip()
+    if not text:
+        # The dot a tile gets when nobody chose anything, and it is a plain
+        # bullet on purpose -- asking for its emoji form gives a different,
+        # heavier mark than the quiet placeholder this is meant to be.
+        return "\N{BULLET}"
+    glyph = ICONS.get(text.lower(), text)
+    if len(glyph) == 1 and ord(glyph) < 0x1F000:
+        glyph += "\uFE0F"
+    return glyph
+
+
 PAGE = """<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -227,13 +332,16 @@ def render(links, title="Panel", subtitle="", theme="dark",
         tiles = "".join(
             TILE % {
                 "url": html.escape(str(entry.get("url", "")), quote=True),
-                "icon": html.escape(str(entry.get("icon") or "\N{BULLET}")),
+                "icon": html.escape(icon_for(entry.get("icon"))),
                 # Two characters still read at the full size -- "HA" is a
                 # perfectly good icon. Beyond that it is a word, and a word
-                # has to be set smaller to stay inside its square.
+                # has to be set smaller to stay inside its square. Measured on
+                # what will be drawn, not on what was typed: a name from the
+                # list is one glyph however long the name is.
                 "icon_long": (
                     " long"
-                    if len(str(entry.get("icon") or "")) > 2 else ""
+                    if len(icon_for(entry.get("icon")).rstrip("\uFE0F")) > 2
+                    else ""
                 ),
                 "name": html.escape(str(entry.get("name") or entry["url"])),
                 "desc": (

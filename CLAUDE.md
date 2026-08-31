@@ -956,7 +956,7 @@ the dashboard, where it is invisible while the keys go on working.
 ahead of the `pip install` as well as the `ADD`s, so a bump refetches
 everything — at the cost of the browser download on each update.
 `present_browser()` prints the Chromium version at startup and warns below 114,
-so this is never diagnosed by guesswork again. Currently **1.61.0**.
+so this is never diagnosed by guesswork again. Currently **1.62.0**.
 
 **And the image has to be told about every file, which is not the same as the
 repository having it.** `launcher.py` was written beside `run.py`, imported at
@@ -1174,6 +1174,40 @@ Measured at 800×1280, 1280×800 and 1024×600 with six links: tiles no smaller
 than 264×131 px, nothing running off the side at any of them. A bind that fails
 returns None rather than raising -- **the launcher is an accessory and must
 never cost the panels**, the same rule the keyboard lives under.
+
+**Icons are names as well as characters, and the names came from the user
+asking for a list.** `icon: jellyfin`, `icon: cuisine`, `icon: docker` --
+171 names onto 115 glyphs, written in French because that is what the person
+filling in the form writes, with the English word beside them where that is the
+one that comes to mind. Nothing is fetched: Homepage's own icon packs are
+downloads, and this page's rule is that a panel is the one screen where nobody
+can find out why an image did not load.
+
+The names are a convenience and never a restriction -- anything not in the list
+is drawn as the characters themselves, so an emoji pasted into the field works
+exactly as it did before the list existed.
+
+Two details that are the difference between a list and a good one:
+
+- **Every glyph was checked against U+FFFF in the browser the add-on ships.**
+  A character the font cannot draw measures exactly as wide as one that has no
+  drawing by definition -- the same check the keyboard's erase key was put
+  through. 115 glyphs, none undrawn.
+- **U+FE0F on anything below U+1F000.** Half of these predate emoji -- an
+  arrow, a snowflake, a cog -- and a browser draws those as *text* unless
+  asked otherwise: thin, flat, and the colour of the label beside them, in a
+  row of full-colour emoji. Only for that block; adding it to an emoji is
+  noise. Not applied to the empty-field bullet either, whose emoji form is a
+  heavier mark than the quiet placeholder it is meant to be.
+
+`tools/iconlist.py` prints the README's table from the dictionary, because a
+documented name that does not work is worse than no list at all.
+
+**And the field had to survive a word being typed into it**, which is what
+prompted all this: nothing stopped it, and the word ran straight across the
+name beside it. Anything past two characters is set smaller and clipped now --
+measured on what is *drawn*, so a name from the list counts as the one glyph
+it becomes.
 
 **The look is Homepage's, and its vocabulary is kept on purpose.** The ask was
 *"thème et fond d'écran et disposition des link comme HomePage"*, so

@@ -123,11 +123,67 @@ panels:
     height: 1280
 ```
 
-`icon` is what you type, not a name from a list: one emoji, one letter, two
-letters, any character your keyboard or the emoji picker gives you. On Windows,
-**Win + .** opens that picker. A word is accepted too and is simply set smaller
-so it stays inside its square. Nothing is looked up and nothing is downloaded,
-which is why there is no list to choose from. Nothing is
+`icon` takes a **name from the list below** -- `jellyfin`, `cuisine`, `docker`,
+`meteo` -- or anything you type yourself: an emoji, a letter, two letters. The
+names are only a convenience, so an emoji pasted straight in works exactly as
+it did before the list existed (on Windows, **Win + .** opens the emoji
+picker). A whole word is accepted too and is set smaller so it stays inside its
+square.
+
+Nothing is downloaded for any of this. Every icon is a character the browser
+already has, and each one was checked against U+FFFF in the browser this add-on
+ships -- a glyph the font cannot draw measures exactly as wide as one that has
+no drawing at all, and none of these do.
+
+<!-- generated: python3 tools/iconlist.py -->
+
+| nom | icône | nom | icône | nom | icône | nom | icône |
+|---|---|---|---|---|---|---|---|
+| `adguard` | 🛡 | `ecole` | 🎓 | `lumiere` | 💡 | `sante` | ⚕️ |
+| `agenda` | 📅 | `electricite` | ⚡️ | `maison` | 🏠 | `sauvegarde` | 💾 |
+| `alarm` | 🚨 | `energie` | ⚡️ | `message` | 💬 | `scanner` | 📇 |
+| `alarme` | 🚨 | `enfants` | 🧸 | `meteo` | ⛅️ | `serrure` | 🔒 |
+| `ampoule` | 💡 | `entree` | 🚪 | `micro` | 🎤 | `server` | 🖥 |
+| `argent` | 💶 | `eolienne` | 💨 | `minuteur` | ⏱️ | `serveur` | 🖥 |
+| `arrosage` | 🚿 | `escalier` | 🪜 | `mouvement` | 🚶 | `settings` | ⚙️ |
+| `aspirateur` | 🧹 | `esphome` | 📟 | `mqtt` | 📨 | `solaire` | ☀️ |
+| `avion` | ✈️ | `etoile` | ⭐️ | `music` | 🎵 | `soleil` | ☀️ |
+| `backup` | 💾 | `fan` | 🌬 | `musique` | 🎵 | `sonnette` | 🔔 |
+| `banque` | 🏦 | `fenetre` | 🪟 | `nas` | 💾 | `sport` | 🏃 |
+| `barbecue` | 🍖 | `feu` | 🔥 | `neige` | ❄️ | `spotify` | 🎵 |
+| `base-de-donnees` | 🗃 | `film` | 🎬 | `netflix` | 🎥 | `supervision` | 📈 |
+| `batterie` | 🔋 | `frigate` | 📹 | `network` | 🌐 | `surveillance` | 👁 |
+| `bouclier` | 🛡 | `fumee` | 🚨 | `nextcloud` | ☁️ | `synology` | 💾 |
+| `bureau` | 🖥 | `game` | 🎮 | `nuage` | ☁️ | `tablette` | 📱 |
+| `bus` | 🚌 | `garage` | 🚗 | `nuage-fichiers` | ☁️ | `taches` | ✅️ |
+| `cafe` | ☕️ | `gaz` | 🧯 | `ordinateur` | 💻 | `telechargement` | ⬇️ |
+| `calendar` | 📅 | `git` | 🔀 | `outils` | 🔧 | `telephone` | 📞 |
+| `camera` | 📷 | `github` | 🐙 | `paperless` | 📄 | `television` | 📺 |
+| `canape` | 🛋 | `grafana` | 📈 | `pare-feu` | 🧱 | `temperature` | 🌡 |
+| `casque` | 🎧 | `grenier` | 📦 | `photo` | 🖼 | `terminal` | ⌨️ |
+| `cave` | 🍷 | `haut-parleur` | 🔊 | `pihole` | 🛡 | `terrasse` | 🪴 |
+| `chambre` | 🛏 | `home` | 🏠 | `piscine` | 🏊 | `toilettes` | 🚽 |
+| `chat` | 🐈 | `home-assistant` | 🏠 | `plante` | 🪴 | `torrent` | ⬇️ |
+| `chauffage` | 🔥 | `horloge` | 🕑 | `plex` | 🎬 | `train` | 🚆 |
+| `chien` | 🐕 | `humidite` | 💧 | `pluie` | 🌧 | `travail` | 💼 |
+| `cinema` | 🎬 | `immeuble` | 🏢 | `podcast` | 🎙 | `tv` | 📺 |
+| `cle` | 🔑 | `immich` | 🖼 | `portainer` | 🐳 | `uptime` | 📈 |
+| `climatisation` | ❄️ | `imprimante` | 🖨 | `porte` | 🚪 | `vacances` | 🌴 |
+| `clock` | 🕑 | `info` | ℹ️ | `poubelle` | 🗑 | `vaultwarden` | 🗝 |
+| `code` | 💻 | `internet` | 🌐 | `printer` | 🖨 | `velo` | 🚲 |
+| `coeur` | ❤️ | `jardin` | 🌳 | `prise` | 🔌 | `vent` | 💨 |
+| `colis` | 📦 | `jellyfin` | 🎬 | `proxmox` | 🖥 | `ventilateur` | 🌬 |
+| `compteur` | 📊 | `jeu` | 🎮 | `radiateur` | 🌡 | `video` | ▶️ |
+| `couloir` | 🛤 | `kodi` | 🎬 | `radio` | 📻 | `voiture` | 🚗 |
+| `courrier` | ✉️ | `lampe` | 🪔 | `reglages` | ⚙️ | `vpn` | 🔐 |
+| `courses` | 🛒 | `lessive` | 🧺 | `repas` | 🍽 | `weather` | ⛅️ |
+| `cuisine` | 🍳 | `light` | 💡 | `reseau` | 🌐 | `wifi` | 📶 |
+| `disque` | 💾 | `liste` | 📋 | `robot` | 🤖 | `window` | 🪟 |
+| `docker` | 🐳 | `lit` | 🛏 | `routeur` | 📡 | `youtube` | ▶️ |
+| `door` | 🚪 | `livre` | 📖 | `salle-de-bain` | 🛁 | `zigbee` | 🐝 |
+| `douche` | 🚿 | `lock` | 🔒 | `salon` | 🛋 |  |  |
+
+171 names, 115 distinct icons. Nothing is
 fetched from the internet: a container has no promise of reaching it, and an
 icon pack that failed to load would leave holes where the labels should be, on
 the one screen where nobody can open a console to find out why. Leave it out
