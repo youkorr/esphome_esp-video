@@ -182,6 +182,10 @@ What the reason tells you:
 | `ERR_BLOCKED_BY_CLIENT` | the browser itself refused it |
 | nothing at all | the page got everything, and the fault is elsewhere -- check the `Media:` line and the codec table above |
 
+`ERR_ABORTED` is deliberately not reported: a video player aborts requests
+constantly, switching quality and closing streams it no longer needs, and those
+are not failures.
+
 YouTube in particular refuses to play when the requests it uses to serve ads
 fail, whatever the reason they failed. Some ISP routers filter at the DNS level
 out of the box, so this can be true in a house that installed no ad blocker.

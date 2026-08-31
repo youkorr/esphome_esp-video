@@ -277,93 +277,74 @@ pure scaling (1.838 / 0.620) with no rotation. Fractions make that disappear.
 **`Injector` holds the press back until release** so a >12 px movement
 (`DRAG_THRESHOLD`) becomes `mouse.wheel(-dx, -dy)` instead of a click.
 
-**A headless browser says so, and sites read it.** The UA carries
-`HeadlessChrome/` and `navigator.webdriver` is true; measured on the shipped
-build, both. Plenty of sites serve something else for that — a cut-down page,
-an interstitial, or a refusal — and YouTube says *"navigateur non compatible"*
-outright. When it does, there is no search box on the page at all, which from
-a panel is indistinguishable from a keyboard that will not come up: it was
-reported as the second. `present_browser()` takes the browser's own UA through
+**A headless browser says so in two places, and changing one of them made
+things worse.** The UA carries `HeadlessChrome/` and `navigator.webdriver` is
+true. `present_browser()` takes the browser's own UA through
 `Browser.getVersion` (so the platform token stays right on whatever is running
-it), drops the word Headless, and hides `webdriver`. `--user-agent off` keeps
-the honest one, a string uses it verbatim. **Not verified against YouTube** —
-no route to it from where this was written — and it fixes nothing about the
-codecs: that build has no H.264, no AAC and no EME, so a video may still
-refuse where a search box now works.
+it), drops the word Headless, and hides `webdriver`. That much was right, and
+it is what got past the "navigateur non compatible" page whose absence of a
+search box was reported as a keyboard fault.
 
-**Video does not fit, and the arithmetic says so before any measurement of a
-link does.** Every picture sent is an **independent JPEG of the whole panel** —
-there is no coding between one picture and the next. A real codec sends the
-difference from the previous frame with motion compensation, which is why 1080p
-fits in 5 Mbit/s; whole JPEGs cost five to ten times that. Measured with Pillow
-on a photographic full-screen picture (smoothed noise plus grain — detail at
-every scale, as film has, without being pure noise no encoder keeps):
+The second place is **client hints**, and this is where it went wrong.
+Measured on the shipped build against a server that logs its headers:
 
-| drawn at | q80 | q60 | q45 |
-|---|---|---|---|
-| 800×1280 | 254 KiB | 171 KiB | 142 KiB |
-| 640×1024 | 164 KiB | 110 KiB | 92 KiB |
-| 400×640 | 64 KiB | 43 KiB | 36 KiB |
+| | `sec-ch-ua` sent | `navigator.userAgentData.brands` |
+|---|---|---|
+| untouched | `"HeadlessChrome";v="141", …` | HeadlessChrome, Not?A_Brand, Chromium |
+| UA string alone (as shipped) | **nothing at all** | **`[]`** |
+| UA + metadata (now) | `"Chromium";v="141", "Google Chrome";v="141", …` | Chromium, Google Chrome, Not?A_Brand |
 
-At 24 pictures a second the first cell is **47.7 Mbit/s**. The best a panel has
-ever been measured receiving is about 25. So "the video lags very hard at
-quality 80" is not a fault to find — it is the settings asking for twice the
-link, and this is the table that says which settings do not.
+Cleaning the string fooled nobody who reads the headers — Google does — and
+overriding it *without* `userAgentMetadata` **wiped the hints entirely**. A
+browser claiming to be Chrome while sending no `Sec-CH-UA` at all is a
+contradiction no real Chrome produces, and a louder automation signal than the
+honest answer it replaced. It shipped that way for months.
 
-Two traps in reading it. The synthetic `cadence.html` canvas is **not** a
-substitute: flat gradients gave 935 KiB/s at q80 where photographic content
-gives 6000, so any conclusion about video drawn from that page is wrong by a
-factor of six. And the board's *25 Mbit/s* is an outbound figure from a camera
-test; inbound is `TCP_WND_DEFAULT` (64800) over the round trip, which is
-3.2 MB/s at 20 ms — close to the same number by coincidence, not by cause.
+`_agent_metadata()` now sends the metadata alongside, and **synthesises** it
+rather than reading it: `navigator.userAgentData` exists only in a secure
+context and the page is still `about:blank` when the disguise goes on —
+measured, None on `about:blank` and on a `data:` URL, present on
+`http://127.0.0.1`. Synthesis is safe because the list is not a secret: three
+brands, one of them deliberately meaningless so servers cannot match the list
+exactly. Only the versions have to be right and those come from
+`Browser.getVersion`; `platformVersion` comes from `os.uname().release`, which
+is what Chrome reports on Linux, because an empty one is its own small oddity.
 
-`render_width`/`render_height` is the only lever that cuts a picture
-several-fold rather than by a quarter, and **it is compatible with rotation as
-long as the rotation is the sender's**. The schema refuses `render_*` beside a
-non-zero board `rotation:` because the PPA would then do both in one pass,
-untried; `--rotate` on the sender rotates in Pillow and leaves the board at
-`rotation: 0`, so the combination is allowed and was verified end to end —
-`--rotate 90 --render-width 400 --render-height 640` on an 800×1280 panel, 77
-rectangles, **0 outside the frame and 0 pixels never covered**. The board half
-was validated with `esphome config`: `render_width: 400` / `render_height: 640`
-at `rotation: 0` is valid; 533×853 is refused.
+`--user-agent off` keeps the honest one, a string uses it verbatim. **Still not
+verified against YouTube** — no route to it from where this was written. What
+is verified is the headers, which is the half that was wrong.
 
-**An option under `options:` and not under `schema:` stops the add-on dead.**
-The Supervisor validates saved options against the schema and refuses an
-unknown key, so the add-on will not start at all — it is not a setting that
-quietly does nothing. Shipped once, on `browser:`, in 1.36.0. `esphome config`
-cannot see it and no Python test would: it is a rule about one YAML file's two
-halves, so `tools/checkaddon.py` is what checks it now (and that the panels
-example uses no key its own schema lacks, and that nothing required has no
-default). Run it on any change to `usb_display_panel/config.yaml`.
+**YouTube's "le contenu n'est pas disponible" was guessed at three times
+before anything was measured.** First the codecs; then ad filtering at the
+house's DNS, taken from the user's own hypothesis and written into the README
+as established — and then they said plainly: no Pi-hole, no AdGuard Home,
+Jellyfin works, most pages work.
 
-`tools/checkyaml.py` used to hide the answer it existed to give: esphome echoes
-the whole resolved configuration with each complaint inline, so printing the
-first fourteen lines printed the echo. It now drops anything shaped like
-`key: value` and prints what is left.
-
-**YouTube's "le contenu n'est pas disponible" was diagnosed twice from
-guesswork and twice wrongly, so it is now measured.** The first answer was the
-codecs; the second was ad filtering at the house's DNS, taken from the user's
-own hypothesis and written up as established. Then they said plainly: no
-Pi-hole, no AdGuard Home, Jellyfin works, most pages work. Neither answer had
-any evidence behind it, and the second had been put in the README as fact.
-
-`watch_failed_requests()` is what replaces both. `context.on("requestfailed")`,
-grouped by host and reason, printed once each and capped at twelve, silent on a
-page that gets everything. The browser already knows which requests failed and
-why; from the panel every cause looks the same. Verified against a page whose
-subresources point at names that do not resolve: three hosts, one line each,
-and nothing at all on a page that loads cleanly.
+`watch_failed_requests()` is what replaced the guessing.
+`context.on("requestfailed")`, grouped by host and reason, printed once each
+and capped at twelve, silent on a page that gets everything. Verified against a
+page whose subresources point at names that do not resolve: three hosts, one
+line each, and nothing at all on a page that loads cleanly.
 
     Network: pub-filtree.invalid -- net::ERR_NAME_NOT_RESOLVED
 
-`ERR_NAME_NOT_RESOLVED` is filtering somewhere on the path, installed
-deliberately or shipped in an ISP router; a refused connection is something in
-the way; `ERR_BLOCKED_BY_CLIENT` is the browser itself; no lines at all means
-the requests are fine and the codec table is the next place to look. YouTube
-does refuse to play when its ad requests fail, whatever made them fail — but
-that is now something a log line establishes rather than something to assert.
+It earned its keep on the first real run by **clearing** the suspect rather
+than confirming it. From the panel, on Chrome with every codec present:
+
+    Browser: decodes H.264 yes, AAC yes, VP9 yes, AV1 yes, Opus yes; DRM no
+    Network: rr3---sn-q4flrnes.googlevideo.com -- net::ERR_ABORTED
+    Network: www.youtube.com -- net::ERR_ABORTED
+
+No `ERR_NAME_NOT_RESOLVED`, so no DNS filtering. No `Media:` line at all, so
+the video element never errored. Every codec present, so not the codecs. Three
+theories dead in one log. And **`ERR_ABORTED` is not a failure** — a player
+aborts range requests constantly, switching quality and closing streams it no
+longer needs — so it is filtered out now, because reporting it sent this very
+diagnosis chasing googlevideo.com when nothing there had gone wrong.
+
+What that leaves is the client hints above: the browser was announcing itself
+as Chrome while sending no `Sec-CH-UA` at all. Unverified against YouTube, but
+it is the one thing left that is demonstrably wrong and demonstrably ours.
 
 **The remedy is in the filter, and `--host-resolver-rules` is NOT it.** This
 was shipped once saying `--host-resolver-rules="MAP * 1.1.1.1"` would send the
@@ -877,7 +858,7 @@ the dashboard, where it is invisible while the keys go on working.
 ahead of the `pip install` as well as the `ADD`s, so a bump refetches
 everything — at the cost of the browser download on each update.
 `present_browser()` prints the Chromium version at startup and warns below 114,
-so this is never diagnosed by guesswork again. Currently **1.41.0**.
+so this is never diagnosed by guesswork again. Currently **1.42.0**.
 
 `run.py` supervises one `ha_send.py` per panel: `SHARED_KEYS` lets the token,
 url, port, fps, quality, capture_quality, urgent_fps, urgent_window and stats be

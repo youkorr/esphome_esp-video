@@ -351,6 +351,12 @@ def watch_failed_requests(context, limit=12):
 
             host = urlsplit(request.url).hostname or "?"
             failure = request.failure or "?"
+            # Not a failure. A media player aborts range requests constantly
+            # -- switching quality, seeking, closing a stream it no longer
+            # needs -- and reporting those sent a real diagnosis chasing
+            # googlevideo.com when nothing there had gone wrong at all.
+            if "ERR_ABORTED" in failure:
+                return
             key = (host, failure)
             if key in seen or len(seen) >= limit:
                 return
@@ -414,7 +420,114 @@ def report_media(page):
         )
 
 
-def present_browser(session, keyboard_wanted, wanted_agent):
+# What a headless build calls itself in the client hints, and what a real
+# Chrome calls itself instead. Only the brand name differs: the versions, the
+# platform and everything else stay the browser's own.
+HEADLESS_BRAND = "HeadlessChrome"
+CHROME_BRAND = "Google Chrome"
+
+_AGENT_DATA_JS = """async () => {
+  const d = navigator.userAgentData;
+  if (!d) return null;
+  const hi = await d.getHighEntropyValues([
+    'architecture', 'bitness', 'fullVersionList', 'model',
+    'platformVersion', 'uaFullVersion', 'wow64',
+  ]);
+  return {
+    brands: d.brands, mobile: d.mobile, platform: d.platform,
+    architecture: hi.architecture || '', bitness: hi.bitness || '',
+    fullVersionList: hi.fullVersionList || [], model: hi.model || '',
+    platformVersion: hi.platformVersion || '',
+    uaFullVersion: hi.uaFullVersion || '', wow64: !!hi.wow64,
+  };
+}"""
+
+
+def _agent_metadata(page, version):
+    """The client hints to send beside the user agent, with no headless brand.
+
+    Read from the page when that is possible and synthesised when it is not,
+    which is the usual case here: `navigator.userAgentData` only exists in a
+    secure context, and the page is still `about:blank` when the disguise is
+    put on. Measured -- it comes back None on `about:blank` and on a data:
+    URL, and works on http://127.0.0.1.
+
+    Synthesising is safe because the list is not a secret. A real Chrome sends
+    three brands: Chromium, Google Chrome, and one deliberately meaningless
+    entry that exists to stop servers matching on the list exactly. Only the
+    versions have to be right, and those come from the browser itself.
+    """
+    try:
+        data = page.evaluate(_AGENT_DATA_JS)
+    except Exception:  # noqa: BLE001 - a disguise must never fail a start
+        data = None
+
+    def rename(brands):
+        return [
+            {"brand": CHROME_BRAND if b["brand"] == HEADLESS_BRAND else b["brand"],
+             "version": b["version"]}
+            for b in brands or []
+        ]
+
+    if data and data.get("brands"):
+        return {
+            "brands": rename(data.get("brands")),
+            "fullVersionList": rename(data.get("fullVersionList")),
+            "fullVersion": data.get("uaFullVersion", ""),
+            "platform": data.get("platform", ""),
+            "platformVersion": data.get("platformVersion", ""),
+            "architecture": data.get("architecture", ""),
+            "model": data.get("model", ""),
+            "mobile": bool(data.get("mobile")),
+            "bitness": data.get("bitness", ""),
+            "wow64": bool(data.get("wow64")),
+        }
+
+    product = version.get("product", "")
+    agent = version.get("userAgent", "")
+    try:
+        full = product.split("/", 1)[1]
+    except IndexError:
+        return None
+    major = full.split(".")[0]
+    # The platform has to agree with the user agent string, or the two
+    # contradict each other and we are back where we started.
+    os_name = "Linux"
+    for token, name in (("Windows", "Windows"), ("Mac OS X", "macOS"),
+                        ("CrOS", "Chrome OS"), ("Android", "Android")):
+        if token in agent:
+            os_name = name
+            break
+    # Chrome on Linux reports the kernel version here, and an empty one is
+    # itself a small oddity in a set of headers whose whole point is to look
+    # ordinary. Only claimed where it is known to be what Chrome would say.
+    try:
+        os_version = os.uname().release if os_name == "Linux" else ""
+    except Exception:  # noqa: BLE001 - not worth failing a start over
+        os_version = ""
+    return {
+        "brands": [
+            {"brand": "Chromium", "version": major},
+            {"brand": CHROME_BRAND, "version": major},
+            {"brand": "Not?A_Brand", "version": "24"},
+        ],
+        "fullVersionList": [
+            {"brand": "Chromium", "version": full},
+            {"brand": CHROME_BRAND, "version": full},
+            {"brand": "Not?A_Brand", "version": "24.0.0.0"},
+        ],
+        "fullVersion": full,
+        "platform": os_name,
+        "platformVersion": os_version,
+        "architecture": "x86" if "x86_64" in agent or "Win64" in agent else "",
+        "model": "",
+        "mobile": "Android" in agent,
+        "bitness": "64" if "x86_64" in agent or "Win64" in agent else "",
+        "wow64": False,
+    }
+
+
+def present_browser(session, page, keyboard_wanted, wanted_agent):
     """Name the browser, warn if it is too old, and settle what it says it is.
 
     Both answers come out of one Browser.getVersion, and it is asked through a
@@ -462,12 +575,34 @@ def present_browser(session, keyboard_wanted, wanted_agent):
         if "Headless" not in real:
             return None
         agent = real.replace("HeadlessChrome/", "Chrome/").replace("Headless", "")
+    # The user agent string is only half of what a browser says about itself,
+    # and changing it alone makes matters worse rather than better.
+    #
+    # Measured on the shipped build. Left alone, every request carries
+    # `sec-ch-ua: "HeadlessChrome";v="141", ...` and navigator.userAgentData
+    # says the same -- so cleaning the string fools nobody who reads the
+    # headers, which Google does. And overriding the string WITHOUT metadata
+    # does something worse: the client hints vanish altogether. brands comes
+    # back as [], and the request carries no sec-ch-ua at all. A browser
+    # claiming to be Chrome while sending no Sec-CH-UA is a contradiction no
+    # real Chrome produces, and a far louder automation signal than the honest
+    # answer it replaced.
+    #
+    # So the metadata goes with it, built from the browser's own values with
+    # the one brand that gives it away renamed -- which is exactly what a real
+    # Chrome advertises.
+    metadata = _agent_metadata(page, version)
+    params = {"userAgent": agent}
+    if metadata:
+        params["userAgentMetadata"] = metadata
     try:
-        session.send("Emulation.setUserAgentOverride", {"userAgent": agent})
+        session.send("Emulation.setUserAgentOverride", params)
     except Exception as err:  # noqa: BLE001 - the honest one still works
         print(f"Browser: would not be disguised ({err})")
         return None
+    brands = ", ".join(b["brand"] for b in (metadata or {}).get("brands", []))
     print(f"Browser: saying it is {agent}")
+    print("Browser: and its brands are " + (brands or "not set, which is a tell"))
     return agent
 
 
@@ -2377,7 +2512,7 @@ def main():
         # A persistent context opens a page itself; a fresh browser does not.
         page = context.pages[0] if context.pages else context.new_page()
         user_agent = present_browser(
-            context.new_cdp_session(page), args.keyboard != "off",
+            context.new_cdp_session(page), page, args.keyboard != "off",
             args.user_agent,
         )
         report_media(page)
