@@ -956,7 +956,29 @@ the dashboard, where it is invisible while the keys go on working.
 ahead of the `pip install` as well as the `ADD`s, so a bump refetches
 everything — at the cost of the browser download on each update.
 `present_browser()` prints the Chromium version at startup and warns below 114,
-so this is never diagnosed by guesswork again. Currently **1.54.0**.
+so this is never diagnosed by guesswork again. Currently **1.55.0**.
+
+**And the image has to be told about every file, which is not the same as the
+repository having it.** `launcher.py` was written beside `run.py`, imported at
+the top of it, tested on its own and measured at three panel sizes -- and the
+Dockerfile was never given a `COPY` for it. Everything passed: the YAML, the
+Python, the launcher's own checks. The add-on then died on
+`ModuleNotFoundError: No module named 'launcher'` before serving a single
+panel, and it died the same way on every restart.
+
+Nothing in the repository compared one file's imports against another file's
+`COPY` lines, so `tools/checkaddon.py` does now -- it parses `run.py` for
+imports that exist as files beside it and checks each is shipped, and it
+checks `config.yaml`'s version against `ARG BUNDLE` while it is there. Both
+faults were reproduced against it before the check was believed.
+
+`run.py` also imports the launcher inside a `try`, because **an accessory must
+never cost the picture** and this one cost all of them: a panel with a url of
+its own needs nothing from the launcher, and there was no reason for its
+absence to stop the supervisor. The message when a panel does ask for the
+launcher says which of the two it is -- no links configured, or no launcher in
+this build -- because telling somebody who filled the list in that it is empty
+sends them to look at the one thing that is right.
 
 `run.py` supervises one `ha_send.py` per panel: `SHARED_KEYS` lets the token,
 url, port, fps, quality, capture_quality, urgent_fps, urgent_window and stats be

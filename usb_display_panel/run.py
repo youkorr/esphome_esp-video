@@ -28,7 +28,17 @@ import sys
 import threading
 import time
 
-import launcher
+# An accessory must never cost the picture, and this one already has: the file
+# was not copied into the add-on's image, so an import at the top of the file
+# took the whole supervisor down before any panel was served. The panels do not
+# need the launcher to run, so a missing one is reported and stepped over.
+try:
+    import launcher
+except ImportError:  # the image was built without it
+    launcher = None
+
+# One literal, used only when there is no module to ask.
+LAUNCHER_KEYWORD = getattr(launcher, "KEYWORD", "launcher")
 
 SENDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ha_send.py")
 
@@ -106,6 +116,11 @@ def start_launcher(config):
     """
     links = config.get("links") or []
     if not links:
+        return None
+    if launcher is None:
+        say("Launcher: this build does not carry launcher.py, so the page of "
+            "links cannot be served. Panels with a url of their own are "
+            "unaffected.")
         return None
     where = launcher.start(
         links,
@@ -351,12 +366,19 @@ def main():
     # url of its own until this has given it one.
     where = start_launcher(_config)
     for panel in panels:
-        if str(panel.get("url", "")).strip().lower() != launcher.KEYWORD:
+        if str(panel.get("url", "")).strip().lower() != LAUNCHER_KEYWORD:
             continue
         if where is None:
-            say(f"[{panel.get('name', 'panel')}] url is \"{launcher.KEYWORD}\" "
-                f"but no links are configured; add some under links, or point "
-                f"this panel at a page of its own")
+            # Say which of the two it is. Telling somebody who filled the
+            # list in that it is empty sends them to look at the one thing
+            # that is right.
+            why = (
+                "no links are configured; add some under links"
+                if not (_config.get("links") or [])
+                else "the launcher could not be served, for the reason above"
+            )
+            say(f"[{panel.get('name', 'panel')}] url is \"{LAUNCHER_KEYWORD}\" "
+                f"but {why}, or point this panel at a page of its own")
             panel["url"] = ""
         else:
             panel["url"] = where

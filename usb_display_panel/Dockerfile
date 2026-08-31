@@ -23,7 +23,7 @@ WORKDIR /app
 # update really does fetch a current Playwright, a current Chromium and current
 # senders. It costs the browser download on each update, which is the price of
 # not running a year-old browser without knowing it.
-ARG BUNDLE=1.54.0
+ARG BUNDLE=1.55.0
 RUN echo "${BUNDLE}" > /app/BUNDLE
 
 RUN pip install --no-cache-dir --upgrade playwright pillow numpy \
@@ -82,7 +82,13 @@ ARG RAW=https://raw.githubusercontent.com/youkorr/esphome_esp-video/${BRANCH}/co
 
 ADD ${RAW}/udisp_send.py /app/udisp_send.py
 ADD ${RAW}/ha_send.py /app/ha_send.py
+# Both of these, and it is worth saying why the second is easy to forget: it
+# was. launcher.py was added beside run.py, imported at the top of it, and
+# never copied -- so the image built, started, and died on
+# "ModuleNotFoundError: No module named 'launcher'" before a single panel was
+# served. Anything run.py imports has to be listed here.
 COPY run.py /app/run.py
+COPY launcher.py /app/launcher.py
 
 WORKDIR /app
 # Unbuffered, or the add-on log stays empty until something goes wrong.
