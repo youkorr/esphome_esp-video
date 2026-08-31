@@ -956,7 +956,7 @@ the dashboard, where it is invisible while the keys go on working.
 ahead of the `pip install` as well as the `ADD`s, so a bump refetches
 everything — at the cost of the browser download on each update.
 `present_browser()` prints the Chromium version at startup and warns below 114,
-so this is never diagnosed by guesswork again. Currently **1.58.0**.
+so this is never diagnosed by guesswork again. Currently **1.59.0**.
 
 **And the image has to be told about every file, which is not the same as the
 repository having it.** `launcher.py` was written beside `run.py`, imported at
@@ -1174,6 +1174,42 @@ Measured at 800×1280, 1280×800 and 1024×600 with six links: tiles no smaller
 than 264×131 px, nothing running off the side at any of them. A bind that fails
 returns None rather than raising -- **the launcher is an accessory and must
 never cost the panels**, the same rule the keyboard lives under.
+
+**The look is Homepage's, and its vocabulary is kept on purpose.** The ask was
+*"thème et fond d'écran et disposition des link comme HomePage"*, so
+`gethomepage.dev`'s own settings were read rather than invented: `theme` of
+dark or light, `color` named after Tailwind's palettes, `background` with a
+blur and a dim, groups of links under their own headers, cards carrying an
+icon, a name and a description. Somebody who knows that dashboard now knows
+this one.
+
+What is deliberately **not** copied is the density. Homepage is read at a desk
+with a mouse; this is read across a room and pressed with a thumb, so the cards
+stay large and there is no hover state to depend on. Measured with six links in
+three groups: tiles 350x166 at 800x1280, 566x118 at 1280x800, 454x107 at
+1024x600, nothing off the side at any of them.
+
+One palette value per theme, and everything else `color-mix`ed from it in the
+page. Twenty hex values per palette is twenty chances to be inconsistent, and
+Chromium has had `color-mix` since 111 -- while the add-on already refuses to
+be quiet about a browser older than 114. A plain value is declared first in
+every case, so a browser that cannot mix still gets a page.
+
+**The wallpaper is the one thing that is ever fetched, and both ways of giving
+it had to work.** An address the panel can reach (`/local` on Home Assistant is
+the obvious one) is used as it stands; a path is served by the add-on itself,
+because the page is on `127.0.0.1` and no browser will load a `file://` URL
+from one. `map: config:ro, share:ro, media:ro` is what makes a path readable at
+all. A wallpaper that will not load leaves the plain colour and says so in the
+log -- **an accessory must never cost the picture**, and a black rectangle
+where a photograph should be is exactly the failure nobody can diagnose from a
+panel.
+
+Two faults were caught by looking at the rendered pixels rather than the
+markup, which is the rule this project already had to learn once: the
+description ran into the name (an `<a>` may not hold a `<div>`, so the parts
+are spans -- and a span left inline sits on the same line), and the dim was
+being applied with no wallpaper set, so a light theme came out mud grey.
 
 **"Home" is the panel's own `url:` either way**, which is what keeps the
 gesture below simple: there is no second notion of home to keep in step. The

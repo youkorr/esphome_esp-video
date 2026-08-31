@@ -96,15 +96,25 @@ The add-on builds the home page itself, from a list you fill in. Put `launcher`
 in a panel's `url:` and it starts there:
 
 ```yaml
-launcher_title: Salon
+launcher_title: Maison
 launcher_subtitle: ""
+launcher_theme: dark          # dark or light
+launcher_color: sky           # a Tailwind palette name, as Homepage uses
+launcher_background: http://homeassistant:8123/local/wall.jpg
+launcher_background_blur: md  # off, sm, md, xl
+launcher_background_dim: 40   # 0..100
+launcher_columns: 0           # 0 lets the panel decide
 links:
   - name: Home Assistant
     url: http://homeassistant:8123/lovelace/0
     icon: "\U0001F3E0"
+    group: Maison
+    description: Salon, lumieres, volets
   - name: Jellyfin
     url: http://192.168.1.20:8096
     icon: "\U0001F3AC"
+    group: Media
+    description: Films et series
 panels:
   - name: salon
     host: 192.168.1.11
@@ -119,9 +129,37 @@ icon pack that failed to load would leave holes where the labels should be, on
 the one screen where nobody can open a console to find out why. Leave it out
 and the tile gets a dot.
 
+`group` puts links under a heading of their own, in the order the groups first
+appear in the list, so the order in the form is the order on the panel.
+`description` is the small line under the name; leave it out and the name sits
+on its own.
+
+The look follows [Homepage](https://gethomepage.dev) and keeps its vocabulary,
+so what you know there applies here: a `theme` of dark or light, a `color`
+named after one of Tailwind's palettes (`slate`, `sky`, `teal`, `violet`,
+`amber` ... every surface, border and shade of text on the page is mixed from
+it), and a `background` picture with a blur and a dim over it. What is
+deliberately *not* copied is the density -- Homepage is read at a desk with a
+mouse, and this is read across a room and pressed with a thumb.
+
+**The wallpaper is the one thing that is ever fetched**, and it can be either:
+
+- an address the panel can reach. Home Assistant serves anything in
+  `/config/www` at `/local`, so dropping `wall.jpg` there and writing
+  `http://homeassistant:8123/local/wall.jpg` is the short way;
+- a file this add-on can read, under `/config`, `/share` or `/media` -- it is
+  then served from the add-on itself.
+
+Either way, one that will not load leaves the plain colour behind it and the
+add-on log says which it was. A photograph is nearly always too bright to read
+white text over, which is what `launcher_background_dim` is for; and when a
+wallpaper is set the cards go translucent and blur what is behind them, the way
+Homepage's `cardBlur` does, because that is what keeps them readable over a
+picture.
+
 The tiles size themselves to the panel. Measured at 800x1280, 1280x800 and
-1024x600: six links give tiles no smaller than 264x131 px, and nothing ever
-runs off the side.
+1024x600 with six links in three groups: tiles no smaller than 350x166,
+566x118 and 454x107 px, and nothing runs off the side at any of them.
 
 **Hold the top-left corner for a second to come back.** That is the whole
 gesture, and it has to be a gesture rather than a button because a panel has no

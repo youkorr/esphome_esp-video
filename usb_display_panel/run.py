@@ -126,6 +126,12 @@ def start_launcher(config):
         links,
         title=str(config.get("launcher_title") or "Panel"),
         subtitle=str(config.get("launcher_subtitle") or ""),
+        theme=str(config.get("launcher_theme") or "dark"),
+        color=str(config.get("launcher_color") or launcher.DEFAULT_PALETTE),
+        background=str(config.get("launcher_background") or ""),
+        blur=str(config.get("launcher_background_blur") or "off"),
+        dim=config.get("launcher_background_dim", 40),
+        columns=config.get("launcher_columns", 0),
     )
     if where is not None:
         say(f"Launcher: {len(links)} link(s) at {where}")

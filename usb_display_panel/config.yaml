@@ -1,5 +1,5 @@
 name: ESP32-P4 Panel
-version: "1.58.0"
+version: "1.59.0"
 slug: usb_display_panel
 description: Renders Home Assistant dashboards onto ESPHome portall panels over the network, with touch coming back
 url: https://github.com/youkorr/esphome_esp-video
@@ -7,6 +7,12 @@ arch:
   - amd64
   - aarch64
 startup: application
+# So a wallpaper can be a file somebody dropped in the obvious places, read
+# only: this add-on has no business writing to any of them.
+map:
+  - config:ro
+  - share:ro
+  - media:ro
 boot: auto
 init: false
 options:
@@ -69,6 +75,26 @@ options:
   # where the labels should be.
   launcher_title: Panel
   launcher_subtitle: ""
+  # The look, in Homepage's own vocabulary, so that somebody who knows that
+  # dashboard knows this one. theme is dark or light; color is one of
+  # Tailwind's palette names and everything else on the page is mixed from it.
+  launcher_theme: dark
+  launcher_color: slate
+  # A wallpaper is either an address the panel can reach -- Home Assistant
+  # serves anything in /config/www at /local, so
+  # http://homeassistant:8123/local/wall.jpg is the easy one -- or a file this
+  # add-on can read, under /config, /share or /media. Anything else leaves the
+  # plain colour, and the log says which it was.
+  launcher_background: ""
+  # off, sm, md or xl. A blurred photograph is a background; a sharp one
+  # competes with the links in front of it.
+  launcher_background_blur: md
+  # How far to darken it, 0 to 100. Nearly every photograph is too bright to
+  # read white text over, and this is what makes one usable.
+  launcher_background_dim: 40
+  # How many links across. 0 lets the panel decide, which is what a launcher
+  # shown on three shapes of screen wants.
+  launcher_columns: 0
   links: []
   stats: true
   panels:
@@ -98,10 +124,18 @@ schema:
   keep_profile: bool?
   launcher_title: str?
   launcher_subtitle: str?
+  launcher_theme: list(dark|light)?
+  launcher_color: list(slate|gray|zinc|neutral|stone|red|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)?
+  launcher_background: str?
+  launcher_background_blur: list(off|sm|md|xl)?
+  launcher_background_dim: int(0,100)?
+  launcher_columns: int(0,6)?
   links:
     - name: str
       url: str
       icon: str?
+      group: str?
+      description: str?
   stats: bool?
   panels:
     - name: str
