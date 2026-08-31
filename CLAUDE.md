@@ -314,125 +314,41 @@ is what Chrome reports on Linux, because an empty one is its own small oddity.
 verified against YouTube** — no route to it from where this was written. What
 is verified is the headers, which is the half that was wrong.
 
-**YouTube's "le contenu n'est pas disponible" was guessed at three times
-before anything was measured.** First the codecs; then ad filtering at the
-house's DNS, taken from the user's own hypothesis and written into the README
-as established — and then they said plainly: no Pi-hole, no AdGuard Home,
-Jellyfin works, most pages work.
+**YouTube's video stopping was four wrong guesses and then one measurement.**
+The guesses were the codecs, ad filtering at the house's DNS (written into the
+README as established, from the user's own hypothesis, and denied by them: no
+Pi-hole, no AdGuard Home), the client hints, and the audio device. The
+measurement took two lines of the panel's own log:
 
-`watch_failed_requests()` is what replaced the guessing.
-`context.on("requestfailed")`, grouped by host and reason, printed once each
-and capped at twelve, silent on a page that gets everything. Verified against a
-page whose subresources point at names that do not resolve: three hosts, one
-line each, and nothing at all on a page that loads cleanly.
+    Network: rr1---sn-t0a7sn7d.googlevideo.com -- net::ERR_NAME_NOT_RESOLVED
+    Media: pause: t=20.0 ready=4 net=2 paused page=visible focused buffered=0.0s
 
-    Network: pub-filtree.invalid -- net::ERR_NAME_NOT_RESOLVED
+`googlevideo.com` is where the video bytes come from, and the name **did not
+resolve**. `buffered=0.0s` at the pause is the consequence: the player had
+nothing left ahead of the playhead, so it stopped. Not a codec, not a policy
+pause, not the panel, not the link — the next segment could not be fetched
+because DNS failed.
 
-It earned its keep on the first real run by **clearing** the suspect rather
-than confirming it. From the panel, on Chrome with every codec present:
+Everything the user described follows from it and is the confirmation. Those
+hosts are per-session — `rrN---snXXXXXXXX.googlevideo.com` is generated for
+each playback — so *"si je change de vidéo je peux relancer"* is a new hostname
+that happens to resolve. A dashboard never notices because it talks to one
+name, resolved once. Jellyfin never notices for the same reason.
 
-    Browser: decodes H.264 yes, AAC yes, VP9 yes, AV1 yes, Opus yes; DRM no
-    Network: rr3---sn-q4flrnes.googlevideo.com -- net::ERR_ABORTED
-    Network: www.youtube.com -- net::ERR_ABORTED
+An add-on resolves through the **Supervisor's own DNS container**, not the
+router, so this is a Home Assistant setting rather than a house one: Settings >
+System > Network > DNS servers. The sender says so now, once, whenever it sees
+`ERR_NAME_NOT_RESOLVED` — that failure is the only one whose cause is never the
+site.
 
-No `ERR_NAME_NOT_RESOLVED`, so no DNS filtering. No `Media:` line at all, so
-the video element never errored. Every codec present, so not the codecs. Three
-theories dead in one log. And **`ERR_ABORTED` is not a failure** — a player
-aborts range requests constantly, switching quality and closing streams it no
-longer needs — so it is filtered out now, because reporting it sent this very
-diagnosis chasing googlevideo.com when nothing there had gone wrong.
+The general lesson is the one this whole episode kept re-teaching: **a video
+that stops does not error, so the error hook could never have found it.** What
+found it was reporting the boring events — `pause` with how much was buffered —
+and reporting failed requests by host. Both were built after the guessing, and
+both paid for themselves on the first run.
 
-What that leaves is the client hints above: the browser was announcing itself
-as Chrome while sending no `Sec-CH-UA` at all. Unverified against YouTube, but
-it is the one thing left that is demonstrably wrong and demonstrably ours.
-
-**A video that stops without erroring needs a timeline, not an error hook.**
-The panel's second log narrowed it further and killed another theory: the video
-plays, then `made/s` falls to **0.0** for half a minute — the page is not
-repainting at all — and there is still no `Media:` line, so `video.error` was
-never set. A stop with no error is the site pausing it, the data running out,
-or the tab being treated as invisible, and those three are indistinguishable
-from outside.
-
-`MEDIA_INIT_JS` therefore reports a *timeline* now, not just failures:
-`pause`, `playing`, `waiting`, `stalled`, `ended`, `emptied`, `suspend`,
-`abort` and `error`, each with `currentTime`, `readyState`, `networkState`,
-whether it is paused, how much is buffered ahead, `document.visibilityState`
-and `document.hasFocus()`. Capped at 40 lines and rate-limited to one every
-400 ms, because a playing video fires these constantly. Verified against a real
-playing element built from a canvas `captureStream()` — no codec needed — that
-is paused, resumed and then emptied:
-
-    Media: pause: t=6.0 ready=4 net=2 paused page=visible focused
-
-`ready=4` at the pause is the whole point: fully buffered, so nothing ran out.
-That distinguishes a deliberate pause from a stall in one line.
-
-**`--mute-audio` is now on, and it is not a guess about the fault.** Nothing
-carries audio over this path at all — the panel's speaker is a USB sound card
-fed by the cable — so every sample decoded is work for a sound nobody can hear.
-It also removes a failure class rather than diagnosing one: a container has no
-sound device, and a media pipeline that cannot open an output can stop a video
-without setting `video.error`, which is exactly the shape of what is being
-chased.
-
-One hard clue is still open: `Network: ad.doubleclick.net -- net::ERR_FAILED`,
-on a run where every other host was fine. `ERR_FAILED` is generic — it is not
-`ERR_NAME_NOT_RESOLVED`, so not DNS — and YouTube does stop playback when its
-ad requests fail. Whether that is the cause or a symptom is what the next log
-should settle.
-
-**The remedy is in the filter, and `--host-resolver-rules` is NOT it.** This
-was shipped once saying `--host-resolver-rules="MAP * 1.1.1.1"` would send the
-browser's lookups somewhere unfiltered. It does nothing of the kind, and the
-user asking "do I put 1.1.1.1 in the add-on?" is what caught it before they
-did. `MAP` sends a hostname to a given **machine**: measured on the shipped
-browser, `MAP * 127.0.0.1` had a request for `n-importe-quoi.example` answered
-by the local web server, so `MAP * 1.1.1.1` would have sent *every* request the
-browser makes — Home Assistant included — to 1.1.1.1, and the panel would have
-gone blank. The earlier "verification" was a mapping of one dead hostname to
-127.0.0.1, which proves `MAP` works and proves nothing about DNS: **the control
-case was never run.**
-
-**The add-on's form is ten settings, and that is a decision that keeps having
-to be re-made.** `rect_cost` and `freeze_animations` were taken out once;
-`browser`, `browser_args`, `capture_quality`, `urgent_fps`, `urgent_window` and
-`render_width`/`render_height` went back in over a few releases and were taken
-out again — *"il y a beaucoup de paramètres inutiles que je me sers pas et je
-crois que d'autres utilisateurs ne vont rien comprendre"*. Every one of them
-has a default that is right for a panel. They all remain options on
-`ha_send.py`, and `run.py` still passes any of them that a hand-written
-`/data/options.json` carries, so nothing is lost but the clutter. **A new
-setting belongs on the sender first and in the form only if somebody has to
-set it.**
-
-**A page that will not load must not end the sender.** `open_page` re-raised
-whatever `page.goto` threw, and nothing above it caught that, so a panel
-pointed at `https://www.youtube.com/` died on a sixty-second `Page.goto`
-timeout and the add-on restarted it — throwing the browser away and starting
-the whole thing again, every sixty-one seconds, for ever. The panel showed
-nothing at all, over a page that had *already committed and was painting*.
-
-Two things follow, and they are different failures:
-
-- **A slow page is not a broken one.** A timeout now warns and carries on.
-  Nothing is given up: the browser goes on loading, and the screencast shows
-  whatever paints, the way it does for every other change on the page.
-  `LOAD_TIMEOUT_S` is 30 rather than 60 for the same reason — being early is
-  free now, and thirty seconds of black is already a long time to look at.
-  Verified against a server that sends a page and then never finishes the
-  response: the sender was still alive after 70 s and had sent two pictures of
-  the half-painted page, where before it was dead at 60.
-- **A page that genuinely will not open** — a name that does not resolve, a
-  refused connection — is retried three times (5, 10, 20 s) and then the loop
-  starts anyway, so the panel shows the browser's own error page and a wake
-  navigates again. Retrying at all is for the add-on starting with the house
-  before the network is up; past that, every extra wait is a panel that has
-  not been connected to yet, because `connect_tcp` happens after this.
-
-`open_page` returns True or False now instead of raising, and both call sites
-— the first navigation and the one after the page was parked for a sleeping
-panel — check it.
+`ad.doubleclick.net -- net::ERR_FAILED` was in the same log and is a side-show;
+it was the thing that looked most like a cause for two rounds.
 
 **The browser it downloads cannot play video, and that is what YouTube's
 "un probleme est survenu" is.** Measured on the exact build the add-on fetches,
@@ -894,7 +810,7 @@ the dashboard, where it is invisible while the keys go on working.
 ahead of the `pip install` as well as the `ADD`s, so a bump refetches
 everything — at the cost of the browser download on each update.
 `present_browser()` prints the Chromium version at startup and warns below 114,
-so this is never diagnosed by guesswork again. Currently **1.43.0**.
+so this is never diagnosed by guesswork again. Currently **1.44.0**.
 
 `run.py` supervises one `ha_send.py` per panel: `SHARED_KEYS` lets the token,
 url, port, fps, quality, capture_quality, urgent_fps, urgent_window and stats be

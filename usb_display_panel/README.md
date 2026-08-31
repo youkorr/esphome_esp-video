@@ -186,12 +186,26 @@ What the reason tells you:
 constantly, switching quality and closing streams it no longer needs, and those
 are not failures.
 
-YouTube in particular refuses to play when the requests it uses to serve ads
-fail, whatever the reason they failed. Some ISP routers filter at the DNS level
-out of the box, so this can be true in a house that installed no ad blocker.
-The `Network:` lines are what settle it rather than guessing -- if there are
-none, ad filtering is not the cause and the codec table is the next place to
-look.
+**`ERR_NAME_NOT_RESOLVED` is the one to look for, and it is this machine's
+DNS rather than the site.** An add-on resolves through Home Assistant's own DNS
+container, not through your router, so that is where to fix it: **Settings >
+System > Network > DNS servers**. Set an upstream you trust -- `1.1.1.1` or
+`8.8.8.8` -- and restart the add-on.
+
+It is worth knowing what that failure looks like from a panel, because it looks
+like nothing at all. A video whose next segment cannot be fetched does not
+error: it plays out what it already has, runs its buffer down to zero and
+stops. The log says both halves:
+
+```
+Network: rr1---sn-t0a7sn7d.googlevideo.com -- net::ERR_NAME_NOT_RESOLVED
+Media: pause: t=20.0 ready=4 net=2 paused page=visible focused buffered=0.0s
+```
+
+`googlevideo.com` is where YouTube's video bytes come from, and those hostnames
+are generated per playback -- which is why changing video sometimes gets one
+that resolves and playback works for a while. A dashboard never notices any of
+this, because it talks to one name and resolves it once.
 
 ### What video actually costs, and why 25 Mbit/s is not enough
 
