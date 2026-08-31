@@ -956,7 +956,7 @@ the dashboard, where it is invisible while the keys go on working.
 ahead of the `pip install` as well as the `ADD`s, so a bump refetches
 everything — at the cost of the browser download on each update.
 `present_browser()` prints the Chromium version at startup and warns below 114,
-so this is never diagnosed by guesswork again. Currently **1.56.0**.
+so this is never diagnosed by guesswork again. Currently **1.57.0**.
 
 **And the image has to be told about every file, which is not the same as the
 repository having it.** `launcher.py` was written beside `run.py`, imported at
@@ -1194,6 +1194,18 @@ holding perfectly still reports *nothing*: the board drops an event identical
 to the one before it, which is what stops a resting finger repeating itself
 fifty times a second. A long press produces no reports to notice.
 
+**A hold is cancelled by leaving the corner, not by wandering inside it.**
+The first version cancelled on `DRAG_THRESHOLD` -- any 12 page pixels of
+travel. A finger resting on glass is never that still, and on a 800x1280 panel
+shown at 90 degrees the page is 1.6x the panel, so **five panel pixels of
+wander lost the gesture**. Reported as the corner simply not working, and
+reproduced against the panel's own geometry: 0, 2 and 4 page pixels went home,
+8 and 16 did not. What somebody means by holding the corner is that the finger
+is in the corner, so that is now what is asked -- and the six cases around it
+still behave: a quick tap in the corner reaches the page, a swipe out of the
+corner scrolls and does not go home, a hold in the middle of the page clicks,
+and the corner's edge is where it says it is.
+
 **A spent gesture must be swallowed, not reset.** The first version cleared
 `_start` when it fired, so the next report from the still-down finger looked
 like a fresh landing and the lift after it clicked the corner of the page that
@@ -1214,6 +1226,19 @@ every time the corner brings it home. Measured against the same page with a
 token set: before, **no picture at all arrived in the twelve seconds after the
 gesture**; after, the first one comes back in **357 ms** and the worst stall is
 838 ms.
+
+**Startup is timed and said out loud, because from the panel every part of it
+looks the same: a black screen.** `Ready 3.6s after starting (0.5s of it the
+browser)`. Reported as over a minute to reach the launcher, and the
+thirty-second wait for `home-assistant` on a page that never had one was most
+of it -- a token pointed elsewhere now settles that question outright rather
+than waiting to find out. The 3-second settle goes with it, so a launcher page
+is ready in 800 ms: measured end to end, first bytes at the panel **3.7s
+before, 1.6s after**.
+
+`run.py` also starts the sound server **before** spawning any sender rather
+than after. A sender that got there first found no PulseAudio, and `pactl`
+then tries to spawn its own -- slow, and a second server nobody wanted.
 
 `open_page.is_home_assistant` is None until the first page has been looked at
 -- unknown, not "no" -- then True or False for good. The 3-second settle goes

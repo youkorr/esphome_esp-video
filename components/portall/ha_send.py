@@ -831,6 +831,12 @@ def open_page(page, args):
     # is not that dashboard -- it starts on a launcher, and the token is for
     # the tile. There is nothing here to wait thirty seconds for.
     elsewhere = bool(args.token_url) and origin_of(args.token_url) != origin_of(args.url)
+    if elsewhere:
+        # Known, not merely unasked: this page is not that dashboard. It also
+        # buys the shorter settle below -- Home Assistant paints in stages and
+        # is worth three seconds, a page of links is not, and the panel is
+        # dark for every one of them.
+        open_page.is_home_assistant = False
     if args.token and not elsewhere and open_page.is_home_assistant is not False:
         try:
             page.wait_for_selector("home-assistant", timeout=30000)
@@ -2378,11 +2384,21 @@ class Injector:
                     self._keyboard.highlight(None)
                 self._last = (x, y)
                 continue
+            # A hold is cancelled by leaving the corner, not by wandering
+            # inside it. A finger resting on glass is never perfectly still --
+            # measured against the panel's own geometry, eight page pixels of
+            # wander, which is five of panel at 1.6x, was enough to lose the
+            # gesture when any DRAG_THRESHOLD of movement cancelled it. What
+            # somebody means by holding the corner is that the finger is in the
+            # corner, so that is what is asked.
+            if self._corner_at is not None and not (
+                x <= self._corner[0] and y <= self._corner[1]
+            ):
+                self._corner_at = None
             if not self._scrolling and (
                 abs(x - self._start[0]) + abs(y - self._start[1]) >= DRAG_THRESHOLD
             ):
                 self._scrolling = True
-                self._corner_at = None
             if self._scrolling:
                 # Negated: dragging the content downwards means going up the
                 # page, which is a negative wheel. Gathered rather than sent --
@@ -2868,6 +2884,13 @@ def main():
             f"{int(1.0 / rect_cost) + 1} of them is sent whole"
         )
 
+    # What the panel is waiting through before it shows anything. Every part
+    # of this has been slow at some point -- a browser fetching a fresh
+    # profile, a page that would not load, and a thirty-second wait for a
+    # dashboard element on a page that never had one -- and from the panel all
+    # three look identical: a black screen for a while. So it is timed and
+    # said out loud, once, at the moment it ends.
+    started = time.monotonic()
     with sync_playwright() as playwright:
         view = {"width": page_w, "height": page_h}
         # Settled once, before anything is launched, so both paths below agree
@@ -2962,6 +2985,7 @@ def main():
                 "Object.defineProperty(navigator, 'webdriver', "
                 "{get: () => undefined});"
             )
+        browser_ready = time.monotonic() - started
         print(
             f"Opening {args.url} at {page_w}x{page_h}"
             + ("" if args.token else " (no token, so this is not treated as "
@@ -2988,6 +3012,8 @@ def main():
                 f"Warning: {args.url} would not open. Carrying on, so the "
                 f"panel shows what the browser has and a wake tries again."
             )
+        print(f"Ready {time.monotonic() - started:.1f}s after starting "
+              f"({browser_ready:.1f}s of it the browser)")
         if "/auth/authorize" in page.url:
             print(
                 "Warning: Home Assistant is asking to log in, so the token was "

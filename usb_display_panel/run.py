@@ -424,13 +424,17 @@ def main():
     signal.signal(signal.SIGTERM, shut_down)
     signal.signal(signal.SIGINT, shut_down)
 
+    # Before any sender, not after. Each one makes its own null sink inside
+    # this server as it starts, and a sender that got there first found no
+    # server at all -- pactl then tries to spawn its own, which is both slow
+    # and a second server nobody wanted.
+    start_pulseaudio()
     threads = []
     for index, panel in enumerate(panels, start=1):
         name = panel.get("name") or panel.get("host") or f"panel {index}"
         thread = threading.Thread(target=serve, args=(panel, name, stop), daemon=True)
         thread.start()
         threads.append(thread)
-    start_pulseaudio()
     say(f"Serving {len(threads)} panel(s)")
 
     # The container lives as long as the panels do.
