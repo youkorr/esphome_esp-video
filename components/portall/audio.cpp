@@ -25,11 +25,13 @@ extern "C" {
 #include "tusb.h"
 }
 
-#if CFG_TUD_AUDIO
+#ifdef USE_SPEAKER
 
+#if CFG_TUD_AUDIO
 extern "C" {
 #include "usb_device_uac.h"
 }
+#endif
 
 namespace esphome {
 namespace portall {
@@ -42,6 +44,7 @@ static const char *const TAG = "portall.audio";
 // that fills most of it cannot survive the slightest jitter.
 static constexpr uint32_t AUDIO_BLOCK_MS = 10;
 
+#if CFG_TUD_AUDIO
 namespace {
 
 /* usb_device_uac's callbacks carry a context pointer, but the volume the host
@@ -49,7 +52,7 @@ namespace {
 Portall *audio_owner(void *ctx) { return static_cast<Portall *>(ctx); }
 
 esp_err_t uac_output(uint8_t *buf, size_t len, void *ctx) {
-  audio_owner(ctx)->on_usb_audio(buf, len);
+  audio_owner(ctx)->on_audio_samples(buf, len);
   return ESP_OK;
 }
 
@@ -58,8 +61,37 @@ void uac_set_mute(uint32_t mute, void *ctx) { audio_owner(ctx)->on_usb_audio_mut
 void uac_set_volume(uint32_t volume, void *ctx) { audio_owner(ctx)->on_usb_audio_volume((float) volume / 100.0f); }
 
 }  // namespace
+#endif  // CFG_TUD_AUDIO
 
-void Portall::setup_audio_() {
+void Portall::setup_speaker_() {
+  /* The blocking buffer, and telling the speaker what is coming.
+   *
+   * Both halves of the audio path need this and neither owns it. USB hands
+   * over six samples at a time at High Speed -- twelve bytes, eight thousand
+   * times a second -- and an ESPHome speaker will not take writes that small
+   * at that rate; refusing them is what tore the stream into a crackle. The
+   * network hands over whatever fitted in a payload. Either way the samples
+   * are gathered here into blocks the speaker can use.
+   */
+  if (this->speaker_ == nullptr || this->audio_block_ != nullptr)
+    return;
+  this->audio_block_size_ = (size_t) (PORTALL_AUDIO_RATE / 1000) * AUDIO_BLOCK_MS *
+                            (PORTALL_AUDIO_BITS / 8) * PORTALL_AUDIO_CHANNELS;
+  this->audio_block_ = new uint8_t[this->audio_block_size_];
+
+  // Tell the speaker what is coming before a byte of it does. Without this it
+  // keeps ESPHome's historical default of 16 kHz mono, and a mixer asked to
+  // combine that with a 48 kHz source refuses the stream outright -- which is
+  // both the "Incompatible audio streams" error and the noise that comes out
+  // when the samples are read at the wrong rate.
+  this->speaker_->set_audio_stream_info(
+      audio::AudioStreamInfo(PORTALL_AUDIO_BITS, PORTALL_AUDIO_CHANNELS, PORTALL_AUDIO_RATE));
+  ESP_LOGCONFIG(TAG, "Speaker: %d Hz, %d bit, %d channel, %u byte blocks", PORTALL_AUDIO_RATE, PORTALL_AUDIO_BITS,
+                PORTALL_AUDIO_CHANNELS, (unsigned) this->audio_block_size_);
+}
+
+#if CFG_TUD_AUDIO
+void Portall::setup_uac_() {
   uac_device_config_t config = {};
   // The display already brought TinyUSB and the PHY up; this is one function of
   // that device, not a device of its own.
@@ -72,36 +104,18 @@ void Portall::setup_audio_() {
   config.spk_itf_num = ITF_NUM_AUDIO_STREAMING_SPK;
   config.mic_itf_num = -1;
 
-  // At High Speed the host services an isochronous endpoint every 125 us, not
-  // every millisecond, so the component hands over six samples at a time --
-  // twelve bytes, eight thousand times a second. An ESPHome speaker will not
-  // take writes that small at that rate, and refusing them is what tore the
-  // stream into a crackle. Gather them into blocks it can use.
-  this->audio_block_size_ = (size_t) (CONFIG_UAC_SAMPLE_RATE / 1000) * AUDIO_BLOCK_MS *
-                            (CONFIG_UAC_BIT_RESOLUTION / 8) * CONFIG_UAC_SPEAKER_CHANNEL_NUM;
-  this->audio_block_ = new uint8_t[this->audio_block_size_];
-
   esp_err_t err = uac_device_init(&config);
   if (err != ESP_OK) {
     ESP_LOGE(TAG, "uac_device_init() failed: %s", esp_err_to_name(err));
     this->mark_failed(LOG_STR("USB audio unavailable"));
     return;
   }
-  // Tell the speaker what is coming before a byte of it does. Without this it
-  // keeps ESPHome's historical default of 16 kHz mono, and a mixer asked to
-  // combine that with a 48 kHz source refuses the stream outright -- which is
-  // both the "Incompatible audio streams" error and the noise that comes out
-  // when the samples are read at the wrong rate.
-  if (this->speaker_ != nullptr) {
-    this->speaker_->set_audio_stream_info(
-        audio::AudioStreamInfo(CONFIG_UAC_BIT_RESOLUTION, CONFIG_UAC_SPEAKER_CHANNEL_NUM, CONFIG_UAC_SAMPLE_RATE));
-  }
-
-  ESP_LOGCONFIG(TAG, "Speaker reported to the host: %d Hz, %d bit, %d channel", CONFIG_UAC_SAMPLE_RATE,
+  ESP_LOGCONFIG(TAG, "Speaker reported to the USB host: %d Hz, %d bit, %d channel", CONFIG_UAC_SAMPLE_RATE,
                 CONFIG_UAC_BIT_RESOLUTION, CONFIG_UAC_SPEAKER_CHANNEL_NUM);
 }
+#endif  // CFG_TUD_AUDIO
 
-void Portall::on_usb_audio(const uint8_t *data, size_t length) {
+void Portall::on_audio_samples(const uint8_t *data, size_t length) {
   if (this->speaker_ == nullptr || length == 0)
     return;
   // Before the mute and volume checks: the host is sending, whatever this board
@@ -128,9 +142,9 @@ void Portall::on_usb_audio(const uint8_t *data, size_t length) {
 
   if (!this->logged_first_audio_) {
     this->logged_first_audio_ = true;
-    ESP_LOGI(TAG, "First audio from the host: %u byte packets at %d Hz, %d bit, %d channel, played %u at a time",
-             (unsigned) this->last_packet_len_, CONFIG_UAC_SAMPLE_RATE, CONFIG_UAC_BIT_RESOLUTION,
-             CONFIG_UAC_SPEAKER_CHANNEL_NUM, (unsigned) this->audio_block_size_);
+    ESP_LOGI(TAG, "First audio: %u byte packets at %d Hz, %d bit, %d channel, played %u at a time",
+             (unsigned) this->last_packet_len_, PORTALL_AUDIO_RATE, PORTALL_AUDIO_BITS, PORTALL_AUDIO_CHANNELS,
+             (unsigned) this->audio_block_size_);
   }
 }
 
@@ -190,4 +204,4 @@ void Portall::on_usb_audio_mute(bool muted) {
 }  // namespace portall
 }  // namespace esphome
 
-#endif  // CFG_TUD_AUDIO
+#endif  // USE_SPEAKER

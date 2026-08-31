@@ -13,6 +13,15 @@
 
 #include <cstdint>
 
+/* What a PCM payload carries, and what the USB audio class is configured for:
+ * the two must agree, because they share one speaker and one block buffer.
+ * Mono because these panels have one speaker and it halves what the network
+ * carries -- 48 kHz of 16-bit mono is 96 KiB/s beside a picture that can want
+ * two megabytes. */
+#define PORTALL_AUDIO_RATE 48000
+#define PORTALL_AUDIO_BITS 16
+#define PORTALL_AUDIO_CHANNELS 1
+
 extern "C" {
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
@@ -96,10 +105,14 @@ class Portall : public Component
     this->sender_script_len_ = length;
   }
 
-#if CFG_TUD_AUDIO
+#ifdef USE_SPEAKER
   void set_speaker(speaker::Speaker *speaker) { this->speaker_ = speaker; }
-  // Called from the audio component's task with one buffer of host audio.
-  void on_usb_audio(const uint8_t *data, size_t length);
+  /* One buffer of PCM for the speaker, from whichever way it arrived: the USB
+   * audio class, or a UDISP_TYPE_PCM payload off the socket. The two differ
+   * only in how the bytes got here -- the blocking, the volume and the
+   * underrun handling below are the same work either way, and were written
+   * once for USB before there was another way in. */
+  void on_audio_samples(const uint8_t *data, size_t length);
   void on_usb_audio_volume(float volume);
   void on_usb_audio_mute(bool muted);
   float get_audio_volume() const { return this->audio_volume_; }
@@ -206,10 +219,14 @@ class Portall : public Component
   /// Forget a half-received frame, so the next sender's first header is not
   /// read out of the middle of the last one's payload.
   void reset_stream_();
-#if CFG_TUD_AUDIO
-  // Defined in audio.cpp, and compiled away with it.
-  void setup_audio_();
+#ifdef USE_SPEAKER
+  // Defined in audio.cpp. The first two are the shared half and are compiled
+  // whenever there is a speaker; setup_uac_ is the USB half and is not.
+  void setup_speaker_();
   void flush_audio_block_();
+#if CFG_TUD_AUDIO
+  void setup_uac_();
+#endif
 #endif
 #ifdef USE_TOUCHSCREEN
   // Defined in touch.cpp, and compiled away with it.
@@ -312,7 +329,7 @@ class Portall : public Component
   const uint8_t *sender_script_{nullptr};
   size_t sender_script_len_{0};
 
-#if CFG_TUD_AUDIO
+#ifdef USE_SPEAKER
   speaker::Speaker *speaker_{nullptr};
   float audio_volume_{1.0f};
   bool audio_muted_{false};
@@ -327,6 +344,11 @@ class Portall : public Component
   // Buffers the speaker would not take whole. A few are normal at the start of
   // a stream; a steady stream of them is the board not keeping up.
   uint32_t audio_underruns_{0};
+  // How much of a UDISP_TYPE_PCM payload is still to come. The parser's fourth
+  // state, and the only one that hands its bytes straight on rather than
+  // gathering them: samples are a stream, so a payload split across two reads
+  // is two writes to the speaker and nothing else.
+  size_t audio_want_{0};
 #endif
 
 #ifdef USE_TOUCHSCREEN

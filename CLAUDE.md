@@ -1021,6 +1021,57 @@ add-on options.
   with an empty tab. One browser serving several panels is the next step.
 
 
+## Sound for the page, board side
+
+**`UDISP_TYPE_PCM = 0x10`**, alongside Espressif's 0..3 and 0xff. Sixteen bytes
+of the same header, because one definition of the wire format is worth more
+than a tidier one per kind of thing on it: a rectangle's geometry means nothing
+for sound, so `x`, `y`, `width`, `height` and the frame id all go out as zero
+and only `payload_total` is read. What follows is **48 kHz, 16-bit signed
+little-endian, one channel** — `PORTALL_AUDIO_*` in `portall.h`,
+`AUDIO_*` in `udisp_send.py`, and the USB audio class is configured for the
+same, because they share one speaker and one block buffer.
+
+Mono on purpose: these panels have one speaker, and it halves what the network
+carries — 96 KiB/s beside a picture that has been measured wanting 2.5 MB/s.
+
+**This is only for the page.** Home Assistant's own audio has a `media_player`
+on the board and always did; nothing here touches it.
+
+**The tuyau already existed and was locked behind USB.** `on_usb_audio()` took
+PCM, gathered it into blocks an ESPHome speaker will accept, carried over what
+the speaker would not take and reported underruns — all of it written for the
+USB audio class and all of it exactly what the network needs. So the change was
+mostly moving a guard: the shared half (`set_speaker`, `on_audio_samples`,
+`setup_speaker_`, `flush_audio_block_`, the block buffer, volume and mute) is
+now `#ifdef USE_SPEAKER`, and only `setup_uac_` and the `usb_device_uac`
+callbacks stay under `#if CFG_TUD_AUDIO`. `on_usb_audio` became
+`on_audio_samples` because it is no longer about USB.
+
+**The parser gained a fourth state, and it is shaped like `skipping_` rather
+than like the frame filling.** Audio is a *stream*: nothing has to be gathered
+before it means something, so a payload split across two reads is two writes to
+the speaker and the split is invisible. That is the whole of it —
+
+```cpp
+if (this->audio_want_ > 0) {
+  const size_t take = this->audio_want_ < len ? this->audio_want_ : len;
+  this->on_audio_samples(data, take);
+  this->audio_want_ -= take;
+  data += take; len -= take; continue;
+}
+```
+
+— the same three lines `skipping_` was already proven on against six chunk
+shapes, which is why this was written to look like it. `reset_stream_()` clears
+it too, or the next sender's first header is read out of the middle of the last
+one's samples.
+
+**Not compiled.** There is no ESP-IDF toolchain here and `esphome config` never
+compiles C++. What was checked: the preprocessor guards balance in both files,
+the schema validates, `yaml/p4-home-assistant.yaml` still passes `esphome
+config`, and the header packs to the same sixteen bytes as a rectangle.
+
 ## The rename to portall
 
 `usb_display` became **`portall`** because the name had stopped describing the

@@ -48,6 +48,14 @@ UDISP_TYPE_RGB565 = 0
 UDISP_TYPE_RGB888 = 1
 UDISP_TYPE_YUV420 = 2
 UDISP_TYPE_JPG = 3
+# Portall's own addition to Espressif's set: a block of PCM for the panel's
+# speaker, so the sound of the page arrives with the picture of it. Home
+# Assistant's own audio does not come this way -- the board has a media_player
+# of its own and always did.
+UDISP_TYPE_PCM = 0x10
+AUDIO_RATE = 48000
+AUDIO_BITS = 16
+AUDIO_CHANNELS = 1
 # Not a picture: the host marking the end of what it was sending. The board
 # counts its payload out and says nothing, which makes an empty one a heartbeat.
 UDISP_TYPE_END = 0xFF
@@ -78,6 +86,28 @@ def build_header(width, height, payload_len, frame_id, x=0, y=0):
     # crc16 and cmd are unused by the board; it validates on the geometry and
     # the length instead.
     return _HEADER.pack(0, UDISP_TYPE_JPG, 0, x, y, width, height, packed)
+
+
+def build_audio_header(payload_len):
+    """One block of sound's header.
+
+    The same sixteen bytes as a rectangle, and deliberately so: one definition
+    of the wire format is worth more than a tidier one for each kind of thing
+    on it. A rectangle's geometry means nothing here, so x, y, width and height
+    go out as zero and the board reads only the length -- and the frame id goes
+    out as zero too, because sound is not admitted or dropped in pictures.
+
+    What follows is signed 16-bit little-endian samples at AUDIO_RATE, one
+    channel. Mono because these panels have one speaker, and because it halves
+    what the network carries: 96 KiB/s beside a picture that can want two
+    megabytes.
+    """
+    if payload_len >= 1 << 22:
+        raise ValueError(
+            f"payload of {payload_len} bytes does not fit the 22-bit length field"
+        )
+    packed = (payload_len & 0x3FFFFF) << 10
+    return _HEADER.pack(0, UDISP_TYPE_PCM, 0, 0, 0, 0, 0, packed)
 
 
 def build_heartbeat():

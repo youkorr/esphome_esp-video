@@ -169,8 +169,12 @@ void Portall::setup() {
   if (this->touchscreen_ != nullptr)
     this->setup_touch_();
 #endif
+#ifdef USE_SPEAKER
+  // The blocking buffer and the stream format, needed by both ways in.
+  this->setup_speaker_();
 #if CFG_TUD_AUDIO
-  this->setup_audio_();
+  this->setup_uac_();
+#endif
 #endif
   this->setup_network_();
 
@@ -449,6 +453,22 @@ void Portall::feed_(const uint8_t *data, size_t len, bool may_wait) {
       continue;
     }
 
+#ifdef USE_SPEAKER
+    // Handing over samples, again only up to what the payload said. Nothing is
+    // gathered here: audio is a stream, so a payload split across two reads is
+    // two writes to the speaker and the split is invisible. That is why this
+    // sits beside skipping_ rather than beside the frame filling below, which
+    // has to hold a whole picture before it means anything.
+    if (this->audio_want_ > 0) {
+      const size_t take = this->audio_want_ < len ? this->audio_want_ : len;
+      this->on_audio_samples(data, take);
+      this->audio_want_ -= take;
+      data += take;
+      len -= take;
+      continue;
+    }
+#endif
+
     // Filling a frame, again only up to what it asked for.
     if (this->current_ != nullptr) {
       const size_t want = this->current_->total - this->current_->received;
@@ -481,6 +501,14 @@ void Portall::feed_(const uint8_t *data, size_t len, bool may_wait) {
       this->skipping_ = header->payload_total;
       continue;
     }
+#ifdef USE_SPEAKER
+    if (header->type == UDISP_TYPE_PCM) {
+      // Not a rectangle: x, y, width and height mean nothing here and are sent
+      // as zero, so none of the geometry below applies. Only the length does.
+      this->audio_want_ = header->payload_total;
+      continue;
+    }
+#endif
     // Any rectangle that fits on the panel, not just the whole panel: a sender
     // that redraws only what changed sends small ones, and that is most of
     // where its speed comes from.
@@ -712,6 +740,9 @@ void Portall::reset_stream_() {
     this->current_ = nullptr;
   }
   this->skipping_ = 0;
+#ifdef USE_SPEAKER
+  this->audio_want_ = 0;
+#endif
   // Half a header is worth even less than half a payload: keeping it would put
   // the previous connection's bytes in front of the next one's first frame.
   this->header_len_ = 0;

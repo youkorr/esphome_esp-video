@@ -121,6 +121,14 @@ typedef struct {
 #define UDISP_TYPE_RGB888 1
 #define UDISP_TYPE_YUV420 2
 #define UDISP_TYPE_JPG 3
+/* Portall's own addition to Espressif's set. The picture types above describe
+ * a rectangle; this one does not, so x, y, width and height are sent as zero
+ * and only payload_total means anything. What follows the header is signed
+ * 16-bit little-endian samples at PORTALL_AUDIO_RATE, one channel -- the sound
+ * of the page the panel is showing, which nothing else in this protocol
+ * carried. Home Assistant's own audio does not come this way: it has a
+ * media_player of its own on the board and always did. */
+#define UDISP_TYPE_PCM 0x10
 #define UDISP_TYPE_END 0xff
 
 #ifdef __cplusplus
