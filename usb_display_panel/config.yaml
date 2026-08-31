@@ -1,5 +1,5 @@
 name: ESP32-P4 Panel
-version: "1.39.0"
+version: "1.40.0"
 slug: usb_display_panel
 description: Renders Home Assistant dashboards onto ESPHome usb_display panels over the network, with touch coming back
 url: https://github.com/youkorr/esphome_esp-video
@@ -74,6 +74,14 @@ options:
   # started and what it can decode, so the log settles it. Set it to "off" to
   # keep Playwright's own whatever is installed, or to a full path to name one.
   browser: auto
+  # Extra command-line flags for the browser, separated by spaces. The escape
+  # hatch for anything with no setting of its own. The one that comes up: a
+  # house that filters ads at its DNS server is a house where YouTube sees no
+  # ads load and refuses to play -- "le contenu n'est pas disponible". Sending
+  # the browser's lookups somewhere unfiltered fixes that, and nothing else
+  # about the house changes:
+  #   --host-resolver-rules=MAP\ *\ 1.1.1.1
+  browser_args: ""
   stats: true
   panels:
     - name: salon
@@ -104,6 +112,7 @@ schema:
   blank_after: float?
   keep_profile: bool?
   browser: str?
+  browser_args: str?
   stats: bool?
   panels:
     - name: str
@@ -127,6 +136,7 @@ schema:
       blank_after: float?
       keep_profile: bool?
       browser: str?
+      browser_args: str?
       # Draw the page smaller than the panel and let the board's accelerator
       # scale it up. This is the one lever that really cuts what full-screen
       # video costs, because every picture sent is a whole panel and an

@@ -2067,6 +2067,18 @@ def main():
         "name one exactly, or 'off' to keep Playwright's whatever is installed",
     )
     parser.add_argument(
+        "--browser-arg",
+        action="append",
+        default=[],
+        metavar="FLAG",
+        help="an extra command-line flag for the browser, repeatable. The "
+        "escape hatch for anything this does not have a setting for -- most "
+        "usefully DNS, because a house that filters ads at the DNS server is "
+        "a house where YouTube sees no ads load and refuses to play: "
+        "--browser-arg --host-resolver-rules=MAP * 1.1.1.1 sends the "
+        "browser's lookups somewhere unfiltered",
+    )
+    parser.add_argument(
         "--profile",
         default="",
         metavar="DIR",
@@ -2272,6 +2284,11 @@ def main():
         view = {"width": page_w, "height": page_h}
         # Settled once, before anything is launched, so both paths below agree
         # and the log says which browser is about to run.
+        # Whatever the caller added, after the defaults, so it can override
+        # one of them if it means to.
+        browser_args = BROWSER_ARGS + list(args.browser_arg)
+        if args.browser_arg:
+            print("Browser: also " + " ".join(args.browser_arg))
         executable = pick_browser(args.browser)
         if executable:
             print(f"Browser: running {executable}")
@@ -2287,10 +2304,10 @@ def main():
             # start.
             print(f"Browser: keeping its profile in {args.profile}")
             context = _launch(
-                playwright, executable, args.profile, view, BROWSER_ARGS
+                playwright, executable, args.profile, view, browser_args
             )
         else:
-            context = _launch(playwright, executable, None, view, BROWSER_ARGS)
+            context = _launch(playwright, executable, None, view, browser_args)
         # Installed on the context so it is in every frame of every page,
         # including the ones a site makes for itself and the one that comes
         # back after the page is parked. It is the line that names why a video

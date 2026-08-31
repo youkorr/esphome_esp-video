@@ -173,6 +173,47 @@ CONF_PPA_BURST = "ppa_burst"
 _SENDER_TILE = 64
 
 
+def _request_fast_network(config):
+    """Ask ESPHome for its high-performance networking, when frames arrive here.
+
+    This is the one thing that decides how fast pictures can reach the board,
+    and it had been set by hand and set too low. A TCP receive window is how
+    much a sender may have in flight before it must stop and wait, so the most
+    that can arrive is the window divided by the round trip -- nothing else
+    about the link enters into it. This component used to set that window to
+    64800 itself, chosen as the largest value the 16-bit window field of a TCP
+    header can carry *without window scaling*, and it also lowered the send
+    buffer and the receive mailbox to match.
+
+    Every part of that was self-imposed. ESPHome turns window scaling on and
+    uses 512000 with 512-deep mailboxes when PSRAM is guaranteed, which every
+    board this runs on has -- so the hand-set values were not a floor being
+    raised, they were a ceiling being lowered, by a factor of eight. It capped
+    what could arrive at about 26 Mbit/s at a 20 ms round trip, which is what a
+    panel was measured receiving, and the user's own VLC capture of the same
+    board serving its camera at 25 932 kb/s is what said the radio was not the
+    thing in the way.
+
+    Requesting it is also more than lwip: the wifi component reads the same
+    flag and raises its RX/TX buffers, turns on AMPDU aggregation and moves
+    those buffers into PSRAM.
+
+    Only asked for when `port:` is present. A USB-only board sends nothing over
+    the network and should not pay the memory for it.
+    """
+    if CONF_PORT not in config:
+        return config
+    try:
+        from esphome.components import network
+
+        network.require_high_performance_networking()
+    except (ImportError, AttributeError):
+        # Older ESPHome has no such request. Nothing is set instead: the
+        # values this used to set were the problem, not the fix.
+        pass
+    return config
+
+
 def _validate_render_size(config):
     """Refuse a render size that would not land on whole panel pixels.
 
@@ -350,6 +391,7 @@ CONFIG_SCHEMA = cv.All(
     esp32.only_on_variant(supported=[esp32.VARIANT_ESP32P4]),
     _warn_about_espressif_driver,
     _validate_render_size,
+    _request_fast_network,
 )
 
 
@@ -369,45 +411,12 @@ async def to_code(config):
     cg.add(var.set_max_fps(config[CONF_MAX_FPS]))
     if (port := config.get(CONF_PORT)) is not None:
         cg.add(var.set_port(port))
-        # Receiving at video rates is bounded by the TCP receive window, and
-        # nothing else about the link. A window is how much a sender may have
-        # in flight before it must stop and wait for an acknowledgement, so
-        # the ceiling is the window divided by the round trip -- and the
-        # default is four segments, about 5.7 kB, which over Wi-Fi is a
-        # fraction of what the radio can carry.
-        #
-        # Sending does not suffer the same way, which is why a camera serving
-        # JPEG out of this board reaches rates this could not take in. Set
-        # only when frames actually arrive over the network; these are
-        # device-wide and not worth spending on a board that is USB-only.
-        # 64800 is 45 segments of the default 1440-byte MSS, and the largest
-        # multiple of it that still fits the 16-bit window field a header
-        # carries without window scaling. What it buys is a ceiling: a window
-        # is how much may be in flight before the sender must stop and wait, so
-        # the most that can arrive is the window divided by the round trip.
-        # 28800 gave 23 Mbit/s at a 10 ms round trip and 11.5 at 20, and a busy
-        # five-second window on a panel has been measured at 6.2 -- close
-        # enough on a loaded radio to be worth the room. This doubles it.
-        esp32.add_idf_sdkconfig_option("CONFIG_LWIP_TCP_WND_DEFAULT", 64800)
-        # Deliberately not raised with it. This one is the send side, and this
-        # board sends touches: a few bytes at a time. It is left where it is
-        # rather than lowered because these options are device-wide, and a
-        # camera serving JPEG out of the same board is the one thing here that
-        # does need a send buffer.
-        esp32.add_idf_sdkconfig_option("CONFIG_LWIP_TCP_SND_BUF_DEFAULT", 28800)
-        # How many segments may queue for the socket before lwip drops them and
-        # asks for them again, which is what a burst of a large frame is. This
-        # is not free to choose: it has to hold a whole window's worth, and
-        # Espressif's rule is TCP_WND / TCP_MSS + 2, so 64800 over 1440 plus
-        # two is 47. Raising the window without raising this would have made
-        # things worse rather than better -- a window the stack invites the
-        # sender to fill and then drops the tail of.
-        esp32.add_idf_sdkconfig_option("CONFIG_LWIP_TCP_RECVMBOX_SIZE", 64)
-        # Without this, lwip does not implement SO_RCVBUF at all and the
-        # setsockopt in network.cpp fails with ENOPROTOOPT -- silently until
-        # that call learned to complain. It is a ceiling on what one socket
-        # will hold, sitting above the window rather than replacing it.
-        esp32.add_idf_sdkconfig_option("CONFIG_LWIP_SO_RCVBUF", True)
+        # How fast pictures can arrive is decided by the TCP receive window,
+        # and this component no longer sets it: _request_fast_network asks
+        # ESPHome for its high-performance networking instead, which turns
+        # window scaling on and uses 512000 where this used to write 64800.
+        # The hand-set values were not a floor being raised -- they were a
+        # ceiling being lowered by a factor of eight.
 
     # The descriptors have to be compiled into TinyUSB itself, which only a
     # real IDF component can do (see that component's CMakeLists).

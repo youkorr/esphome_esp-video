@@ -79,6 +79,7 @@ Assistant dashboard to appear; without one it does neither.
 | `keyboard` | The on-screen keyboard's layout, or `off`. See below |
 | `blank_after` | Seconds dark before a sleeping panel's page is let go of. See below |
 | `browser` | Which browser renders the pages. `auto` prefers one with the video codecs, `off` keeps Playwright's own, or give a full path. See below |
+| `browser_args` | Extra command-line flags for the browser, one line, quoted like a shell. See below |
 | `render_width`, `render_height` | Draw smaller than the panel and let the board scale it up. The one real lever on what video costs. Per panel, and the board needs the same two numbers. See below |
 | `stats` | Print what is being sent every five seconds |
 
@@ -150,6 +151,26 @@ lacks from a stream that went away from a site refusing to serve.
 
 `browser: off` keeps Playwright's own whatever is installed, and a full path
 names one exactly.
+
+### "Le contenu n'est pas disponible" on YouTube is ad blocking
+
+This one is not the codecs and not the browser. A house that filters ads at its
+DNS server -- Pi-hole, AdGuard Home, a router that does it -- is a house where
+the ad requests fail, and YouTube treats a client that loads no ads as one that
+is blocking them and refuses to play. It is very often the same box this add-on
+runs on.
+
+Nothing in the sender can fix that, because the browser's own lookups are what
+is being filtered. What it can do is send them somewhere else:
+
+```
+browser_args: --host-resolver-rules="MAP * 1.1.1.1"
+```
+
+The browser then resolves through 1.1.1.1 and the rest of the house keeps its
+filtering. Quote a flag that contains spaces: the line is split the way a shell
+would split it. Anything else Chromium accepts can go here too -- it is the
+escape hatch for what has no setting of its own.
 
 ### What video actually costs, and why 25 Mbit/s is not enough
 
