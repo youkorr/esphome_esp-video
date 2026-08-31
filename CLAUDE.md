@@ -258,6 +258,46 @@ the page standing still while the finger moved — which from the glass is a
 page that jumps rather than follows, and was reported as *"le swipe haut et bas
 c'est erratique"*.
 
+**And that was only half of it. Every input dispatch costs a display frame.**
+Measured on the shipped browser, and it is not the page and not the
+screencast: `page.mouse.wheel` takes **16.6 ms** a call, a raw CDP
+`Input.dispatchMouseEvent` takes 16.2, and a plain `mouse.move` on
+`about:blank` takes 16.7. Chromium acknowledges input on its next frame and a
+synchronous client waits for it.
+
+So the number of calls a second is the entire budget, and a finger reports
+fifty times a second. One wheel each cost **830 ms of every 1000**: the loop
+went from **110 Hz at rest to 10 Hz** while a finger moved — a panel reading
+touches ten times a second and painting no faster. That is the rest of "trop
+lent", and it is invisible from every metric except the loop rate.
+
+`WHEEL_MIN_INTERVAL_S = 0.030` and the deltas are summed instead of sent one by
+one. Chromium coalesces input per frame anyway, so nothing above the picture
+rate was ever visible. Three seconds of continuous finger on a scrolling page:
+
+| | rect/s | median gap | worst gap | loop during the swipe |
+|---|---|---|---|---|
+| as it was | 8.3 | 77 ms | **429 ms** | **10 Hz** |
+| discard on landing only | 10.8 | 95 ms | 105 ms | 10 Hz |
+| and the wheels summed | **19.5** | **50 ms** | **78 ms** | **67–84 Hz** |
+| control: the same page scrolling with no finger | 9.7 | 103 ms | 110 ms | 110 Hz |
+
+The finished swipe now beats the no-finger control, because the urgent window
+can finally reach the rate it was always allowed.
+
+**Summing is exact, and it is more exact than sending one per report.**
+Measured through the browser: 400 px of finger scrolls **400** px of page in
+20, 40 or 8 steps alike, both directions, and 100 gives 100 — where one wheel
+per report gave 380 and 80. `tools`-free `injtest.py` in the scratchpad checks
+the injector with a stub page and no browser at all, which is the only way to
+see the arithmetic on its own.
+
+A measurement trap worth keeping: the first version of the browser-side check
+took its baseline from the first scroll event *after* the gesture began, which
+already contains a wheel. Coarse gestures fire fewer, larger scrolls, so they
+appeared to lose the most — a regression that was entirely in the ruler. Take
+the baseline before the gesture.
+
 `Injector.began` is the flag, set only where a gesture starts. And the
 measuring matters as much as the fix: the first two rows alone would have
 looked like a modest improvement, and the median even got *worse*. It is the

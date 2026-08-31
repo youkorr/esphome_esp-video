@@ -219,6 +219,24 @@ BROWSER_ARGS = [
     # "covered", which costs the page its updates.
     "--disable-features=CalculateNativeWinOcclusion",
 ]
+# The least time between two scroll injections.
+#
+# Every input dispatch costs a display frame. Measured on the shipped browser,
+# and it is not the page and not the screencast: page.mouse.wheel takes 16.6 ms
+# a call, a raw CDP Input.dispatchMouseEvent takes 16.2, and a plain mouse.move
+# on about:blank takes 16.7. Chromium acknowledges input on its next frame and
+# a synchronous client waits for it.
+#
+# So the number of calls a second is the whole budget. A finger reports fifty
+# times a second, and one wheel each took 830 ms of every 1000: the loop went
+# from 110 Hz at rest to 10 Hz while a finger moved, which is a panel reading
+# touches ten times a second and painting no faster. Deltas are summed instead
+# and sent as one, which scrolls exactly as far -- measured, 200 px either way
+# -- for one call instead of fifty.
+#
+# 30 ms rather than every turn, because Chromium coalesces input per frame
+# anyway and nothing above the picture rate is visible.
+WHEEL_MIN_INTERVAL_S = 0.030
 # How far a finger has to travel before the gesture is scrolling rather than
 # a tap. Small enough that a deliberate drag is recognised at once, large
 # enough that the wobble of a fingertip on a press is not.
@@ -2235,6 +2253,9 @@ class Injector:
         # would invalidate every frame the browser paints, so none would ever
         # be sent and the page would appear to jump rather than follow.
         self.began = False
+        # Scroll waiting to go out, and when one last did.
+        self._wheel = [0, 0]
+        self._wheel_at = 0.0
         # The gesture began on the keyboard, and which key it is still on.
         self._on_keyboard = False
         self._key = None
@@ -2287,13 +2308,26 @@ class Injector:
             ):
                 self._scrolling = True
             if self._scrolling:
-                dx, dy = x - self._last[0], y - self._last[1]
-                if dx or dy:
-                    # Negated: dragging the content downwards means going up the
-                    # page, which is a negative wheel.
-                    self._page.mouse.wheel(-dx, -dy)
+                # Negated: dragging the content downwards means going up the
+                # page, which is a negative wheel. Gathered rather than sent --
+                # see WHEEL_MIN_INTERVAL_S for what one call costs.
+                self._wheel[0] += self._last[0] - x
+                self._wheel[1] += self._last[1] - y
             self._last = (x, y)
+        self._flush_wheel()
         return clicked
+
+    def _flush_wheel(self, force=False):
+        """Send what has gathered, if it is time or the gesture has ended."""
+        if not self._wheel[0] and not self._wheel[1]:
+            return
+        now = time.monotonic()
+        if not force and now - self._wheel_at < WHEEL_MIN_INTERVAL_S:
+            return
+        self._wheel_at = now
+        dx, dy = self._wheel
+        self._wheel = [0, 0]
+        self._page.mouse.wheel(dx, dy)
 
     def _finish(self):
         """The finger left. A gesture that never travelled was a tap.
@@ -2302,6 +2336,9 @@ class Injector:
         what has focus now.
         """
         clicked = False
+        # Whatever is left of the scroll goes now: the finger has gone and
+        # there will be no later turn to carry it.
+        self._flush_wheel(force=True)
         if self._on_keyboard:
             if self._key is not None:
                 # Enter usually closes what was being typed into, so the key
@@ -2325,6 +2362,7 @@ class Injector:
         self._reset()
 
     def _reset(self):
+        self._wheel = [0, 0]
         self._start = self._last = None
         self._scrolling = False
         self._on_keyboard = False
