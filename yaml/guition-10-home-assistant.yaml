@@ -170,9 +170,20 @@ speaker:
     source_speakers:
       - id: announcement_spk_mixer_input
       - id: media_spk_mixer_input
+      # Le son de la page, troisieme entree du melangeur. Une entree a lui et
+      # non celle du lecteur multimedia : ainsi une annonce de Home Assistant
+      # passe PAR-DESSUS la video au lieu de se battre avec elle pour le bus
+      # I2S, et couper l'une ne coupe pas l'autre.
+      - id: portall_spk_mixer_input
   - platform: resampler
     id: media_spk_resampling_input
     output_speaker: media_spk_mixer_input
+  # portall envoie du 48 kHz -- c'est ce que produit un navigateur -- et cette
+  # dalle sort du 44,1 kHz. Sans ce rechantillonneur le melangeur refuse le
+  # flux ("Incompatible audio streams") et ce qui sort est du bruit.
+  - platform: resampler
+    id: portall_spk_resampling_input
+    output_speaker: portall_spk_mixer_input
   - platform: resampler
     id: announcement_spk_resampling_input
     output_speaker: announcement_spk_mixer_input
@@ -351,6 +362,16 @@ portall:
   # de bande en arriere avant de l'envoyer, sinon le decodeur materiel rend
   # ESP_ERR_TIMEOUT au lieu de pixels et le bord droit ne se redessine jamais.
   max_frame_bytes: 300000
+  # OU sort le son. Une seule ligne pour les deux chemins : celui du reseau
+  # (le son de la page, 48 kHz 16 bits mono, par la meme socket que l'image)
+  # et celui de l'USB (la carte devient une carte son pour un PC relie par
+  # cable). Sans elle le panneau reste muet.
+  #
+  # Elle pointait avant sur speaker_id, la sortie I2S brute, ce qui mettait ce
+  # son en concurrence directe avec le lecteur multimedia sur le meme bus. En
+  # passant par le rechantillonneur et le melangeur, une annonce de Home
+  # Assistant se pose PAR-DESSUS le son de la page au lieu de le bousculer.
+  speaker_id: portall_spk_resampling_input
   sender_drive: false
   vendor_id: 0x303A
   product_id: 0x2986
@@ -363,11 +384,6 @@ portall:
   # portent deja leur propre cadencement.
   jpeg_quality: 9
   max_fps: 60
-  # Fait de la carte une carte son USB pour un PC relie par cable. A retirer
-  # sur un panneau qui ne sert que par Wi-Fi -- mais alors il faut retirer en
-  # meme temps le "number: - platform: portall" plus bas, dont toute la
-  # classe est derriere #if CFG_TUD_AUDIO et disparaitrait avec.
-  speaker_id: speaker_id
   on_audio_start:
     - switch.turn_on: audio_amplifier
     - micro_wake_word.stop

@@ -1072,6 +1072,35 @@ compiles C++. What was checked: the preprocessor guards balance in both files,
 the schema validates, `yaml/p4-home-assistant.yaml` still passes `esphome
 config`, and the header packs to the same sixteen bytes as a rectangle.
 
+**`tools/playsound.py` is the board half on its own**, so it can be tested
+before the capture exists: connect, send PCM, listen. No picture, standard
+library only, so it runs from the Windows machine this project is usually
+driven from. A test tone by default, a 16-bit WAV with `--wav`.
+
+Paced to real time on purpose. The panel plays at 48 kHz whatever the sender
+does, so sending faster only fills a buffer until it overflows and the board's
+log starts saying the speaker is not draining.
+
+Verified against a fake panel that **replays the board's parser** — the same
+four states, including the new one — reading the socket in 65536, 1440, 3 and
+7 byte chunks: **96000 bytes out, 96000 in, byte-identical every time**, three
+of those shapes splitting headers down the middle. That checks the sender and
+the shape of the design; it is a Python model of the C++, not the C++.
+
+**The Guition example now wires it**, and it is the one thing that had to be
+decided rather than moved: `speaker_id:` used to point straight at
+`speaker_id`, the raw I2S output, which put the page's sound in direct
+competition with the media player on one bus. It now goes through a resampler
+into a **third mixer input** of its own, so a Home Assistant announcement lands
+*over* the page rather than fighting it, and stopping one does not stop the
+other. The resampler is not optional: portall sends 48 kHz because that is what
+a browser produces, the panel runs at 44.1, and a mixer given both refuses the
+stream outright — "Incompatible audio streams", which is the noise the code
+comments have warned about since the USB path.
+
+Validated with `esphome config`, with `micro_wake_word` removed for the run
+because it downloads its model from github while validating.
+
 ## The rename to portall
 
 `usb_display` became **`portall`** because the name had stopped describing the

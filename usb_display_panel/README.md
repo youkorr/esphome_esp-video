@@ -269,7 +269,13 @@ microphone and a `media_player:` entity -- Home Assistant can already play
 anything it likes on it. The `portall` component can also take audio in
 over USB, as a standard sound card, into that same speaker.
 
-What carries no audio is **this link**. The udisp protocol is rectangles one
+*(Being written: sound for the page. The board half is in -- a new message type
+on the same socket, 48 kHz 16-bit mono into the panel's own speaker -- and
+`tools/playsound.py` sends it a test tone so you can hear that half work today.
+What is missing is the capture on the server, which needs a virtual sound
+device beside the browser.)*
+
+What carries no audio **yet** is this link. The udisp protocol is rectangles one
 way and touches the other; there is no audio type in the wire format and no
 mention of audio anywhere in the network code. So a video rendered by the
 add-on plays its sound on the Home Assistant server, where nobody is listening,
