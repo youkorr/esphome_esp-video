@@ -1,5 +1,5 @@
 name: ESP32-P4 Panel
-version: "1.40.0"
+version: "1.41.0"
 slug: usb_display_panel
 description: Renders Home Assistant dashboards onto ESPHome usb_display panels over the network, with touch coming back
 url: https://github.com/youkorr/esphome_esp-video
@@ -24,26 +24,13 @@ options:
   url: http://homeassistant:8123/lovelace/0
   port: 5000
   # The upper bound on how often a change is acted on. It only bounds pictures
-  # nobody asked for: a press lifts it to fifteen a second for the second that
-  # follows, which is what a dashboard transition needs, so a low number here
-  # no longer makes the panel feel slow. Lower it to 4 if the machine running
-  # this has other work to do; a still dashboard costs nothing whatever it is
-  # set to. It was 30, which left the browser painting at its own full rate.
+  # nobody asked for: for two seconds after every touch the sender lifts it to
+  # thirty a second by itself, which is what a dashboard transition needs, so a
+  # low number here does not make the panel feel slow. Lower it to 4 if the
+  # machine running this has other work to do; a still dashboard costs nothing
+  # whatever it is set to.
   fps: 10
   quality: 80
-  # What the browser hands over, before it is cut into rectangles. Asking it
-  # for lossless PNG instead -- 0 -- costs the machine running this about
-  # eight times the CPU for a picture the panel cannot tell apart.
-  capture_quality: 90
-  # The limit that applies for a moment after a contact, instead of fps, and
-  # how long for. This is what lets fps be low: at rest a dashboard costs what
-  # it costs, and the moment somebody touches it the brake comes off. Measured
-  # against a panel sending a real contact: 14 rectangles a second standing,
-  # 82 in the second after the press and 86 in the one after that, back to 16
-  # once the window closes. Raise urgent_fps if a low fps still feels slow
-  # under the finger.
-  urgent_fps: 30
-  urgent_window: 2.0
   # The on-screen keyboard, drawn by the browser whenever a text field takes
   # focus -- the dashboard's search, Assist, the search box of an ordinary
   # site. A panel has no keys, so without it those are dead ends. It takes no
@@ -65,26 +52,6 @@ options:
   # signed into is signed out again, and a consent banner comes back. With it,
   # sign in once from the panel's keyboard and it stays signed in.
   keep_profile: true
-  # Which browser renders the pages. "auto" prefers one installed in the
-  # image -- Chrome, or the distribution's Chromium -- over the one Playwright
-  # downloads, for one reason: the downloaded one is built without the
-  # proprietary codecs, so it has no H.264 and no AAC and no DRM at all. A
-  # dashboard never notices; YouTube does, and stops a video after a few
-  # seconds with "un probleme est survenu". The sender prints which browser it
-  # started and what it can decode, so the log settles it. Set it to "off" to
-  # keep Playwright's own whatever is installed, or to a full path to name one.
-  browser: auto
-  # Extra command-line flags for the browser, on one line, quoted the way a
-  # shell would quote them. The escape hatch for anything with no setting of
-  # its own; empty is the normal state and most panels never need it.
-  #
-  # It is NOT the place to choose a DNS server. --host-resolver-rules="MAP ..."
-  # looks like one and is not: it sends a hostname to a given MACHINE, and
-  # "MAP * 1.1.1.1" would send every request the browser makes to 1.1.1.1,
-  # Home Assistant included. Measured, not assumed. If YouTube says "le contenu
-  # n'est pas disponible", that is ad filtering at your DNS server, and the
-  # place to fix it is there -- see the README.
-  browser_args: ""
   stats: true
   panels:
     - name: salon
@@ -108,14 +75,9 @@ schema:
   port: port?
   fps: float?
   quality: int(1,95)?
-  capture_quality: int(0,100)?
-  urgent_fps: float?
-  urgent_window: float?
   keyboard: list(off|qwerty|azerty)?
   blank_after: float?
   keep_profile: bool?
-  browser: str?
-  browser_args: str?
   stats: bool?
   panels:
     - name: str
@@ -132,20 +94,7 @@ schema:
       touch_mirror_y: bool?
       fps: float?
       quality: int(1,95)?
-      capture_quality: int(0,100)?
-      urgent_fps: float?
-      urgent_window: float?
       keyboard: list(off|qwerty|azerty)?
       blank_after: float?
       keep_profile: bool?
-      browser: str?
-      browser_args: str?
-      # Draw the page smaller than the panel and let the board's accelerator
-      # scale it up. This is the one lever that really cuts what full-screen
-      # video costs, because every picture sent is a whole panel and an
-      # independent JPEG. Both go together, they must keep the panel's shape,
-      # and the board needs the same two numbers as render_width/render_height
-      # under usb_display:. Leave them out, or 0, to draw at full size.
-      render_width: int(0,4096)?
-      render_height: int(0,4096)?
       stats: bool?

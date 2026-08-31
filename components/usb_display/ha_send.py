@@ -329,6 +329,41 @@ def _launch(playwright, executable, profile, view, browser_args):
         return start(None)
 
 
+def watch_failed_requests(context, limit=12):
+    """Say which requests the page could not make, and why, once per cause.
+
+    Built because a panel showing YouTube's "le contenu n'est pas disponible"
+    was diagnosed twice from guesswork and twice wrongly. A page that half
+    works is a page where some requests fail, and the browser knows exactly
+    which and exactly why -- a name that did not resolve is a filtered DNS, a
+    connection refused is something in the way, a blocked-by-client is the
+    browser itself. From the panel all three look identical.
+
+    Grouped by host and reason and printed once each, capped, because a page
+    that is failing is usually failing hundreds of times a second and a log
+    nobody can read is no better than no log.
+    """
+    seen = set()
+
+    def note(request):
+        try:
+            from urllib.parse import urlsplit
+
+            host = urlsplit(request.url).hostname or "?"
+            failure = request.failure or "?"
+            key = (host, failure)
+            if key in seen or len(seen) >= limit:
+                return
+            seen.add(key)
+            if len(seen) == limit:
+                print("Network: (further failures not listed)")
+            print(f"Network: {host} -- {failure}")
+        except Exception:  # noqa: BLE001 - a diagnostic must never cost a page
+            pass
+
+    context.on("requestfailed", note)
+
+
 def pick_browser(wanted):
     """Settle which browser executable to run, and say why.
 
@@ -2315,6 +2350,8 @@ def main():
             "__udispMediaError", lambda what: print(f"Media: {what}")
         )
         context.add_init_script(MEDIA_INIT_JS)
+        # Which requests the page could not make. Silent on a page that works.
+        watch_failed_requests(context)
         if args.token:
             install_token(context, args.url, args.token)
         # Filled in once the keyboard exists, which is after the page. The

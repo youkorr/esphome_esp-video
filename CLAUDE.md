@@ -342,14 +342,28 @@ the whole resolved configuration with each complaint inline, so printing the
 first fourteen lines printed the echo. It now drops anything shaped like
 `key: value` and prints what is left.
 
-**YouTube's "le contenu n'est pas disponible" is ad blocking, and the user
-found it.** Not a codec, not the user agent, not the headless build: a house
-that filters ads at its DNS server — Pi-hole, AdGuard Home, a router that does
-it, all of them commonly running on the very box the sender runs on — is a
-house where the ad requests fail, and YouTube treats a client that loads no ads
-as one that is blocking them and refuses to play. Every panel in that house
-sees it, and nothing in the sender can be changed to fix it, because the
-browser's lookups are the thing being filtered.
+**YouTube's "le contenu n'est pas disponible" was diagnosed twice from
+guesswork and twice wrongly, so it is now measured.** The first answer was the
+codecs; the second was ad filtering at the house's DNS, taken from the user's
+own hypothesis and written up as established. Then they said plainly: no
+Pi-hole, no AdGuard Home, Jellyfin works, most pages work. Neither answer had
+any evidence behind it, and the second had been put in the README as fact.
+
+`watch_failed_requests()` is what replaces both. `context.on("requestfailed")`,
+grouped by host and reason, printed once each and capped at twelve, silent on a
+page that gets everything. The browser already knows which requests failed and
+why; from the panel every cause looks the same. Verified against a page whose
+subresources point at names that do not resolve: three hosts, one line each,
+and nothing at all on a page that loads cleanly.
+
+    Network: pub-filtree.invalid -- net::ERR_NAME_NOT_RESOLVED
+
+`ERR_NAME_NOT_RESOLVED` is filtering somewhere on the path, installed
+deliberately or shipped in an ISP router; a refused connection is something in
+the way; `ERR_BLOCKED_BY_CLIENT` is the browser itself; no lines at all means
+the requests are fine and the codec table is the next place to look. YouTube
+does refuse to play when its ad requests fail, whatever made them fail — but
+that is now something a log line establishes rather than something to assert.
 
 **The remedy is in the filter, and `--host-resolver-rules` is NOT it.** This
 was shipped once saying `--host-resolver-rules="MAP * 1.1.1.1"` would send the
@@ -363,21 +377,17 @@ gone blank. The earlier "verification" was a mapping of one dead hostname to
 127.0.0.1, which proves `MAP` works and proves nothing about DNS: **the control
 case was never run.**
 
-What to tell somebody instead: exempt the machine running the add-on in
-Pi-hole or AdGuard Home. One client, one rule, no list of ad domains to keep
-up to date. Chromium's `--dns-over-https-*` flags are the only in-browser
-route and are **unverified from here** — a bogus DoH template fails exactly
-like an unresolvable host, so that test says nothing either.
-
-`--browser-arg` stays, because a generic escape hatch is worth having: an
-extra browser flag, repeatable, appended after `BROWSER_ARGS` so it can
-override a default. In the add-on it is `browser_args`, one line, split **the
-way a shell splits it** — `shlex.split`, because a flag that needs it has
-spaces inside and splitting on whitespace tore it into three flags that meant
-nothing.
-
-This does not replace the codec work: a browser with no H.264 still stops on a
-stream that offers nothing else. They are two different messages from YouTube.
+**The add-on's form is ten settings, and that is a decision that keeps having
+to be re-made.** `rect_cost` and `freeze_animations` were taken out once;
+`browser`, `browser_args`, `capture_quality`, `urgent_fps`, `urgent_window` and
+`render_width`/`render_height` went back in over a few releases and were taken
+out again — *"il y a beaucoup de paramètres inutiles que je me sers pas et je
+crois que d'autres utilisateurs ne vont rien comprendre"*. Every one of them
+has a default that is right for a panel. They all remain options on
+`ha_send.py`, and `run.py` still passes any of them that a hand-written
+`/data/options.json` carries, so nothing is lost but the clutter. **A new
+setting belongs on the sender first and in the form only if somebody has to
+set it.**
 
 **A page that will not load must not end the sender.** `open_page` re-raised
 whatever `page.goto` threw, and nothing above it caught that, so a panel
@@ -867,7 +877,7 @@ the dashboard, where it is invisible while the keys go on working.
 ahead of the `pip install` as well as the `ADD`s, so a bump refetches
 everything — at the cost of the browser download on each update.
 `present_browser()` prints the Chromium version at startup and warns below 114,
-so this is never diagnosed by guesswork again. Currently **1.40.0**.
+so this is never diagnosed by guesswork again. Currently **1.41.0**.
 
 `run.py` supervises one `ha_send.py` per panel: `SHARED_KEYS` lets the token,
 url, port, fps, quality, capture_quality, urgent_fps, urgent_window and stats be
@@ -879,13 +889,10 @@ empty state, so a field nobody filled in arrives as `""`, and a plain
 `{**shared, **panel}` lets that blank the shared one — silently, and the token
 is where it bites.
 
-**The add-on's form offers only what somebody should actually set.**
-`rect_cost`, `freeze_animations` and `render_width`/`render_height` are gone
-from it: the first is computed from the geometry and only wanted when the board
-starts dropping frames, the second does nothing on a dashboard with a camera on
-it, and the third costs visible sharpness. All three remain options on
-`ha_send.py` for a hand-run sender. A form nobody can read is a form where the
-setting that matters gets missed.
+**The add-on's form offers only what somebody should actually set** — ten
+settings, listed in its README. See the note above on what was taken out and
+why. A form nobody can read is a form where the setting that matters gets
+missed.
 
 From inside the add-on the URL must be `http://homeassistant:8123` — a Tailscale
 or `.local` name gives `ERR_NAME_NOT_RESOLVED`. `explain_unreachable()` says so.
