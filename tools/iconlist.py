@@ -17,26 +17,28 @@ spec = importlib.util.spec_from_file_location(
 launcher = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(launcher)
 
-COLUMNS = 4
+COLUMNS = 2
 
 
 def main():
-    names = sorted(launcher.ICONS)
-    rows = (len(names) + COLUMNS - 1) // COLUMNS
-    print("| " + " | ".join(["nom | icône"] * COLUMNS) + " |")
+    rows = [(launcher.icon_for(words.split()[0]), words.split())
+            for _glyph, words in launcher.ICON_NAMES]
+    half = (len(rows) + COLUMNS - 1) // COLUMNS
+    print("| " + " | ".join(["icône | les noms qui y mènent"] * COLUMNS) + " |")
     print("|" + "---|" * (COLUMNS * 2))
-    for row in range(rows):
+    for row in range(half):
         cells = []
         for column in range(COLUMNS):
-            index = column * rows + row
-            if index < len(names):
-                name = names[index]
-                cells.append(f"`{name}` | {launcher.icon_for(name)}")
+            index = column * half + row
+            if index < len(rows):
+                glyph, names = rows[index]
+                cells.append(glyph + " | " + " ".join(f"`{n}`" for n in names))
             else:
                 cells.append(" | ")
         print("| " + " | ".join(cells) + " |")
     print()
-    print(f"{len(names)} names, {len(set(launcher.ICONS.values()))} distinct icons.")
+    print(f"{len(launcher.ICONS)} names onto "
+          f"{len(set(launcher.ICONS.values()))} icons.")
     return 0
 
 

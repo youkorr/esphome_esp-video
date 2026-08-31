@@ -123,8 +123,9 @@ panels:
     height: 1280
 ```
 
-`icon` takes a **name from the list below** -- `jellyfin`, `cuisine`, `docker`,
-`meteo` -- or anything you type yourself: an emoji, a letter, two letters. The
+`icon` takes a **name from the list below, in French or in English** --
+`cuisine` or `kitchen`, `serrure` or `lock`, `reglages` or `settings` -- or
+anything you type yourself: an emoji, a letter, two letters. The
 names are only a convenience, so an emoji pasted straight in works exactly as
 it did before the list existed (on Windows, **Win + .** opens the emoji
 picker). A whole word is accepted too and is set smaller so it stays inside its
@@ -137,128 +138,69 @@ no drawing at all, and none of these do.
 
 <!-- generated: python3 tools/iconlist.py -->
 
-| nom | icône | nom | icône | nom | icône | nom | icône |
-|---|---|---|---|---|---|---|---|
-| `adguard` | 🛡 | `ecole` | 🎓 | `lumiere` | 💡 | `sante` | ⚕️ |
-| `agenda` | 📅 | `electricite` | ⚡️ | `maison` | 🏠 | `sauvegarde` | 💾 |
-| `alarm` | 🚨 | `energie` | ⚡️ | `message` | 💬 | `scanner` | 📇 |
-| `alarme` | 🚨 | `enfants` | 🧸 | `meteo` | ⛅️ | `serrure` | 🔒 |
-| `ampoule` | 💡 | `entree` | 🚪 | `micro` | 🎤 | `server` | 🖥 |
-| `argent` | 💶 | `eolienne` | 💨 | `minuteur` | ⏱️ | `serveur` | 🖥 |
-| `arrosage` | 🚿 | `escalier` | 🪜 | `mouvement` | 🚶 | `settings` | ⚙️ |
-| `aspirateur` | 🧹 | `esphome` | 📟 | `mqtt` | 📨 | `solaire` | ☀️ |
-| `avion` | ✈️ | `etoile` | ⭐️ | `music` | 🎵 | `soleil` | ☀️ |
-| `backup` | 💾 | `fan` | 🌬 | `musique` | 🎵 | `sonnette` | 🔔 |
-| `banque` | 🏦 | `fenetre` | 🪟 | `nas` | 💾 | `sport` | 🏃 |
-| `barbecue` | 🍖 | `feu` | 🔥 | `neige` | ❄️ | `spotify` | 🎵 |
-| `base-de-donnees` | 🗃 | `film` | 🎬 | `netflix` | 🎥 | `supervision` | 📈 |
-| `batterie` | 🔋 | `frigate` | 📹 | `network` | 🌐 | `surveillance` | 👁 |
-| `bouclier` | 🛡 | `fumee` | 🚨 | `nextcloud` | ☁️ | `synology` | 💾 |
-| `bureau` | 🖥 | `game` | 🎮 | `nuage` | ☁️ | `tablette` | 📱 |
-| `bus` | 🚌 | `garage` | 🚗 | `nuage-fichiers` | ☁️ | `taches` | ✅️ |
-| `cafe` | ☕️ | `gaz` | 🧯 | `ordinateur` | 💻 | `telechargement` | ⬇️ |
-| `calendar` | 📅 | `git` | 🔀 | `outils` | 🔧 | `telephone` | 📞 |
-| `camera` | 📷 | `github` | 🐙 | `paperless` | 📄 | `television` | 📺 |
-| `canape` | 🛋 | `grafana` | 📈 | `pare-feu` | 🧱 | `temperature` | 🌡 |
-| `casque` | 🎧 | `grenier` | 📦 | `photo` | 🖼 | `terminal` | ⌨️ |
-| `cave` | 🍷 | `haut-parleur` | 🔊 | `pihole` | 🛡 | `terrasse` | 🪴 |
-| `chambre` | 🛏 | `home` | 🏠 | `piscine` | 🏊 | `toilettes` | 🚽 |
-| `chat` | 🐈 | `home-assistant` | 🏠 | `plante` | 🪴 | `torrent` | ⬇️ |
-| `chauffage` | 🔥 | `horloge` | 🕑 | `plex` | 🎬 | `train` | 🚆 |
-| `chien` | 🐕 | `humidite` | 💧 | `pluie` | 🌧 | `travail` | 💼 |
-| `cinema` | 🎬 | `immeuble` | 🏢 | `podcast` | 🎙 | `tv` | 📺 |
-| `cle` | 🔑 | `immich` | 🖼 | `portainer` | 🐳 | `uptime` | 📈 |
-| `climatisation` | ❄️ | `imprimante` | 🖨 | `porte` | 🚪 | `vacances` | 🌴 |
-| `clock` | 🕑 | `info` | ℹ️ | `poubelle` | 🗑 | `vaultwarden` | 🗝 |
-| `code` | 💻 | `internet` | 🌐 | `printer` | 🖨 | `velo` | 🚲 |
-| `coeur` | ❤️ | `jardin` | 🌳 | `prise` | 🔌 | `vent` | 💨 |
-| `colis` | 📦 | `jellyfin` | 🎬 | `proxmox` | 🖥 | `ventilateur` | 🌬 |
-| `compteur` | 📊 | `jeu` | 🎮 | `radiateur` | 🌡 | `video` | ▶️ |
-| `couloir` | 🛤 | `kodi` | 🎬 | `radio` | 📻 | `voiture` | 🚗 |
-| `courrier` | ✉️ | `lampe` | 🪔 | `reglages` | ⚙️ | `vpn` | 🔐 |
-| `courses` | 🛒 | `lessive` | 🧺 | `repas` | 🍽 | `weather` | ⛅️ |
-| `cuisine` | 🍳 | `light` | 💡 | `reseau` | 🌐 | `wifi` | 📶 |
-| `disque` | 💾 | `liste` | 📋 | `robot` | 🤖 | `window` | 🪟 |
-| `docker` | 🐳 | `lit` | 🛏 | `routeur` | 📡 | `youtube` | ▶️ |
-| `door` | 🚪 | `livre` | 📖 | `salle-de-bain` | 🛁 | `zigbee` | 🐝 |
-| `douche` | 🚿 | `lock` | 🔒 | `salon` | 🛋 |  |  |
+| icône | les noms qui y mènent | icône | les noms qui y mènent |
+|---|---|---|---|
+| 🏠 | `maison` `home` `house` | 💾 | `nas` `synology` `disque` `sauvegarde` `backup` `storage` `disk` |
+| 🛋 | `salon` `canape` `living-room` `sofa` `lounge` | 📡 | `routeur` `antenne` `router` `antenna` `satellite` |
+| 🍳 | `cuisine` `kitchen` `cooking` | 🌐 | `reseau` `internet` `network` `web` `site` |
+| 🛏 | `chambre` `lit` `bedroom` `bed` | 📶 | `wifi` `signal` `reseau-sans-fil` |
+| 🛁 | `salle-de-bain` `bathroom` `bath` | 🔐 | `vpn` `tunnel` `wireguard` `tailscale` `secure` |
+| 🚿 | `douche` `arrosage` `shower` `watering` | 🧱 | `pare-feu` `firewall` `mur` `wall` `opnsense` `pfsense` |
+| 🚽 | `toilettes` `toilet` `wc` | ⌨️ | `terminal` `ssh` `shell` `clavier` `keyboard` `invite` |
+| 🖥 | `bureau` `ordinateur-fixe` `desk` `office` `proxmox` | 💻 | `code` `ordinateur` `computer` `laptop` `editeur` `editor` `vscode` |
+| 🚗 | `garage` `voiture` `car` `garage` | 🔀 | `git` `synchronisation` `sync` `flux` |
+| 🌳 | `jardin` `garden` `tree` `exterieur` `outside` | 🐙 | `github` `depot` `repository` |
+| 🪴 | `plante` `terrasse` `plant` `patio` `balcony` | 🗃 | `base-de-donnees` `database` `sql` `archives` |
+| 🍷 | `cave` `wine` `cellar` | ☁️ | `nuage-fichiers` `nextcloud` `owncloud` `cloud` `drive` |
+| 📦 | `grenier` `colis` `attic` `parcel` `package` `delivery` | ⬇️ | `telechargement` `torrent` `download` `downloads` |
+| 🚪 | `porte` `entree` `door` `entrance` `hall` | 📈 | `grafana` `supervision` `uptime` `monitoring` `graph` `metrics` `courbes` |
+| 🪟 | `fenetre` `window` `volet` `shutter` `blind` | 📨 | `mqtt` `message-broker` `courrier-entrant` |
+| 🪜 | `escalier` `stairs` `ladder` `etage` `floor` | 🐝 | `zigbee` `ruche` `z2m` `hive` |
+| 🛤 | `couloir` `corridor` `hallway` `route` | 📟 | `esphome` `appareils` `devices` `esp` |
+| 🏢 | `immeuble` `building` `appartement` `apartment` | 📄 | `paperless` `document` `documents` `papier` `paper` `scan` |
+| 💡 | `lumiere` `ampoule` `light` `bulb` `lamp` `lighting` | 🗝 | `vaultwarden` `bitwarden` `mots-de-passe` `passwords` `vault` |
+| 🪔 | `lampe` `lampadaire` `desk-lamp` | 🖨 | `imprimante` `printer` `impression` `printing` |
+| 🔌 | `prise` `plug` `socket` `outlet` | 📇 | `scanner` `numerisation` `contacts` |
+| ⚡️ | `energie` `electricite` `power` `electricity` `energy` | 📱 | `tablette` `telephone-mobile` `phone` `mobile` `tablet` |
+| 🔋 | `batterie` `battery` | 📞 | `telephone` `landline` `call` |
+| ☀️ | `soleil` `solaire` `sun` `solar` `sunny` | 📅 | `agenda` `calendrier` `calendar` `schedule` `dates` |
+| 📊 | `compteur` `statistiques` `meter` `statistics` `stats` `chart` | 🕑 | `horloge` `heure` `clock` `time` |
+| 💨 | `vent` `eolienne` `wind` `air` | ⏱️ | `minuteur` `chronometre` `timer` `stopwatch` |
+| 🔥 | `chauffage` `feu` `heating` `fire` `heat` `flame` | 🛒 | `courses` `caddie` `shopping` `groceries` `cart` |
+| 🌡 | `temperature` `radiateur` `thermostat` `thermometer` | 📋 | `liste` `listes` `list` `notes` `checklist` |
+| ❄️ | `climatisation` `neige` `cold` `snow` `air-conditioning` `freezer` | ✅️ | `taches` `todo` `tasks` `done` |
+| 🌬 | `ventilateur` `fan` `breeze` | 🗑 | `poubelle` `dechets` `bin` `trash` `waste` `rubbish` |
+| 💧 | `humidite` `eau` `humidity` `water` `moisture` | 🧺 | `lessive` `linge` `laundry` `washing` |
+| ⛅️ | `meteo` `weather` `forecast` | 🧹 | `aspirateur` `menage` `vacuum` `cleaning` `broom` |
+| 🌧 | `pluie` `rain` | 🤖 | `robot` `aspirateur-robot` `bot` `automation` |
+| ☁️ | `nuage` `cloud` | 🚲 | `velo` `bike` `bicycle` `cycling` |
+| 🚨 | `alarme` `fumee` `alarm` `siren` `smoke` `emergency` | 🚆 | `train` `rail` `metro` |
+| 🔒 | `serrure` `verrou` `lock` `locked` `security` | ✈️ | `avion` `plane` `flight` `airport` `vol` |
+| 🔑 | `cle` `key` `keys` | 🚌 | `bus` `autobus` `transport` |
+| 📷 | `camera` `photo` `picture` | ✉️ | `courrier` `mail` `email` `lettre` `inbox` |
+| 📹 | `camescope` `frigate` `cctv` `video-camera` `videosurveillance` | 💬 | `message` `messages` `chat` `discussion` |
+| 🔔 | `sonnette` `notification` `doorbell` `bell` `alert` | 💶 | `argent` `depenses` `money` `budget` `expenses` `cash` |
+| 🚶 | `mouvement` `presence` `motion` `presence-detection` | 🏦 | `banque` `bank` `comptes` `accounts` |
+| 🧯 | `gaz` `extincteur` `gas` `extinguisher` | ⚕️ | `sante` `health` `medical` `medecin` `doctor` |
+| 👁 | `surveillance` `oeil` `eye` | 🏃 | `sport` `fitness` `course` `running` `exercise` |
+| 🛡 | `bouclier` `adguard` `pihole` `shield` `protection` `filtrage` | 🐕 | `chien` `dog` `animaux` `pets` |
+| 🎬 | `jellyfin` `plex` `kodi` `film` `cinema` `movies` `movie` `media` | 🐈 | `chat-animal` `cat` `chaton` `kitten` |
+| ▶️ | `youtube` `video` `lecture` `play` `watch` | 🏊 | `piscine` `pool` `swimming` `spa` |
+| 🎥 | `netflix` `streaming` `projector` | 🍖 | `barbecue` `viande` `bbq` `grill` `meat` |
+| 📺 | `television` `tv` `televiseur` `screen` | 🔧 | `outils` `bricolage` `tools` `maintenance` `repair` |
+| 🎵 | `musique` `spotify` `music` `song` `audio` | ⚙️ | `reglages` `parametres` `settings` `configuration` `setup` |
+| 📻 | `radio` `tuner` | ☕️ | `cafe` `coffee` `machine-a-cafe` `kettle` |
+| 🎙 | `podcast` `micro-studio` `recording` | 🍽 | `repas` `cuisine-table` `meal` `dinner` `restaurant` |
+| 🖼 | `photos` `immich` `gallery` `pictures` `album` | 🧸 | `enfants` `jouets` `kids` `children` `toys` |
+| 📖 | `livre` `book` `reading` `library` `calibre` | 🎓 | `ecole` `school` `study` `college` |
+| 🎮 | `jeu` `jeux` `game` `games` `gaming` `console` | 💼 | `travail` `bureau-pro` `work` `job` `briefcase` |
+| 🎧 | `casque` `headphones` | 🌴 | `vacances` `holiday` `vacation` `beach` `plage` |
+| 🔊 | `haut-parleur` `enceinte` `speaker` `volume` `sound` | ⭐️ | `etoile` `favori` `star` `favourite` `favorite` `bookmark` |
+| 🎤 | `micro` `microphone` `assistant` `voice` | ❤️ | `coeur` `heart` `favoris` `loved` |
+| 🐳 | `docker` `portainer` `container` `containers` `whale` | ℹ️ | `info` `information` `aide` `help` `about` |
+| 🖧 | `serveur` `server` `cluster` `machines` `noeuds` `nodes` |  |  |
 
-171 names, 115 distinct icons. Nothing is
-fetched from the internet: a container has no promise of reaching it, and an
-icon pack that failed to load would leave holes where the labels should be, on
-the one screen where nobody can open a console to find out why. Leave it out
-and the tile gets a dot.
-
-`group` puts links under a heading of their own, in the order the groups first
-appear in the list, so the order in the form is the order on the panel.
-`description` is the small line under the name; leave it out and the name sits
-on its own.
-
-The look follows [Homepage](https://gethomepage.dev) and keeps its vocabulary,
-so what you know there applies here: a `theme` of dark or light, a `color`
-named after one of Tailwind's palettes (`slate`, `sky`, `teal`, `violet`,
-`amber` ... every surface, border and shade of text on the page is mixed from
-it), and a `background` picture with a blur and a dim over it. What is
-deliberately *not* copied is the density -- Homepage is read at a desk with a
-mouse, and this is read across a room and pressed with a thumb.
-
-**The wallpaper is the one thing that is ever fetched**, and it can be either:
-
-- an address the panel can reach. Home Assistant serves anything in
-  `/config/www` at `/local`, so dropping `wall.jpg` there and writing
-  `http://homeassistant:8123/local/wall.jpg` is the short way;
-- a file this add-on can read, under `/config`, `/share` or `/media` -- it is
-  then served from the add-on itself.
-
-Either way, one that will not load leaves the plain colour behind it and the
-add-on log says which it was. A photograph is nearly always too bright to read
-white text over, which is what `launcher_background_dim` is for; and when a
-wallpaper is set the cards go translucent and blur what is behind them, the way
-Homepage's `cardBlur` does, because that is what keeps them readable over a
-picture.
-
-The tiles size themselves to the panel. Measured at 800x1280, 1280x800 and
-1024x600 with six links in three groups: tiles no smaller than 350x166,
-566x118 and 454x107 px, and nothing runs off the side at any of them.
-
-**Swipe sideways from the top-left corner to come back** -- left or right,
-either does. Land a finger in that corner and drag it a tenth of the screen
-sideways, and the panel goes home. Holding the same corner still for a second
-does the same thing, for anyone who learnt it that way first.
-
-**The corner shows itself**, so nobody has to be told: a quarter-circle appears
-there for five seconds whenever a page arrives, and fills as a finger is held.
-It is decoration and nothing else -- no listeners, no focus, `pointer-events:
-none` -- so a short tap in the corner still reaches whatever is underneath it,
-which on Home Assistant is the menu button. Measured on the pixels that
-actually reach the panel: faint when a page arrives, gone five seconds later,
-bright while a finger holds, and the button underneath still takes the tap.
-
-It has to be a gesture rather than a button because a panel has no
-keyboard, no address bar and no Back button, and a video playing full screen
-swallows everything the page is given. So the way home does not come from the
-page: a contact in that corner is tested by arithmetic in the sender, and if it
-is held long enough the page is never told it happened. Nothing a site does can
-disable it, because no site is asked.
-
-A corner rather than a swipe in from the edge, because plenty of pages scroll
-sideways. Held rather than tapped, because a corner gets brushed by accident
-and a second of stillness does not -- and short of that second the tap is
-delivered normally, so the corner stays usable.
-
-**Leave `token` filled in and `home_assistant` alone.** The token is what makes
-a Home Assistant tile open already logged in, and the sender no longer pays for
-it on a page that is not Home Assistant: it looks for the dashboard element
-once, and if it is not there it never waits for it again.
-
-**Use addresses the add-on can reach.** It runs in its own container, so
-`localhost` there means the add-on itself. Something of yours on the same
-machine is `http://<the machine's LAN address>:<its port>`; Home Assistant is
-`http://homeassistant:8123`.
-
-A panel that would rather start somewhere else just puts that address in its
-own `url:` -- the launcher is only for panels that ask for it, and the corner
-brings each panel back to whatever its own `url:` says.
+520 names onto 116 icons.
 
 ## The keyboard
 

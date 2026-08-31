@@ -87,75 +87,160 @@ BLURS = {"off": "0px", "sm": "4px", "md": "10px", "xl": "24px"}
 # a character the font cannot draw measures exactly as wide as one that has no
 # drawing by definition, which is how the erase key on the keyboard was checked
 # before it shipped. 115 glyphs, none undrawn.
-ICONS = {
- # la maison et ses pieces
- "maison": "\U0001F3E0", "home": "\U0001F3E0", "salon": "\U0001F6CB",
- "canape": "\U0001F6CB", "cuisine": "\U0001F373", "chambre": "\U0001F6CF",
- "lit": "\U0001F6CF", "salle-de-bain": "\U0001F6C1", "douche": "\U0001F6BF",
- "toilettes": "\U0001F6BD", "bureau": "\U0001F5A5", "garage": "\U0001F697",
- "jardin": "\U0001F333", "terrasse": "\U0001FAB4", "cave": "\U0001F377",
- "grenier": "\U0001F4E6", "entree": "\U0001F6AA", "porte": "\U0001F6AA",
- "door": "\U0001F6AA", "fenetre": "\U0001FA9F", "window": "\U0001FA9F",
- "escalier": "\U0001FA9C", "couloir": "\U0001F6E4", "immeuble": "\U0001F3E2",
- # lumiere et energie
- "lumiere": "\U0001F4A1", "light": "\U0001F4A1", "lampe": "\U0001FA94",
- "ampoule": "\U0001F4A1", "prise": "\U0001F50C", "energie": "⚡",
- "electricite": "⚡", "batterie": "\U0001F50B", "solaire": "☀",
- "compteur": "\U0001F4CA", "eolienne": "\U0001F4A8",
- # climat
- "chauffage": "\U0001F525", "radiateur": "\U0001F321", "temperature": "\U0001F321",
- "climatisation": "❄", "ventilateur": "\U0001F32C", "fan": "\U0001F32C",
- "humidite": "\U0001F4A7", "meteo": "⛅", "weather": "⛅",
- "soleil": "☀", "pluie": "\U0001F327", "neige": "❄",
- "vent": "\U0001F4A8", "feu": "\U0001F525", "nuage": "☁",
- # securite
- "alarme": "\U0001F6A8", "alarm": "\U0001F6A8", "serrure": "\U0001F512",
- "lock": "\U0001F512", "cle": "\U0001F511", "camera": "\U0001F4F7",
- "sonnette": "\U0001F514", "mouvement": "\U0001F6B6", "fumee": "\U0001F6A8",
- "gaz": "\U0001F9EF", "surveillance": "\U0001F441", "bouclier": "\U0001F6E1",
- # media
- "jellyfin": "\U0001F3AC", "plex": "\U0001F3AC", "kodi": "\U0001F3AC",
- "film": "\U0001F3AC", "cinema": "\U0001F3AC", "youtube": "▶",
- "video": "▶", "netflix": "\U0001F3A5", "television": "\U0001F4FA",
- "tv": "\U0001F4FA", "musique": "\U0001F3B5", "music": "\U0001F3B5",
- "spotify": "\U0001F3B5", "radio": "\U0001F4FB", "podcast": "\U0001F399",
- "photo": "\U0001F5BC", "immich": "\U0001F5BC", "livre": "\U0001F4D6",
- "jeu": "\U0001F3AE", "game": "\U0001F3AE", "casque": "\U0001F3A7",
- "haut-parleur": "\U0001F50A", "micro": "\U0001F3A4",
- # machines et services
- "docker": "\U0001F433", "portainer": "\U0001F433", "proxmox": "\U0001F5A5",
- "serveur": "\U0001F5A5", "server": "\U0001F5A5", "nas": "\U0001F4BE",
- "synology": "\U0001F4BE", "disque": "\U0001F4BE", "routeur": "\U0001F4E1",
- "reseau": "\U0001F310", "network": "\U0001F310", "wifi": "\U0001F4F6",
- "internet": "\U0001F310", "vpn": "\U0001F510", "pare-feu": "\U0001F9F1",
- "terminal": "⌨", "code": "\U0001F4BB", "git": "\U0001F500",
- "github": "\U0001F419", "base-de-donnees": "\U0001F5C3",
- "sauvegarde": "\U0001F4BE", "backup": "\U0001F4BE", "nuage-fichiers": "☁",
- "nextcloud": "☁", "telechargement": "⬇", "torrent": "⬇",
- "grafana": "\U0001F4C8", "supervision": "\U0001F4C8", "uptime": "\U0001F4C8",
- "mqtt": "\U0001F4E8", "zigbee": "\U0001F41D", "esphome": "\U0001F4DF",
- "home-assistant": "\U0001F3E0", "frigate": "\U0001F4F9",
- "paperless": "\U0001F4C4", "vaultwarden": "\U0001F5DD",
- "adguard": "\U0001F6E1", "pihole": "\U0001F6E1", "imprimante": "\U0001F5A8",
- "printer": "\U0001F5A8", "scanner": "\U0001F4C7", "ordinateur": "\U0001F4BB",
- "tablette": "\U0001F4F1", "telephone": "\U0001F4DE",
- # la vie de tous les jours
- "agenda": "\U0001F4C5", "calendar": "\U0001F4C5", "horloge": "\U0001F551",
- "clock": "\U0001F551", "minuteur": "⏱", "courses": "\U0001F6D2",
- "liste": "\U0001F4CB", "taches": "✅", "poubelle": "\U0001F5D1",
- "lessive": "\U0001F9FA", "aspirateur": "\U0001F9F9", "robot": "\U0001F916",
- "voiture": "\U0001F697", "velo": "\U0001F6B2", "train": "\U0001F686",
- "avion": "✈", "bus": "\U0001F68C", "colis": "\U0001F4E6",
- "courrier": "✉", "message": "\U0001F4AC", "argent": "\U0001F4B6",
- "banque": "\U0001F3E6", "sante": "⚕", "sport": "\U0001F3C3",
- "chien": "\U0001F415", "chat": "\U0001F408", "plante": "\U0001FAB4",
- "arrosage": "\U0001F6BF", "piscine": "\U0001F3CA", "barbecue": "\U0001F356",
- "outils": "\U0001F527", "reglages": "⚙", "settings": "⚙",
- "cafe": "☕", "repas": "\U0001F37D", "enfants": "\U0001F9F8",
- "ecole": "\U0001F393", "travail": "\U0001F4BC", "vacances": "\U0001F334",
- "etoile": "⭐", "coeur": "❤", "info": "ℹ",
-}
+# The icons somebody can ask for by name, because hunting for an emoji in a
+# form field is not a thing anybody enjoys and a panel is filled in once.
+#
+# Every icon carries BOTH names, French and English, because a household does
+# not have one language and neither does the person filling this in at eight in
+# the evening. One glyph per line with all the words that should reach it, so
+# adding a language is adding words to a line rather than a second dictionary
+# to keep in step -- which is how the first version, with English on a
+# handful of entries and not the rest, went wrong.
+#
+# Names are a convenience and never a restriction: anything not here is drawn
+# as the characters themselves, so an emoji pasted straight into the field
+# works exactly as it did before the list existed.
+#
+# Every glyph was checked against U+FFFF in the browser the add-on ships -- a
+# character the font cannot draw measures exactly as wide as one that has no
+# drawing by definition, which is how the keyboard's erase key was checked
+# before it shipped.
+ICON_NAMES = (
+    # the house and its rooms
+    ("\U0001F3E0", "maison home house"),
+    ("\U0001F6CB", "salon canape living-room sofa lounge"),
+    ("\U0001F373", "cuisine kitchen cooking"),
+    ("\U0001F6CF", "chambre lit bedroom bed"),
+    ("\U0001F6C1", "salle-de-bain bathroom bath"),
+    ("\U0001F6BF", "douche arrosage shower watering"),
+    ("\U0001F6BD", "toilettes toilet wc"),
+    ("\U0001F5A5", "bureau ordinateur-fixe desk office proxmox"),
+    ("\U0001F697", "garage voiture car garage"),
+    ("\U0001F333", "jardin garden tree exterieur outside"),
+    ("\U0001FAB4", "plante terrasse plant patio balcony"),
+    ("\U0001F377", "cave wine cellar"),
+    ("\U0001F4E6", "grenier colis attic parcel package delivery"),
+    ("\U0001F6AA", "porte entree door entrance hall"),
+    ("\U0001FA9F", "fenetre window volet shutter blind"),
+    ("\U0001FA9C", "escalier stairs ladder etage floor"),
+    ("\U0001F6E4", "couloir corridor hallway route"),
+    ("\U0001F3E2", "immeuble building appartement apartment"),
+    # light and power
+    ("\U0001F4A1", "lumiere ampoule light bulb lamp lighting"),
+    ("\U0001FA94", "lampe lampadaire desk-lamp"),
+    ("\U0001F50C", "prise plug socket outlet"),
+    ("⚡", "energie electricite power electricity energy"),
+    ("\U0001F50B", "batterie battery"),
+    ("☀", "soleil solaire sun solar sunny"),
+    ("\U0001F4CA", "compteur statistiques meter statistics stats chart"),
+    ("\U0001F4A8", "vent eolienne wind air"),
+    # climate
+    ("\U0001F525", "chauffage feu heating fire heat flame"),
+    ("\U0001F321", "temperature radiateur thermostat thermometer"),
+    ("❄", "climatisation neige cold snow air-conditioning freezer"),
+    ("\U0001F32C", "ventilateur fan breeze"),
+    ("\U0001F4A7", "humidite eau humidity water moisture"),
+    ("⛅", "meteo weather forecast"),
+    ("\U0001F327", "pluie rain"),
+    ("☁", "nuage cloud"),
+    # keeping the place safe
+    ("\U0001F6A8", "alarme fumee alarm siren smoke emergency"),
+    ("\U0001F512", "serrure verrou lock locked security"),
+    ("\U0001F511", "cle key keys"),
+    ("\U0001F4F7", "camera photo picture"),
+    ("\U0001F4F9", "camescope frigate cctv video-camera videosurveillance"),
+    ("\U0001F514", "sonnette notification doorbell bell alert"),
+    ("\U0001F6B6", "mouvement presence motion presence-detection"),
+    ("\U0001F9EF", "gaz extincteur gas extinguisher"),
+    ("\U0001F441", "surveillance oeil eye"),
+    ("\U0001F6E1", "bouclier adguard pihole shield protection filtrage"),
+    # media
+    ("\U0001F3AC", "jellyfin plex kodi film cinema movies movie media"),
+    ("▶", "youtube video lecture play watch"),
+    ("\U0001F3A5", "netflix streaming projector"),
+    ("\U0001F4FA", "television tv televiseur screen"),
+    ("\U0001F3B5", "musique spotify music song audio"),
+    ("\U0001F4FB", "radio tuner"),
+    ("\U0001F399", "podcast micro-studio recording"),
+    ("\U0001F5BC", "photos immich gallery pictures album"),
+    ("\U0001F4D6", "livre book reading library calibre"),
+    ("\U0001F3AE", "jeu jeux game games gaming console"),
+    ("\U0001F3A7", "casque headphones"),
+    ("\U0001F50A", "haut-parleur enceinte speaker volume sound"),
+    ("\U0001F3A4", "micro microphone assistant voice"),
+    # machines and services
+    ("\U0001F433", "docker portainer container containers whale"),
+    ("\U0001F5A7", "serveur server cluster machines noeuds nodes"),
+    ("\U0001F4BE", "nas synology disque sauvegarde backup storage disk"),
+    ("\U0001F4E1", "routeur antenne router antenna satellite"),
+    ("\U0001F310", "reseau internet network web site"),
+    ("\U0001F4F6", "wifi signal reseau-sans-fil"),
+    ("\U0001F510", "vpn tunnel wireguard tailscale secure"),
+    ("\U0001F9F1", "pare-feu firewall mur wall opnsense pfsense"),
+    ("⌨", "terminal ssh shell clavier keyboard invite"),
+    ("\U0001F4BB", "code ordinateur computer laptop editeur editor vscode"),
+    ("\U0001F500", "git synchronisation sync flux"),
+    ("\U0001F419", "github depot repository"),
+    ("\U0001F5C3", "base-de-donnees database sql archives"),
+    ("☁", "nuage-fichiers nextcloud owncloud cloud drive"),
+    ("⬇", "telechargement torrent download downloads"),
+    ("\U0001F4C8", "grafana supervision uptime monitoring graph metrics courbes"),
+    ("\U0001F4E8", "mqtt message-broker courrier-entrant"),
+    ("\U0001F41D", "zigbee ruche z2m hive"),
+    ("\U0001F4DF", "esphome appareils devices esp"),
+    ("\U0001F4C4", "paperless document documents papier paper scan"),
+    ("\U0001F5DD", "vaultwarden bitwarden mots-de-passe passwords vault"),
+    ("\U0001F5A8", "imprimante printer impression printing"),
+    ("\U0001F4C7", "scanner numerisation contacts"),
+    ("\U0001F4F1", "tablette telephone-mobile phone mobile tablet"),
+    ("\U0001F4DE", "telephone landline call"),
+    # everyday life
+    ("\U0001F4C5", "agenda calendrier calendar schedule dates"),
+    ("\U0001F551", "horloge heure clock time"),
+    ("⏱", "minuteur chronometre timer stopwatch"),
+    ("\U0001F6D2", "courses caddie shopping groceries cart"),
+    ("\U0001F4CB", "liste listes list notes checklist"),
+    ("✅", "taches todo tasks done"),
+    ("\U0001F5D1", "poubelle dechets bin trash waste rubbish"),
+    ("\U0001F9FA", "lessive linge laundry washing"),
+    ("\U0001F9F9", "aspirateur menage vacuum cleaning broom"),
+    ("\U0001F916", "robot aspirateur-robot bot automation"),
+    ("\U0001F6B2", "velo bike bicycle cycling"),
+    ("\U0001F686", "train rail metro"),
+    ("✈", "avion plane flight airport vol"),
+    ("\U0001F68C", "bus autobus transport"),
+    ("✉", "courrier mail email lettre inbox"),
+    ("\U0001F4AC", "message messages chat discussion"),
+    ("\U0001F4B6", "argent depenses money budget expenses cash"),
+    ("\U0001F3E6", "banque bank comptes accounts"),
+    ("⚕", "sante health medical medecin doctor"),
+    ("\U0001F3C3", "sport fitness course running exercise"),
+    ("\U0001F415", "chien dog animaux pets"),
+    ("\U0001F408", "chat-animal cat chaton kitten"),
+    ("\U0001F3CA", "piscine pool swimming spa"),
+    ("\U0001F356", "barbecue viande bbq grill meat"),
+    ("\U0001F527", "outils bricolage tools maintenance repair"),
+    ("⚙", "reglages parametres settings configuration setup"),
+    ("☕", "cafe coffee machine-a-cafe kettle"),
+    ("\U0001F37D", "repas cuisine-table meal dinner restaurant"),
+    ("\U0001F9F8", "enfants jouets kids children toys"),
+    ("\U0001F393", "ecole school study college"),
+    ("\U0001F4BC", "travail bureau-pro work job briefcase"),
+    ("\U0001F334", "vacances holiday vacation beach plage"),
+    ("⭐", "etoile favori star favourite favorite bookmark"),
+    ("❤", "coeur heart favoris loved"),
+    ("ℹ", "info information aide help about"),
+)
 
+# name -> glyph, flattened once at import. A name written twice is a mistake
+# worth failing on rather than resolving silently to whichever line came last:
+# the two entries would disagree and only one of them would ever be reachable.
+ICONS = {}
+for _glyph, _words in ICON_NAMES:
+    for _word in _words.split():
+        if _word in ICONS and ICONS[_word] != _glyph:
+            raise ValueError(f"the icon name {_word!r} is used twice")
+        ICONS[_word] = _glyph
 
 def icon_for(value):
     """The glyph for what somebody typed: a name from the list, or the text.

@@ -956,7 +956,7 @@ the dashboard, where it is invisible while the keys go on working.
 ahead of the `pip install` as well as the `ADD`s, so a bump refetches
 everything — at the cost of the browser download on each update.
 `present_browser()` prints the Chromium version at startup and warns below 114,
-so this is never diagnosed by guesswork again. Currently **1.62.0**.
+so this is never diagnosed by guesswork again. Currently **1.63.0**.
 
 **And the image has to be told about every file, which is not the same as the
 repository having it.** `launcher.py` was written beside `run.py`, imported at
@@ -1176,10 +1176,20 @@ returns None rather than raising -- **the launcher is an accessory and must
 never cost the panels**, the same rule the keyboard lives under.
 
 **Icons are names as well as characters, and the names came from the user
-asking for a list.** `icon: jellyfin`, `icon: cuisine`, `icon: docker` --
-171 names onto 115 glyphs, written in French because that is what the person
-filling in the form writes, with the English word beside them where that is the
-one that comes to mind. Nothing is fetched: Homepage's own icon packs are
+asking for a list.** `icon: jellyfin`, `icon: cuisine`, `icon: kitchen` --
+**520 names onto 116 glyphs, every icon carrying both languages**. The first
+version put French first and English on about twenty entries, which was the
+wrong shape and was said so at once: *"pas que francais mais aussi anglais pour
+les icone"*. A household does not have one language, and neither does somebody
+filling in a form at eight in the evening.
+
+The list is therefore one line per icon with every word that should reach it,
+not one entry per name -- so adding a language is adding words to a line rather
+than keeping a second dictionary in step, which is exactly how the first
+version came apart. Flattening it fails loudly on a name used twice, and that
+guard earned itself on the first run: `surveillance` pointed at both a camera
+and an eye, `watch` at both an eye and a play button, `firewall` at both a
+shield and a wall, `console` at both a games console and a terminal. Nothing is fetched: Homepage's own icon packs are
 downloads, and this page's rule is that a panel is the one screen where nobody
 can find out why an image did not load.
 
