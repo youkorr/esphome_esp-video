@@ -956,7 +956,7 @@ the dashboard, where it is invisible while the keys go on working.
 ahead of the `pip install` as well as the `ADD`s, so a bump refetches
 everything — at the cost of the browser download on each update.
 `present_browser()` prints the Chromium version at startup and warns below 114,
-so this is never diagnosed by guesswork again. Currently **1.57.0**.
+so this is never diagnosed by guesswork again. Currently **1.58.0**.
 
 **And the image has to be told about every file, which is not the same as the
 repository having it.** `launcher.py` was written beside `run.py`, imported at
@@ -1205,6 +1205,27 @@ is in the corner, so that is now what is asked -- and the six cases around it
 still behave: a quick tap in the corner reaches the page, a swipe out of the
 corner scrolls and does not go home, a hold in the middle of the page clicks,
 and the corner's edge is where it says it is.
+
+**A still page paints once, so the frame at a navigation cannot be thrown
+away.** The gesture fired, the browser went home, and the panel went on showing
+Home Assistant for ever -- reported as *"home assistant ce fige et ne reviens
+pas a HomePage"*, and it looked like the gesture failing when the gesture had
+already worked. What the log said was `Home: back to ...` followed by
+`0.0 made/s` for the rest of the run.
+
+Measured, because three plausible causes were wrong first. A screencast
+survives a navigation (20 frames/s before and after, cross-origin included),
+and it survives acknowledging the old page's frame ids. What it does not do is
+paint a page that is not changing: **two frames in the two seconds after
+arriving at a still page, none in the two seconds after that, and one more
+every time the screencast is restarted.**
+
+So the frame in hand at a navigation is not one of many, it is the only
+picture that page will ever send -- and the home branch was calling
+`request(discard=True)`, which is right after a press and ruinous here.
+`Screencast.restart()` asks for one instead. Verified with a fake panel
+reassembling the rectangles: the picture off the socket is the launcher, where
+before it stayed the dashboard.
 
 **A spent gesture must be swallowed, not reset.** The first version cleared
 `_start` when it fired, so the next report from the still-down finger looked

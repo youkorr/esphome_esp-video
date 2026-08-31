@@ -1523,6 +1523,32 @@ class Screencast:
                 pass
         self._unacked.clear()
 
+    def restart(self):
+        """Ask for a picture of the page as it is now, whatever it is doing.
+
+        A screencast hands over a frame when the page changes, and a page that
+        has just been navigated to and then stands still changes exactly once.
+        Measured: two frames in the two seconds after arriving at a still page,
+        **none** in the two seconds after that, and one more every time the
+        screencast is restarted.
+
+        So at a navigation the frame in hand is not something that can be
+        thrown away and asked for again -- it is the only picture that page is
+        ever going to send. The corner gesture did exactly that: it navigated
+        home and then discarded, the way it does after a press, and the panel
+        went on showing the dashboard it had left for ever. Reported as Home
+        Assistant freezing and not coming back.
+        """
+        if not self._running:
+            return
+        self._latest = None
+        self._unacked.clear()
+        try:
+            self._session.send("Page.stopScreencast")
+        except Exception:  # noqa: BLE001 - a closed page needs no stopping
+            pass
+        self._start()
+
     def freeze_animations(self):
         """Hold every animation on the page still.
 
@@ -3414,7 +3440,11 @@ def main():
                         # worth diffing against.
                         previous = None
                         pending = None
-                        capture.request(discard=True)
+                        # Not request(discard=True): see Screencast.restart.
+                        # The page has just changed under us and a still page
+                        # will not paint again, so the picture has to be asked
+                        # for rather than waited for.
+                        capture.restart()
                     if keyboard is not None:
                         keyboard.tick(now)
                     if args.stats and now - stats_at >= 5.0:
