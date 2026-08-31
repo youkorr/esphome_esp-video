@@ -1,5 +1,5 @@
 name: ESP32-P4 Panel
-version: "1.52.0"
+version: "1.53.0"
 slug: usb_display_panel
 description: Renders Home Assistant dashboards onto ESPHome portall panels over the network, with touch coming back
 url: https://github.com/youkorr/esphome_esp-video
@@ -60,6 +60,16 @@ options:
   # signed into is signed out again, and a consent banner comes back. With it,
   # sign in once from the panel's keyboard and it stays signed in.
   keep_profile: true
+  # The page a panel comes home to, built by this add-on from the list below.
+  # Put "launcher" in a panel's url and it starts here; hold the top-left
+  # corner for a second from anywhere and it comes back here.
+  #
+  # icon is one character -- an emoji, a letter. Nothing is fetched from the
+  # internet, so an icon pack that failed to load could never leave holes
+  # where the labels should be.
+  launcher_title: Panel
+  launcher_subtitle: ""
+  links: []
   stats: true
   panels:
     - name: salon
@@ -86,6 +96,12 @@ schema:
   keyboard: list(off|qwerty|azerty)?
   blank_after: float?
   keep_profile: bool?
+  launcher_title: str?
+  launcher_subtitle: str?
+  links:
+    - name: str
+      url: str
+      icon: str?
   stats: bool?
   panels:
     - name: str

@@ -1117,9 +1117,30 @@ add-on options.
 
 ## The panel as a launcher
 
-Point `url:` at a page full of links and the panel is a launcher; **"home" is
-that same `url:` and there is no new setting**. What had to be built is only
-the way back, and the reason it cannot be a button on the page is the same
+**The add-on builds the page, and that was the ask.** The first version said
+"point `url:` at a Homepage of your own", which was a misreading: what was
+wanted was a launcher *in* the add-on. `launcher.py` serves one from a `links:`
+list -- name, url, and one character for an icon -- on 127.0.0.1:8099 inside
+the add-on's own container, where the senders run too, so it is reachable by
+them and by nothing else. A panel asks for it with `url: launcher`, which
+`run.py` rewrites before spawning; a panel with a url of its own is untouched.
+
+Everything is inline and nothing is fetched: a container has no promise of
+reaching the internet, and an icon pack that failed to load would leave holes
+where the labels should be on the one screen where nobody can open a console.
+Every value is escaped -- these come from a form somebody types into, so a
+stray angle bracket is a typo, and a typo that silently breaks the page a panel
+comes home to is the worst kind to chase. Verified: `Camera & <cuisine>` draws
+as itself.
+
+Measured at 800×1280, 1280×800 and 1024×600 with six links: tiles no smaller
+than 264×131 px, nothing running off the side at any of them. A bind that fails
+returns None rather than raising -- **the launcher is an accessory and must
+never cost the panels**, the same rule the keyboard lives under.
+
+**"Home" is the panel's own `url:` either way**, which is what keeps the
+gesture below simple: there is no second notion of home to keep in step. The
+reason the way back cannot be a button on the page is the same
 reason the on-screen keyboard is not a widget: a panel has no keyboard, no
 address bar and no Back button, and a site playing full screen swallows
 everything it is given.

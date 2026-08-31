@@ -92,9 +92,36 @@ to the sender.
 
 ## A panel as a launcher, and the way back
 
-Point `url:` at a page full of links -- a Homepage or Dashy container, a Home
-Assistant view built for it, anything -- and the panel becomes a launcher. Tap
-a tile and it goes to Jellyfin, to YouTube, to another machine's web interface.
+The add-on builds the home page itself, from a list you fill in. Put `launcher`
+in a panel's `url:` and it starts there:
+
+```yaml
+launcher_title: Salon
+launcher_subtitle: ""
+links:
+  - name: Home Assistant
+    url: http://homeassistant:8123/lovelace/0
+    icon: "\U0001F3E0"
+  - name: Jellyfin
+    url: http://192.168.1.20:8096
+    icon: "\U0001F3AC"
+panels:
+  - name: salon
+    host: 192.168.1.11
+    url: launcher
+    width: 800
+    height: 1280
+```
+
+`icon` is one character -- an emoji, a letter, anything that draws. Nothing is
+fetched from the internet: a container has no promise of reaching it, and an
+icon pack that failed to load would leave holes where the labels should be, on
+the one screen where nobody can open a console to find out why. Leave it out
+and the tile gets a dot.
+
+The tiles size themselves to the panel. Measured at 800x1280, 1280x800 and
+1024x600: six links give tiles no smaller than 264x131 px, and nothing ever
+runs off the side.
 
 **Hold the top-left corner for a second to come back.** That is the whole
 gesture, and it has to be a gesture rather than a button because a panel has no
@@ -109,17 +136,19 @@ sideways. Held rather than tapped, because a corner gets brushed by accident
 and a second of stillness does not -- and short of that second the tap is
 delivered normally, so the corner stays usable.
 
-"Home" is simply the panel's own `url:`. There is nothing else to set.
-
 **Leave `token` filled in and `home_assistant` alone.** The token is what makes
 a Home Assistant tile open already logged in, and the sender no longer pays for
 it on a page that is not Home Assistant: it looks for the dashboard element
 once, and if it is not there it never waits for it again.
 
-**Use an address the add-on can reach.** It runs in its own container, so a
-Homepage of your own on the same machine is `http://<the machine's LAN
-address>:<its port>`, not `localhost`. Home Assistant itself is
+**Use addresses the add-on can reach.** It runs in its own container, so
+`localhost` there means the add-on itself. Something of yours on the same
+machine is `http://<the machine's LAN address>:<its port>`; Home Assistant is
 `http://homeassistant:8123`.
+
+A panel that would rather start somewhere else just puts that address in its
+own `url:` -- the launcher is only for panels that ask for it, and the corner
+brings each panel back to whatever its own `url:` says.
 
 ## The keyboard
 

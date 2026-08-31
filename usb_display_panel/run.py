@@ -28,6 +28,8 @@ import sys
 import threading
 import time
 
+import launcher
+
 SENDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ha_send.py")
 
 # The senders currently running, so stopping this process stops them too. A
@@ -78,6 +80,26 @@ SHARED_KEYS = (
 )
 
 
+def start_launcher(config):
+    """Serve the page of links, if there are any, and say where it is.
+
+    Returns the address, or None when nobody configured any links -- in which
+    case a panel asking for the launcher is told plainly rather than being
+    pointed at an empty page it cannot get out of.
+    """
+    links = config.get("links") or []
+    if not links:
+        return None
+    where = launcher.start(
+        links,
+        title=str(config.get("launcher_title") or "Panel"),
+        subtitle=str(config.get("launcher_subtitle") or ""),
+    )
+    if where is not None:
+        say(f"Launcher: {len(links)} link(s) at {where}")
+    return where
+
+
 def start_pulseaudio():
     """One sound server for the whole add-on, before any panel starts.
 
@@ -103,12 +125,19 @@ def start_pulseaudio():
     say("Sound server started")
 
 
+# The whole configuration as it was read, for the settings that are not a
+# panel's -- the launcher's list of links, so far.
+_config = {}
+
+
 def load_panels():
     """Every panel to serve, as dictionaries of ha_send.py's options."""
+    global _config
     for path in ("/data/options.json", os.environ.get("UDISP_CONFIG")):
         if path and os.path.exists(path):
             with open(path) as handle:
                 config = json.load(handle)
+            _config = config
             panels = config.get("panels")
             if panels:
                 shared = {
@@ -300,6 +329,20 @@ def main():
         say("No panels configured. Set them in the add-on options, or point "
             "$UDISP_CONFIG at a JSON file, or set HOST, URL and TOKEN.")
         return 1
+
+    # Before the check below, because a panel asking for the launcher has no
+    # url of its own until this has given it one.
+    where = start_launcher(_config)
+    for panel in panels:
+        if str(panel.get("url", "")).strip().lower() != launcher.KEYWORD:
+            continue
+        if where is None:
+            say(f"[{panel.get('name', 'panel')}] url is \"{launcher.KEYWORD}\" "
+                f"but no links are configured; add some under links, or point "
+                f"this panel at a page of its own")
+            panel["url"] = ""
+        else:
+            panel["url"] = where
 
     missing = [p for p in panels if not p.get("host") or not p.get("url")]
     if missing:
