@@ -219,6 +219,24 @@ BROWSER_ARGS = [
     # "covered", which costs the page its updates.
     "--disable-features=CalculateNativeWinOcclusion",
 ]
+# The way back to the page the panel was pointed at.
+#
+# A panel used as a launcher -- a Homepage, a Dashy, a Home Assistant view full
+# of links -- can go anywhere, and then it is stuck: there is no keyboard, no
+# address bar and no Back button, and a video playing full screen swallows
+# everything the page is given. So the way home cannot come from the page.
+#
+# It comes from here instead, the same way the on-screen keyboard does: a
+# contact inside the corner below is tested by arithmetic in the sender, and if
+# it is held long enough the page is never told it happened. Nothing a site
+# does can disable it, because no site is asked.
+#
+# A corner rather than an edge swipe, because a swipe in from the side is how
+# plenty of pages scroll sideways. Held rather than tapped, because a corner
+# gets brushed by accident and a whole second of stillness does not. Short of
+# that second the tap is delivered normally, so the corner stays usable.
+HOME_CORNER_FRACTION = 0.14
+HOME_HOLD_S = 1.0
 # The least time between two scroll injections.
 #
 # Every input dispatch costs a display frame. Measured on the shipped browser,
@@ -2238,8 +2256,10 @@ class Injector:
     landed.
     """
 
-    def __init__(self, page, touch_map, keyboard=None):
+    def __init__(self, page, touch_map, keyboard=None, page_w=0, page_h=0):
         self._page = page
+        self._corner = (page_w * HOME_CORNER_FRACTION,
+                        page_h * HOME_CORNER_FRACTION)
         self._map = touch_map
         self._keyboard = keyboard
         # Where the finger landed, and where it was last seen. None between
@@ -2256,6 +2276,10 @@ class Injector:
         # Scroll waiting to go out, and when one last did.
         self._wheel = [0, 0]
         self._wheel_at = 0.0
+        # A gesture that started in the corner: when it landed, and whether it
+        # has already been spent on going home.
+        self._corner_at = None
+        self._went_home = False
         # The gesture began on the keyboard, and which key it is still on.
         self._on_keyboard = False
         self._key = None
@@ -2277,6 +2301,11 @@ class Injector:
                 clicked = self._finish() or clicked
                 continue
             x, y = self._map.to_page(*point)
+            if self._went_home:
+                # The gesture already did its one job. Nothing else it does
+                # reaches the page.
+                self._last = (x, y)
+                continue
             if self._start is None:
                 if self._keyboard is not None and self._keyboard.contains(x, y):
                     # Not the page's. The pointer is not even moved there, so
@@ -2295,6 +2324,13 @@ class Injector:
                 self._start = self._last = (x, y)
                 self._scrolling = False
                 self.began = True
+                # Top left, and only if it has not moved out of it since.
+                self._corner_at = (
+                    time.monotonic()
+                    if x <= self._corner[0] and y <= self._corner[1]
+                    else None
+                )
+                self._went_home = False
                 continue
             if self._on_keyboard:
                 # Sliding off a key abandons it, the way it does on a phone.
@@ -2307,6 +2343,7 @@ class Injector:
                 abs(x - self._start[0]) + abs(y - self._start[1]) >= DRAG_THRESHOLD
             ):
                 self._scrolling = True
+                self._corner_at = None
             if self._scrolling:
                 # Negated: dragging the content downwards means going up the
                 # page, which is a negative wheel. Gathered rather than sent --
@@ -2316,6 +2353,28 @@ class Injector:
             self._last = (x, y)
         self._flush_wheel()
         return clicked
+
+    def tick(self, now):
+        """True once, when a finger has been held in the corner long enough.
+
+        Asked from the loop rather than driven by the contacts, because a
+        finger holding perfectly still reports nothing at all -- the board
+        drops an event identical to the one before it, which is what stops a
+        resting finger from saying the same thing fifty times a second.
+        """
+        if self._corner_at is None or self._went_home:
+            return False
+        if now - self._corner_at < HOME_HOLD_S:
+            return False
+        # Spent. The finger is still down and will go on reporting; every one
+        # of those reports is now ignored, and the lift at the end is not a
+        # tap. Clearing _start instead would have the next report look like a
+        # fresh landing, and the lift after it would click the corner of a page
+        # that had only just been loaded -- which is what the first version did.
+        self._went_home = True
+        self._scrolling = False
+        self._wheel = [0, 0]
+        return True
 
     def _flush_wheel(self, force=False):
         """Send what has gathered, if it is time or the gesture has ended."""
@@ -2346,7 +2405,7 @@ class Injector:
                 clicked = self._keyboard.commit(self._key)
             else:
                 self._keyboard.highlight(None)
-        elif self._start is not None and not self._scrolling:
+        elif self._start is not None and not self._scrolling and not self._went_home:
             self._page.mouse.move(*self._last)
             self._page.mouse.down()
             self._page.mouse.up()
@@ -2363,6 +2422,8 @@ class Injector:
 
     def _reset(self):
         self._wheel = [0, 0]
+        self._corner_at = None
+        self._went_home = False
         self._start = self._last = None
         self._scrolling = False
         self._on_keyboard = False
@@ -2890,7 +2951,10 @@ def main():
             keyboard_holder["kb"] = keyboard
             # A page can arrive with a field already focused.
             keyboard.request_sync(0.5)
-        injector = None if args.no_touch else Injector(page, touch_map, keyboard)
+        injector = (
+            None if args.no_touch
+            else Injector(page, touch_map, keyboard, page_w, page_h)
+        )
         capture = Screencast(page, page_w, page_h, args.capture_quality)
         if args.freeze_animations:
             capture.freeze_animations()
@@ -3241,6 +3305,25 @@ def main():
 
                     loops += 1
                     now = time.monotonic()
+                    # A finger held in the corner asks to go back to the page
+                    # this panel was pointed at -- its launcher, whatever that
+                    # is. Nothing else can offer that: there is no Back button
+                    # on a panel, and a site playing full screen would swallow
+                    # one anyway.
+                    if injector is not None and injector.tick(now):
+                        print(f"Home: back to {args.url}")
+                        if not open_page(page, args):
+                            print("Warning: home would not open")
+                        if keyboard is not None:
+                            keyboard.forget()
+                            keyboard.request_sync(0.5)
+                        if args.freeze_animations:
+                            capture.freeze_animations()
+                        # A different page entirely; nothing of the old one is
+                        # worth diffing against.
+                        previous = None
+                        pending = None
+                        capture.request(discard=True)
                     if keyboard is not None:
                         keyboard.tick(now)
                     if args.stats and now - stats_at >= 5.0:

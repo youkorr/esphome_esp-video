@@ -1115,6 +1115,38 @@ add-on options.
   with an empty tab. One browser serving several panels is the next step.
 
 
+## The panel as a launcher
+
+Point `url:` at a page full of links and the panel is a launcher; **"home" is
+that same `url:` and there is no new setting**. What had to be built is only
+the way back, and the reason it cannot be a button on the page is the same
+reason the on-screen keyboard is not a widget: a panel has no keyboard, no
+address bar and no Back button, and a site playing full screen swallows
+everything it is given.
+
+So it is decided before the page sees anything. **Hold the top-left corner
+(`HOME_CORNER_FRACTION` of each axis) for `HOME_HOLD_S`**, tested by arithmetic
+in `Injector`, exactly like `keyboard.contains()`. A corner rather than an edge
+swipe because pages scroll sideways; held rather than tapped because a corner
+gets brushed and a whole second of stillness does not — and short of the
+second, the tap is delivered normally, so the corner stays usable.
+
+**`tick()` is asked by the loop, not driven by contacts**, because a finger
+holding perfectly still reports *nothing*: the board drops an event identical
+to the one before it, which is what stops a resting finger repeating itself
+fifty times a second. A long press produces no reports to notice.
+
+**A spent gesture must be swallowed, not reset.** The first version cleared
+`_start` when it fired, so the next report from the still-down finger looked
+like a fresh landing and the lift after it clicked the corner of the page that
+had only just loaded. `_went_home` now ignores every remaining report and
+suppresses the tap at the end. Caught by a test that watches the *pages*
+report themselves: the sequence must read `coin` → `page:ailleurs` →
+`page:accueil` and nothing after it.
+
+Verified end to end with a fake panel: a short tap in the corner still reaches
+the page, a tap on a link navigates away, and a 1.5 s hold comes home.
+
 ## Sound for the page, board side
 
 **`UDISP_TYPE_PCM = 0x10`**, alongside Espressif's 0..3 and 0xff. Sixteen bytes

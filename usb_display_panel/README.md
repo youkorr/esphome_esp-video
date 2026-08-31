@@ -90,6 +90,27 @@ here. Run `ha_send.py --help` to see them, and if you really need one from the
 add-on, the Configuration page's YAML view will pass any key straight through
 to the sender.
 
+## A panel as a launcher, and the way back
+
+Point `url:` at a page full of links -- a Homepage or Dashy container, a Home
+Assistant view built for it, anything -- and the panel becomes a launcher. Tap
+a tile and it goes to Jellyfin, to YouTube, to another machine's web interface.
+
+**Hold the top-left corner for a second to come back.** That is the whole
+gesture, and it has to be a gesture rather than a button because a panel has no
+keyboard, no address bar and no Back button, and a video playing full screen
+swallows everything the page is given. So the way home does not come from the
+page: a contact in that corner is tested by arithmetic in the sender, and if it
+is held long enough the page is never told it happened. Nothing a site does can
+disable it, because no site is asked.
+
+A corner rather than a swipe in from the edge, because plenty of pages scroll
+sideways. Held rather than tapped, because a corner gets brushed by accident
+and a second of stillness does not -- and short of that second the tap is
+delivered normally, so the corner stays usable.
+
+"Home" is simply the panel's own `url:`. There is nothing else to set.
+
 ## The keyboard
 
 A panel has no keys, so a page whose point is to type -- the dashboard's
