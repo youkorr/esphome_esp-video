@@ -111,6 +111,16 @@ delivered normally, so the corner stays usable.
 
 "Home" is simply the panel's own `url:`. There is nothing else to set.
 
+**Leave `token` filled in and `home_assistant` alone.** The token is what makes
+a Home Assistant tile open already logged in, and the sender no longer pays for
+it on a page that is not Home Assistant: it looks for the dashboard element
+once, and if it is not there it never waits for it again.
+
+**Use an address the add-on can reach.** It runs in its own container, so a
+Homepage of your own on the same machine is `http://<the machine's LAN
+address>:<its port>`, not `localhost`. Home Assistant itself is
+`http://homeassistant:8123`.
+
 ## The keyboard
 
 A panel has no keys, so a page whose point is to type -- the dashboard's

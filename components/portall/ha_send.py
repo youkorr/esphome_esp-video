@@ -798,19 +798,31 @@ def open_page(page, args):
         # the caller try again rather than ending.
         explain_unreachable(args.url, err)
         return False
-    if args.token:
-        # Only worth waiting for when Home Assistant is what was asked for. On
-        # any other page the element never appears and the wait is thirty
-        # seconds of nothing.
+    # Asked once and remembered. A panel used as a launcher is pointed at a
+    # page of links and still wants the token, so that a Home Assistant tile
+    # opens logged in -- and on that page the element never appears. Waiting
+    # thirty seconds for it is bearable once at startup and is not bearable
+    # every time the corner brings the panel home: the loop is blocked
+    # throughout, so the panel simply stops for half a minute.
+    if args.token and open_page.is_home_assistant is not False:
         try:
             page.wait_for_selector("home-assistant", timeout=30000)
+            open_page.is_home_assistant = True
         except Exception:  # noqa: BLE001 - a page without it is still worth sending
-            print("Warning: this does not look like a Home Assistant page")
-    # The dashboard paints in stages -- shell, then cards, then their data --
+            open_page.is_home_assistant = False
+            print("Warning: this does not look like a Home Assistant page, "
+                  "so it will not be waited for again")
+    # Home Assistant paints in stages -- shell, then cards, then their data --
     # and the first picture is the one full redraw everything else is a
-    # difference from. Let it settle before taking it.
-    page.wait_for_timeout(3000)
+    # difference from, so it is worth letting settle. A page that is not Home
+    # Assistant has no such staging, and three seconds of a blocked loop is
+    # three seconds of a panel that has stopped.
+    page.wait_for_timeout(3000 if open_page.is_home_assistant is not False else 800)
     return True
+
+
+# None until the first page has been looked at: unknown, not "no".
+open_page.is_home_assistant = None
 
 
 def explain_unreachable(url, error):

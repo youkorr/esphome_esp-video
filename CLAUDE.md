@@ -1147,6 +1147,21 @@ report themselves: the sequence must read `coin` → `page:ailleurs` →
 Verified end to end with a fake panel: a short tap in the corner still reaches
 the page, a tap on a link navigates away, and a 1.5 s hold comes home.
 
+**The thirty-second wait for `home-assistant` is asked once, not every time,
+and the launcher is what exposed that.** A panel used as a launcher keeps its
+token -- so that a Home Assistant tile opens logged in -- and is pointed at a
+page where that element never appears. The wait is inside the loop, so it is
+not thirty seconds of nothing: it is thirty seconds of a **stopped panel**,
+every time the corner brings it home. Measured against the same page with a
+token set: before, **no picture at all arrived in the twelve seconds after the
+gesture**; after, the first one comes back in **357 ms** and the worst stall is
+838 ms.
+
+`open_page.is_home_assistant` is None until the first page has been looked at
+-- unknown, not "no" -- then True or False for good. The 3-second settle goes
+with it: Home Assistant paints in stages and is worth letting settle, a
+launcher page has no such staging, so it gets 800 ms.
+
 ## Sound for the page, board side
 
 **`UDISP_TYPE_PCM = 0x10`**, alongside Espressif's 0..3 and 0xff. Sixteen bytes
