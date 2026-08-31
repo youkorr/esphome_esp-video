@@ -21,6 +21,7 @@ without turning the others off.
 
 import json
 import os
+import shlex
 import signal
 import subprocess
 import sys
@@ -70,6 +71,7 @@ SHARED_KEYS = (
     "blank_after",
     "keep_profile",
     "browser",
+    "browser_args",
     "rect_cost",
     "freeze_animations",
     "stats",
@@ -203,6 +205,12 @@ def command_for(panel):
             continue
         if value not in (None, ""):
             argv += [f"--{key.replace('_', '-')}", str(value)]
+    # One line, because an add-on form has no repeatable field -- but split
+    # the way a shell would, not on whitespace. The flag people actually need
+    # here has spaces inside it (--host-resolver-rules="MAP * 1.1.1.1"), and
+    # splitting on whitespace tore it into three flags that mean nothing.
+    for flag in shlex.split(str(panel.get("browser_args") or "")):
+        argv += ["--browser-arg", flag]
     for key in (
         "touch_mirror_x",
         "touch_mirror_y",

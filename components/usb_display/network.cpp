@@ -185,16 +185,14 @@ void USBDisplay::run_network_task() {
       ::setsockopt(client, IPPROTO_TCP, TCP_KEEPINTVL, &keepintvl, sizeof(keepintvl));
       ::setsockopt(client, IPPROTO_TCP, TCP_KEEPCNT, &keepcnt, sizeof(keepcnt));
 
-      // A ceiling on what the socket will hold, not the TCP receive window --
-      // that is TCP_WND, set from __init__.py, and it is the one that decides
-      // how much the sender may have in flight. This sits above it so it never
-      // binds first. It also needs CONFIG_LWIP_SO_RCVBUF to exist at all:
-      // without it lwip does not implement the option and the call below fails
-      // with ENOPROTOOPT, which is what the warning is for.
-      int rcvbuf = 3 * (int) NET_READ_SIZE;
-      if (::setsockopt(client, SOL_SOCKET, SO_RCVBUF, &rcvbuf, sizeof(rcvbuf)) < 0) {
-          ESP_LOGW(TAG, "Could not set SO_RCVBUF");
-      }
+      // No SO_RCVBUF here on purpose. It is a ceiling on what one socket
+      // will hold, and the TCP receive window is what actually governs how
+      // much a sender may have in flight -- so a value set here can only ever
+      // bind BELOW the window and throttle the very thing it looked like it
+      // was helping. It was 98304, which was above the 64800 this component
+      // used to ask for and would be far below the 512000 that ESPHome's
+      // high-performance networking now sets. The window is the control;
+      // there is nothing to add beside it.
 
       char peer_text[16] = {};
       ::inet_ntoa_r(peer.sin_addr, peer_text, sizeof(peer_text));

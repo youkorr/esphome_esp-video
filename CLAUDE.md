@@ -123,33 +123,49 @@ slice 5 ms (that is how long a contact can sit in the queue). All of the
 `__init__.py` options below are set **only when `port:` is present**, because
 they are device-wide and a USB-only board should not pay for them.
 
-**The receive window is the whole inbound ceiling, and three settings have to
-move together.** A window is how much a sender may have in flight before it
-must stop and wait, so the most that can arrive is the window divided by the
-round trip — nothing else about the link enters into it. `TCP_WND_DEFAULT` is
-**64800**, which is 45 segments of the default 1440-byte MSS and the largest
-multiple of it that fits the 16-bit window field a header carries without
-window scaling. It was 28800, which is 23 Mbit/s at a 10 ms round trip and
-11.5 at 20; a busy five-second window on a panel has been measured at 6.2, so
-on a loaded radio the old value was closer than it looked.
+**The receive window is the whole inbound ceiling, and this component used to
+set it too low with its own hand.** A window is how much a sender may have in
+flight before it must stop and wait, so the most that can arrive is the window
+divided by the round trip — nothing else about the link enters into it.
 
-`RECVMBOX_SIZE` is **64** and is not free to choose: Espressif's rule is
-`TCP_WND / TCP_MSS + 2`, which is 47 here. Raising the window without raising
-this makes things worse rather than better — the stack invites the sender to
-fill a window it will then drop the tail of.
+`__init__.py` used to write `TCP_WND_DEFAULT` 64800, `SND_BUF_DEFAULT` 28800,
+`RECVMBOX_SIZE` 64 and `SO_RCVBUF` itself. 64800 was chosen as the largest
+multiple of the 1440-byte MSS that fits the 16-bit window field of a TCP header
+**without window scaling** — and that premise was simply wrong. ESPHome's
+`network` component turns window scaling on (`CONFIG_LWIP_WND_SCALE`,
+`CONFIG_LWIP_TCP_RCV_SCALE 3`) and uses **512000** with 512-deep mailboxes and
+a 65534 send buffer whenever PSRAM is guaranteed, which every board this runs
+on has. So those four lines were not a floor being raised. They were a
+**ceiling being lowered by a factor of eight**, and it is what limited a panel
+to about 26 Mbit/s at a 20 ms round trip.
 
-`SND_BUF_DEFAULT` stays at 28800 and is deliberately *not* raised with the
-window. Sending and receiving are not symmetric on lwip, and this board sends
-touches: a few bytes. It is not lowered either, because the options are
-device-wide and a camera serving JPEG out of the same board is the one thing
-that does need a send buffer.
+The user's own VLC capture is what settled it: the same board serving its
+camera through `esp32_camera_web_server` sustained **25 932 kb/s, 3549 frames,
+0 lost, 0 corrupted**, and that component sets no lwip options at all — it is
+plain `esp_http_server` on top of whatever the build gives it. The throughput
+came from ESPHome's defaults, and this component was overriding them downward.
 
-**`SO_RCVBUF` is not the window, and it needs `CONFIG_LWIP_SO_RCVBUF` to exist
-at all.** Without that option lwip does not implement it and `setsockopt`
-fails with `ENOPROTOOPT` — which it had been doing silently for as long as the
-call had been there, since nothing checked the return. It is a ceiling on what
-one socket will hold, set above the window so that it never binds first; the
-window is what actually governs.
+`_request_fast_network()` now calls **`network.require_high_performance_
+networking()`** — the documented API, called from a validator, only when
+`port:` is present — and sets nothing itself. It is more than lwip: the `wifi`
+component reads the same flag and raises its RX/TX buffers, turns on AMPDU
+aggregation and moves those buffers into PSRAM. Verified against ESPHome
+2026.6.5 that the flag is set with `port:` and not without, and
+`yaml/p4-home-assistant.yaml` still validates. `esphome config` will not show
+it — the settings are applied in the network component's `to_code`, which
+`config` never runs.
+
+**`SO_RCVBUF` is gone from `network.cpp` for the same reason.** It is a ceiling
+on what one socket will hold, so a value set there can only ever bind *below*
+the window and throttle the thing it looks like it is helping. It was 98304 —
+above the old 64800, far below the new 512000. `CONFIG_LWIP_SO_RCVBUF` went
+with it.
+
+The lesson is the same one the send buffer taught on the other side: **a
+ceiling nobody asked for is a bug even when the reasoning behind it is sound.**
+Both were arithmetic, both were self-imposed, and both were defended for
+releases. Before hand-setting anything device-wide, look at what ESPHome
+already sets.
 
 **Sleep/wake.** `usb_display.sleep` / `usb_display.wake` actions, registered
 `synchronous=True`. The board sends `'S'` + a byte so the sender can stop
@@ -325,6 +341,30 @@ default). Run it on any change to `usb_display_panel/config.yaml`.
 the whole resolved configuration with each complaint inline, so printing the
 first fourteen lines printed the echo. It now drops anything shaped like
 `key: value` and prints what is left.
+
+**YouTube's "le contenu n'est pas disponible" is ad blocking, and the user
+found it.** Not a codec, not the user agent, not the headless build: a house
+that filters ads at its DNS server — Pi-hole, AdGuard Home, a router that does
+it, all of them commonly running on the very box the sender runs on — is a
+house where the ad requests fail, and YouTube treats a client that loads no ads
+as one that is blocking them and refuses to play. Every panel in that house
+sees it, and nothing in the sender can be changed to fix it, because the
+browser's lookups are the thing being filtered.
+
+`--browser-arg` is the answer and it is deliberately generic: an extra browser
+flag, repeatable, appended after `BROWSER_ARGS` so it can override a default.
+The one that matters here is
+`--host-resolver-rules="MAP * 1.1.1.1"`, which sends the browser's own lookups
+somewhere unfiltered and leaves the rest of the house alone. Verified end to
+end: a hostname that does not resolve at all was mapped to 127.0.0.1 with this
+flag and the page loaded. In the add-on it is `browser_args`, one line, split
+**the way a shell splits it** — `shlex.split`, because the flag people need has
+spaces inside it and splitting on whitespace tore it into three flags that
+meant nothing.
+
+This does not replace the codec work: a browser with no H.264 still stops on a
+stream that offers nothing else. They are two different messages from YouTube
+and now two different remedies.
 
 **A page that will not load must not end the sender.** `open_page` re-raised
 whatever `page.goto` threw, and nothing above it caught that, so a panel
@@ -814,7 +854,7 @@ the dashboard, where it is invisible while the keys go on working.
 ahead of the `pip install` as well as the `ADD`s, so a bump refetches
 everything — at the cost of the browser download on each update.
 `present_browser()` prints the Chromium version at startup and warns below 114,
-so this is never diagnosed by guesswork again. Currently **1.39.0**.
+so this is never diagnosed by guesswork again. Currently **1.40.0**.
 
 `run.py` supervises one `ha_send.py` per panel: `SHARED_KEYS` lets the token,
 url, port, fps, quality, capture_quality, urgent_fps, urgent_window and stats be
