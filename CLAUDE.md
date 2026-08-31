@@ -346,6 +346,42 @@ What that leaves is the client hints above: the browser was announcing itself
 as Chrome while sending no `Sec-CH-UA` at all. Unverified against YouTube, but
 it is the one thing left that is demonstrably wrong and demonstrably ours.
 
+**A video that stops without erroring needs a timeline, not an error hook.**
+The panel's second log narrowed it further and killed another theory: the video
+plays, then `made/s` falls to **0.0** for half a minute — the page is not
+repainting at all — and there is still no `Media:` line, so `video.error` was
+never set. A stop with no error is the site pausing it, the data running out,
+or the tab being treated as invisible, and those three are indistinguishable
+from outside.
+
+`MEDIA_INIT_JS` therefore reports a *timeline* now, not just failures:
+`pause`, `playing`, `waiting`, `stalled`, `ended`, `emptied`, `suspend`,
+`abort` and `error`, each with `currentTime`, `readyState`, `networkState`,
+whether it is paused, how much is buffered ahead, `document.visibilityState`
+and `document.hasFocus()`. Capped at 40 lines and rate-limited to one every
+400 ms, because a playing video fires these constantly. Verified against a real
+playing element built from a canvas `captureStream()` — no codec needed — that
+is paused, resumed and then emptied:
+
+    Media: pause: t=6.0 ready=4 net=2 paused page=visible focused
+
+`ready=4` at the pause is the whole point: fully buffered, so nothing ran out.
+That distinguishes a deliberate pause from a stall in one line.
+
+**`--mute-audio` is now on, and it is not a guess about the fault.** Nothing
+carries audio over this path at all — the panel's speaker is a USB sound card
+fed by the cable — so every sample decoded is work for a sound nobody can hear.
+It also removes a failure class rather than diagnosing one: a container has no
+sound device, and a media pipeline that cannot open an output can stop a video
+without setting `video.error`, which is exactly the shape of what is being
+chased.
+
+One hard clue is still open: `Network: ad.doubleclick.net -- net::ERR_FAILED`,
+on a run where every other host was fine. `ERR_FAILED` is generic — it is not
+`ERR_NAME_NOT_RESOLVED`, so not DNS — and YouTube does stop playback when its
+ad requests fail. Whether that is the cause or a symptom is what the next log
+should settle.
+
 **The remedy is in the filter, and `--host-resolver-rules` is NOT it.** This
 was shipped once saying `--host-resolver-rules="MAP * 1.1.1.1"` would send the
 browser's lookups somewhere unfiltered. It does nothing of the kind, and the
@@ -858,7 +894,7 @@ the dashboard, where it is invisible while the keys go on working.
 ahead of the `pip install` as well as the `ADD`s, so a bump refetches
 everything — at the cost of the browser download on each update.
 `present_browser()` prints the Chromium version at startup and warns below 114,
-so this is never diagnosed by guesswork again. Currently **1.42.0**.
+so this is never diagnosed by guesswork again. Currently **1.43.0**.
 
 `run.py` supervises one `ha_send.py` per panel: `SHARED_KEYS` lets the token,
 url, port, fps, quality, capture_quality, urgent_fps, urgent_window and stats be
