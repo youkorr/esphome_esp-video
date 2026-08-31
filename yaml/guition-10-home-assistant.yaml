@@ -102,7 +102,7 @@ external_components:
       type: git
       url: https://github.com/youkorr/esphome_esp-video
       ref: main
-    components: [usb_display]
+    components: [portall]
     refresh: 0s
   - source: github://kvj/esphome@jd9365_gsl3680
     components: [jd9365]
@@ -270,7 +270,7 @@ binary_sensor:
       # Reveiller l'emetteur d'abord : il a une image entiere a refaire, et
       # s'il avait lache la page il doit la recharger. C'est ce temps-la qu'on
       # veut passer pendant que la personne traverse la piece.
-      - usb_display.wake: udisp
+      - portall.wake: udisp
       - light.turn_on: backlight
     on_release:
       # La piece se vide : un compte a rebours neuf.
@@ -297,7 +297,7 @@ script:
                   # Et le dire : sans cette ligne l'emetteur continue de rendre,
                   # d'encoder et d'envoyer pour une dalle noire. C'est aussi ce
                   # qui autorise l'add-on a lacher la page.
-                  - usb_display.sleep: udisp
+                  - portall.sleep: udisp
 
 touchscreen:
   - platform: gsl3680
@@ -319,7 +319,7 @@ touchscreen:
       # L'emetteur d'abord : il a une image entiere a renvoyer. Le toucher qui
       # reveille n'est pas transmis a la page -- la carte le retient tant
       # qu'elle dort -- donc il ne presse rien au passage.
-      - usb_display.wake: udisp
+      - portall.wake: udisp
       - light.turn_on: backlight
       - script.execute: screen_timeout
 
@@ -328,13 +328,13 @@ display:
     model: JC8012P4A1
     id: main_screen
     pixel_mode: 16
-    # C'est usb_display qui pousse les pixels : ESPHome ne doit ni rafraichir
+    # C'est portall qui pousse les pixels : ESPHome ne doit ni rafraichir
     # ni effacer cet ecran de lui-meme.
     update_interval: never
     auto_clear_enabled: false
 
-usb_display:
-  # Nomme, parce que usb_display.sleep et usb_display.wake ont besoin de le
+portall:
+  # Nomme, parce que portall.sleep et portall.wake ont besoin de le
   # designer.
   id: udisp
   display_id: main_screen
@@ -365,7 +365,7 @@ usb_display:
   max_fps: 60
   # Fait de la carte une carte son USB pour un PC relie par cable. A retirer
   # sur un panneau qui ne sert que par Wi-Fi -- mais alors il faut retirer en
-  # meme temps le "number: - platform: usb_display" plus bas, dont toute la
+  # meme temps le "number: - platform: portall" plus bas, dont toute la
   # classe est derriere #if CFG_TUD_AUDIO et disparaitrait avec.
   speaker_id: speaker_id
   on_audio_start:
@@ -376,7 +376,7 @@ usb_display:
     - switch.turn_off: audio_amplifier
 
 number:
-  - platform: usb_display
+  - platform: portall
     name: "Volume ecran USB"
 
   - platform: template

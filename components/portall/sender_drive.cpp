@@ -12,7 +12,7 @@
  * script itself takes up flash.
  */
 
-#include "usb_display.h"
+#include "portall.h"
 
 #include "esphome/core/log.h"
 
@@ -26,9 +26,9 @@ extern "C" {
 #if CFG_TUD_MSC
 
 namespace esphome {
-namespace usb_display {
+namespace portall {
 
-static const char *const TAG = "usb_display.drive";
+static const char *const TAG = "portall.drive";
 
 namespace {
 
@@ -192,7 +192,7 @@ void build_data_sector(uint8_t *sector, uint32_t lba) {
 
 }  // namespace
 
-void USBDisplay::setup_sender_drive_() {
+void Portall::setup_sender_drive_() {
   if (this->sender_script_ == nullptr || this->sender_script_len_ == 0) {
     ESP_LOGW(TAG, "No sender script was compiled in; the drive will not appear");
     return;
@@ -240,7 +240,7 @@ void USBDisplay::setup_sender_drive_() {
                 (unsigned) this->sender_script_len_);
 }
 
-}  // namespace usb_display
+}  // namespace portall
 }  // namespace esphome
 
 // ===========================================================================
@@ -248,7 +248,7 @@ void USBDisplay::setup_sender_drive_() {
 // ===========================================================================
 // The helpers above have internal linkage but are still named inside their
 // enclosing namespace, which is all these need.
-using namespace esphome::usb_display;  // NOLINT(build/namespaces)
+using namespace esphome::portall;  // NOLINT(build/namespaces)
 
 extern "C" void tud_msc_inquiry_cb(uint8_t lun, uint8_t vendor_id[8], uint8_t product_id[16], uint8_t product_rev[4]) {
   (void) lun;

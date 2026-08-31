@@ -72,13 +72,13 @@ external_components:
       type: git
       url: https://github.com/youkorr/esphome_esp-video
       ref: main
-    components: [usb_display]
+    components: [portall]
     refresh: 0s 
   #- source:
       #type: git
       #url: https://github.com/youkorr/HA_display
       #ref: main
-    #components: [usb_display]
+    #components: [portall]
     #refresh: 0s 
 
     
@@ -329,7 +329,7 @@ sensor:
 
     
 number:
-  - platform: usb_display
+  - platform: portall
     name: "Volume écran"
 
   - platform: template
@@ -438,7 +438,7 @@ display:
     auto_clear_enabled: false
     #rotation: 0
 
-usb_display:
+portall:
   display_id: main_screen
   touchscreen_id: my_touch
   port: 5000

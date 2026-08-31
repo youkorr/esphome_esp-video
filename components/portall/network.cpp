@@ -16,7 +16,7 @@
  * sent as they are and the sender decides what they mean.
  */
 
-#include "usb_display.h"
+#include "portall.h"
 
 #include "esphome/core/log.h"
 #include "esp_heap_caps.h"
@@ -31,16 +31,16 @@ extern "C" {
 }
 
 namespace esphome {
-namespace usb_display {
+namespace portall {
 
-static const char *const TAG = "usb_display.net";
+static const char *const TAG = "portall.net";
 
 // OPTIMISATION : Augmentation de la taille de lecture (32 Ko) pour saturer le débit du C6/Wi-Fi
 static constexpr size_t NET_READ_SIZE = 32768;
 static constexpr int NET_RECV_TIMEOUT_S = 30;
 
 #ifdef USE_TOUCHSCREEN
-void USBDisplay::queue_touch_(const touchscreen::TouchPoints_t &points) {
+void Portall::queue_touch_(const touchscreen::TouchPoints_t &points) {
   if (this->touch_queue_ == nullptr)
     return;
   
@@ -76,7 +76,7 @@ void USBDisplay::queue_touch_(const touchscreen::TouchPoints_t &points) {
 }
 #endif  // USE_TOUCHSCREEN
 
-void USBDisplay::set_awake(bool awake) {
+void Portall::set_awake(bool awake) {
   if (this->asleep_ != !awake) {
     this->asleep_ = !awake;
     this->status_pending_ = true;
@@ -84,7 +84,7 @@ void USBDisplay::set_awake(bool awake) {
   }
 }
 
-void USBDisplay::send_queued_messages_(int client) {
+void Portall::send_queued_messages_(int client) {
   if (this->status_pending_) {
     this->status_pending_ = false;
     const uint8_t message[2] = {'S', (uint8_t) (this->asleep_ ? 0 : 1)};
@@ -117,7 +117,7 @@ void USBDisplay::send_queued_messages_(int client) {
 #endif  // USE_TOUCHSCREEN
 }
 
-void USBDisplay::setup_network_() {
+void Portall::setup_network_() {
   if (this->port_ == 0)
     return;
 #ifdef USE_TOUCHSCREEN
@@ -126,13 +126,13 @@ void USBDisplay::setup_network_() {
   }
 #endif
   // Utilisation de tskNO_AFFINITY pour répartir la charge réseau sur les deux cœurs RISC-V du P4
-  xTaskCreatePinnedToCore(USBDisplay::network_task, "udispnet", 4096, this, 4, nullptr, tskNO_AFFINITY);
+  xTaskCreatePinnedToCore(Portall::network_task, "udispnet", 4096, this, 4, nullptr, tskNO_AFFINITY);
   ESP_LOGCONFIG(TAG, "Listening on port %u for frames", (unsigned) this->port_);
 }
 
-void USBDisplay::network_task(void *param) { static_cast<USBDisplay *>(param)->run_network_task(); }
+void Portall::network_task(void *param) { static_cast<Portall *>(param)->run_network_task(); }
 
-void USBDisplay::run_network_task() {
+void Portall::run_network_task() {
   auto *buffer = (uint8_t *) heap_caps_malloc(NET_READ_SIZE, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
   if (buffer == nullptr) {
     ESP_LOGE(TAG, "Could not allocate the %u byte receive buffer", (unsigned) NET_READ_SIZE);
@@ -248,5 +248,5 @@ void USBDisplay::run_network_task() {
   }
 }
 
-}  // namespace usb_display
+}  // namespace portall
 }  // namespace esphome

@@ -17,7 +17,7 @@
  * is already corrected there, in the same place LVGL gets it from.
  */
 
-#include "usb_display.h"
+#include "portall.h"
 
 #include "esphome/core/log.h"
 #include "esphome/core/hal.h"
@@ -32,11 +32,11 @@ extern "C" {
 #ifdef USE_TOUCHSCREEN
 
 namespace esphome {
-namespace usb_display {
+namespace portall {
 
-static const char *const TAG = "usb_display.touch";
+static const char *const TAG = "portall.touch";
 
-void USBDisplay::setup_touch_() {
+void Portall::setup_touch_() {
   this->touchscreen_->register_listener(this);
 #if CFG_TUD_HID
   ESP_LOGCONFIG(TAG, "Touch screen reported to the host, up to %d contacts", UDISP_TOUCH_MAX_POINTS);
@@ -45,7 +45,7 @@ void USBDisplay::setup_touch_() {
 #endif
 }
 
-void USBDisplay::update(const touchscreen::TouchPoints_t &points) {
+void Portall::update(const touchscreen::TouchPoints_t &points) {
 #if CFG_TUD_HID
   udisp_touch_report_t report = {};
 
@@ -77,7 +77,7 @@ void USBDisplay::update(const touchscreen::TouchPoints_t &points) {
   this->queue_touch_(points);
 }
 
-void USBDisplay::release() {
+void Portall::release() {
   const touchscreen::TouchPoints_t none;
   this->queue_touch_(none);
 #if CFG_TUD_HID
@@ -87,13 +87,13 @@ void USBDisplay::release() {
 }
 
 #if CFG_TUD_HID
-bool USBDisplay::send_touch_report_(const udisp_touch_report_t &report) {
+bool Portall::send_touch_report_(const udisp_touch_report_t &report) {
   if (!tud_hid_ready())
     return false;
   return tud_hid_report(REPORT_ID_TOUCH, &report, sizeof(report));
 }
 
-void USBDisplay::retry_release_() {
+void Portall::retry_release_() {
   if (!this->release_pending_)
     return;
   udisp_touch_report_t report = {};
@@ -102,7 +102,7 @@ void USBDisplay::retry_release_() {
 }
 #endif  // CFG_TUD_HID
 
-}  // namespace usb_display
+}  // namespace portall
 }  // namespace esphome
 
 #endif  // USE_TOUCHSCREEN

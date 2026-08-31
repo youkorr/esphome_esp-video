@@ -1,7 +1,7 @@
 # Working notes for Claude
 
 This file is context for a Claude session picking the repository up cold. It is
-about `components/usb_display/` and the add-on that drives it, because that is
+about `components/portall/` and the add-on that drives it, because that is
 where nearly all the recent work is. Everything here was arrived at against real
 hardware; the "why" paragraphs are the expensive part, not the code.
 
@@ -41,12 +41,12 @@ ceiling is the network rather than the CPU.
  └───────────────────────────────┘                   └──────────────────────┘
 ```
 
-1. **Board firmware** — the `usb_display` ESPHome component. Also does USB
+1. **Board firmware** — the `portall` ESPHome component. Also does USB
    (display over cable, HID digitizer, UAC speaker, a mass-storage drive that
    carries the sender script). The network path is an *addition* to the USB
    path, not a replacement: a board can stay plugged in for its speaker while
    the picture arrives over Wi-Fi.
-2. **The sender** — `components/usb_display/ha_send.py`. Runs anywhere with
+2. **The sender** — `components/portall/ha_send.py`. Runs anywhere with
    Python + Playwright.
 3. **The add-on** — `usb_display_panel/`, so the sender starts with the house
    and needs no PC. `run.py` supervises one `ha_send.py` per panel.
@@ -75,10 +75,10 @@ with no payload is the heartbeat.
 ## File map
 
 ```
-components/usb_display/
+components/portall/
   __init__.py        YAML schema, codegen, sdkconfig options, sleep/wake actions
-  usb_display.h      class, TouchEvent, SleepAction/WakeAction templates
-  usb_display.cpp    feed_() byte-stream parser, decode task, PPA, draw
+  portall.h          class, TouchEvent, SleepAction/WakeAction templates
+  portall.cpp        feed_() byte-stream parser, decode task, PPA, draw
   network.cpp        TCP listener, touch return channel, awake/asleep messages
   touch.cpp          touchscreen listener → HID digitizer and/or network queue
   audio.cpp          USB Audio Class speaker (Espressif's usb_device_uac)
@@ -86,6 +86,8 @@ components/usb_display/
   number/            volume control entity
   udisp_send.py      the wire format + a plain screen-mirroring sender
   ha_send.py         THE Home Assistant sender (screencast, diff, touch, calib)
+components/usb_display/  the old name, kept as a stub that refuses and says
+                     exactly what to change
 usb_display_panel/   Home Assistant add-on wrapping ha_send.py
 yaml/                validated example firmware configs (Waveshare, generic)
 ```
@@ -167,7 +169,7 @@ Both were arithmetic, both were self-imposed, and both were defended for
 releases. Before hand-setting anything device-wide, look at what ESPHome
 already sets.
 
-**Sleep/wake.** `usb_display.sleep` / `usb_display.wake` actions, registered
+**Sleep/wake.** `portall.sleep` / `portall.wake` actions, registered
 `synchronous=True`. The board sends `'S'` + a byte so the sender can stop
 rendering for a dark screen. A sleeping panel reports no touches: the tap that
 wakes it must not also press what was under the finger.
@@ -379,7 +381,7 @@ challenge was right. The board is not short of audio: the Guition example has
 an **ES8311 codec on I2S** (control over I2C at 0x18, MCLK/BCLK/LRCLK on
 GPIO13/12/10, DOUT on GPIO09), an ESPHome `speaker:`, a mixer, a resampler, a
 microphone and a `media_player: platform: speaker` — Home Assistant can already
-play whatever it wants on that panel. `usb_display` itself takes audio in over
+play whatever it wants on that panel. `portall` itself takes audio in over
 USB as a sound card, into that same speaker.
 
 What has no audio is **the udisp link**, and only that: the wire format is
@@ -700,7 +702,7 @@ time, not the loop's, so it can sit near 100% without a stutter. When it does,
 **What the radio actually does, measured by the user with VLC** against the
 board serving its camera: 25 932 kb/s sustained, 460 660 KiB over the run,
 3549 frames displayed, **0 lost and 0 corrupted** — which is 130 KiB a picture
-at 25 a second. That is outbound and `usb_display` is inbound, so it is not the
+at 25 a second. That is outbound and `portall` is inbound, so it is not the
 same path; but it is the same radio, and it settles that the link is not what
 stands between this and video at the panel's own resolution.
 
@@ -913,7 +915,7 @@ reads as off, so the panel behaves exactly as it did before — timer and touch.
 `set_awake()` **only tells the sender**. It does not touch the backlight and it
 does not stop the panel drawing; those are the YAML's job, and the Guition
 example had been turning the backlight off without ever calling
-`usb_display.sleep`, so the sender went on rendering and transmitting for a
+`portall.sleep`, so the sender went on rendering and transmitting for a
 black screen. A sleeping board does drop contacts at `queue_touch_`, which is
 what stops the tap that wakes it from also pressing whatever was underneath.
 
@@ -1018,6 +1020,40 @@ add-on options.
 - `--blank-after` frees the page but not the browser: Chromium stays running
   with an empty tab. One browser serving several panels is the next step.
 
+
+## The rename to portall
+
+`usb_display` became **`portall`** because the name had stopped describing the
+thing: the picture arrives over Wi-Fi, the touches go back over Wi-Fi, and USB
+is one transport among several rather than the point. The C++ class is
+`Portall`, the namespace `portall`, the files `portall.h` / `portall.cpp`, the
+actions `portall.sleep` / `portall.wake`.
+
+Two things deliberately did **not** move, and both for the same reason — the
+gain is cosmetic and the risk is not:
+
+- **`components/usb_display_tusb/` and every `CONFIG_USB_DISPLAY_*`.** That is
+  the TinyUSB descriptor component and its Kconfig symbols, consumed by C code
+  that nothing here can compile. The name is still accurate there, and it is
+  invisible to anybody writing YAML.
+- **The add-on's slug, `usb_display_panel`.** Home Assistant identifies an
+  add-on by its slug; changing it makes the Supervisor see a different add-on,
+  and every user loses their configuration and reinstalls. The name shown in
+  the store is a separate field and can say whatever it should.
+
+**`components/usb_display/` still exists, as a stub that refuses.** Without it,
+an unchanged YAML fails with "Component not found", which says nothing. It
+carries `CONFIG_SCHEMA = cv.invalid(...)` naming the four edits — and it
+**registers `usb_display.sleep` and `usb_display.wake` as well**, which is not
+decoration: ESPHome resolves actions before it validates component blocks, so
+the first attempt failed with "Unable to find action with the name
+'usb_display.wake'" and the explanation was never reached. Verified both ways
+against `esphome config`: the renamed Waveshare example is valid, and the same
+file with the old names prints the four edits.
+
+It is not an alias. Re-exporting portall's schema from the stub only works when
+portall happens to have been loaded too, and a compatibility path that works by
+accident is worse than a rename that says so plainly.
 
 ## Repository conventions
 

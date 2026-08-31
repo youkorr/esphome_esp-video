@@ -64,7 +64,7 @@ external_components:
       type: git
       url: https://github.com/youkorr/esphome_esp-video
       ref: claude/esphome-pr-outdated-mdq36w
-    components: [usb_display]
+    components: [portall]
     refresh: 0s
   #- source:
       #type: git
@@ -248,7 +248,7 @@ voice_assistant:
 
 
 number:
-  - platform: usb_display
+  - platform: portall
     name: "Volume écran USB"
     
 switch:
@@ -288,7 +288,7 @@ display:
     update_interval: never
     auto_clear_enabled: false
 
-usb_display:
+portall:
   display_id: main_screen
   width: 1024
   height: 600

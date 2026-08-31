@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Send a region of this computer's screen to an ESPHome usb_display board.
+"""Send a region of this computer's screen to an ESPHome portall board.
 
 The board speaks Espressif's udisp protocol over a USB vendor interface: a
 16-byte header followed by a JPEG of the whole region. Espressif ship a Windows
@@ -288,7 +288,7 @@ def wait_for_endpoint(vid, pid):
             announced = True
             print(
                 f"Waiting for {vid:04x}:{pid:04x}.\n"
-                "  - Is the board on its OTG port, running a usb_display firmware?\n"
+                "  - Is the board on its OTG port, running a portall firmware?\n"
                 "  - On Windows the display interface needs WinUSB. The board asks\n"
                 "    for it itself, but Windows caches that answer per device\n"
                 "    revision and never asks twice, so a board that enumerated\n"
@@ -400,7 +400,7 @@ def install_startup(args):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w", encoding="utf-8") as handle:
         handle.write(
-            "' Sends this screen to an ESPHome usb_display board at login.\r\n"
+            "' Sends this screen to an ESPHome portall board at login.\r\n"
             "' Delete this file, or run udisp_send.py --uninstall-startup, to stop.\r\n"
             f'CreateObject("WScript.Shell").Run "{command}", 0, False\r\n'
         )
@@ -430,12 +430,12 @@ def main():
     parser.add_argument(
         "--width",
         type=int,
-        help="must match the width: of the usb_display component",
+        help="must match the width: of the portall component",
     )
     parser.add_argument(
         "--height",
         type=int,
-        help="must match the height: of the usb_display component",
+        help="must match the height: of the portall component",
     )
     parser.add_argument(
         "--monitor", type=int, default=1, help="which monitor to capture (1 = primary)"
