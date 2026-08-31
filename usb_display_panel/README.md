@@ -78,10 +78,17 @@ Assistant dashboard to appear; without one it does neither.
 | `quality` | JPEG quality, 1..95 |
 | `keyboard` | The on-screen keyboard's layout, or `off`. See below |
 | `blank_after` | Seconds dark before a sleeping panel's page is let go of. See below |
-| `browser` | Which browser renders the pages. `auto` prefers one with the video codecs, `off` keeps Playwright's own, or give a full path. See below |
-| `browser_args` | Extra command-line flags for the browser, one line, quoted like a shell. See below |
-| `render_width`, `render_height` | Draw smaller than the panel and let the board scale it up. The one real lever on what video costs. Per panel, and the board needs the same two numbers. See below |
+| `keep_profile` | Keep the browser signed in between restarts. See below |
 | `stats` | Print what is being sent every five seconds |
+
+That is the whole form, on purpose. `ha_send.py` has a dozen more settings --
+`capture_quality`, `urgent_fps`, `urgent_window`, `browser`, `browser_arg`,
+`render_width`/`render_height`, `rect_cost`, `freeze_animations` -- and every
+one of them has a default that is right for a panel. A form nobody can read is
+a form where the setting that matters gets missed, so they are not offered
+here. Run `ha_send.py --help` to see them, and if you really need one from the
+add-on, the Configuration page's YAML view will pass any key straight through
+to the sender.
 
 ## The keyboard
 
@@ -152,34 +159,35 @@ lacks from a stream that went away from a site refusing to serve.
 `browser: off` keeps Playwright's own whatever is installed, and a full path
 names one exactly.
 
-### "Le contenu n'est pas disponible" on YouTube is ad blocking
+### When a page half-works: read the `Network:` lines
 
-This one is not the codecs and not the browser. A house that filters ads at its
-DNS server -- Pi-hole, AdGuard Home, a router that does it -- is a house where
-the ad requests fail, and YouTube treats a client that loads no ads as one that
-is blocking them and refuses to play. It is very often the same box this add-on
-runs on.
+A page that loads but misbehaves -- YouTube saying "le contenu n'est pas
+disponible" while Jellyfin and most other sites are fine -- is a page whose
+requests are not all getting through. The browser knows exactly which ones and
+exactly why; from the panel all the causes look identical. So the sender prints
+them, one line per host and reason, and nothing at all when a page gets
+everything it asks for:
 
-**The fix is in the filter, not here**, because the browser's own lookups are
-what is being filtered and the add-on has no say in them. Two ways, in the
-order worth trying:
+```
+Network: pub.example.com -- net::ERR_NAME_NOT_RESOLVED
+Network: cdn.example.com -- net::ERR_CONNECTION_REFUSED
+```
 
-1. **Exempt the machine running this add-on** in Pi-hole or AdGuard Home --
-   one client, one rule, and the rest of the house keeps its filtering. This
-   is the reliable one: it needs no list of domains to keep up to date.
-2. Or allow the ad domains YouTube checks for. It works, but the list moves.
+What the reason tells you:
 
-**Do not try to point the browser at another DNS with `browser_args`.**
-`--host-resolver-rules="MAP * 1.1.1.1"` reads like a DNS setting and is not
-one: `MAP` sends a hostname to a given **machine**. Measured on the browser
-this ships with -- with `MAP * 127.0.0.1`, a request for
-`n-importe-quoi.example` was answered by the local web server. `MAP * 1.1.1.1`
-would therefore send every request the browser makes to 1.1.1.1, Home
-Assistant included, and the panel would show nothing at all.
+| reason | what it means |
+|---|---|
+| `ERR_NAME_NOT_RESOLVED` | the name did not resolve -- DNS filtering somewhere between this machine and the internet, whether or not you installed it |
+| `ERR_CONNECTION_REFUSED` / `ERR_CONNECTION_TIMED_OUT` | the name resolved but nothing answered -- a firewall, or the host really is down |
+| `ERR_BLOCKED_BY_CLIENT` | the browser itself refused it |
+| nothing at all | the page got everything, and the fault is elsewhere -- check the `Media:` line and the codec table above |
 
-`browser_args` is still the escape hatch for anything Chromium accepts that
-has no setting of its own -- quote a flag that contains spaces, the line is
-split the way a shell would split it. It is simply not the tool for this.
+YouTube in particular refuses to play when the requests it uses to serve ads
+fail, whatever the reason they failed. Some ISP routers filter at the DNS level
+out of the box, so this can be true in a house that installed no ad blocker.
+The `Network:` lines are what settle it rather than guessing -- if there are
+none, ad filtering is not the cause and the codec table is the next place to
+look.
 
 ### What video actually costs, and why 25 Mbit/s is not enough
 
