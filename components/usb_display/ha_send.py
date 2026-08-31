@@ -399,6 +399,7 @@ def watch_failed_requests(context, limit=12):
     nobody can read is no better than no log.
     """
     seen = set()
+    explained = []
 
     def note(request):
         try:
@@ -419,6 +420,20 @@ def watch_failed_requests(context, limit=12):
             if len(seen) == limit:
                 print("Network: (further failures not listed)")
             print(f"Network: {host} -- {failure}")
+            # Said once, because it is the one failure whose cause is never
+            # the site. A name that does not resolve is this machine's
+            # resolver, and on a Home Assistant box that is the Supervisor's
+            # own DNS container rather than the router. It is also the failure
+            # that looks least like itself from the panel: a video whose next
+            # segment cannot be fetched does not error, it simply runs its
+            # buffer down to nothing and stops.
+            if "ERR_NAME_NOT_RESOLVED" in failure and not explained:
+                explained.append(True)
+                print(
+                    "Network: a name that does not resolve is this machine's "
+                    "DNS, not the site. In Home Assistant: Settings > System "
+                    "> Network > DNS servers."
+                )
         except Exception:  # noqa: BLE001 - a diagnostic must never cost a page
             pass
 
