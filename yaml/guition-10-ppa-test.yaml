@@ -63,8 +63,8 @@ psram:
 logger:
   level: DEBUG
   logs:
-    usb_display: DEBUG
-    usb_display.net: DEBUG
+    portall: DEBUG
+    portall.net: DEBUG
 
 api:
   encryption:
@@ -107,7 +107,7 @@ external_components:
       type: git
       url: https://github.com/youkorr/esphome_esp-video
       ref: main
-    components: [usb_display]
+    components: [portall]
     refresh: 0s
   - source: github://kvj/esphome@jd9365_gsl3680
     components: [jd9365]
@@ -161,7 +161,7 @@ display:
     update_interval: never
     auto_clear_enabled: false
 
-usb_display:
+portall:
   display_id: main_screen
   touchscreen_id: my_touch
   port: 5000

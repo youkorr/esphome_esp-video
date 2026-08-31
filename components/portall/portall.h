@@ -23,7 +23,7 @@ extern "C" {
 }
 
 namespace esphome {
-namespace usb_display {
+namespace portall {
 
 /// Contacts carried back to the network sender in one message. The same five a
 /// digitizer reports over HID, so neither path is the narrower one.
@@ -40,7 +40,7 @@ static constexpr uint8_t UDISP_NET_TOUCH_MAX = 5;
  * The PC side is not optional and is not part of this component -- see the
  * windows_driver directory of Espressif's usb_extend_screen example.
  */
-class USBDisplay : public Component
+class Portall : public Component
 #ifdef USE_TOUCHSCREEN
     ,
                    public touchscreen::TouchListener
@@ -379,17 +379,17 @@ class USBDisplay : public Component
 /// Actions, so the panel's own automations can say when nobody is looking.
 ///
 /// Two classes rather than one with a flag: that is how ESPHome spells a pair
-/// of opposites, and it keeps the YAML reading as "usb_display.sleep" without
+/// of opposites, and it keeps the YAML reading as "portall.sleep" without
 /// an argument to get the wrong way round.
-template<typename... Ts> class SleepAction final : public Action<Ts...>, public Parented<USBDisplay> {
+template<typename... Ts> class SleepAction final : public Action<Ts...>, public Parented<Portall> {
  public:
   void play(const Ts &...) override { this->parent_->set_awake(false); }
 };
 
-template<typename... Ts> class WakeAction final : public Action<Ts...>, public Parented<USBDisplay> {
+template<typename... Ts> class WakeAction final : public Action<Ts...>, public Parented<Portall> {
  public:
   void play(const Ts &...) override { this->parent_->set_awake(true); }
 };
 
-}  // namespace usb_display
+}  // namespace portall
 }  // namespace esphome

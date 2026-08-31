@@ -1,6 +1,6 @@
 # ESP32-P4 Panel
 
-Renders Home Assistant dashboards onto ESPHome `usb_display` panels over the
+Renders Home Assistant dashboards onto ESPHome `portall` panels over the
 network, and replays the panels' touches back into them. It exists so the
 panels do not depend on a desktop being switched on: this runs on the machine
 that is already on all the time.
@@ -11,7 +11,7 @@ fails.
 
 ## What has to be true first
 
-The panel needs `port:` and `touchscreen_id:` in its `usb_display:` block, and
+The panel needs `port:` and `touchscreen_id:` in its `portall:` block, and
 you need a **long-lived access token** from the bottom of your Home Assistant
 profile page.
 
@@ -255,7 +255,7 @@ The page is drawn smaller and the board's accelerator scales it up -- silicon
 that is otherwise idle -- and it is the only setting that cuts the cost of a
 picture several-fold rather than by a quarter. It is **off by default and meant
 to stay off**: the panel's own resolution is the point. Both numbers go on the
-panel here *and* under `usb_display:` on the board, and they have to match, keep
+panel here *and* under `portall:` on the board, and they have to match, keep
 the panel's shape, and divide it into whole pixels -- for an 800x1280 panel,
 `400x640` and `640x1024` both do.
 
@@ -266,7 +266,7 @@ a third off the bytes at the same resolution and the same frame rate.
 because the panel is not short of audio hardware. A board like the Guition has
 an ES8311 codec on I2S, an ESPHome `speaker:`, a mixer, a resampler, a
 microphone and a `media_player:` entity -- Home Assistant can already play
-anything it likes on it. The `usb_display` component can also take audio in
+anything it likes on it. The `portall` component can also take audio in
 over USB, as a standard sound card, into that same speaker.
 
 What carries no audio is **this link**. The udisp protocol is rectangles one

@@ -1,12 +1,12 @@
 #pragma once
 
 #include "esphome/components/number/number.h"
-#include "../usb_display.h"
+#include "../portall.h"
 
 #if CFG_TUD_AUDIO
 
 namespace esphome {
-namespace usb_display {
+namespace portall {
 
 /// The playback volume of the sound coming from the host.
 ///
@@ -17,7 +17,7 @@ namespace usb_display {
 /// loudly it comes out here.
 class USBVolumeNumber : public number::Number, public Component {
  public:
-  void set_parent(USBDisplay *parent) { this->parent_ = parent; }
+  void set_parent(Portall *parent) { this->parent_ = parent; }
   void setup() override { this->publish_state(this->parent_->get_audio_volume() * 100.0f); }
   /// Follows the host as well as Home Assistant.
   ///
@@ -36,10 +36,10 @@ class USBVolumeNumber : public number::Number, public Component {
     this->publish_state(value);
   }
 
-  USBDisplay *parent_{nullptr};
+  Portall *parent_{nullptr};
 };
 
-}  // namespace usb_display
+}  // namespace portall
 }  // namespace esphome
 
 #endif  // CFG_TUD_AUDIO

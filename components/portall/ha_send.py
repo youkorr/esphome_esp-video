@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Put a web page on an ESPHome usb_display panel, over Wi-Fi.
+"""Put a web page on an ESPHome portall panel, over Wi-Fi.
 
 The panel is not running a browser. A machine that is on anyway -- the Home
 Assistant server itself, or anything beside it -- renders the page in a browser
@@ -2172,7 +2172,7 @@ class Injector:
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Render a Home Assistant dashboard onto a usb_display panel"
+        description="Render a Home Assistant dashboard onto a portall panel"
     )
     parser.add_argument(
         "--host", required=True, help="the panel's address (its port: option)"

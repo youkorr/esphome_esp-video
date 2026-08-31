@@ -23,7 +23,7 @@ WORKDIR /app
 # update really does fetch a current Playwright, a current Chromium and current
 # senders. It costs the browser download on each update, which is the price of
 # not running a year-old browser without knowing it.
-ARG BUNDLE=1.45.0
+ARG BUNDLE=1.46.0
 RUN echo "${BUNDLE}" > /app/BUNDLE
 
 RUN pip install --no-cache-dir --upgrade playwright pillow numpy \
@@ -61,7 +61,7 @@ RUN (playwright install --with-deps chrome \
 # the add-on is what picks up a newer sender, which is the same thing an update
 # would do anyway.
 ARG BRANCH=main
-ARG RAW=https://raw.githubusercontent.com/youkorr/esphome_esp-video/${BRANCH}/components/usb_display
+ARG RAW=https://raw.githubusercontent.com/youkorr/esphome_esp-video/${BRANCH}/components/portall
 
 ADD ${RAW}/udisp_send.py /app/udisp_send.py
 ADD ${RAW}/ha_send.py /app/ha_send.py

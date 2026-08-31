@@ -96,7 +96,7 @@ display:
     id: main_screen
     model: WAVESHARE-ESP32-P4-WIFI6-TOUCH-LCD-7B
     pixel_mode: 16
-    # usb_display dessine lui-meme, quand une image arrive.
+    # portall dessine lui-meme, quand une image arrive.
     update_interval: never
     auto_clear_enabled: false
 
@@ -136,7 +136,7 @@ touchscreen:
       # Reveille l'emetteur d'abord : il a une image entiere a renvoyer.
       # Le toucher qui reveille n'est pas transmis a la page -- la carte le
       # retient tant qu'elle dort -- donc il ne presse rien au passage.
-      - usb_display.wake: udisp
+      - portall.wake: udisp
       # Rallume, et relance le compte a rebours depuis zero. Le script est en
       # mode "restart", donc un toucher pendant qu'il attend annule l'attente
       # en cours et en commence une neuve.
@@ -185,10 +185,10 @@ external_components:
       type: git
       url: https://github.com/youkorr/esphome_esp-video
       ref: main
-    components: [usb_display]
+    components: [portall]
     refresh: 0s
 
-usb_display:
+portall:
   id: udisp
   display_id: main_screen
   # Sans ca, pas de tactile renvoye a l'emetteur.
@@ -245,7 +245,7 @@ binary_sensor:
       # a refaire, et s'il avait lache la page il doit la recharger. C'est
       # justement ce temps-la qu'on veut passer pendant que la personne
       # traverse la piece plutot que devant l'ecran.
-      - usb_display.wake: udisp
+      - portall.wake: udisp
       - light.turn_on: backlight
     on_release:
       # La piece se vide : on repart pour un compte a rebours neuf.
@@ -273,10 +273,10 @@ script:
                   # Et on le dit : l'emetteur arrete de rendre et d'envoyer, la
                   # liaison reste ouverte. Sans cette ligne le rendu continue
                   # pour une dalle noire.
-                  - usb_display.sleep: udisp
+                  - portall.sleep: udisp
 
 number:
-  - platform: usb_display
+  - platform: portall
     name: Volume
 
   - platform: template

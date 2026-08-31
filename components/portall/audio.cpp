@@ -15,7 +15,7 @@
  * rather than fighting them for the same I2S bus.
  */
 
-#include "usb_display.h"
+#include "portall.h"
 
 #include "esphome/core/log.h"
 #include "esphome/core/hal.h"
@@ -32,9 +32,9 @@ extern "C" {
 }
 
 namespace esphome {
-namespace usb_display {
+namespace portall {
 
-static const char *const TAG = "usb_display.audio";
+static const char *const TAG = "portall.audio";
 
 // How much audio to gather before handing it to the speaker. Far more than the
 // 125 microseconds a High-Speed host sends at, far less than anyone hears as
@@ -46,7 +46,7 @@ namespace {
 
 /* usb_device_uac's callbacks carry a context pointer, but the volume the host
  * sets arrives before anything else and is wanted by the number entity too. */
-USBDisplay *audio_owner(void *ctx) { return static_cast<USBDisplay *>(ctx); }
+Portall *audio_owner(void *ctx) { return static_cast<Portall *>(ctx); }
 
 esp_err_t uac_output(uint8_t *buf, size_t len, void *ctx) {
   audio_owner(ctx)->on_usb_audio(buf, len);
@@ -59,7 +59,7 @@ void uac_set_volume(uint32_t volume, void *ctx) { audio_owner(ctx)->on_usb_audio
 
 }  // namespace
 
-void USBDisplay::setup_audio_() {
+void Portall::setup_audio_() {
   uac_device_config_t config = {};
   // The display already brought TinyUSB and the PHY up; this is one function of
   // that device, not a device of its own.
@@ -101,7 +101,7 @@ void USBDisplay::setup_audio_() {
                 CONFIG_UAC_BIT_RESOLUTION, CONFIG_UAC_SPEAKER_CHANNEL_NUM);
 }
 
-void USBDisplay::on_usb_audio(const uint8_t *data, size_t length) {
+void Portall::on_usb_audio(const uint8_t *data, size_t length) {
   if (this->speaker_ == nullptr || length == 0)
     return;
   // Before the mute and volume checks: the host is sending, whatever this board
@@ -134,7 +134,7 @@ void USBDisplay::on_usb_audio(const uint8_t *data, size_t length) {
   }
 }
 
-void USBDisplay::flush_audio_block_() {
+void Portall::flush_audio_block_() {
   // The two-argument form: the one taking a timeout is compiled conditionally,
   // and this one is the interface every speaker implements. It reports how much
   // it took; audio it would not take is audio it was not ready for, and the
@@ -173,21 +173,21 @@ void USBDisplay::flush_audio_block_() {
   }
 }
 
-void USBDisplay::on_usb_audio_volume(float volume) {
+void Portall::on_usb_audio_volume(float volume) {
   this->audio_volume_ = volume;
   if (this->speaker_ != nullptr)
     this->speaker_->set_volume(volume);
   ESP_LOGD(TAG, "Host set the volume to %.0f%%", volume * 100.0f);
 }
 
-void USBDisplay::on_usb_audio_mute(bool muted) {
+void Portall::on_usb_audio_mute(bool muted) {
   this->audio_muted_ = muted;
   if (this->speaker_ != nullptr)
     this->speaker_->set_mute_state(muted);
   ESP_LOGD(TAG, "Host %s the sound", muted ? "muted" : "unmuted");
 }
 
-}  // namespace usb_display
+}  // namespace portall
 }  // namespace esphome
 
 #endif  // CFG_TUD_AUDIO

@@ -1,4 +1,4 @@
-#include "usb_display.h"
+#include "portall.h"
 
 #include "esphome/core/log.h"
 #include "esphome/core/hal.h"
@@ -18,9 +18,9 @@ extern "C" {
 }
 
 namespace esphome {
-namespace usb_display {
+namespace portall {
 
-static const char *const TAG = "usb_display";
+static const char *const TAG = "portall";
 
 static constexpr uint32_t STATS_INTERVAL_MS = 5000;
 // Long enough for a host to enumerate, load a driver and start it, short enough
@@ -39,16 +39,16 @@ static constexpr uint32_t AUDIO_IDLE_MS = 500;
 static constexpr uint32_t FRAME_WAIT_MS = 250;
 
 // TinyUSB's callbacks are plain C with no context argument, so the one instance
-// has to be reachable from file scope. A second usb_display would need a second
+// has to be reachable from file scope. A second portall would need a second
 // USB device controller, which the ESP32-P4 does not have; the Python side
 // enforces a single instance.
-static USBDisplay *g_usb_display = nullptr;
+static Portall *g_portall = nullptr;
 
 extern "C" void tud_vendor_rx_cb(uint8_t itf, uint8_t const *buffer, uint16_t bufsize) {
   (void) buffer;
   (void) bufsize;
-  if (g_usb_display != nullptr)
-    g_usb_display->on_vendor_rx(itf);
+  if (g_portall != nullptr)
+    g_portall->on_vendor_rx(itf);
 }
 
 // The device end of enumeration. Whether these fire at all is the difference
@@ -60,8 +60,8 @@ extern "C" void tud_mount_cb(void) {
   // compile time, and a High-Speed bulk endpoint on a Full-Speed bus enumerates
   // fine and then never transfers anything. Say it out loud rather than leaving
   // a silent endpoint to be diagnosed from its absence.
-  if (g_usb_display != nullptr)
-    g_usb_display->set_configured();
+  if (g_portall != nullptr)
+    g_portall->set_configured();
 
   const tusb_speed_t speed = tud_speed_get();
   const char *speed_name = (speed == TUSB_SPEED_HIGH)   ? "High Speed"
@@ -98,12 +98,12 @@ void tusb_device_task(void *param) {
 
 }  // namespace
 
-void USBDisplay::setup() {
+void Portall::setup() {
   if (this->display_ == nullptr) {
     this->mark_failed(LOG_STR("No display"));
     return;
   }
-  g_usb_display = this;
+  g_portall = this;
 
   jpeg_decode_engine_cfg_t engine_cfg = {};
   engine_cfg.intr_priority = 1;
@@ -206,7 +206,7 @@ void USBDisplay::setup() {
   // the endpoint or the host stalls, and a decode that runs late only costs a
   // frame. Core 1 keeps both off the core ESPHome's loop runs on.
   xTaskCreatePinnedToCore(tusb_device_task, "usbd", 4096, nullptr, 5, nullptr, 1);
-  xTaskCreatePinnedToCore(USBDisplay::decode_task, "udisp", 4096, this, 4, nullptr, 1);
+  xTaskCreatePinnedToCore(Portall::decode_task, "udisp", 4096, this, 4, nullptr, 1);
 
   this->stats_since_ms_ = millis();
   this->started_ms_ = millis();
@@ -214,7 +214,7 @@ void USBDisplay::setup() {
            (unsigned) this->height_, (unsigned) this->frame_buffer_count_, (unsigned) this->max_frame_bytes_);
 }
 
-bool USBDisplay::allocate_rotation_() {
+bool Portall::allocate_rotation_() {
   ppa_client_config_t ppa_config = {};
   ppa_config.oper_type = PPA_OPERATION_SRM;
   ppa_config.max_pending_trans_num = 1;
@@ -242,7 +242,7 @@ bool USBDisplay::allocate_rotation_() {
   return true;
 }
 
-void USBDisplay::place_(const Frame &frame, uint16_t &x, uint16_t &y, uint16_t &w, uint16_t &h) const {
+void Portall::place_(const Frame &frame, uint16_t &x, uint16_t &y, uint16_t &w, uint16_t &h) const {
   // The rectangle arrives in the host's coordinates, which are the render size
   // and not always the panel's. Bring it into panel coordinates first, because
   // the turn below is described against the panel.
@@ -286,7 +286,7 @@ void USBDisplay::place_(const Frame &frame, uint16_t &x, uint16_t &y, uint16_t &
   }
 }
 
-bool USBDisplay::rotate_(const Frame &frame, uint16_t padded_width, uint16_t padded_height) {
+bool Portall::rotate_(const Frame &frame, uint16_t padded_width, uint16_t padded_height) {
   ppa_srm_rotation_angle_t angle;
   // The accelerator turns counter-clockwise; the configuration is clockwise,
   // the way a panel's mounting is described.
@@ -359,7 +359,7 @@ bool USBDisplay::rotate_(const Frame &frame, uint16_t padded_width, uint16_t pad
   return true;
 }
 
-bool USBDisplay::allocate_frames_() {
+bool Portall::allocate_frames_() {
   this->frames_ = new Frame[this->frame_buffer_count_];
   this->empty_queue_ = xQueueCreate(this->frame_buffer_count_, sizeof(Frame *));
   this->filled_queue_ = xQueueCreate(this->frame_buffer_count_, sizeof(Frame *));
@@ -386,7 +386,7 @@ bool USBDisplay::allocate_frames_() {
   return true;
 }
 
-USBDisplay::Frame *USBDisplay::take_empty_(uint32_t wait_ms) {
+Portall::Frame *Portall::take_empty_(uint32_t wait_ms) {
   Frame *frame = nullptr;
   if (xQueueReceive(this->empty_queue_, &frame, pdMS_TO_TICKS(wait_ms)) != pdTRUE)
     return nullptr;
@@ -394,12 +394,12 @@ USBDisplay::Frame *USBDisplay::take_empty_(uint32_t wait_ms) {
   return frame;
 }
 
-void USBDisplay::queue_filled_(Frame *frame) {
+void Portall::queue_filled_(Frame *frame) {
   if (xQueueSend(this->filled_queue_, &frame, 0) != pdTRUE)
     xQueueSend(this->empty_queue_, &frame, 0);
 }
 
-bool USBDisplay::append_(Frame *frame, const uint8_t *data, size_t len) {
+bool Portall::append_(Frame *frame, const uint8_t *data, size_t len) {
   if (len > 0 && frame->received + len <= frame->capacity) {
     memcpy(frame->data + frame->received, data, len);
     frame->received += len;
@@ -426,7 +426,7 @@ bool USBDisplay::append_(Frame *frame, const uint8_t *data, size_t len) {
 // marker in this protocol to find it again with, so it stays lost. The visible
 // result is a decoder complaining about impossible geometry, and a panel that
 // freezes until something restarts the connection.
-void USBDisplay::feed_(const uint8_t *data, size_t len, bool may_wait) {
+void Portall::feed_(const uint8_t *data, size_t len, bool may_wait) {
   if (len == 0)
     return;
   // Two transports can be active at once; a frame half assembled from one must
@@ -533,7 +533,7 @@ void USBDisplay::feed_(const uint8_t *data, size_t len, bool may_wait) {
   }
 }
 
-void USBDisplay::on_vendor_rx(uint8_t itf) {
+void Portall::on_vendor_rx(uint8_t itf) {
   static uint8_t rx_buf[CFG_TUD_VENDOR_EPSIZE];
 
   while (tud_vendor_n_available(itf)) {
@@ -547,9 +547,9 @@ void USBDisplay::on_vendor_rx(uint8_t itf) {
 // ===========================================================================
 // Decode and draw -- its own task, never ESPHome's loop
 // ===========================================================================
-void USBDisplay::decode_task(void *param) { static_cast<USBDisplay *>(param)->run_decode_task(); }
+void Portall::decode_task(void *param) { static_cast<Portall *>(param)->run_decode_task(); }
 
-void USBDisplay::run_decode_task() {
+void Portall::run_decode_task() {
   jpeg_decode_cfg_t decode_cfg = {};
   decode_cfg.output_format = JPEG_DECODE_OUT_FORMAT_RGB565;
   decode_cfg.rgb_order = JPEG_DEC_RGB_ELEMENT_ORDER_BGR;
@@ -705,7 +705,7 @@ void USBDisplay::run_decode_task() {
   }
 }
 
-void USBDisplay::reset_stream_() {
+void Portall::reset_stream_() {
   LockGuard lock(this->feed_lock_);
   if (this->current_ != nullptr) {
     xQueueSend(this->empty_queue_, &this->current_, 0);
@@ -717,7 +717,7 @@ void USBDisplay::reset_stream_() {
   this->header_len_ = 0;
 }
 
-void USBDisplay::loop() {
+void Portall::loop() {
 #if CFG_TUD_HID
   this->retry_release_();
 #endif
@@ -748,7 +748,7 @@ void USBDisplay::loop() {
   }
 }
 
-void USBDisplay::dump_config() {
+void Portall::dump_config() {
   ESP_LOGCONFIG(TAG, "USB Extended Display:");
   ESP_LOGCONFIG(TAG, "  Resolution: %ux%u", (unsigned) this->width_, (unsigned) this->height_);
   if (this->scaling_) {
@@ -798,5 +798,5 @@ void USBDisplay::dump_config() {
     ESP_LOGCONFIG(TAG, "  State: FAILED");
 }
 
-}  // namespace usb_display
+}  // namespace portall
 }  // namespace esphome
