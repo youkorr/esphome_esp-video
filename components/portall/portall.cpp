@@ -2,11 +2,6 @@
 
 #include "esphome/core/log.h"
 #include "esphome/core/hal.h"
-#ifdef USE_NETWORK
-// For the one line that says which address to put in the add-on. Guarded
-// because a board built without networking has no such component to ask.
-#include "esphome/components/network/util.h"
-#endif
 
 #include "esp_heap_caps.h"
 #include "esp_timer.h"
@@ -824,11 +819,6 @@ void Portall::dump_config() {
     if (this->touchscreen_ != nullptr)
       ESP_LOGCONFIG(TAG, "    Touches sent back to the connected sender");
 #endif
-    // The address to put in the add-on, read off the board rather than
-    // guessed at from a router page.
-#ifdef USE_NETWORK
-    ESP_LOGCONFIG(TAG, "    This board answers at %s", network::get_use_address());
-#endif
   } else {
     ESP_LOGCONFIG(TAG, "  Over the network: off (set port: to accept pictures over Wi-Fi)");
   }
@@ -859,11 +849,17 @@ void Portall::dump_config() {
     ESP_LOGCONFIG(TAG, "  Sender: the Portall add-on, with width: %u and height: %u%s",
                   (unsigned) this->render_width_, (unsigned) this->render_height_,
                   this->rotation_ != 0 ? " and the rotation below" : "");
-#ifdef USE_NETWORK
-    ESP_LOGCONFIG(TAG, "    or by hand: ./ha_send.py --host %s --port %u --width %u --height %u",
-                  network::get_use_address(), (unsigned) this->port_, (unsigned) this->render_width_,
-                  (unsigned) this->render_height_);
-#endif
+    // The address deliberately absent. Printing it meant asking ESPHome's
+    // network component for it, and that helper is not stable across
+    // versions: get_use_address() in 2026.6.5, get_use_address_to(span) in
+    // what came after. It broke a user's build, and the line it bought was a
+    // convenience -- this board's address is on the ESPHome device page and
+    // in the add-on already. NOTHING IN THIS COMPONENT SHOULD CALL AN ESPHOME
+    // HELPER THAT IS NOT PART OF A COMPONENT IT DEPENDS ON: there is no
+    // toolchain where this is written, so a rename is found by whoever
+    // compiles it, which is the user.
+    ESP_LOGCONFIG(TAG, "    or by hand: ./ha_send.py --host <this board> --port %u --width %u --height %u",
+                  (unsigned) this->port_, (unsigned) this->render_width_, (unsigned) this->render_height_);
   } else {
 #if CFG_TUD_MSC
     ESP_LOGCONFIG(TAG, "  Sender: UDISP.PY, on the drive this board presents");
