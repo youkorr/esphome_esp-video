@@ -2,6 +2,11 @@
 
 #include "esphome/core/log.h"
 #include "esphome/core/hal.h"
+#ifdef USE_NETWORK
+// For the one line that says which address to put in the add-on. Guarded
+// because a board built without networking has no such component to ask.
+#include "esphome/components/network/util.h"
+#endif
 
 #include "esp_heap_caps.h"
 #include "esp_timer.h"
@@ -802,32 +807,39 @@ void Portall::loop() {
 }
 
 void Portall::dump_config() {
-  ESP_LOGCONFIG(TAG, "USB Extended Display:");
+  // Named for what it is, and ordered by which way the picture actually
+  // arrives. It used to open with "USB Extended Display" and mention the
+  // network as an afterthought -- "Also listening on ..." -- on panels where
+  // the network is the whole point and the USB socket carries nothing but
+  // power. What a dump is for is recognising your own board in it.
+  ESP_LOGCONFIG(TAG, "Portall:");
   ESP_LOGCONFIG(TAG, "  Resolution: %ux%u", (unsigned) this->width_, (unsigned) this->height_);
   if (this->scaling_) {
-    ESP_LOGCONFIG(TAG, "  Host draws %ux%u, scaled up by the pixel-processing accelerator", (unsigned) this->render_width_,
-                  (unsigned) this->render_height_);
+    ESP_LOGCONFIG(TAG, "  Sender draws %ux%u, scaled up by the pixel-processing accelerator",
+                  (unsigned) this->render_width_, (unsigned) this->render_height_);
   }
-  // Which identifiers the board actually enumerates as, and how many
-  // interfaces. Both decide which driver a host binds, and neither could be
-  // read back off a log before.
-  ESP_LOGCONFIG(TAG, "  USB device: %04X:%04X \"%s\" \"%s\", %s, %s", (unsigned) CONFIG_USB_DISPLAY_VID,
-                (unsigned) CONFIG_USB_DISPLAY_PID, CONFIG_USB_DISPLAY_MANUFACTURER, CONFIG_USB_DISPLAY_PRODUCT,
-                CONFIG_USB_DISPLAY_HIGH_SPEED ? "High Speed" : "Full Speed",
-                CFG_TUD_MSC ? "display + sender drive" : "display only");
-  ESP_LOGCONFIG(TAG, "  Advertised to the host: %s", CONFIG_USB_DISPLAY_VENDOR_STRING);
-  // Whether the network listener is up belongs here, not only in a line
-  // written during setup: a log opened over the API starts after that and
-  // never shows it.
   if (this->port_ != 0) {
-    ESP_LOGCONFIG(TAG, "  Also listening on TCP port %u", (unsigned) this->port_);
+    ESP_LOGCONFIG(TAG, "  Over the network: listening on TCP port %u", (unsigned) this->port_);
 #ifdef USE_TOUCHSCREEN
     if (this->touchscreen_ != nullptr)
       ESP_LOGCONFIG(TAG, "    Touches sent back to the connected sender");
 #endif
+    // The address to put in the add-on, read off the board rather than
+    // guessed at from a router page.
+#ifdef USE_NETWORK
+    ESP_LOGCONFIG(TAG, "    This board answers at %s", network::get_use_address());
+#endif
   } else {
-    ESP_LOGCONFIG(TAG, "  Network: off (set port: to accept frames over Wi-Fi)");
+    ESP_LOGCONFIG(TAG, "  Over the network: off (set port: to accept pictures over Wi-Fi)");
   }
+  // Which identifiers the board actually enumerates as, and how many
+  // interfaces. Both decide which driver a host binds, and neither could be
+  // read back off a log before.
+  ESP_LOGCONFIG(TAG, "  Over USB: %04X:%04X \"%s\" \"%s\", %s, %s", (unsigned) CONFIG_USB_DISPLAY_VID,
+                (unsigned) CONFIG_USB_DISPLAY_PID, CONFIG_USB_DISPLAY_MANUFACTURER, CONFIG_USB_DISPLAY_PRODUCT,
+                CONFIG_USB_DISPLAY_HIGH_SPEED ? "High Speed" : "Full Speed",
+                CFG_TUD_MSC ? "display + sender drive" : "display only");
+  ESP_LOGCONFIG(TAG, "    Advertised to a USB host: %s", CONFIG_USB_DISPLAY_VENDOR_STRING);
   ESP_LOGCONFIG(TAG, "  Frame buffers: %u x %u bytes", (unsigned) this->frame_buffer_count_,
                 (unsigned) this->max_frame_bytes_);
   ESP_LOGCONFIG(TAG, "  Decoded buffer: %u bytes (%ux%u, rounded up to whole 16x16 units)",
@@ -840,13 +852,28 @@ void Portall::dump_config() {
   // else for, so print the command rather than leaving it to be matched by
   // hand against the configuration above. Rotation is deliberately absent: the
   // board does that now, and asking the sender for it as well would undo it.
-#if CFG_TUD_MSC
-  ESP_LOGCONFIG(TAG, "  Host sender: UDISP.PY, on the drive this board presents");
-  ESP_LOGCONFIG(TAG, "    python UDISP.PY --width %u --height %u", (unsigned) this->width_, (unsigned) this->height_);
-#else
-  ESP_LOGCONFIG(TAG, "  Host sender: python udisp_send.py --width %u --height %u", (unsigned) this->render_width_,
-                (unsigned) this->render_height_);
+  if (this->port_ != 0) {
+    // The network panel's sender is the add-on, and the geometry it needs is
+    // the geometry this board refuses everything else for -- so print it
+    // rather than leave it to be matched by hand against the lines above.
+    ESP_LOGCONFIG(TAG, "  Sender: the Portall add-on, with width: %u and height: %u%s",
+                  (unsigned) this->render_width_, (unsigned) this->render_height_,
+                  this->rotation_ != 0 ? " and the rotation below" : "");
+#ifdef USE_NETWORK
+    ESP_LOGCONFIG(TAG, "    or by hand: ./ha_send.py --host %s --port %u --width %u --height %u",
+                  network::get_use_address(), (unsigned) this->port_, (unsigned) this->render_width_,
+                  (unsigned) this->render_height_);
 #endif
+  } else {
+#if CFG_TUD_MSC
+    ESP_LOGCONFIG(TAG, "  Sender: UDISP.PY, on the drive this board presents");
+    ESP_LOGCONFIG(TAG, "    python UDISP.PY --width %u --height %u", (unsigned) this->width_,
+                  (unsigned) this->height_);
+#else
+    ESP_LOGCONFIG(TAG, "  Sender: python udisp_send.py --width %u --height %u", (unsigned) this->render_width_,
+                  (unsigned) this->render_height_);
+#endif
+  }
   if (this->is_failed())
     ESP_LOGCONFIG(TAG, "  State: FAILED");
 }

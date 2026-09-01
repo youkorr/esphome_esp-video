@@ -945,6 +945,20 @@ field name and both enumerators are taken from working code in
 `youkorr/lvgl_9.5`, not from memory, so they exist on this IDF — but the change
 itself has only been schema-checked.
 
+**`dump_config()` opened with "USB Extended Display" and mentioned the network
+as an afterthought** -- literally `Also listening on TCP port 5000` -- on
+panels where the network is the whole point and the USB socket carries nothing
+but power. Worse, its last line handed over `python udisp_send.py`, the USB
+sender, to somebody whose picture comes from the add-on.
+
+It is ordered by the transport actually in use now: `Portall:`, the resolution,
+**Over the network** with the port and the touches, then **Over USB** with the
+identifiers, and a sender line that matches -- the add-on and its geometry when
+`port:` is set, `udisp_send.py` when it is not. It also prints the address to
+put in the add-on, `network::get_use_address()` read off the board rather than
+guessed at from a router page, behind `#ifdef USE_NETWORK` so a board built
+without networking still compiles.
+
 **"The host has not configured this device" warned at panels that were
 working.** These are powered over USB-C, so a panel fed by Wi-Fi is nearly
 always plugged into a charger -- and a cable carrying nothing but power looks
