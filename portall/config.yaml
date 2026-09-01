@@ -1,5 +1,5 @@
 name: Portall
-version: "2.1.0"
+version: "2.2.0"
 # Home Assistant identifies an add-on by its slug, so this one moving from
 # usb_display_panel to portall makes the Supervisor see a NEW add-on: options
 # are not carried over and /data starts empty, which means the browser
@@ -117,6 +117,16 @@ options:
   launcher_columns: 0
   links: []
   stats: true
+  # A diagnostic, off by default: while a video plays it prints the playhead
+  # and how many seconds are buffered IN FRONT of it, every two seconds. The
+  # ordinary media lines only appear when something has already gone wrong,
+  # which is exactly the wrong moment -- "the video stopped" is always a
+  # question about the seconds BEFORE it stopped, when the log is silent.
+  # Turn it on, reproduce the stall once, and the log says which of the three
+  # it was: a buffer that never filled (the fetch), a playhead that stopped
+  # while the buffer stayed full (the site), or frames the browser itself
+  # threw away (the machine).
+  show_media: false
   panels:
     - name: salon
       host: ip_esp32P4
@@ -158,6 +168,7 @@ schema:
       description: str?
       quality: int(1,95)?
   stats: bool?
+  show_media: bool?
   panels:
     - name: str
       host: str
@@ -177,3 +188,4 @@ schema:
       blank_after: float?
       keep_profile: bool?
       stats: bool?
+      show_media: bool?

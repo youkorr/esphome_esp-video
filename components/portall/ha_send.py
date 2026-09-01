@@ -283,6 +283,11 @@ LOAD_TIMEOUT_S = 30
 # milliseconds the browser takes to repaint after the tap that woke it.
 SLEEP_PUMP_MS = 100
 
+# How often --show-media samples a playing video. Two seconds: a player that is
+# fetching ahead visibly gains a second of buffer between two lines, and a
+# minute of video is thirty lines rather than a screenful.
+MEDIA_SAMPLE_MS = 2000
+
 
 # Where a browser with the proprietary codecs is usually found.
 #
@@ -324,7 +329,7 @@ POPOVER_SINCE = 114
 # element does not bubble, but the capture path still runs through the window,
 # so nothing has to be swept for or watched as the page builds itself. It
 # writes nothing into the page, so no Trusted Types policy can refuse it.
-MEDIA_INIT_JS = """
+MEDIA_INIT_TEMPLATE = """
 (() => {
   const CODES = {1: 'aborted', 2: 'network', 3: 'decode',
                  4: 'format not supported'};
@@ -401,8 +406,63 @@ MEDIA_INIT_JS = """
       say('error ' + what + ' -- ' + state(el));
     } catch (e) { /* never cost the page anything */ }
   }, true);
+
+  // Everything above fires when something goes WRONG, which cannot answer a
+  // question about a video that is going right. "The player never fetches
+  // ahead" is exactly that shape of claim: it is about the seconds before the
+  // stall, when no event fires at all, so the log is silent precisely where
+  // the evidence would be. This prints the playhead and how much is buffered
+  // in front of it at a steady beat, so the two can be watched moving -- or
+  // not moving, which is the claim.
+  //
+  // Its own budget rather than the one above: a stall that repeats must not
+  // spend the timeline's cap, and a timeline must not spend the errors'.
+  const SAMPLE_MS = __SAMPLE_MS__;
+  const SAMPLE_LIMIT = 240;
+  let sampled = 0;
+  if (SAMPLE_MS > 0) {
+    setInterval(() => {
+      try {
+        if (sampled >= SAMPLE_LIMIT) return;
+        for (const el of document.querySelectorAll('video, audio')) {
+          // Only what is actually running. A page carries players it is not
+          // using -- YouTube's hover preview is one -- and a paused element
+          // has nothing to say about fetching ahead.
+          if (el.paused || el.ended || !el.duration) continue;
+          let line = 'playing: ' + state(el);
+          // Frames the compositor threw away. "Perte de trame" has two quite
+          // different causes and this separates them: dropped here is the
+          // BROWSER failing to keep up, and nothing the panel or the link
+          // could be blamed for.
+          try {
+            if (el.getVideoPlaybackQuality) {
+              const q = el.getVideoPlaybackQuality();
+              line += ' frames=' + q.totalVideoFrames +
+                      ' dropped=' + q.droppedVideoFrames;
+            }
+          } catch (e) { /* not a video, or not implemented */ }
+          sampled += 1;
+          try { window.__udispMediaError(line); } catch (e) { /* never cost the page */ }
+          if (sampled >= SAMPLE_LIMIT) {
+            try { window.__udispMediaError('(timeline ends here)'); }
+            catch (e) { /* nothing to do */ }
+            return;
+          }
+        }
+      } catch (e) { /* never cost the page anything */ }
+    }, SAMPLE_MS);
+  }
 })();
 """
+
+
+def media_init_js(sample_ms):
+    """The media timeline, with its periodic sampler on or off.
+
+    A number rather than a boolean because the beat is the whole design of it:
+    fast enough to see a buffer fill, slow enough that a log stays readable.
+    """
+    return MEDIA_INIT_TEMPLATE.replace("__SAMPLE_MS__", str(int(sample_ms)))
 
 # What the browser can actually decode. The player of any video site asks these
 # same questions before it chooses a format, so this is the list that decides
@@ -3081,6 +3141,15 @@ def main():
         "--stats", action="store_true", help="print what is being sent every 5 seconds"
     )
     parser.add_argument(
+        "--show-media",
+        action="store_true",
+        help="print a video's playhead and how much it has buffered ahead of "
+        "it, every two seconds while it plays. The ordinary media lines only "
+        "appear when something goes wrong, which cannot show whether a player "
+        "was fetching ahead in the seconds BEFORE it stalled -- and that is "
+        "the question every 'the video stops' report comes down to",
+    )
+    parser.add_argument(
         "--show-changes",
         action="store_true",
         help="with --stats, also name the busiest parts of the screen. Use it "
@@ -3327,7 +3396,8 @@ def main():
         context.expose_function(
             "__udispMediaError", lambda what: print(f"Media: {what}")
         )
-        context.add_init_script(MEDIA_INIT_JS)
+        context.add_init_script(media_init_js(
+            MEDIA_SAMPLE_MS if args.show_media else 0))
         # On the context, so it survives every navigation the panel makes --
         # including the one the corner itself performs.
         context.add_init_script(HOME_HINT_JS)

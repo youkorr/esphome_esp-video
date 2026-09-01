@@ -111,6 +111,7 @@ Assistant dashboard to appear; without one it does neither.
 | `blank_after` | Seconds dark before a sleeping panel's page is let go of. See below |
 | `keep_profile` | Keep the browser signed in between restarts. See below |
 | `stats` | Print what is being sent every five seconds |
+| `show_media` | While a video plays, print its playhead and how many seconds are buffered ahead of it. Off by default -- turn it on to diagnose a video that stops |
 
 That is the whole form, on purpose. `ha_send.py` has a dozen more settings --
 `capture_quality`, `urgent_fps`, `urgent_window`, `browser`, `browser_arg`,

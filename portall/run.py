@@ -87,6 +87,7 @@ SHARED_KEYS = (
     "rect_cost",
     "freeze_animations",
     "stats",
+    "show_media",
 )
 
 
@@ -329,6 +330,7 @@ def command_for(panel):
         "no_touch",
         "freeze_animations",
         "stats",
+        "show_media",
     ):
         # Accept the string forms a hand-written JSON file may carry.
         value = panel.get(key)
