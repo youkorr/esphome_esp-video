@@ -15,7 +15,7 @@ It also checks the two things about the image that a Python test cannot see:
 that every local module run.py imports is actually copied into it, and that
 the version in config.yaml matches the Dockerfile's ARG BUNDLE.
 
-    python3 tools/checkaddon.py usb_display_panel/config.yaml
+    python3 tools/checkaddon.py portall/config.yaml
 """
 import ast
 import pathlib
@@ -151,7 +151,7 @@ def check_image(folder):
 
 
 if __name__ == "__main__":
-    files = sys.argv[1:] or ["usb_display_panel/config.yaml"]
+    files = sys.argv[1:] or ["portall/config.yaml"]
     bad = sum(check(f) for f in files)
     bad += sum(check_image(pathlib.Path(f).parent) for f in files)
     sys.exit(bad)

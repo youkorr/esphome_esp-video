@@ -30,7 +30,7 @@ ceiling is the network rather than the CPU.
 ```
  Home Assistant box                                  ESP32-P4 panel
  ┌───────────────────────────────┐                   ┌──────────────────────┐
- │ add-on (usb_display_panel/)   │                   │ usb_display component│
+ │ add-on (portall/)             │                   │ usb_display component│
  │  run.py  supervises one       │  TCP :5000        │  feed_()   parse     │
  │          ha_send.py per panel │ ────────────────▶ │  decode    HW JPEG   │
  │                               │   JPEG rectangles │  PPA       rotate    │
@@ -48,7 +48,7 @@ ceiling is the network rather than the CPU.
    the picture arrives over Wi-Fi.
 2. **The sender** — `components/portall/ha_send.py`. Runs anywhere with
    Python + Playwright.
-3. **The add-on** — `usb_display_panel/`, so the sender starts with the house
+3. **The add-on** — `portall/`, so the sender starts with the house
    and needs no PC. `run.py` supervises one `ha_send.py` per panel.
 
 ## The wire protocol (udisp, Espressif's)
@@ -88,7 +88,7 @@ components/portall/
   ha_send.py         THE Home Assistant sender (screencast, diff, touch, calib)
 components/usb_display/  the old name, kept as a stub that refuses and says
                      exactly what to change
-usb_display_panel/   Home Assistant add-on wrapping ha_send.py
+portall/             Home Assistant add-on wrapping ha_send.py
 yaml/                validated example firmware configs (Waveshare, generic)
 ```
 
@@ -961,7 +961,7 @@ asks for a tap on each, and prints `--touch-rotate` / `--touch-mirror-x` /
 
 ## The add-on
 
-`usb_display_panel/` — `config.yaml`, `Dockerfile`, `run.py`, `README.md`,
+`portall/` — `config.yaml`, `Dockerfile`, `run.py`, `README.md`,
 `docker-compose.yml`, `esp32p4-panel.service`, `panels.example.json`, plus
 `repository.yaml` at the repo root.
 
@@ -1646,14 +1646,26 @@ gain is cosmetic and the risk is not:
   the TinyUSB descriptor component and its Kconfig symbols, consumed by C code
   that nothing here can compile. The name is still accurate there, and it is
   invisible to anybody writing YAML.
-- **The add-on's slug, `usb_display_panel`.** Home Assistant identifies an
-  add-on by its slug; changing it makes the Supervisor see a different add-on,
-  and every user loses their configuration and reinstalls. The name shown in
-  the store is a separate field, and it now says **Portall** -- which is the
-  whole of what could safely move. There is a comment above the slug saying
-  so, because that is exactly the line somebody tidying up would change next.
+- **`components/usb_display_tusb/` and every `CONFIG_USB_DISPLAY_*`** (above)
+  are still the only things that kept the old name.
 
-`usb_display_panel/icon.png` and `logo.png` are drawn by `tools/makeicon.py`
+**The add-on's slug DID move in the end, in 2.0.0, and the reasoning that kept
+it is worth keeping too.** It was `usb_display_panel`, and the argument against
+touching it was real: Home Assistant identifies an add-on by its slug, so
+moving it makes the Supervisor see a new add-on -- options are not carried
+over and `/data` starts empty, which costs every browser profile and every
+site signed into from a panel.
+
+What settled it was the user, who pointed out the name came from Espressif's
+`usb_display` and described nothing this project still does. The cost is paid
+once and is smaller today than it will ever be. So: slug `portall`, folder
+`portall/`, **major version 2.0.0** to say out loud that this is not a
+drop-in update, and four steps in the README -- of which the important one is
+that the Supervisor's own **Edit in YAML** turns "re-enter your configuration"
+into copy and paste. What cannot be copied is `/data`, and the README says so
+rather than letting it be discovered.
+
+`portall/icon.png` and `logo.png` are drawn by `tools/makeicon.py`
 rather than kept as binaries nobody can edit: a picture in a repository that
 cannot be regenerated is one nobody dares touch. The mark is a doorway inside
 a screen, which is the whole of what this project does, and it was checked at

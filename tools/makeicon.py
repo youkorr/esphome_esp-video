@@ -17,7 +17,7 @@ import sys
 
 from PIL import Image, ImageDraw, ImageFont
 
-HERE = pathlib.Path(__file__).resolve().parent.parent / "usb_display_panel"
+HERE = pathlib.Path(__file__).resolve().parent.parent / "portall"
 # Drawn four times over and shrunk, which is the cheapest antialiasing there
 # is and the only one that keeps a thin arch clean at this size.
 SCALE = 4

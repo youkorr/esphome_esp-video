@@ -14,9 +14,9 @@ import sys
 HERE = pathlib.Path(__file__).resolve().parent.parent
 # The launcher imports its logos the way it will inside the add-on's image,
 # where both sit in the same directory.
-sys.path.insert(0, str(HERE / "usb_display_panel"))
+sys.path.insert(0, str(HERE / "portall"))
 spec = importlib.util.spec_from_file_location(
-    "launcher", HERE / "usb_display_panel" / "launcher.py")
+    "launcher", HERE / "portall" / "launcher.py")
 launcher = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(launcher)
 

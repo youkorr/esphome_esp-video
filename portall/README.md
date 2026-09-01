@@ -23,6 +23,37 @@ it prints the `touch_rotate` and mirror values to use, and no two panels agree:
     python ha_send.py --calibrate --host ip esp32P4 --port 5000 \
         --width 1024 --height 600 --rotate 180
 
+## Moving from the old add-on
+
+This used to be called **ESP32-P4 Panel**, with the slug `usb_display_panel` --
+a name inherited from Espressif's `usb_display`, which stopped describing
+anything the day the picture started arriving over Wi-Fi. It is **Portall** now,
+and the slug moved with it.
+
+Home Assistant identifies an add-on by its slug, so the Supervisor sees a new
+add-on rather than an update. Nothing migrates by itself, and this is the whole
+of what to do:
+
+1. Open the old add-on, **Configuration**, and the three-dot menu > **Edit in
+   YAML**. Select all of it and copy.
+2. Install **Portall** from the same repository, open its Configuration, switch
+   the same way to YAML, and paste. Nothing in the options changed, so it goes
+   in as it came out.
+3. Start Portall and watch its log: `Ready ...s after starting` and
+   `Connected to <your panel>` mean it is serving.
+4. Stop and uninstall the old add-on. Not before -- two senders pointed at the
+   same panel fight over it.
+
+Two things do not come across, and neither is recoverable by copying:
+
+- **The browser profiles.** They live in the old add-on's own `/data`, so
+  anything signed into from a panel -- Jellyfin, YouTube, a router page -- has
+  to be signed into once more. The house's Home Assistant token is in the
+  options and comes across with them.
+- **Nothing else.** The panels' firmware is untouched; the ESPHome component
+  has been called `portall` for a while and does not change here. You do not
+  need to reflash anything.
+
 ## As a Home Assistant add-on
 
 Settings -> Add-ons -> Add-on store -> the three dots -> Repositories, and add:
