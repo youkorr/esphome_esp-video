@@ -960,6 +960,27 @@ field name and both enumerators are taken from working code in
 `youkorr/lvgl_9.5`, not from memory, so they exist on this IDF — but the change
 itself has only been schema-checked.
 
+**Free PSRAM standing still is what a working panel looks like, and it was
+read as the opposite.** Reported as *"la psram n'est pas sollicitee meme quant
+je lance une video"* -- and it is the natural reading of a log, because the
+figure a log prints is how much is *free*. Nothing this component does allocates
+while it runs: the decoder's RGB565 output, the accelerator's rotation buffer
+and the frame buffers are taken once in `setup()` and written over for every
+picture, which is precisely the design. A number that moved during a video
+would mean allocation on the frame path, which is the fault, not the health.
+
+So `dump_config()` says how much was taken as well as how much is free, and the
+figure is **measured across `setup()`** rather than added up from the sizes
+above it -- two of the allocations are not that file's to size, since
+`jpeg_alloc_decoder_mem()` rounds to cache lines and reports its own total, and
+the speaker's block buffer belongs to `audio.cpp`. On the Guition at 800x1280
+with no rotation it is about 2.5 MiB: 2000 KiB of decode output and four frame
+buffers of 128 KiB. A rotated or scaled panel pays another panel-sized buffer.
+
+Only `heap_caps_get_free_size(MALLOC_CAP_SPIRAM)` is called, out of a header
+`portall.cpp` already includes -- the `get_use_address()` rule again.
+**Not compiled.**
+
 **`dump_config()` opened with "USB Extended Display" and mentioned the network
 as an afterthought** -- literally `Also listening on TCP port 5000` -- on
 panels where the network is the whole point and the USB socket carries nothing
