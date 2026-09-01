@@ -1665,6 +1665,16 @@ that the Supervisor's own **Edit in YAML** turns "re-enter your configuration"
 into copy and paste. What cannot be copied is `/data`, and the README says so
 rather than letting it be discovered.
 
+**Home Assistant never shows `README.md`, and that is how the add-on shipped
+with an empty Documentation tab.** The Supervisor reads **`DOCS.md`** for that
+tab and **`CHANGELOG.md`** for the other one; a README is for whoever is
+reading the repository on GitHub. It was reported from the store, with a
+perfectly good README sitting in the folder that nobody could reach from the
+panel they had just installed. `DOCS.md` is the documentation now, `README.md`
+is a short page pointing at it, and `tools/checkaddon.py` fails without either
+of them -- along with `icon.png` and `logo.png`, which are the other two files
+the store reads and silently does without.
+
 `portall/icon.png` and `logo.png` are drawn by `tools/makeicon.py`
 rather than kept as binaries nobody can edit: a picture in a repository that
 cannot be regenerated is one nobody dares touch. The mark is a doorway inside

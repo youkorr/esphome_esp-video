@@ -130,6 +130,18 @@ def check_image(folder):
             f"will die on ModuleNotFoundError before serving a panel"
         )
 
+    # What the Supervisor shows, and what it will not show. The Documentation
+    # tab reads DOCS.md; a README.md is for whoever is reading the repository
+    # on GitHub and is never displayed in Home Assistant -- which is how this
+    # add-on shipped with an empty Documentation tab and a perfectly good
+    # README nobody could see from the panel they had just installed.
+    for name, why in (("DOCS.md", "the Documentation tab is empty without it"),
+                      ("CHANGELOG.md", "the Changelog tab is empty without it"),
+                      ("icon.png", "the store shows a blank square without it"),
+                      ("logo.png", "the add-on's page has no header without it")):
+        if not (folder / name).exists():
+            faults.append(f"no {name} -- {why}")
+
     config = folder / "config.yaml"
     if config.exists():
         version = str(yaml.safe_load(config.read_text()).get("version"))
