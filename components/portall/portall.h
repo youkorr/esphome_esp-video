@@ -264,6 +264,12 @@ class Portall : public Component
   uint16_t drawing_frame_id_{0xFFFF};
   uint16_t gated_frame_id_{0xFFFF};
   uint16_t port_{0};
+  /* Whether a sender has ever connected. Written by the network task and read
+   * by the loop, which is why it is volatile: it is a one-way latch and no
+   * decision hangs on catching it the same millisecond. It exists so the
+   * "nothing has claimed this device" line below can tell an unfed panel from
+   * one that is simply being fed the other way. */
+  volatile bool net_client_seen_{false};
 #ifdef USE_TOUCHSCREEN
   // Touches travel back to whoever is sending the picture, so a dashboard
   // rendered elsewhere can be pressed here. The touchscreen reports on

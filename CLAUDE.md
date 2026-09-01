@@ -945,6 +945,22 @@ field name and both enumerators are taken from working code in
 `youkorr/lvgl_9.5`, not from memory, so they exist on this IDF — but the change
 itself has only been schema-checked.
 
+**"The host has not configured this device" warned at panels that were
+working.** These are powered over USB-C, so a panel fed by Wi-Fi is nearly
+always plugged into a charger -- and a cable carrying nothing but power looks
+to TinyUSB exactly like a host with no driver. The line fired on every boot,
+at full warning level, on a panel showing a dashboard perfectly.
+
+The question it asks is now whether **anything** is feeding the panel:
+`configured_ || net_client_seen_`, the second a one-way latch set where a
+sender is accepted. With a sender connected it says nothing at all. With
+`port:` set and nothing arriving it is an *info* line naming both halves and
+saying the USB side is expected to be silent on a power-only cable; with no
+`port:` at all it stays the warning it was, because there an unclaimed device
+really is the fault. The patience differs too -- 30 seconds for a network
+panel against 10 -- because what feeds it starts with the house: Wi-Fi, then
+Home Assistant, then the add-on, then a browser.
+
 ## Calibration — run it once per board, always
 
 ```

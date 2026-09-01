@@ -197,6 +197,7 @@ void Portall::run_network_task() {
       char peer_text[16] = {};
       ::inet_ntoa_r(peer.sin_addr, peer_text, sizeof(peer_text));
       ESP_LOGI(TAG, "Sender connected from %s", peer_text);
+      this->net_client_seen_ = true;
 
 #ifdef USE_TOUCHSCREEN
       if (this->touch_queue_ != nullptr)

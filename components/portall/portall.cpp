@@ -26,6 +26,11 @@ static constexpr uint32_t STATS_INTERVAL_MS = 5000;
 // Long enough for a host to enumerate, load a driver and start it, short enough
 // to be in the same screenful of log as the startup lines.
 static constexpr uint32_t UNCLAIMED_WARNING_MS = 10000;
+// Longer for a panel fed over the network, because the thing that feeds it
+// starts with the house: Wi-Fi has to come up, then Home Assistant, then the
+// add-on, then a browser. Ten seconds would say "nothing is feeding this
+// panel" to somebody whose panel is about to light up perfectly.
+static constexpr uint32_t UNFED_INFO_MS = 30000;
 // How far the frame rate has to move before it is worth another line.
 static constexpr float STATS_FPS_EPSILON = 1.0f;
 // Silence longer than this is the host having stopped, not a gap between
@@ -770,12 +775,29 @@ void Portall::loop() {
   // only evidence is a line that is missing from the log. Say it instead --
   // "nothing claimed this device" is a completely different problem from
   // "claimed, but no picture arrives", and they look identical otherwise.
-  if (!this->configured_ && !this->logged_unclaimed_ && millis() - this->started_ms_ > UNCLAIMED_WARNING_MS) {
+  //
+  // But only when it is a problem. A panel fed over the network is usually
+  // plugged into a charger, and a cable carrying nothing but power looks
+  // exactly like a host with no driver: this warned, every boot, at a panel
+  // that was working perfectly. So the question asked here is whether
+  // ANYTHING is feeding this panel, and the wording follows what was
+  // configured.
+  const bool fed = this->configured_ || this->net_client_seen_;
+  const uint32_t patience = this->port_ != 0 ? UNFED_INFO_MS : UNCLAIMED_WARNING_MS;
+  if (!fed && !this->logged_unclaimed_ && millis() - this->started_ms_ > patience) {
     this->logged_unclaimed_ = true;
-    ESP_LOGW(TAG,
-             "USB: the host has not configured this device. It read the descriptors and stopped, which is what a host "
-             "does when no driver claims the device -- check that one is bound to %04X:%04X.",
-             (unsigned) CONFIG_USB_DISPLAY_VID, (unsigned) CONFIG_USB_DISPLAY_PID);
+    if (this->port_ != 0) {
+      ESP_LOGI(TAG,
+               "Nothing is feeding this panel yet: no sender has connected on port %u, and no USB host has claimed "
+               "%04X:%04X either. If the picture comes over the network, check the add-on is running and that its "
+               "host: is this board -- the USB half is expected to be silent when the cable only carries power.",
+               (unsigned) this->port_, (unsigned) CONFIG_USB_DISPLAY_VID, (unsigned) CONFIG_USB_DISPLAY_PID);
+    } else {
+      ESP_LOGW(TAG,
+               "USB: the host has not configured this device. It read the descriptors and stopped, which is what a "
+               "host does when no driver claims the device -- check that one is bound to %04X:%04X.",
+               (unsigned) CONFIG_USB_DISPLAY_VID, (unsigned) CONFIG_USB_DISPLAY_PID);
+    }
   }
 }
 
