@@ -147,17 +147,33 @@ def check_image(folder):
     # to resolve a path against, so ![Portall](logo.png) -- which GitHub draws
     # perfectly -- arrives on the Documentation tab as a broken-picture icon.
     # Shipped exactly that way and reported from the store.
-    docs = folder / "DOCS.md"
-    if docs.exists():
-        relative = [
-            src for src in re.findall(r"!\[[^\]]*\]\(([^)]+)\)", docs.read_text())
+    # Both of them: DOCS.md is the Documentation tab and README.md is the INFO
+    # tab, which is the half that was got wrong twice -- a README is not only
+    # for GitHub here, it is the first thing anybody sees after installing.
+    for name, tab in (("DOCS.md", "Documentation"), ("README.md", "Info")):
+        page = folder / name
+        if not page.exists():
+            continue
+        text = page.read_text()
+        pictures = [
+            src for src in re.findall(r"!\[[^\]]*\]\(([^)]+)\)", text)
             if not src.startswith(("http://", "https://", "data:"))
         ]
-        if relative:
+        links = [
+            src for src in re.findall(r"(?<!!)\[[^\]]*\]\(([^)]+)\)", text)
+            if not src.startswith(("http://", "https://", "#", "mailto:"))
+        ]
+        if pictures:
             faults.append(
-                f"DOCS.md points at {', '.join(relative)} for a picture, and a "
-                f"relative path never resolves on the Documentation tab -- use "
-                f"a full https:// address or leave the picture to README.md"
+                f"{name} points at {', '.join(pictures)} for a picture, and a "
+                f"relative path never resolves on the {tab} tab -- use a full "
+                f"https:// address or drop the picture"
+            )
+        if links:
+            faults.append(
+                f"{name} links to {', '.join(links)}, which goes nowhere on the "
+                f"{tab} tab: the file is rendered with no base address. Name "
+                f"the tab in words instead"
             )
 
     config = folder / "config.yaml"

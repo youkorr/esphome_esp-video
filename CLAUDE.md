@@ -1665,7 +1665,12 @@ that the Supervisor's own **Edit in YAML** turns "re-enter your configuration"
 into copy and paste. What cannot be copied is `/data`, and the README says so
 rather than letting it be discovered.
 
-**And the very next thing that tab did was draw a broken picture.** `DOCS.md`
+**`url:` in `config.yaml` is where "Visit the Portall page for more details"
+comes from**, and it is gone. The only page to point at was the repository
+this add-on shares with an ESPHome component, which is not what somebody
+reading about a panel wants -- reported as exactly that, from the Info tab.
+
+**And the very next thing those tabs did was draw a broken picture.** `DOCS.md`
 opened with `![Portall](logo.png)`, which GitHub resolves and the Supervisor
 cannot: it hands the file to the frontend as text and renders it there, with no
 base address for a relative path. The logo already sits at the top of the
@@ -1673,10 +1678,15 @@ add-on's page as `logo.png`, so the picture belongs to `README.md`, which is
 the file GitHub shows. `tools/checkaddon.py` fails on any relative image in
 `DOCS.md` -- the fault was reproduced against the check before it was believed.
 
-**Home Assistant never shows `README.md`, and that is how the add-on shipped
-with an empty Documentation tab.** The Supervisor reads **`DOCS.md`** for that
-tab and **`CHANGELOG.md`** for the other one; a README is for whoever is
-reading the repository on GitHub. It was reported from the store, with a
+**Home Assistant shows BOTH files, on two different tabs, and getting that
+half-right is what cost three releases.** `DOCS.md` is the **Documentation**
+tab and `README.md` is the **Info** tab -- the first page anybody sees after
+installing. The first attempt had the documentation in `README.md` only, so
+the Documentation tab was empty; the second moved it and left `README.md` as
+"a page for GitHub", which is wrong twice over, because that page is rendered
+inside Home Assistant too and it kept both a relative image and a relative
+link to `DOCS.md`. Neither resolves: the Supervisor hands these files to the
+frontend as text, with no base address. `CHANGELOG.md` is the third tab. It was reported from the store, with a
 perfectly good README sitting in the folder that nobody could reach from the
 panel they had just installed. `DOCS.md` is the documentation now, `README.md`
 is a short page pointing at it, and `tools/checkaddon.py` fails without either

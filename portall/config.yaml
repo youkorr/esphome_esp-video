@@ -1,5 +1,5 @@
 name: Portall
-version: "2.0.2"
+version: "2.0.3"
 # Home Assistant identifies an add-on by its slug, so this one moving from
 # usb_display_panel to portall makes the Supervisor see a NEW add-on: options
 # are not carried over and /data starts empty, which means the browser
@@ -12,7 +12,11 @@ version: "2.0.2"
 # README for the four steps.
 slug: portall
 description: Home Assistant, and any web page, on an ESP32-P4 panel over Wi-Fi -- rendered here, sent as pictures, touched back
-url: https://github.com/youkorr/esphome_esp-video
+# No url:. The Supervisor turns it into "Visit the Portall page for more
+# details" on the Info tab, and the only page there is to point at is the
+# repository this add-on shares with an ESPHome component -- which is not what
+# somebody reading about a panel wants, and was reported as exactly that. The
+# Documentation tab is where the details are.
 arch:
   - amd64
   - aarch64
