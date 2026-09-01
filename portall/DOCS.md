@@ -110,6 +110,7 @@ Assistant dashboard to appear; without one it does neither.
 | `keyboard` | The on-screen keyboard's layout, or `off`. See below |
 | `blank_after` | Seconds dark before a sleeping panel's page is let go of. See below |
 | `keep_profile` | Keep the browser signed in between restarts. See below |
+| `user_agent` | What the browser says it is. Empty is right for nearly everything -- it is here for YouTube's television interface. See below |
 | `locale` | The language pages are asked for -- `fr-FR`, `de-DE`, `en-GB`. Not cosmetic: without it the browser sends no `Accept-Language` at all and every site serves its own default |
 | `stats` | Print what is being sent every five seconds |
 | `show_media` | While a video plays, print its playhead and how many seconds are buffered ahead of it. Off by default -- turn it on to diagnose a video that stops |
@@ -520,6 +521,53 @@ signed in.
 
 One directory per panel is not a choice: Chromium locks a profile, and a second
 browser pointed at the same one refuses to start.
+
+### Google, and YouTube subscriptions
+
+Ordinary sites sign in from the on-screen keyboard and stay signed in. **Google
+is the exception**: it refuses to sign a browser in when it can tell that
+browser is being driven by software, and that is a policy of theirs rather than
+a fault here. It is not something this add-on tries to defeat.
+
+Two things nevertheless help, and the first is free.
+
+**Use a browser that is not a cut-down one.** The add-on installs Google Chrome
+where there is a build for the machine, and the distribution's Chromium
+otherwise, and prefers either over the one Playwright downloads. The log says
+which it got:
+
+```
+Browser: running /usr/bin/google-chrome-stable
+```
+
+If that line is missing, the fallback now uses the **full** Chromium rather
+than the headless shell it used before. The difference is not cosmetic --
+measured on the same page with the same settings, the shell has no
+`window.chrome`, reports **0** browser plugins where a real Chrome reports 5,
+says its PDF viewer is disabled, and answers `denied` to a notification
+permission question a real browser answers `default`. Each of those is one line
+for a site to check. It costs about a tenth more processor and nothing at all
+in frame rate.
+
+**For YouTube, use its television interface.** This is the route that fits a
+panel, because it was designed for devices in exactly this position -- a
+screen, no keyboard, and an account to reach. You never type a password: the
+television shows a code and you enter it at `youtube.com/pair` on your phone.
+
+Point a link at `https://www.youtube.com/tv` and tell the browser it is a
+television:
+
+```yaml
+user_agent: "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) 85.0.4183.93/6.5 TV Safari/537.36"
+```
+
+`user_agent` is shared, so if only one panel is for watching, set it on that
+panel rather than at the top. With `keep_profile` on, the pairing is done once.
+
+**Not verified from where this was written** -- there is no route to YouTube or
+to any Google service from it. What *is* measured is everything above about the
+browsers themselves, and that a `user_agent` given here reaches the browser and
+is what the server receives.
 
 ## What a sleeping panel costs
 

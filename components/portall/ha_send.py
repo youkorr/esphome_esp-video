@@ -508,8 +508,51 @@ def _launch(playwright, executable, profile, view, browser_args,
             ignore_default_args=list(ignore), env=env,
         ).new_context(viewport=view, device_scale_factor=1, locale=locale)
 
-    if executable is None:
+    def playwrights_own():
+        """Playwright's own browser -- the FULL Chromium, not the shell.
+
+        launch() with no path picks the headless SHELL, which is a cut-down
+        build and looks like one. Measured against the full Chromium that the
+        same install already carries, same disguise applied, on a page served
+        over 127.0.0.1:
+
+                                 shell        full Chromium
+          window.chrome          undefined    object
+          chrome.loadTimes       no           yes
+          navigator.plugins      0            5
+          pdfViewerEnabled       false        true
+          Notification.permission  denied     default
+
+        Every one of those is something a real Chrome has and a site can ask
+        for in a line, and the shell is wrong on all five. It matters for
+        anybody trying to SIGN IN from a panel -- which is what an account,
+        and therefore a subscription, needs -- and that is the one thing a
+        cut-down browser is most likely to be refused for.
+
+        It costs about a tenth more processor for the same work and nothing at
+        all in frame rate: measured on a page painting continuously through a
+        screencast, 59.6 frames a second against 59.1, 8.0s of CPU against
+        8.8s over the same twelve seconds.
+
+        executable_path names the full one; launch() without it does not use
+        it. Wrapped at every step, because this is a preference and a panel
+        must never go dark over one.
+        """
+        try:
+            full = playwright.chromium.executable_path
+        except Exception:  # noqa: BLE001 - older Playwright, or no registry
+            full = None
+        if full and os.path.exists(full):
+            try:
+                return start(full)
+            except Exception as err:  # noqa: BLE001 - fall back and say so
+                why = " ".join(str(err).split())[:160]
+                print(f"Browser: the full Chromium would not start ({why}), "
+                      f"using the headless shell")
         return start(None)
+
+    if executable is None:
+        return playwrights_own()
     try:
         return start(executable)
     except Exception as err:  # noqa: BLE001 - anything at all means fall back
@@ -518,7 +561,7 @@ def _launch(playwright, executable, profile, view, browser_args,
         why = " ".join(str(err).split())[:160]
         print(f"Browser: {executable} would not start ({why}), "
               f"using Playwright's own")
-        return start(None)
+        return playwrights_own()
 
 
 def watch_failed_requests(context, limit=12):

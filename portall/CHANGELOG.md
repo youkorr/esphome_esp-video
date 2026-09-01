@@ -15,6 +15,19 @@
   which no real browser produces. So every site served its own default language
   whatever the household speaks. Set it to `fr-FR` and YouTube, Jellyfin and
   the rest come up in French.
+- **`user_agent`**, and a better browser when the installed one is missing --
+  both for people trying to reach an account from a panel, which is where
+  subscriptions live. Google refuses to sign a browser in when it can tell it
+  is driven, so the answer for YouTube is its **television interface**, made
+  for devices with a screen and no keyboard: you enter a code on your phone
+  instead of a password. See **Google, and YouTube subscriptions** in the
+  documentation.
+- The fallback browser is now the **full Chromium** rather than the headless
+  shell. Measured on the same page: the shell has no `window.chrome`, reports
+  0 plugins where a real Chrome reports 5, says its PDF viewer is off, and
+  answers `denied` where a real browser answers `default`. Costs a tenth more
+  processor and nothing in frame rate. It is also taken when an installed
+  browser exists but will not start, which the previous code did not do.
 
 ## 2.0.0
 

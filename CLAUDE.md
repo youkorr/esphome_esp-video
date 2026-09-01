@@ -617,6 +617,63 @@ reproduced against the check before the check was believed, and it caught one
 legitimate exception on its first run: `keep_profile` reaches the sender as
 `--profile <dir>` or not at all, never under its own name.
 
+**Users want to sign in, because that is where subscriptions live -- and the
+answer is the television interface, not a better disguise.** Raised as *"j'ai
+des utilisateurs qu'il veulent s'identifier a cause de leurs abonnements"*,
+which is a stronger case than it first looks: a Premium account also removes
+the advertisement, and the advertisement is the one cause of a stopping video
+that survived the DNS fix.
+
+Three routes were measured rather than argued about, same probe, same page
+served over 127.0.0.1:
+
+| | headless shell (shipped) | full Chromium | plain process, attached over CDP |
+|---|---|---|---|
+| `window.chrome` | undefined | **object** | object |
+| `chrome.loadTimes` | no | **yes** | yes |
+| `navigator.plugins` | 0 | **5** | 5 |
+| `pdfViewerEnabled` | false | **true** | true |
+| `Notification.permission` | denied | **default** | default |
+| user agent, `sec-ch-ua`, `webdriver` | disguised | disguised | **not disguised** |
+
+The third route -- launching the browser as an ordinary process with
+`--remote-debugging-port` and attaching with `connect_over_cdp` -- was the
+architecturally interesting one and it buys **nothing**: it lands in the same
+place as simply using the full build, while losing the disguise the sender
+applies through its CDP session. Dropped.
+
+The second is nearly free: **59.6 frames a second against 59.1, 8.0s of CPU
+against 8.8s** over the same twelve seconds of a page painting continuously
+through a screencast. So `_launch` now reaches for
+`playwright.chromium.executable_path` -- which names the FULL Chromium; plain
+`launch()` does not use it -- and falls back to the shell only if that will
+not start.
+
+**Both fallback paths had to be fixed, not one.** The first attempt only
+covered `executable is None`, so the case that actually happens -- a system
+browser that exists and will not run, which is Ubuntu's snap wrapper and is
+already documented above -- still landed on the shell. Caught by running it:
+the log said `would not start ... using Playwright's own` and the probe still
+read `window.chrome: undefined`. Proved afterwards with a stub browser type
+that only records which executable it was handed, over all four cases: nothing
+asked for, a system browser that works, one that fails, and the full Chromium
+itself refusing.
+
+**What is NOT done is forging the rest.** `window.chrome` and a plugin list can
+be synthesised and this does not do it: that is anti-detection work, nobody
+asked for it, and the project has already paid three times for changes nobody
+asked for. What is done instead is offering the route that fits the device --
+`user_agent` is now an add-on option so a panel can ask for **YouTube's
+television interface**, where a code typed on a phone replaces a password
+entirely. Not verified: there is no route to any Google service from here. What
+is verified is that the option reaches the browser and that the string given is
+what a server receives.
+
+**A measurement of the browser cost read 0.2 frames a second at first**, which
+is nonsense, and the cause is a lesson this repository already contains:
+`Page.screencastFrameAck` was being sent from inside the frame handler. Acks go
+from the loop. The corrected run reads 59.6.
+
 **A profile on disk is what makes signing in worth doing.** Without
 `--profile` the browser is launched into a directory it throws away, so every
 restart is a first visit: a site signed into is signed out, and a consent
