@@ -138,14 +138,15 @@ launcher_columns: 0           # 0 lets the panel decide
 links:
   - name: Home Assistant
     url: http://homeassistant:8123/lovelace/0
-    icon: "\U0001F3E0"
+    icon: home-assistant
     group: Maison
     description: Salon, lumieres, volets
   - name: Jellyfin
     url: http://192.168.1.20:8096
-    icon: "\U0001F3AC"
+    icon: jellyfin
     group: Media
     description: Films et series
+    quality: 40                 # a film needs far fewer bytes than text
 panels:
   - name: salon
     host: 192.168.1.11
@@ -153,6 +154,22 @@ panels:
     width: 800
     height: 1280
 ```
+
+**`quality` on a link is the cheapest saving here.** A film wants far fewer
+bytes than a dashboard and does not show the difference, so it is said on the
+link rather than on the panel: the panel does not know what it is showing, and
+the link does. It applies while that page is open and the panel's own quality
+comes back everywhere else. Measured end to end -- the same moving page, opened
+from the same launcher, read off the socket by a fake panel:
+
+| | per picture | on the wire |
+|---|---|---|
+| the panel's quality, 80 | 53.9 KiB | 971 KiB/s |
+| the link says `quality: 40` | **34.2 KiB** | **616 KiB/s** |
+
+It matches on the start of the address, because a site is not one address:
+YouTube walks from its search page to `/watch?v=...` without becoming a
+different place. Leave it out and nothing changes.
 
 `icon` takes a **name from the list below, in French or in English** --
 `cuisine` or `kitchen`, `serrure` or `lock`, `reglages` or `settings` -- or

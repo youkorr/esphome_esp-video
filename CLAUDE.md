@@ -1339,6 +1339,23 @@ name beside it. Anything past two characters is set smaller and clipped now --
 measured on what is *drawn*, so a name from the list counts as the one glyph
 it becomes.
 
+**A quality per LINK, and the reasoning behind it is the user's.** Asked for
+in those words -- *"j'aurais preferer que dans les link ont puisse choisir la
+qualite c'est plus simple a gerer"* -- after `render_width:` was offered and
+refused. It is the better idea: a panel does not know whether it is showing a
+film, and a link does.
+
+`--page-quality PREFIX=QUALITY`, repeatable, first match wins, matched on the
+start of the address because a site is not one address. Looked up once per
+picture rather than per rectangle and only when any was configured; `page.url`
+is local to Playwright rather than a round trip. `run.py` builds the list from
+the `links:` carrying a `quality:` and hands every panel the same one -- the
+links are the house's, and a panel that never opens one is unaffected.
+
+Measured end to end through the launcher, the tile tapped by a fake panel and
+the bytes read off the socket: **53.9 KiB a picture at the panel's 80 against
+34.2 KiB when the link says 40**, 971 KiB/s against 616.
+
 **The look is Homepage's, and its vocabulary is kept on purpose.** The ask was
 *"thème et fond d'écran et disposition des link comme HomePage"*, so
 `gethomepage.dev`'s own settings were read rather than invented: `theme` of
