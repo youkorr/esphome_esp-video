@@ -1016,6 +1016,32 @@ really is the fault. The patience differs too -- 30 seconds for a network
 panel against 10 -- because what feeds it starts with the house: Wi-Fi, then
 Home Assistant, then the add-on, then a browser.
 
+**The stall is Espressif's own open bug, and it has a number.**
+`H_SDIO_DRV: task still writing Rx data to queue!` comes from
+`sdio_drv.c`, and the line under it is `sdio_rx_free_buffer(rxbuff)` -- the
+received packet is **discarded**, below TCP, so TCP retransmits and backs off.
+That is the whole of a panel freezing for ten seconds and then racing.
+
+espressif/esp-hosted-mcu **issue #184 (EHM-206)**, "ESP32-P4 + C6 SDIO: Inbound
+TCP transfer stalls", is the same fault reported against their own code: a
+sustained INBOUND bulk transfer stalls, outbound is fine. Open, no fix, and the
+workaround offered is "pace inbound reads" -- which is precisely what portall
+cannot do, since a panel is a sustained inbound stream by definition.
+
+What their documentation and Kconfig offer, with the defaults ESPHome leaves in
+place:
+
+| option | default | note |
+|---|---|---|
+| `ESP_HOSTED_SDIO_RX_OPTIMIZATION` | **streaming mode** | the path that prints the error; `..._RX_NONE` or `..._RX_MAX_SIZE` are the alternatives |
+| `ESP_HOSTED_SDIO_RX_Q_SIZE` / `TX_Q_SIZE` | 20 | 64 is suggested in their own issue threads |
+| `ESP_HOSTED_SDIO_CLOCK_FREQ_KHZ` | 40000 | **already the ceiling for a P4 host** -- their help text says so, so 50 MHz is not an option here |
+| `esp32_hosted: use_psram:` | ESPHome's own | true puts the Rx mempool in PSRAM, the memory the JPEG decoder and the display controller are already fighting over |
+
+None of this is measured here -- there is no board and no toolchain -- and all
+of it is one line in a user's YAML, which is where it belongs until a
+measurement says otherwise.
+
 ## Calibration — run it once per board, always
 
 ```
