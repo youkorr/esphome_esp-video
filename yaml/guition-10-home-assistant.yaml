@@ -61,6 +61,15 @@ ota:
 wifi:
   ssid: !secret wifi_ssid
   password: !secret wifi_password
+  # Pas d'economie d'energie radio sur un panneau qui recoit un flux.
+  #
+  # esphome met power_save_mode: light par defaut sur ESP32, et c'est le bon
+  # choix pour un capteur qui parle une fois par minute: la radio dort entre
+  # deux balises. Ici elle recoit vingt-quatre images par seconde, et une radio
+  # qui dort ajoute de la latence, laisse le point d'acces mettre en tampon, et
+  # rend les rafales fragiles. Le cout est quelques dizaines de milliamperes sur
+  # un ecran deja alimente par un cable.
+  power_save_mode: none
   ap:
     # Pas ${name} : le nom de l'appareil suivi de " Fallback Hotspot" depasse
     # les 32 caracteres qu'un SSID autorise, et esphome refuse la configuration.

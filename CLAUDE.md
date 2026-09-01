@@ -1125,6 +1125,20 @@ Three boards, all confirmed working: **Waveshare ESP32-P4-WIFI6-Touch-LCD-7B**
 - with a camera in the dashboard: 14.2 pictures/s, 1141 KiB/s
 - 0 dropped frames on the board
 
+**`power_save_mode: none` on a panel, because ESPHome's default is `light`
+and nothing here had said otherwise.** A panel receiving twenty-four pictures a
+second is not a sensor that speaks once a minute: a radio that sleeps between
+beacons adds latency, lets the access point buffer, and makes a burst fragile.
+It costs a few tens of milliamps on a screen already fed by a cable.
+
+Added to both Home Assistant examples after a panel showed **`panel wait 100%`
+for two consecutive five-second windows with `made/s` at 0.0** -- the socket
+taking nothing at all for ten seconds, then draining at 1615 KiB/s and
+returning to normal. That shape is not the sender: it made nothing because the
+acknowledgement is the flow control and the writer never came back. Whether it
+is the radio or the board's own decode is what the BOARD's log says, and that
+is the half to ask for next time.
+
 **Presence is the other half of `--blank-after`, and the board's own YAML is
 where it lives.** Parking the page costs about three seconds on wake; a
 presence sensor spends them while somebody is still crossing the room, so
