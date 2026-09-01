@@ -1,7 +1,5 @@
 # Portall
 
-![Portall](logo.png)
-
 Renders Home Assistant dashboards onto ESPHome `portall` panels over the
 network, and replays the panels' touches back into them. It exists so the
 panels do not depend on a desktop being switched on: this runs on the machine

@@ -142,6 +142,24 @@ def check_image(folder):
         if not (folder / name).exists():
             faults.append(f"no {name} -- {why}")
 
+    # A relative image in DOCS.md is a broken image. The Supervisor hands that
+    # file to the frontend as text and renders it there, with no base address
+    # to resolve a path against, so ![Portall](logo.png) -- which GitHub draws
+    # perfectly -- arrives on the Documentation tab as a broken-picture icon.
+    # Shipped exactly that way and reported from the store.
+    docs = folder / "DOCS.md"
+    if docs.exists():
+        relative = [
+            src for src in re.findall(r"!\[[^\]]*\]\(([^)]+)\)", docs.read_text())
+            if not src.startswith(("http://", "https://", "data:"))
+        ]
+        if relative:
+            faults.append(
+                f"DOCS.md points at {', '.join(relative)} for a picture, and a "
+                f"relative path never resolves on the Documentation tab -- use "
+                f"a full https:// address or leave the picture to README.md"
+            )
+
     config = folder / "config.yaml"
     if config.exists():
         version = str(yaml.safe_load(config.read_text()).get("version"))

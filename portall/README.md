@@ -1,5 +1,7 @@
 # Portall
 
+![Portall](logo.png)
+
 Home Assistant, and any web page, on an ESP32-P4 panel over Wi-Fi. The page is
 rendered on the machine that is already on all the time, sent to the panel as
 JPEG rectangles, and the panel's touches are replayed back into it.

@@ -1665,6 +1665,14 @@ that the Supervisor's own **Edit in YAML** turns "re-enter your configuration"
 into copy and paste. What cannot be copied is `/data`, and the README says so
 rather than letting it be discovered.
 
+**And the very next thing that tab did was draw a broken picture.** `DOCS.md`
+opened with `![Portall](logo.png)`, which GitHub resolves and the Supervisor
+cannot: it hands the file to the frontend as text and renders it there, with no
+base address for a relative path. The logo already sits at the top of the
+add-on's page as `logo.png`, so the picture belongs to `README.md`, which is
+the file GitHub shows. `tools/checkaddon.py` fails on any relative image in
+`DOCS.md` -- the fault was reproduced against the check before it was believed.
+
 **Home Assistant never shows `README.md`, and that is how the add-on shipped
 with an empty Documentation tab.** The Supervisor reads **`DOCS.md`** for that
 tab and **`CHANGELOG.md`** for the other one; a README is for whoever is
