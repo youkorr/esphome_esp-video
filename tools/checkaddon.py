@@ -20,6 +20,7 @@ the version in config.yaml matches the Dockerfile's ARG BUNDLE.
 import ast
 import pathlib
 import re
+import subprocess
 import sys
 
 import yaml
@@ -93,13 +94,13 @@ def check_image(folder):
     entry = folder / "run.py"
     if not dockerfile.exists() or not entry.exists():
         return 0
-    text = dockerfile.read_text()
+    docker_text = dockerfile.read_text()
     faults = []
 
     # What lands in the image, whether copied from the build context or
     # fetched over the network.
     shipped = set()
-    for line in text.splitlines():
+    for line in docker_text.splitlines():
         words = line.split()
         if words and words[0].upper() in ("COPY", "ADD") and len(words) >= 3:
             shipped.update(pathlib.PurePosixPath(w).name for w in words[1:-1])
@@ -179,7 +180,11 @@ def check_image(folder):
     config = folder / "config.yaml"
     if config.exists():
         version = str(yaml.safe_load(config.read_text()).get("version"))
-        bundle = re.search(r"^ARG BUNDLE=(\S+)", text, re.M)
+        # docker_text and not text: a loop above reads DOCS.md and README.md
+        # into a variable called text, and for several releases this line
+        # searched a README for ARG BUNDLE, found nothing, and passed in
+        # silence -- so the one check meant to stop a stale image never ran.
+        bundle = re.search(r"^ARG BUNDLE=(\S+)", docker_text, re.M)
         if bundle and bundle.group(1) != version:
             faults.append(
                 f"config.yaml is {version} and ARG BUNDLE is "
@@ -256,9 +261,86 @@ def check_reaches_sender(folder):
     return 0
 
 
+def check_version_moved(folder):
+    """Has anything the image ships changed since the version last moved?
+
+    The fault this exists for reached a user, who asked the only question that
+    could have found it: "il ya pas de mise a de addon?" -- there was no
+    update offered, because the version had been bumped and then more work had
+    been done on top of it. Home Assistant offers an update when the version
+    in config.yaml is newer than the installed one, so work that lands after a
+    bump is invisible until the NEXT bump. Nothing compared the two: the check
+    above only holds config.yaml and ARG BUNDLE against each other, and they
+    agreed perfectly while shipping nothing.
+
+    Asked of git, because that is the only thing that knows when the version
+    last changed. Outside a repository it says so and passes -- a check that
+    cannot run is not a failure.
+    """
+    folder = pathlib.Path(folder)
+    doc = yaml.safe_load((folder / "config.yaml").read_text())
+    version = str(doc.get("version", ""))
+    root = folder.parent
+
+    def git(*args):
+        try:
+            out = subprocess.run(("git",) + args, cwd=root, text=True,
+                                 capture_output=True, timeout=30)
+        except (OSError, subprocess.SubprocessError):
+            return None
+        return out.stdout.strip() if out.returncode == 0 else None
+
+    if git("rev-parse", "--git-dir") is None:
+        print(f"  --     {folder}/config.yaml  (not a git checkout, version "
+              f"{version} not checked against what changed)")
+        return 0
+    # Walked rather than searched. `git log -S<string>` matches the commit that
+    # REMOVED a string as readily as the one that added it, so asking for the
+    # current version found the NEXT bump when there was one and reported that
+    # nothing had changed since -- a check that passed on exactly the state it
+    # was written to catch.
+    rel = f"{folder.name}/config.yaml"
+    bump = None
+    for commit in (git("log", "--format=%H", "--", rel) or "").splitlines():
+        blob = git("show", f"{commit}:{rel}")
+        if blob is None:
+            break
+        found = re.search(r'^version:\s*"?([^"\s]+)"?', blob, re.M)
+        if found and found.group(1) == version:
+            bump = commit          # keep walking back for the FIRST one
+        else:
+            break                  # the version changed here, so stop
+    if not bump:
+        print(f"  --     {folder}/config.yaml  (version {version} is not "
+              f"committed yet, so there is nothing to compare)")
+        return 0
+
+    # What the image actually carries: everything COPY'd, the senders ADD'd by
+    # URL, and config.yaml itself.
+    shipped = [str(folder), "components/portall/ha_send.py",
+               "components/portall/udisp_send.py"]
+    after = git("log", "--format=%h %s", f"{bump}..HEAD", "--", *shipped)
+    changed = [l for l in (after or "").splitlines() if l.strip()]
+    # The bump commit itself usually carries a CHANGELOG entry and nothing
+    # else needs to follow it; what matters is work landing AFTER it.
+    if changed:
+        print(f"  ECHEC  {folder}/config.yaml")
+        print(f"         version is still {version}, but {len(changed)} "
+              f"commit(s) have changed what the image ships since it moved:")
+        for line in changed[:6]:
+            print(f"           {line}")
+        print(f"         Home Assistant offers an update on the version alone, "
+              f"so none of this reaches a panel until it is bumped.")
+        return 1
+    print(f"  ok     {folder}/config.yaml  (version {version} is newer than "
+          f"everything the image ships)")
+    return 0
+
+
 if __name__ == "__main__":
     files = sys.argv[1:] or ["portall/config.yaml"]
     bad = sum(check(f) for f in files)
     bad += sum(check_image(pathlib.Path(f).parent) for f in files)
     bad += sum(check_reaches_sender(pathlib.Path(f).parent) for f in files)
+    bad += sum(check_version_moved(pathlib.Path(f).parent) for f in files)
     sys.exit(bad)

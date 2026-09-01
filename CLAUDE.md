@@ -1402,6 +1402,34 @@ everything — at the cost of the browser download on each update.
 `present_browser()` prints the Chromium version at startup and warns below 114,
 so this is never diagnosed by guesswork again. Currently **1.65.0**.
 
+**A bump is only half the trap: work that lands AFTER one is invisible too.**
+Asked from the store as *"il ya pas de mise a de addon?"* -- there was no
+update offered, because the version had gone to 2.2.1 and the user agent per
+link was then built on top of it. Home Assistant offers an update on the
+version in `config.yaml` alone, so three commits' worth of work reached the
+repository and no panel.
+
+`tools/checkaddon.py` now asks git when the version last moved and whether
+anything the image carries has changed since -- the add-on folder, and the
+senders the Dockerfile fetches by URL. Reproduced against the user's exact
+state, in a worktree checked out at that commit, where it names the three.
+
+**Two version checks were found doing nothing at all while writing it**, and
+both are the same shape of silent no-op this file keeps recording:
+
+- The config.yaml-versus-`ARG BUNDLE` pair searched a variable called `text`,
+  which the DOCS.md/README.md loop above it had reassigned. For several
+  releases it looked for `ARG BUNDLE` in a README, found nothing, and passed.
+  That is the one check meant to stop Docker reusing its cached layers.
+- The new staleness check first used `git log -S<version>`, which matches the
+  commit that REMOVED a string as readily as the one that added it. With a
+  later bump in history it found that one and concluded nothing had changed
+  since -- passing on precisely the state it was written to catch. It walks
+  the commits touching config.yaml now and stops where the version changed.
+
+Neither was visible from reading. Both were found by running the check against
+a state known to be broken, which is the only way this class ever surfaces.
+
 **And the image has to be told about every file, which is not the same as the
 repository having it.** `launcher.py` was written beside `run.py`, imported at
 the top of it, tested on its own and measured at three panel sizes -- and the
