@@ -98,6 +98,10 @@ options:
   # asks for it by saying it is one here and pointing a link at
   # https://www.youtube.com/tv.
   #
+  # It applies to EVERY page that panel shows, so a panel told to say it is a
+  # television says it to Home Assistant and to the launcher as well. Put it
+  # in the watching panel's own entry rather than here.
+  #
   # The client hints sent beside it follow the string given rather than the
   # browser underneath, so the two cannot contradict each other -- a Chrome
   # string gets matching brands, and a string that is not a Chrome at all gets

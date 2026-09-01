@@ -562,8 +562,14 @@ television:
 user_agent: "Mozilla/5.0 (X11; Linux armv7l) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/85.0.4183.93 Safari/537.36 CrKey/1.54.250320"
 ```
 
-`user_agent` is shared, so if only one panel is for watching, set it on that
-panel rather than at the top. With `keep_profile` on, the pairing is done once.
+**It applies to every page that panel shows**, which is the part to be careful
+about: a panel given a television's user agent tells Home Assistant and the
+launcher it is a television too. Set it **on the panel that does the
+watching**, in its own `panels:` entry, never at the top -- and if that panel
+also carries your dashboard, try it and look at the dashboard before deciding
+to keep it. Whether Home Assistant's frontend minds has not been tested here.
+
+With `keep_profile` on, which is the default, the pairing is done once.
 
 The client hints sent beside the string follow **it**, not the browser
 underneath: give a Chromecast string and the request carries
@@ -576,6 +582,18 @@ the loudest thing either of them could say.
 to any Google service from it. What *is* measured is everything above about the
 browsers themselves, and that a `user_agent` given here reaches the browser and
 is what the server receives.
+
+### Jellyfin, and anything with a code
+
+Jellyfin needs nothing from this add-on at all. Its **Quick Connect** is on its
+own sign-in page: the panel shows a code, you type that code into Jellyfin on
+your server to authorise it, and the panel is signed in. No password is typed
+on the panel and no keyboard is needed. Turn Quick Connect on in the Jellyfin
+dashboard and it appears on the login page.
+
+That is the shape that works for a screen across a room, and it is worth
+preferring wherever a service offers it -- Plex, Emby and YouTube all have
+their own version of the same idea.
 
 ### Signing in somewhere else, and handing the session over
 
