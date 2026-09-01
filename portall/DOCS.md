@@ -558,11 +558,18 @@ Point a link at `https://www.youtube.com/tv` and tell the browser it is a
 television:
 
 ```yaml
-user_agent: "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) 85.0.4183.93/6.5 TV Safari/537.36"
+user_agent: "Mozilla/5.0 (X11; Linux armv7l) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/85.0.4183.93 Safari/537.36 CrKey/1.54.250320"
 ```
 
 `user_agent` is shared, so if only one panel is for watching, set it on that
 panel rather than at the top. With `keep_profile` on, the pairing is done once.
+
+The client hints sent beside the string follow **it**, not the browser
+underneath: give a Chromecast string and the request carries
+`sec-ch-ua: "Chromium";v="85", ...` to match. Give something that is not a
+Chrome at all -- a Tizen or webOS television -- and no hints are sent, which is
+what such a browser really does. Two headers disagreeing about one browser is
+the loudest thing either of them could say.
 
 **Not verified from where this was written** -- there is no route to YouTube or
 to any Google service from it. What *is* measured is everything above about the
