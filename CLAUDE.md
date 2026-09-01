@@ -669,6 +669,39 @@ entirely. Not verified: there is no route to any Google service from here. What
 is verified is that the option reaches the browser and that the string given is
 what a server receives.
 
+**The user agent belongs to the LINK, and asking why it did not was right.**
+Put as *"pourquoi tu la pas mis dans link"*, after a panel-wide one produced
+*"pret a castrer"* on the panel. Both halves of that are findings.
+
+**`CrKey/` is a Chromecast, and a Chromecast is a RECEIVER.** YouTube served
+the idle "ready to cast" screen, waiting for a phone to send it something --
+not the television interface with a sign-in code on it. A smart-television
+string is what asks for that. Recommending the Chromecast string was a guess
+dressed as a recipe, and the panel corrected it.
+
+`--page-agent PREFIX=STRING` mirrors `--page-quality` exactly, and `links:`
+gains `user_agent:` beside `quality:`. It is applied to the **request**, by
+`page.route` registered only for the configured prefixes -- not by noticing
+the address afterwards, which cannot work here: `youtube.com/tv` is a junction
+rather than a page, so by the time the address can be read the redirect has
+already happened and the address is somewhere else. An init script matching
+the same prefixes covers what the page's own scripts read, so the header and
+`navigator.userAgent` cannot disagree.
+
+**And it shipped a silent hang for one run, which is the lesson.** Playwright
+reads a route handler's ARITY: a two-parameter handler is called as
+`(route, request)`, so `def handler(route, agent=agent)` had its `agent`
+replaced by a Request object. `continue_(headers=...)` was then handed
+something that will not serialise, the route was never released, and the page
+never loaded at all -- which on a panel is YouTube simply never opening. The
+`except` fallback did not save it either. Nothing about it is visible from
+reading the code; the test server never logged a request, which is what found
+it. A closure, not a default argument.
+
+Verified against a server that redirects the way that one does: the television
+link is served the television page and `navigator.userAgent` agrees, an
+ordinary page on the same panel is untouched in both.
+
 **A code typed somewhere else is the shape that fits a panel, and the user
 said so from their own life:** *"la connexion par telephone est la bonne comme
 je fait avec jellyfin connexion rapide il me donne un code est je inscrit dans

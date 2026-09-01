@@ -212,6 +212,7 @@ schema:
       group: str?
       description: str?
       quality: int(1,95)?
+      user_agent: str?
   stats: bool?
   show_media: bool?
   panels:
