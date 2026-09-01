@@ -669,6 +669,28 @@ entirely. Not verified: there is no route to any Google service from here. What
 is verified is that the option reaches the browser and that the string given is
 what a server receives.
 
+**A code typed somewhere else is the shape that fits a panel, and the user
+said so from their own life:** *"la connexion par telephone est la bonne comme
+je fait avec jellyfin connexion rapide il me donne un code est je inscrit dans
+jellyfin de mon server Unraid pour autorisation"*. That is Jellyfin's Quick
+Connect, and it needs **nothing from this project** -- it is on Jellyfin's own
+sign-in page, the panel shows a code, the code is typed into the server. No
+password on the panel, no keyboard.
+
+It also settles the ranking of everything below. `import_profile` works and is
+measured, and it is still three steps with an obscure flag in the middle:
+*"non trop compliquer pour les utilisateur"*. Keep it for whoever wants it,
+and lead with the code.
+
+**And a panel-wide `user_agent` was bad advice as given.** It is set once on
+the page's CDP session and persists across navigations, so a panel told to say
+it is a television says it to Home Assistant and to the launcher as well. The
+documentation now says to put it in that panel's own entry and to look at the
+dashboard afterwards. Whether the frontend minds is untested. If it does, the
+fix is a user agent per LINK, the way `quality:` already is -- which is the
+user's own pattern, and the reason not to build it yet is that nobody has
+asked and it is not known to be needed.
+
 **"But a Raspberry Pi with Chromium can sign in" is the observation that
 solved it, and it was right.** Put as *"mais pourtant avec un RPI ont peut ce
 connecter sur youtube il dispose de chronium"*. It is the same Chromium -- so
