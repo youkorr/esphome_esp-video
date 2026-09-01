@@ -1,5 +1,5 @@
 name: Portall
-version: "2.0.3"
+version: "2.1.0"
 # Home Assistant identifies an add-on by its slug, so this one moving from
 # usb_display_panel to portall makes the Supervisor see a NEW add-on: options
 # are not carried over and /data starts empty, which means the browser
@@ -84,9 +84,15 @@ options:
   # Put "launcher" in a panel's url and it starts here; hold the top-left
   # corner for a second from anywhere and it comes back here.
   #
-  # icon is one character -- an emoji, a letter. Nothing is fetched from the
-  # internet, so an icon pack that failed to load could never leave holes
-  # where the labels should be.
+  # icon is a name from the list in the documentation, or one character you
+  # type yourself. Nothing is fetched from the internet, so an icon pack that
+  # failed to load could never leave holes where the labels should be.
+  #
+  # quality is optional and per link, which is the point of having it here: a
+  # film wants far fewer bytes than a dashboard and does not show the
+  # difference. Measured on full motion at 800x1280, quality 60 costs
+  # 1123 KiB/s and quality 40 costs 930. It applies while that page is open
+  # and goes back to the panel's own quality everywhere else.
   launcher_title: Panel
   launcher_subtitle: ""
   # The look, in Homepage's own vocabulary, so that somebody who knows that
@@ -150,6 +156,7 @@ schema:
       icon: str?
       group: str?
       description: str?
+      quality: int(1,95)?
   stats: bool?
   panels:
     - name: str

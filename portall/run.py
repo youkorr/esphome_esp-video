@@ -107,6 +107,21 @@ def given(value):
     return True
 
 
+def page_quality_from(config):
+    """--page-quality arguments for every link that asked for one.
+
+    The list belongs to the launcher and the setting belongs to the sender, so
+    this is where the two meet. A link with no quality of its own is absent
+    from the list and simply uses the panel's.
+    """
+    out = []
+    for link in config.get("links") or []:
+        url, quality = link.get("url"), link.get("quality")
+        if given(url) and given(quality):
+            out.append(f"{str(url).strip()}={int(quality)}")
+    return out
+
+
 def start_launcher(config):
     """Serve the page of links, if there are any, and say where it is.
 
@@ -304,6 +319,10 @@ def command_for(panel):
     # splitting on whitespace tore it into three flags that mean nothing.
     for flag in shlex.split(str(panel.get("browser_args") or "")):
         argv += ["--browser-arg", flag]
+    # A quality per link, which is easier to reason about than one per panel:
+    # the panel does not know whether it is showing a film, and the link does.
+    for link in panel.get("page_quality") or []:
+        argv += ["--page-quality", link]
     for key in (
         "touch_mirror_x",
         "touch_mirror_y",
@@ -406,6 +425,14 @@ def main():
                         f"in the url at the top of the options, or a tile "
                         f"opening it will ask to log in.")
             panel["url"] = where
+
+    # Every panel gets the same list: the links are the house's, not one
+    # screen's, and a panel that never opens a given page is unaffected by a
+    # quality set for it.
+    wanted = page_quality_from(_config)
+    if wanted:
+        for panel in panels:
+            panel.setdefault("page_quality", wanted)
 
     missing = [p for p in panels if not p.get("host") or not p.get("url")]
     if missing:

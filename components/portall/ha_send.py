@@ -1065,6 +1065,20 @@ class TouchMap:
                 )
 
 
+def quality_for(url, page_quality, default):
+    """The quality this address asks for, or the default.
+
+    Matched on a prefix rather than exactly, because a site is not one address:
+    YouTube walks from /results to /watch?v=... without ever being a different
+    place, and a dashboard has a path per view. First match wins, so the list
+    is read in the order somebody wrote it.
+    """
+    for prefix, quality in page_quality:
+        if url.startswith(prefix):
+            return quality
+    return default
+
+
 def send_picture(endpoint, image, frame_id, transpose, panel_w, panel_h, quality):
     """One whole-panel picture, turned the way the frames are."""
     if transpose is not None:
@@ -2922,6 +2936,18 @@ def main():
         "a page is not Home Assistant when the environment disagrees",
     )
     parser.add_argument(
+        "--page-quality",
+        action="append",
+        default=[],
+        metavar="PREFIX=QUALITY",
+        help="a JPEG quality to use while a particular page is open, as an "
+        "address prefix and a number: --page-quality "
+        "https://www.youtube.com=40. Repeatable, first match wins, and "
+        "anything not matched uses --quality. A film wants far fewer bytes "
+        "than a dashboard and does not show the difference; this is how to "
+        "say so per destination rather than per panel",
+    )
+    parser.add_argument(
         "--token-url",
         default=None,
         help="the Home Assistant the token belongs to, when it is not the page "
@@ -3200,6 +3226,21 @@ def main():
             "    playwright install chromium"
         ) from err
 
+    # Which page wants which quality. Parsed once here so a typo is a refusal
+    # at startup rather than a panel that quietly never changes quality.
+    page_quality = []
+    for pair in args.page_quality:
+        prefix, _, value = pair.partition("=")
+        if not prefix or not value.strip().isdigit():
+            parser.error(
+                f"--page-quality wants an address and a number joined by =, "
+                f"like https://www.youtube.com=40, and this one is {pair!r}"
+            )
+        quality = int(value)
+        if not 1 <= quality <= 95:
+            parser.error(f"--page-quality {prefix}: {quality} is not between 1 and 95")
+        page_quality.append((prefix, quality))
+
     interval = 1.0 / args.fps if args.fps > 0 else 0.0
     rect_cost = (
         # From the PANEL, not from what is drawn. The rule protects the board,
@@ -3397,6 +3438,10 @@ def main():
         # full screen swallows whatever the page is given, which is why the
         # gesture is decided in the sender. So the mark is decoration over the
         # place the sender is already testing.
+        # What is being encoded at right now, and the address it belongs to.
+        # Both only move when --page-quality is in use.
+        send_quality = args.quality
+        quality_url = None
         hint = None if args.no_touch else HomeHint(page, page_w, page_h)
         hint_until = time.monotonic() + HOME_HINT_SECONDS
         capture = Screencast(page, page_w, page_h, args.capture_quality)
@@ -3624,11 +3669,25 @@ def main():
                                 last_full = started
                                 fulls += 1
 
+                        # Which quality this page asked for. Looked at once
+                        # per picture rather than per rectangle, and only when
+                        # somebody set any: page.url is local to Playwright
+                        # rather than a round trip, but a comparison nobody
+                        # needs is still a comparison.
+                        if page_quality:
+                            here = page.url
+                            if here != quality_url:
+                                quality_url = here
+                                wanted = quality_for(here, page_quality, args.quality)
+                                if wanted != send_quality:
+                                    send_quality = wanted
+                                    print(f"Quality: {send_quality} for {here[:70]}",
+                                          flush=True)
                         blobs = []
                         for x, y, w, h in rectangles:
                             buffer = io.BytesIO()
                             image.crop((x, y, x + w, y + h)).save(
-                                buffer, format="JPEG", quality=args.quality
+                                buffer, format="JPEG", quality=send_quality
                             )
                             payload = buffer.getvalue()
                             blobs.append(
