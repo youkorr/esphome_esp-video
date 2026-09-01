@@ -22,6 +22,7 @@ without turning the others off.
 import json
 import os
 import shlex
+import shutil
 import signal
 import subprocess
 import sys
@@ -343,8 +344,55 @@ def command_for(panel):
     return argv
 
 
+def seed_profile(panel, name):
+    """Start a panel's browser profile from one signed in by hand, once.
+
+    Google refuses to sign a browser in when it can tell it is being driven,
+    and that refusal is the whole reason this exists. What it checks is the
+    SIGNING IN; afterwards the session is a cookie like any other. So the
+    signing in is done in an ordinary browser somewhere else -- a Raspberry Pi,
+    a laptop, anything with a Chromium a person clicks on -- and the profile it
+    leaves behind is handed over here.
+
+    Measured: a cookie written by a plain chromium process, with no automation
+    of any kind attached, is sent by the automated browser opening the same
+    profile directory.
+
+    Copied rather than used where it lies, for two reasons: /share and /config
+    are mapped read-only and a browser must write to its profile, and a profile
+    is the panel's from then on -- what it signs into later stays.
+
+    Only ever into an EMPTY profile. Doing it on every start would throw away
+    everything the panel has done since, which is the opposite of the point.
+    """
+    source = str(panel.get("import_profile") or "").strip()
+    if not source:
+        return
+    target = profile_for(panel)
+    if target is None:
+        say(f"[{name}] import_profile needs keep_profile on -- without a "
+            f"profile kept between restarts there is nowhere to put it")
+        return
+    if os.path.isdir(target) and os.listdir(target):
+        return
+    if not os.path.isdir(source):
+        say(f"[{name}] import_profile: {source} is not there. It should be a "
+            f"folder this add-on can read -- under /share, /config or /media.")
+        return
+    try:
+        shutil.copytree(source, target, dirs_exist_ok=True)
+    except OSError as err:
+        # An accessory must never cost the picture: a profile that would not
+        # copy leaves the panel with a fresh one, which is what it had before.
+        say(f"[{name}] import_profile: could not copy {source} ({err}) -- "
+            f"carrying on with a fresh profile")
+        return
+    say(f"[{name}] started its browser profile from {source}")
+
+
 def serve(panel, name, stop):
     """Run one panel's sender, restarting it until asked to stop."""
+    seed_profile(panel, name)
     delay = RESTART_DELAY_S
     while not stop.is_set():
         started = time.monotonic()

@@ -669,6 +669,41 @@ entirely. Not verified: there is no route to any Google service from here. What
 is verified is that the option reaches the browser and that the string given is
 what a server receives.
 
+**"But a Raspberry Pi with Chromium can sign in" is the observation that
+solved it, and it was right.** Put as *"mais pourtant avec un RPI ont peut ce
+connecter sur youtube il dispose de chronium"*. It is the same Chromium -- so
+the difference is not the browser, it is that a person is driving it, with no
+automation attached and no `--headless`. Google blocks the mode, not the
+software.
+
+Which points somewhere this had not looked: **Google checks the signing IN.**
+Afterwards the session is a cookie, and nothing about a cookie cares how the
+browser that receives it is driven. Measured -- a cookie written by a plain
+chromium process, launched as an ordinary subprocess with no Playwright, no
+CDP and no automation of any kind, is sent by the automated browser opening
+the same profile directory.
+
+`import_profile:` is that, as an add-on option: a folder under /share,
+/config or /media, **copied** into the panel's own profile. Copied rather than
+used where it lies for two reasons -- those mounts are read-only and a browser
+must write to its profile, and the profile is the panel's from then on. Only
+ever into an EMPTY profile, or a panel that had since signed into something
+else would lose it on the next start.
+
+**`--password-store=basic` is the step it fails silently without**, and it is
+in the documented recipe for that reason: Chromium encrypts cookies with a key
+from the desktop keyring when there is one, and that key never leaves that
+machine, so the folder would copy across and decrypt to nothing. A container
+has no keyring and uses the fallback key, so the signing-in browser has to be
+told to use it too.
+
+Verified end to end against a local server -- plain browser signs in, add-on
+copies the folder, automated browser sends the session -- and `seed_profile`
+on six cases, of which the one that matters most is a profile the panel
+already has, which must not be replaced. What is NOT tested is Google's own
+session in particular: there is no route to it from here, and a session may be
+tied to a machine more tightly than a plain cookie is.
+
 **A page can be served somewhere other than where it was asked for, and the
 log could not say so.** Reported after trying the television interface: *"j'ai
 tester https://www.youtube.com/tv dans link il m'affiche une page youtube avec
