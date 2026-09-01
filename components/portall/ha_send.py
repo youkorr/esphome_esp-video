@@ -59,6 +59,7 @@ import collections
 import io
 import json
 import os
+import re
 import subprocess
 import sys
 import threading
@@ -693,7 +694,7 @@ _AGENT_DATA_JS = """async () => {
 }"""
 
 
-def _agent_metadata(page, version):
+def _agent_metadata(page, version, agent=None):
     """The client hints to send beside the user agent, with no headless brand.
 
     Read from the page when that is possible and synthesised when it is not,
@@ -719,6 +720,15 @@ def _agent_metadata(page, version):
             for b in brands or []
         ]
 
+    # A user agent given by hand is a DIFFERENT browser being claimed, so the
+    # browser's own answer is the wrong one to send beside it. This is what a
+    # panel asking for YouTube's television interface runs into: the string
+    # says Chrome 85 on an armv7l box and, left alone, the hints beside it
+    # would say Chromium 141 -- two headers about one browser that disagree,
+    # which is the same class of fault as sending no hints at all.
+    if agent is not None:
+        data = None
+
     if data and data.get("brands"):
         return {
             "brands": rename(data.get("brands")),
@@ -733,12 +743,26 @@ def _agent_metadata(page, version):
             "wow64": bool(data.get("wow64")),
         }
 
-    product = version.get("product", "")
-    agent = version.get("userAgent", "")
-    try:
-        full = product.split("/", 1)[1]
-    except IndexError:
-        return None
+    # Everything below describes whatever is being CLAIMED, which is the given
+    # string when there is one and the browser's own otherwise.
+    claimed = agent if agent is not None else version.get("userAgent", "")
+    if agent is not None:
+        match = re.search(r"Chrome/(\d[\d.]*)", claimed)
+        if match is None:
+            # Not a Chromium being claimed at all -- a smart television, say.
+            # Such a browser sends no Sec-CH-UA, and the hints vanishing is
+            # then the honest answer rather than the contradiction it would be
+            # for a claimed Chrome.
+            print("Browser: the user agent given is not a Chrome, so no "
+                  "client hints are sent with it")
+            return None
+        full = match.group(1)
+    else:
+        try:
+            full = version.get("product", "").split("/", 1)[1]
+        except IndexError:
+            return None
+    agent = claimed
     major = full.split(".")[0]
     # The platform has to agree with the user agent string, or the two
     # contradict each other and we are back where we started.
@@ -841,7 +865,8 @@ def present_browser(session, page, keyboard_wanted, wanted_agent):
     # So the metadata goes with it, built from the browser's own values with
     # the one brand that gives it away renamed -- which is exactly what a real
     # Chrome advertises.
-    metadata = _agent_metadata(page, version)
+    metadata = _agent_metadata(page, version,
+                               agent if wanted_agent else None)
     params = {"userAgent": agent}
     if metadata:
         params["userAgentMetadata"] = metadata

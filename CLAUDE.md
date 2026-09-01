@@ -669,6 +669,29 @@ entirely. Not verified: there is no route to any Google service from here. What
 is verified is that the option reaches the browser and that the string given is
 what a server receives.
 
+**Google's refusal was confirmed from the panel, and the message names the
+mechanism.** A photograph of the panel: *"Impossible de vous connecter -- Ce
+navigateur ou cette application ne sont peut-etre pas securises."* That is
+Google's block on browsers it can tell are driven, and it is not a fault in
+this project. The command line was read the way `--mute-audio` was found, and
+it settles one hypothesis: Playwright passes **no** `--enable-automation` and
+no `--disable-blink-features` -- only `--headless` and
+`--remote-debugging-pipe`, out of 55 arguments. There was nothing there to
+remove.
+
+**And recommending the television interface exposed a real fault in the
+disguise.** `_agent_metadata()` built the client hints from the browser's OWN
+`Browser.getVersion`, never from the string being claimed. So a panel given a
+Chromecast user agent sent `Chrome/85` in one header and `"Chromium";v="141"`
+in the other -- reproduced against the old code before the fix was believed,
+85 against 141. It is the same class of fault as sending no hints at all, and
+this project had already paid for that one.
+
+The hints now follow whatever is being claimed: a Chrome string gets matching
+brands, and a string that is not a Chrome at all -- a Tizen or webOS
+television -- gets **no hints**, which is what such a browser really sends.
+Verified at a server that logs its headers, all three cases consistent.
+
 **A measurement of the browser cost read 0.2 frames a second at first**, which
 is nonsense, and the cause is a lesson this repository already contains:
 `Page.screencastFrameAck` was being sent from inside the frame handler. Acks go
