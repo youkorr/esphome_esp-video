@@ -9,7 +9,7 @@
 namespace esphome {
 namespace portall {
 
-static const char *const TAG = "usb_display.number";
+static const char *const TAG = "portall.number";
 
 // Half a step. The number moves in whole percent, so a smaller difference is
 // the same setting with a different rounding error, and republishing it would
@@ -22,7 +22,7 @@ void USBVolumeNumber::loop() {
     this->publish_state(volume);
 }
 
-void USBVolumeNumber::dump_config() { LOG_NUMBER(TAG, "USB Display Volume", this); }
+void USBVolumeNumber::dump_config() { LOG_NUMBER(TAG, "Portall Volume", this); }
 
 }  // namespace portall
 }  // namespace esphome

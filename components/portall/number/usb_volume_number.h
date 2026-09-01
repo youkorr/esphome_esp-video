@@ -8,13 +8,17 @@
 namespace esphome {
 namespace portall {
 
-/// The playback volume of the sound coming from the host.
+/// How loudly this board plays the sound it is sent.
 ///
-/// The host has its own volume control and sets it over USB, so this is the
-/// same value from the other side: moving either moves the sound. A number
-/// rather than a media player's volume because the sound is not something this
-/// board is playing -- it belongs to the computer, and this only decides how
-/// loudly it comes out here.
+/// It governs both ways in, and that is worth being clear about because the
+/// class is still called USB: the volume is applied in on_audio_samples, which
+/// is the one door PCM comes through whether it arrived over the USB audio
+/// class or over the network from a page the add-on is rendering. At zero the
+/// samples are dropped before the speaker sees them.
+///
+/// A number rather than a media player's volume because the sound is not
+/// something this board chose to play -- it belongs to whatever is sending it,
+/// and this only decides how loudly it comes out here.
 class USBVolumeNumber : public number::Number, public Component {
  public:
   void set_parent(Portall *parent) { this->parent_ = parent; }

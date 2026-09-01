@@ -1587,6 +1587,21 @@ comments have warned about since the USB path.
 Validated with `esphome config`, with `micro_wake_word` removed for the run
 because it downloads its model from github while validating.
 
+**The volume entity is `number: - platform: portall`, and it governs the
+page's sound as well as USB.** A panel reported the volume not working with a
+`platform: template` number in its place -- which stores a value and writes to
+the log, and is connected to nothing. Nothing had regressed; there was no
+volume control in that configuration at all.
+
+Worth keeping because the wording invited it: the class is `USBVolumeNumber`,
+its log tag was `usb_display.number` and its dump said "USB Display Volume", on
+a board whose sound now mostly arrives over Wi-Fi. The volume is applied in
+`on_audio_samples`, which is the one door PCM comes through whichever way it
+arrived, so the entity was always right and only its words were wrong. They say
+Portall now. The option key `usb_display_id:` became `portall_id:`, with the old
+spelling still accepted -- it is generated rather than typed, so refusing it
+would buy nothing.
+
 ## Sound for the page, server side
 
 **Playwright mutes the browser on every launch and says nothing about it.**
