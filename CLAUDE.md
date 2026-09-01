@@ -669,6 +669,22 @@ entirely. Not verified: there is no route to any Google service from here. What
 is verified is that the option reaches the browser and that the string given is
 what a server receives.
 
+**A page can be served somewhere other than where it was asked for, and the
+log could not say so.** Reported after trying the television interface: *"j'ai
+tester https://www.youtube.com/tv dans link il m'affiche une page youtube avec
+un commentaire qui vous dirige vers la page video youtube"*. That is the
+ordinary shape of a user-agent redirect -- `youtube.com/tv` serves the
+television page to a television and sends everyone else to the normal site --
+and from a log it was indistinguishable from the address simply being wrong,
+because the only line about the address was `Opening <url>` before the
+navigation.
+
+`open_page` now prints `Arrived at <where> (asked for <what>)`, and only when
+the two differ with a trailing slash discounted, so an ordinary panel gains no
+line. Tested against a server that redirects exactly the way that one does:
+the line appears without the television user agent, and nothing is printed
+with it or on a page that did not move.
+
 **Google's refusal was confirmed from the panel, and the message names the
 mechanism.** A photograph of the panel: *"Impossible de vous connecter -- Ce
 navigateur ou cette application ne sont peut-etre pas securises."* That is

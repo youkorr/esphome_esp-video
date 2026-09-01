@@ -993,6 +993,21 @@ def open_page(page, args):
     # Assistant has no such staging, and three seconds of a blocked loop is
     # three seconds of a panel that has stopped.
     page.wait_for_timeout(3000 if open_page.is_home_assistant is not False else 800)
+    # Where it actually ENDED UP, when that is not where it was sent. A site
+    # may decide the browser is not the sort it serves that address to and
+    # redirect: youtube.com/tv does exactly that unless the browser says it is
+    # a television, and the panel then shows the ordinary site with a notice
+    # on it. From the log that was indistinguishable from the address being
+    # wrong, because nothing ever said which page arrived.
+    #
+    # Only when it differs, so an ordinary panel gains no line, and compared
+    # with the trailing slash a browser adds by itself discounted.
+    try:
+        landed = page.url
+    except Exception:  # noqa: BLE001 - never worth failing a start over
+        landed = ""
+    if landed and landed.rstrip("/") != args.url.rstrip("/"):
+        print(f"Arrived at {landed} (asked for {args.url})")
     return True
 
 

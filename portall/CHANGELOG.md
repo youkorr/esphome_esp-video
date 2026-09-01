@@ -1,5 +1,17 @@
 # Changelog
 
+## 2.2.1
+
+- The log now says **where a page actually ended up** when that is not where it
+  was sent: `Arrived at ... (asked for ...)`. A site may decide the browser is
+  not the sort it serves an address to and redirect --
+  `youtube.com/tv` does exactly that unless the browser says it is a
+  television -- and from the log that was indistinguishable from the address
+  being wrong. Nothing is printed for a page that did not move.
+- The client hints sent beside a `user_agent` now follow **it** rather than the
+  browser underneath. Before, a panel claiming to be a Chromecast sent
+  `Chrome/85` in one header and `"Chromium";v="141"` in the other.
+
 ## 2.2.0
 
 - **`show_media`** -- a diagnostic for the one report nothing in the log could
