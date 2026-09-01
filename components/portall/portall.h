@@ -113,7 +113,11 @@ class Portall : public Component
    * underrun handling below are the same work either way, and were written
    * once for USB before there was another way in. */
   void on_audio_samples(const uint8_t *data, size_t length);
-  void on_usb_audio_volume(float volume);
+  /* Both ways in share one volume. on_usb_audio_volume is the USB class's
+   * callback and set_audio_volume is what everything else calls -- the number
+   * entity, the action, and anything added later. */
+  void set_audio_volume(float volume);
+  void on_usb_audio_volume(float volume) { this->set_audio_volume(volume); }
   void on_usb_audio_mute(bool muted);
   float get_audio_volume() const { return this->audio_volume_; }
 #endif
@@ -416,6 +420,30 @@ template<typename... Ts> class WakeAction final : public Action<Ts...>, public P
  public:
   void play(const Ts &...) override { this->parent_->set_awake(true); }
 };
+
+#ifdef USE_SPEAKER
+/* portall.set_volume, so a template number can own the volume.
+ *
+ * The component's own `number: platform: portall` follows whatever the sound
+ * is currently at, which is right for a volume the host also controls and
+ * wrong for the thing people actually want at boot: a slider with
+ * restore_value and an initial_value, remembered across restarts. That is how
+ * ESPHome does a setting, and a template number can only do it if it has
+ * something to call.
+ *
+ * The value is a fraction, 0 to 1, like every other volume in ESPHome -- and
+ * a slider is nearly always 0 to 100, so `!lambda 'return x / 100.0;'` is the
+ * line this is written for. Anything outside the range is clamped rather than
+ * refused: a volume is not worth failing a boot over, and set_audio_volume
+ * says so once when it happens.
+ */
+template<typename... Ts> class SetVolumeAction final : public Action<Ts...>, public Parented<Portall> {
+ public:
+  TEMPLATABLE_VALUE(float, volume)
+
+  void play(const Ts &...x) override { this->parent_->set_audio_volume(this->volume_.value(x...)); }
+};
+#endif
 
 }  // namespace portall
 }  // namespace esphome

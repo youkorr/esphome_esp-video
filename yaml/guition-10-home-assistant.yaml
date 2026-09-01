@@ -394,6 +394,34 @@ portall:
 number:
   - platform: portall
     name: "Volume ecran USB"
+  # Cette entite SUIT le son: elle affiche le volume courant, et le change
+  # quand on la bouge. C'est ce qu'il faut quand un hote USB regle son propre
+  # volume de son cote -- les deux restent d'accord.
+  #
+  # Ce qu'elle ne fait pas, c'est etre un REGLAGE: elle ne se souvient de rien
+  # au redemarrage. Pour un volume que l'on choisit une fois et qui revient au
+  # boot, c'est un number template ordinaire, comme ci-dessous -- la facon
+  # ESPHome de faire -- et portall.set_volume est ce qui lui donne prise sur
+  # le composant. Les deux peuvent coexister: la premiere affichera ce que la
+  # seconde a regle.
+  - platform: template
+    name: "Volume Portall"
+    id: volume_portall
+    min_value: 0
+    max_value: 100
+    step: 1
+    unit_of_measurement: "%"
+    mode: slider
+    optimistic: true
+    restore_value: true
+    initial_value: 40
+    on_value:
+      then:
+        # Une fraction, comme tous les volumes d'ESPHome, d'ou la division:
+        # le curseur va jusqu'a 100 et le composant attend 0 a 1.
+        - portall.set_volume:
+            volume: !lambda 'return x / 100.0;'
+
 
   - platform: template
     id: brightness_slider

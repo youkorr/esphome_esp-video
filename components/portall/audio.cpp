@@ -217,11 +217,21 @@ void Portall::flush_audio_block_() {
   }
 }
 
-void Portall::on_usb_audio_volume(float volume) {
+void Portall::set_audio_volume(float volume) {
+  // Clamped rather than refused. The mistake this will actually see is a
+  // slider that runs 0 to 100 handed over without dividing, and a panel that
+  // shouts once is better than one that fails to boot -- but it says so, or
+  // the sound would simply be at full and nobody would know why.
+  if (volume < 0.0f || volume > 1.0f) {
+    ESP_LOGW(TAG, "A volume of %.2f is outside 0 to 1 and has been clamped. A slider that runs to 100 wants "
+                  "!lambda 'return x / 100.0;'",
+             volume);
+    volume = volume < 0.0f ? 0.0f : 1.0f;
+  }
   this->audio_volume_ = volume;
   if (this->speaker_ != nullptr)
     this->speaker_->set_volume(volume);
-  ESP_LOGD(TAG, "Host set the volume to %.0f%%", volume * 100.0f);
+  ESP_LOGD(TAG, "Volume set to %.0f%%", volume * 100.0f);
 }
 
 void Portall::on_usb_audio_mute(bool muted) {

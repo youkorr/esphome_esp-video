@@ -79,6 +79,38 @@ async def portall_awake_to_code(config, action_id, template_arg, args):
     return var
 
 
+# portall.set_volume, for a volume somebody wants to own themselves: a template
+# number with restore_value and an initial_value, which is how ESPHome does a
+# setting and is what the component's own number entity deliberately is not --
+# that one follows the sound rather than deciding it.
+CONF_VOLUME = "volume"
+
+SetVolumeAction = portall_ns.class_("SetVolumeAction", automation.Action)
+
+
+@automation.register_action(
+    "portall.set_volume",
+    SetVolumeAction,
+    cv.Schema(
+        {
+            cv.GenerateID(): cv.use_id(Portall),
+            # A fraction, as every volume in ESPHome is. A slider that runs to
+            # a hundred therefore wants: !lambda 'return x / 100.0;'
+            cv.Required(CONF_VOLUME): cv.templatable(cv.percentage),
+        }
+    ),
+    # set_audio_volume writes a float and calls the speaker; nothing is
+    # deferred to a callback, a timer or the loop, so play() is finished when
+    # it returns. esphome says so out loud when this is left off.
+    synchronous=True,
+)
+async def portall_set_volume_to_code(config, action_id, template_arg, args):
+    var = cg.new_Pvariable(action_id, template_arg)
+    await cg.register_parented(var, config[CONF_ID])
+    cg.add(var.set_volume(await cg.templatable(config[CONF_VOLUME], args, float)))
+    return var
+
+
 CONF_DISPLAY_ID = "display_id"
 CONF_FRAME_BUFFERS = "frame_buffers"
 CONF_MAX_FRAME_BYTES = "max_frame_bytes"

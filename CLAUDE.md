@@ -1587,6 +1587,27 @@ comments have warned about since the USB path.
 Validated with `esphome config`, with `micro_wake_word` removed for the run
 because it downloads its model from github while validating.
 
+**`portall.set_volume` exists because a following entity is not a setting.**
+`number: platform: portall` shows the volume the sound is at and changes it
+when moved -- right for a host that has its own control, and no use at all for
+what somebody actually wants at boot: a slider with `restore_value` and an
+`initial_value`, remembered across restarts. That is how ESPHome does a
+setting, and the user said so plainly. A template number could not do it
+because there was nothing for its `on_value` to call.
+
+The value is a fraction, 0 to 1, like every volume in ESPHome, so a slider
+that runs to a hundred wants `!lambda 'return x / 100.0;'` -- and the mistake
+this will really see is that division being left out, so `set_audio_volume`
+clamps rather than refusing and says once what the lambda should have been. A
+volume is not worth failing a boot over.
+
+Two things `esphome config` caught that reading would not have: the action was
+registered without `synchronous=`, which esphome warns about by name (play()
+writes a float and calls the speaker, so it is synchronous), and the id is
+generated -- naming one that does not exist is what a copied example does.
+Validated against `yaml/guition-10-home-assistant.yaml` with the block added,
+`micro_wake_word` stripped for the run as always.
+
 **The volume entity is `number: - platform: portall`, and it governs the
 page's sound as well as USB.** A panel reported the volume not working with a
 `platform: template` number in its place -- which stores a value and writes to
