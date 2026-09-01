@@ -2,6 +2,15 @@
 
 ## 2.2.1
 
+- **`import_profile`** -- sign in on a machine with an ordinary browser, and
+  hand the profile to a panel. This is the answer to Google refusing to sign a
+  driven browser in, and it comes from the right observation: a Raspberry Pi
+  with Chromium signs in fine, because a person is driving it. What Google
+  checks is the signing in; afterwards the session is a cookie, and a cookie
+  written by an ordinary browser works here -- measured end to end. See
+  **Signing in somewhere else** in the documentation, and note the
+  `--password-store=basic` step, which the copy fails silently without.
+
 - The log now says **where a page actually ended up** when that is not where it
   was sent: `Arrived at ... (asked for ...)`. A site may decide the browser is
   not the sort it serves an address to and redirect --

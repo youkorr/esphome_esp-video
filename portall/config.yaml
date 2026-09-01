@@ -106,6 +106,18 @@ options:
   # "off" leaves the browser's own string untouched. Anything else is used
   # verbatim.
   user_agent: ""
+  # A browser profile to start from, signed in by hand somewhere else.
+  #
+  # This is the answer to Google refusing to sign a panel in. What Google
+  # checks is the signing IN -- afterwards the session is a cookie like any
+  # other, and a cookie written by an ordinary browser works here. So sign in
+  # on any machine with a Chromium a person clicks on (a Raspberry Pi is the
+  # obvious one), then hand the profile over. See the documentation.
+  #
+  # A folder this add-on can read: under /share, /config or /media. It is
+  # COPIED into the panel's own profile, once, and only when that profile is
+  # still empty -- so what a panel signs into afterwards is never thrown away.
+  import_profile: ""
   # The page a panel comes home to, built by this add-on from the list below.
   # Put "launcher" in a panel's url and it starts here; hold the top-left
   # corner for a second from anywhere and it comes back here.
@@ -180,6 +192,7 @@ schema:
   keep_profile: bool?
   locale: str?
   user_agent: str?
+  import_profile: str?
   launcher_title: str?
   launcher_subtitle: str?
   launcher_theme: list(dark|light)?
@@ -217,5 +230,6 @@ schema:
       keep_profile: bool?
       locale: str?
       user_agent: str?
+      import_profile: str?
       stats: bool?
       show_media: bool?

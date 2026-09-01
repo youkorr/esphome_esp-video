@@ -224,6 +224,9 @@ def check_reaches_sender(folder):
         # Not a flag of its own: it decides whether there is a --profile at
         # all, and what directory it names.
         "keep_profile",
+        # Acted on by the add-on before the sender starts, by copying a folder
+        # into that profile. The sender never hears about it.
+        "import_profile",
         "launcher_title", "launcher_subtitle", "launcher_theme",
         "launcher_color", "launcher_background", "launcher_background_blur",
         "launcher_background_dim", "launcher_columns",

@@ -110,6 +110,7 @@ Assistant dashboard to appear; without one it does neither.
 | `keyboard` | The on-screen keyboard's layout, or `off`. See below |
 | `blank_after` | Seconds dark before a sleeping panel's page is let go of. See below |
 | `keep_profile` | Keep the browser signed in between restarts. See below |
+| `import_profile` | A browser profile signed in by hand elsewhere, to start this panel from. See below |
 | `user_agent` | What the browser says it is. Empty is right for nearly everything -- it is here for YouTube's television interface. See below |
 | `locale` | The language pages are asked for -- `fr-FR`, `de-DE`, `en-GB`. Not cosmetic: without it the browser sends no `Accept-Language` at all and every site serves its own default |
 | `stats` | Print what is being sent every five seconds |
@@ -575,6 +576,64 @@ the loudest thing either of them could say.
 to any Google service from it. What *is* measured is everything above about the
 browsers themselves, and that a `user_agent` given here reaches the browser and
 is what the server receives.
+
+### Signing in somewhere else, and handing the session over
+
+This is the route that does not depend on getting past anything, and it comes
+straight from an observation worth repeating: **on a Raspberry Pi with
+Chromium you can sign in perfectly well.** That is true, and it says exactly
+where the difference is. It is not the browser -- it is the same Chromium. It
+is that a person is driving it, with no automation attached.
+
+What Google checks is the **signing in**. After that the session is a cookie
+like any other, and a cookie written by an ordinary browser works here:
+measured, a cookie written by a plain chromium process with no automation of
+any kind attached is sent by the automated browser opening the same profile.
+
+So sign in on the Pi, and give the panel what it left behind.
+
+**1. On any machine with a Chromium somebody clicks on** -- a Pi, a laptop, a
+desktop -- start it on a folder of its own:
+
+```
+chromium --user-data-dir=$HOME/portall-profile --password-store=basic
+```
+
+`--password-store=basic` is not optional and it is the step this fails on
+without. Chromium encrypts its cookies with a key from the desktop's keyring
+when there is one, and that key stays on that machine -- the folder would copy
+across and decrypt to nothing. This flag makes it use the fallback key
+instead, which is what a container without a keyring uses too.
+
+Sign into YouTube in that window, normally. Then close it.
+
+**2. Copy the folder to Home Assistant**, somewhere the add-on can read --
+`/share/portall/salon` is the obvious place. Samba or the File editor add-on
+will do it.
+
+**3. Point the panel at it:**
+
+```yaml
+panels:
+  - name: salon
+    host: 192.168.1.50
+    import_profile: /share/portall/salon
+```
+
+The folder is **copied** into the panel's own profile, once, and only while
+that profile is still empty -- so a panel that has since signed into something
+else never loses it. `keep_profile` has to be on, which it is by default.
+The log says `[salon] started its browser profile from ...` when it happens.
+
+It can be shared rather than per-panel if one sign-in is meant to serve the
+house: each panel still gets its own copy, and they go their own way
+afterwards.
+
+**Measured end to end** -- a plain browser signs in, the add-on copies the
+folder, the automated browser opens it and the server sees the session --
+against a local server, because there is no route to Google from where this
+was written. What is not tested is Google's own session in particular: it may
+tie a session more tightly to a machine than a plain cookie is.
 
 ## What a sleeping panel costs
 
