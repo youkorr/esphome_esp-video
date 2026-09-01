@@ -110,6 +110,7 @@ Assistant dashboard to appear; without one it does neither.
 | `keyboard` | The on-screen keyboard's layout, or `off`. See below |
 | `blank_after` | Seconds dark before a sleeping panel's page is let go of. See below |
 | `keep_profile` | Keep the browser signed in between restarts. See below |
+| `locale` | The language pages are asked for -- `fr-FR`, `de-DE`, `en-GB`. Not cosmetic: without it the browser sends no `Accept-Language` at all and every site serves its own default |
 | `stats` | Print what is being sent every five seconds |
 | `show_media` | While a video plays, print its playhead and how many seconds are buffered ahead of it. Off by default -- turn it on to diagnose a video that stops |
 

@@ -486,7 +486,7 @@ MEDIA_PROBE_JS = """() => {
 
 
 def _launch(playwright, executable, profile, view, browser_args,
-            ignore=(), env=None):
+            ignore=(), env=None, locale=None):
     """Start the browser, and fall back to Playwright's own if it will not.
 
     Preferring a system browser is only safe if being wrong about it costs
@@ -501,12 +501,12 @@ def _launch(playwright, executable, profile, view, browser_args,
             return playwright.chromium.launch_persistent_context(
                 profile, args=browser_args, viewport=view,
                 device_scale_factor=1, executable_path=path,
-                ignore_default_args=list(ignore), env=env,
+                ignore_default_args=list(ignore), env=env, locale=locale,
             )
         return playwright.chromium.launch(
             args=browser_args, executable_path=path,
             ignore_default_args=list(ignore), env=env,
-        ).new_context(viewport=view, device_scale_factor=1)
+        ).new_context(viewport=view, device_scale_factor=1, locale=locale)
 
     if executable is None:
         return start(None)
@@ -3141,6 +3141,15 @@ def main():
         "--stats", action="store_true", help="print what is being sent every 5 seconds"
     )
     parser.add_argument(
+        "--locale",
+        default="en-US",
+        help="the language the pages are asked for, as a BCP 47 tag -- fr-FR, "
+        "de-DE, en-GB. Left to itself the browser sends NO Accept-Language "
+        "header at all and reports a language tag no real browser produces, so "
+        "every site serves whatever its default is. Measured on the shipped "
+        "build: nothing sent, and navigator.languages reading en-US@posix",
+    )
+    parser.add_argument(
         "--show-media",
         action="store_true",
         help="print a video's playhead and how much it has buffered ahead of "
@@ -3384,11 +3393,11 @@ def main():
             print(f"Browser: keeping its profile in {args.profile}")
             context = _launch(
                 playwright, executable, args.profile, view, browser_args,
-                ignore, launch_env,
+                ignore, launch_env, args.locale,
             )
         else:
             context = _launch(playwright, executable, None, view, browser_args,
-                              ignore, launch_env)
+                              ignore, launch_env, args.locale)
         # Installed on the context so it is in every frame of every page,
         # including the ones a site makes for itself and the one that comes
         # back after the page is parked. It is the line that names why a video

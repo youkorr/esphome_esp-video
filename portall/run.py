@@ -84,6 +84,7 @@ SHARED_KEYS = (
     "keep_profile",
     "browser",
     "browser_args",
+    "locale",
     "rect_cost",
     "freeze_animations",
     "stats",
@@ -305,6 +306,7 @@ def command_for(panel):
         "blank_after",
         "rect_cost",
         "browser",
+        "locale",
     ):
         value = panel.get(key)
         # Zero means "not set" for the render size, because that is what an
