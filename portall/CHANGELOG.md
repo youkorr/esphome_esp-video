@@ -2,6 +2,14 @@
 
 ## 2.2.1
 
+- **A `user_agent` per link**, beside the `quality` per link, and for the same
+  reason: a panel is not a television anywhere except on one tile. It is
+  applied to the request rather than afterwards, which is the only place it
+  can work -- `youtube.com/tv` is a junction, not a page, and by the time the
+  address could be read the redirect has happened. Use a smart-television
+  string; a **Chromecast** one (`CrKey/...`) makes YouTube show "ready to
+  cast" and wait for a phone instead.
+
 - **`import_profile`** -- sign in on a machine with an ordinary browser, and
   hand the profile to a panel. This is the answer to Google refusing to sign a
   driven browser in, and it comes from the right observation: a Raspberry Pi

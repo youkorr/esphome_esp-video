@@ -126,6 +126,22 @@ def page_quality_from(config):
     return out
 
 
+def page_agent_from(config):
+    """--page-agent arguments for every link that asked to be told something.
+
+    The same meeting point as the quality above, and it exists for one case:
+    YouTube's television interface is what a panel can be signed into with a
+    code typed on a phone, and a panel is not a television anywhere else --
+    least of all to Home Assistant. So it belongs to the LINK.
+    """
+    out = []
+    for link in config.get("links") or []:
+        url, agent = link.get("url"), link.get("user_agent")
+        if given(url) and given(agent):
+            out.append(f"{str(url).strip()}={str(agent).strip()}")
+    return out
+
+
 def start_launcher(config):
     """Serve the page of links, if there are any, and say where it is.
 
@@ -329,6 +345,9 @@ def command_for(panel):
     # the panel does not know whether it is showing a film, and the link does.
     for link in panel.get("page_quality") or []:
         argv += ["--page-quality", link]
+    # And a user agent per link, for the same reason and in the same shape.
+    for link in panel.get("page_agent") or []:
+        argv += ["--page-agent", link]
     for key in (
         "touch_mirror_x",
         "touch_mirror_y",
@@ -487,6 +506,10 @@ def main():
     if wanted:
         for panel in panels:
             panel.setdefault("page_quality", wanted)
+    agents = page_agent_from(_config)
+    if agents:
+        for panel in panels:
+            panel.setdefault("page_agent", agents)
 
     missing = [p for p in panels if not p.get("host") or not p.get("url")]
     if missing:

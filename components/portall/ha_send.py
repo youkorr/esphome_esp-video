@@ -1222,6 +1222,55 @@ def quality_for(url, page_quality, default):
     return default
 
 
+def agent_for(url, page_agent):
+    """The user agent this address asks for, or None to leave it alone.
+
+    Prefix-matched and first-match-wins, exactly like quality_for -- the same
+    reason applies: a site is not one address.
+    """
+    for prefix, agent in page_agent:
+        if url.startswith(prefix):
+            return agent
+    return None
+
+
+def route_agents(page, page_agent):
+    """Give the FIRST request for a page the user agent that page asked for.
+
+    This has to happen at the request rather than afterwards, because the
+    request is where it is decided. youtube.com/tv is not a page, it is a
+    junction: a television is served the television interface, everybody else
+    is redirected to the ordinary site -- so by the time the sender could see
+    the address and change anything, the answer has already been given and the
+    address is somewhere else entirely.
+
+    Matched by a function rather than a glob so a prefix means exactly what it
+    says, and registered only for the prefixes configured, so a page nobody
+    asked about is never intercepted.
+    """
+    # A CLOSURE and not a default argument, which is not a style choice.
+    # Playwright reads the handler's arity: a two-parameter one is called as
+    # (route, request), so `def handler(route, agent=agent)` has its agent
+    # replaced by a Request object -- and then continue_() is handed something
+    # that will not serialise, the route is never released, and the page never
+    # loads at all. Caught by running it; it fails silently in every other way.
+    def make_handler(agent):
+        def handler(route):
+            try:
+                route.continue_(headers={**route.request.headers,
+                                         "user-agent": agent})
+            except Exception:  # noqa: BLE001 - never cost the page a request
+                try:
+                    route.continue_()
+                except Exception:  # noqa: BLE001 - already gone
+                    pass
+        return handler
+
+    for prefix, agent in page_agent:
+        page.route(lambda url, prefix=prefix: url.startswith(prefix),
+                   make_handler(agent))
+
+
 def send_picture(endpoint, image, frame_id, transpose, panel_w, panel_h, quality):
     """One whole-panel picture, turned the way the frames are."""
     if transpose is not None:
@@ -3224,6 +3273,17 @@ def main():
         "--stats", action="store_true", help="print what is being sent every 5 seconds"
     )
     parser.add_argument(
+        "--page-agent",
+        action="append",
+        default=[],
+        metavar="PREFIX=STRING",
+        help="what the browser says it is, for one address only. Repeatable, "
+        "first match wins, matched on the start of the address. This is what "
+        "YouTube's television interface needs -- the interface a panel can be "
+        "signed into with a code typed on a phone -- without a panel claiming "
+        "to be a television to Home Assistant as well",
+    )
+    parser.add_argument(
         "--locale",
         default="en-US",
         help="the language the pages are asked for, as a BCP 47 tag -- fr-FR, "
@@ -3402,6 +3462,20 @@ def main():
             parser.error(f"--page-quality {prefix}: {quality} is not between 1 and 95")
         page_quality.append((prefix, quality))
 
+    # And which page wants to be told it is something else. Same shape, same
+    # first-match-wins rule, and the one that made it necessary is YouTube:
+    # its television interface is what a panel can sign into with a code
+    # typed on a phone, and a panel is not a television everywhere else.
+    page_agent = []
+    for pair in args.page_agent:
+        prefix, sep, value = pair.partition("=")
+        if not prefix or not sep or not value.strip():
+            parser.error(
+                f"--page-agent wants an address and a user agent joined by =, "
+                f"and this one is {pair!r}"
+            )
+        page_agent.append((prefix, value.strip()))
+
     interval = 1.0 / args.fps if args.fps > 0 else 0.0
     rect_cost = (
         # From the PANEL, not from what is drawn. The rule protects the board,
@@ -3523,6 +3597,24 @@ def main():
             context.new_cdp_session(page), page, args.keyboard != "off",
             args.user_agent,
         )
+        # Before any navigation: the very first request for an address is the
+        # one that decides what is served for it.
+        if page_agent:
+            route_agents(page, page_agent)
+            # The header settles what the SERVER does; this settles what the
+            # page's own scripts read. Done as an init script rather than by
+            # setting the override when the address is noticed, because by
+            # then the page is already running -- and because there is then no
+            # race between the loop seeing the address and the page asking.
+            context.add_init_script(
+                "(() => { const rules = " + json.dumps(page_agent) + ";"
+                " const here = location.href;"
+                " for (const r of rules) { if (here.startsWith(r[0])) {"
+                "   Object.defineProperty(navigator, 'userAgent',"
+                "     {get: () => r[1], configurable: true}); break; } } })();"
+            )
+            for prefix, agent in page_agent:
+                print(f"Agent: {prefix[:48]} is told {agent[:48]}...")
         report_media(page)
         if user_agent is not None:
             # The other half of the same tell. A page that reads one usually

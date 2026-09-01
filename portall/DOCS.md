@@ -562,12 +562,29 @@ television:
 user_agent: "Mozilla/5.0 (X11; Linux armv7l) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/85.0.4183.93 Safari/537.36 CrKey/1.54.250320"
 ```
 
-**It applies to every page that panel shows**, which is the part to be careful
-about: a panel given a television's user agent tells Home Assistant and the
-launcher it is a television too. Set it **on the panel that does the
-watching**, in its own `panels:` entry, never at the top -- and if that panel
-also carries your dashboard, try it and look at the dashboard before deciding
-to keep it. Whether Home Assistant's frontend minds has not been tested here.
+**Set it on the LINK, not on the panel.** A panel's `user_agent` applies to
+every page that panel shows, so it would tell Home Assistant and the launcher
+they are talking to a television as well. A link carries its own, the way
+`quality` already does:
+
+```yaml
+links:
+  - name: YouTube
+    url: https://www.youtube.com/tv
+    icon: youtube
+    user_agent: "Mozilla/5.0 (SMART-TV; Linux; Tizen 6.0) AppleWebKit/537.36 (KHTML, like Gecko) 85.0.4183.93/6.0 TV Safari/537.36"
+    quality: 40
+```
+
+It is applied to the **request**, not afterwards, which is the only place it
+can work: `youtube.com/tv` is not a page but a junction, and by the time the
+address could be looked at, the redirect has already happened.
+
+**Do not use a Chromecast string** (`CrKey/...`). It makes YouTube treat the
+panel as a cast *receiver* -- the screen that says "ready to cast" and waits
+for a phone to send it something -- rather than as a television you can
+navigate. A smart-television string is what asks for the interface with the
+sign-in code on it.
 
 With `keep_profile` on, which is the default, the pairing is done once.
 
