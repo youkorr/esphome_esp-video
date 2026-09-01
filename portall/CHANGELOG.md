@@ -1,14 +1,19 @@
 # Changelog
 
-## 2.2.1
+## 2.3.0
 
 - **A `user_agent` per link**, beside the `quality` per link, and for the same
-  reason: a panel is not a television anywhere except on one tile. It is
-  applied to the request rather than afterwards, which is the only place it
-  can work -- `youtube.com/tv` is a junction, not a page, and by the time the
-  address could be read the redirect has happened. Use a smart-television
-  string; a **Chromecast** one (`CrKey/...`) makes YouTube show "ready to
-  cast" and wait for a phone instead.
+  reason: a panel is not a television anywhere except on one tile. Setting it
+  on the panel told Home Assistant and the launcher they were talking to a
+  television too. It is applied to the **request** rather than afterwards,
+  which is the only place it can work -- `youtube.com/tv` is a junction, not a
+  page, and by the time the address could be read the redirect has happened.
+- Use a **smart-television** string. A **Chromecast** one (`CrKey/...`) makes
+  YouTube show its "ready to cast" screen and wait for a phone to send it
+  something, which is not the television interface and has no sign-in code on
+  it. The previous release recommended one; it was wrong.
+
+## 2.2.1
 
 - **`import_profile`** -- sign in on a machine with an ordinary browser, and
   hand the profile to a panel. This is the answer to Google refusing to sign a
