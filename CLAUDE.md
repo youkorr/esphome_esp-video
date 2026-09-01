@@ -1649,7 +1649,21 @@ gain is cosmetic and the risk is not:
 - **The add-on's slug, `usb_display_panel`.** Home Assistant identifies an
   add-on by its slug; changing it makes the Supervisor see a different add-on,
   and every user loses their configuration and reinstalls. The name shown in
-  the store is a separate field and can say whatever it should.
+  the store is a separate field, and it now says **Portall** -- which is the
+  whole of what could safely move. There is a comment above the slug saying
+  so, because that is exactly the line somebody tidying up would change next.
+
+`usb_display_panel/icon.png` and `logo.png` are drawn by `tools/makeicon.py`
+rather than kept as binaries nobody can edit: a picture in a repository that
+cannot be regenerated is one nobody dares touch. The mark is a doorway inside
+a screen, which is the whole of what this project does, and it was checked at
+**32, 48 and 64 pixels** -- the sizes a store list actually renders -- because
+that is where a clever mark turns to mud. Two faults were invisible at full
+size and obvious there: the doorway was drawn *across* the screen's bottom
+rail rather than standing on it, which reads as a broken box, and the wordmark
+was pale ink on transparent, which disappears on a light card. The logo
+carries its own ground now, since the store has both themes and which one a
+viewer sees is not something this can know.
 
 **`components/usb_display/` still exists, as a stub that refuses.** Without it,
 an unchanged YAML fails with "Component not found", which says nothing. It
