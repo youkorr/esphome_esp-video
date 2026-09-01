@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.2.0
+
+- **`show_media`** -- a diagnostic for the one report nothing in the log could
+  answer: a video that plays for a few seconds and stops. While a video is
+  playing it prints the playhead and how many seconds are buffered **in front
+  of it**, every two seconds, plus the frames the browser itself dropped. The
+  media lines that existed before only appeared once something had already
+  gone wrong, which is the wrong moment -- the evidence is in the seconds
+  before the stall, when nothing fires and the log is silent. Off by default.
+
 ## 2.0.0
 
 **The slug moved, so this is not an update -- it is a new add-on.** It was

@@ -459,6 +459,41 @@ That is YouTube verifying its own advertising, and it is not something this
 project should engineer around. The honest answer to a panel is: let the ad
 play.
 
+**"The host never knows where the viewer is in the video" is the one theory
+the architecture rules out, and it is worth writing down because it will be
+offered again.** Relayed from somebody helping: that the machine rendering
+never learns where the panel's viewer has got to, so it thinks the playhead is
+at 0 s, never preloads, and the video stops -- what is missing is a feedback
+channel from the panel.
+
+There is no video client on the panel. The board receives **JPEG rectangles**;
+it has no media element, no MSE, no playhead and nothing to report. The browser
+on the server *is* the viewer -- it decodes the video itself, advances
+`currentTime` itself, and its own MSE buffer decides what to fetch next. Viewer
+and host are the same process, so there is no round trip to be missing.
+
+The logs already falsified it before it was offered: `pause: t=20.0 ready=4
+net=2 paused page=visible focused buffered=0.0s`. `t=20.0` is the browser's own
+playhead twenty seconds in -- if anything thought the viewer was at zero, that
+field would read 0.0. `buffered=0.0s` beside it is the real fault, and its
+cause was measured: `ERR_NAME_NOT_RESOLVED` on `googlevideo.com`.
+
+**What the theory is right about is that the log was silent where the evidence
+is.** Every media line fired on an event -- `pause`, `waiting`, `stalled` --
+so the log said nothing at all during the seconds *before* a stall, which is
+where the question lives. `--show-media` (`show_media:` in the add-on) samples
+every playing element every two seconds: playhead, seconds buffered ahead, and
+the frames the browser itself dropped. It separates the three causes that look
+identical from a panel -- a buffer that never fills (the fetch), a playhead
+that stops with the buffer still full (the site), and dropped frames (the
+machine).
+
+Its own budget, separate from the error cap: a stall that repeats must not
+spend the timeline's lines and a timeline must not spend the errors'. Verified
+against a real playing `<video>` in the shipped browser -- twelve samples, the
+playhead advancing, `buffered` falling from 2.7 s to 0.2 s as it ate into the
+clip, and `dropped=` reported.
+
 **Two kinds of `pause` now appear, and the buffer number is what tells them
 apart.** `buffered=0.0s` is starvation — nothing left ahead of the playhead.
 `buffered=17.1s` with the video paused at `t=4.2` is nothing of the kind: it is
