@@ -838,6 +838,21 @@ through a token bucket: **0%** at 4000 KiB/s, **55–60%** at 350. Worth having
 because it settles an argument in one line: a stutter with `panel wait` near
 zero is not the panel and not the network, whatever it looks like.
 
+**`panel wait` printed 538%, which is a number that cannot exist.** A write
+was credited entirely to the window in which it FINISHED, so a panel that took
+half a minute to accept a picture showed nothing for four windows and then an
+impossible percentage in the fifth. Reported from a panel on YouTube, where
+the stalls are longest, and it is the one line that is supposed to settle
+whether the link is the limit -- so a figure nobody can believe costs the whole
+diagnosis.
+
+The writer now records when a write began and `take_blocked()` counts the part
+that has already elapsed, moving the mark forward so the rest belongs to the
+next window; the print is bounded at 100% as well, because a number that cannot
+be true is worse than no number. Reproduced against a panel that stops reading
+for twelve seconds, three stats windows long: **146% before, 90% then 59% then
+1% after** -- the stall spread across the windows it actually spans.
+
 `worst gap` and `worst turn` are beside it for the same reason one step
 further on: a five-second average hides a tail completely, and a stutter *is* a
 tail. They are the longest a picture went unsent and the longest a single turn

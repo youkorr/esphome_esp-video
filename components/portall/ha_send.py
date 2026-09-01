@@ -1325,6 +1325,14 @@ class PanelWriter:
         # Still worth counting even though the loop no longer pays it: it is
         # the measure of whether the panel is the limit.
         self.blocked = 0.0
+        # When the write in progress began, or None between writes. Without
+        # this the whole of a long write is credited to the window in which it
+        # FINISHES: a panel that took twenty-seven seconds to accept a picture
+        # printed "panel wait 538%" in one five-second window and nothing in
+        # the four before it, which is a percentage of time that cannot exist
+        # and a diagnosis nobody could trust. Reported from a panel, on
+        # YouTube, where the stalls are longest.
+        self._writing_since = None
         self._thread = threading.Thread(
             target=self._run, name="panel-writer", daemon=True
         )
@@ -1348,7 +1356,8 @@ class PanelWriter:
                         self._wake.notify_all()
                     return
                 continue
-            at = time.monotonic()
+            with self._wake:
+                self._writing_since = time.monotonic()
             try:
                 for blob in blobs:
                     self._drain_audio()
@@ -1362,7 +1371,9 @@ class PanelWriter:
                     self._wake.notify_all()
                 return
             with self._wake:
-                self.blocked += time.monotonic() - at
+                if self._writing_since is not None:
+                    self.blocked += time.monotonic() - self._writing_since
+                    self._writing_since = None
                 self._slot = None
                 self._wake.notify_all()
 
@@ -1399,9 +1410,20 @@ class PanelWriter:
             self._wake.notify()
 
     def take_blocked(self):
-        """Seconds spent writing since the last time this was asked."""
+        """Seconds spent writing since the last time this was asked.
+
+        Including the write still going on, which is the half that was missing:
+        a write is credited as it accrues rather than when it ends, so a stall
+        longer than a window is spread across the windows it actually spans
+        instead of arriving all at once as a percentage above a hundred.
+        """
         with self._wake:
             spent, self.blocked = self.blocked, 0.0
+            if self._writing_since is not None:
+                now = time.monotonic()
+                spent += now - self._writing_since
+                # The rest of this write belongs to the next window.
+                self._writing_since = now
         return spent
 
     def close(self):
@@ -3794,7 +3816,11 @@ def main():
                             # take yet. The loop no longer waits with it, so
                             # this can sit near 100% without a stutter -- but
                             # then `skipped` is what the link is costing.
-                            f"panel wait {blocked / elapsed * 100:.0f}%, "
+                            # Bounded, because a number that cannot be true is
+                            # worse than no number: it makes the reader doubt
+                            # the whole line. If this ever hits 100 exactly,
+                            # the writer never stopped writing in the window.
+                            f"panel wait {min(blocked / elapsed, 1.0) * 100:.0f}%, "
                             # Pictures dropped rather than queued behind a
                             # panel that had not finished taking the last one.
                             f"{skipped} skipped, "
