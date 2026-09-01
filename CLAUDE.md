@@ -735,6 +735,22 @@ Verified against a server that redirects the way that one does: the television
 link is served the television page and `navigator.userAgent` agrees, an
 ordinary page on the same panel is untouched in both.
 
+**And then confirmed from the panel, which is what closes this whole thread:**
+
+    Media: playing: <ytlr-player__player-container-player> t=13.6 ready=4
+           net=2 playing page=visible focused buffered=6.4s frames=345 dropped=0
+
+`ytlr` is YouTube's own prefix for its television renderer, so that element
+name is the proof the interface is the right one -- it exists neither on the
+ordinary site nor on the Chromecast screen that `CrKey/` produced. The account
+signed in with a code typed on a phone, no password on the panel and no
+keyboard. `dropped=0` is the panel keeping up.
+
+So the ranking that came out of this is settled by measurement rather than
+argument: **a code typed elsewhere** works and is what a panel wants;
+`import_profile` works and is too many steps; and defeating Google's sign-in
+check was never attempted and never needed to be.
+
 **A code typed somewhere else is the shape that fits a panel, and the user
 said so from their own life:** *"la connexion par telephone est la bonne comme
 je fait avec jellyfin connexion rapide il me donne un code est je inscrit dans
@@ -1410,9 +1426,15 @@ version in `config.yaml` alone, so three commits' worth of work reached the
 repository and no panel.
 
 `tools/checkaddon.py` now asks git when the version last moved and whether
-anything the image carries has changed since -- the add-on folder, and the
-senders the Dockerfile fetches by URL. Reproduced against the user's exact
-state, in a worktree checked out at that commit, where it names the three.
+anything the image carries has changed since. What counts is read off the
+Dockerfile rather than assumed -- the files it COPYs, the senders it ADDs by
+URL, and `config.yaml`, whose options the Supervisor only offers on a new
+version. Deliberately **not** the whole folder: `DOCS.md`, `README.md` and
+`CHANGELOG.md` are read by the Supervisor from the repository, so making a
+correction to one of them force a bump would mean every reader re-downloading
+a browser for nothing. Reproduced against the user's exact state, in a
+worktree checked out at that commit, where it names the three commits -- and
+re-checked there after the narrowing, where it still does.
 
 **Two version checks were found doing nothing at all while writing it**, and
 both are the same shape of silent no-op this file keeps recording:

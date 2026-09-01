@@ -294,12 +294,13 @@ def check_version_moved(folder):
         print(f"  --     {folder}/config.yaml  (not a git checkout, version "
               f"{version} not checked against what changed)")
         return 0
+    rel = f"{folder.name}/config.yaml"
+
     # Walked rather than searched. `git log -S<string>` matches the commit that
     # REMOVED a string as readily as the one that added it, so asking for the
     # current version found the NEXT bump when there was one and reported that
     # nothing had changed since -- a check that passed on exactly the state it
     # was written to catch.
-    rel = f"{folder.name}/config.yaml"
     bump = None
     for commit in (git("log", "--format=%H", "--", rel) or "").splitlines():
         blob = git("show", f"{commit}:{rel}")
@@ -315,10 +316,28 @@ def check_version_moved(folder):
               f"committed yet, so there is nothing to compare)")
         return 0
 
-    # What the image actually carries: everything COPY'd, the senders ADD'd by
-    # URL, and config.yaml itself.
-    shipped = [str(folder), "components/portall/ha_send.py",
-               "components/portall/udisp_send.py"]
+    # What the image actually carries, read off the Dockerfile rather than
+    # assumed: the files COPY'd from the build context, the senders ADD'd by
+    # URL, and config.yaml, whose options the Supervisor only offers on a new
+    # version. Deliberately NOT the whole folder -- DOCS.md, README.md and
+    # CHANGELOG.md are read by the Supervisor from the repository itself, so
+    # making a correction to them force a version bump would mean every reader
+    # of the documentation re-downloading a browser for nothing.
+    shipped = [rel]
+    for line in (folder / "Dockerfile").read_text().splitlines():
+        words = line.split()
+        if not words or words[0].upper() not in ("COPY", "ADD"):
+            continue
+        for word in words[1:-1]:
+            name = pathlib.PurePosixPath(word).name
+            if not name.endswith(".py"):
+                continue
+            # A COPY names a file beside run.py; an ADD names one by URL, and
+            # the senders it fetches live under components/portall.
+            if (folder / name).exists():
+                shipped.append(f"{folder.name}/{name}")
+            elif (root / "components" / "portall" / name).exists():
+                shipped.append(f"components/portall/{name}")
     after = git("log", "--format=%h %s", f"{bump}..HEAD", "--", *shipped)
     changed = [l for l in (after or "").splitlines() if l.strip()]
     # The bump commit itself usually carries a CHANGELOG entry and nothing

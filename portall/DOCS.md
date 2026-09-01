@@ -595,10 +595,18 @@ Chrome at all -- a Tizen or webOS television -- and no hints are sent, which is
 what such a browser really does. Two headers disagreeing about one browser is
 the loudest thing either of them could say.
 
-**Not verified from where this was written** -- there is no route to YouTube or
-to any Google service from it. What *is* measured is everything above about the
-browsers themselves, and that a `user_agent` given here reaches the browser and
-is what the server receives.
+**This is confirmed from a panel.** With the smart-television string above on
+the link, the television interface loads, the code signs the account in, and
+the video plays:
+
+```
+Media: playing: <ytlr-player__player-container-player> t=13.6 ready=4 net=2
+       playing page=visible focused buffered=6.4s frames=345 dropped=0
+```
+
+`ytlr` is YouTube's own name for its television renderer, so that element is
+the proof the interface is the right one -- it exists neither on the ordinary
+site nor on the Chromecast screen. `dropped=0` is the panel keeping up with it.
 
 ### Jellyfin, and anything with a code
 
