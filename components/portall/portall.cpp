@@ -110,6 +110,15 @@ void Portall::setup() {
   }
   g_portall = this;
 
+  // Everything this component keeps lives in external RAM and is allocated
+  // exactly once, here. Measuring the difference across setup() is the only
+  // way to say how much: jpeg_alloc_decoder_mem() rounds to cache lines and
+  // reports its own size, the accelerator's buffer is aligned by hand, and the
+  // speaker's block buffer belongs to another file. A log showing free PSRAM
+  // standing still while a video plays is showing exactly this -- allocated at
+  // boot and reused for every frame, which is the point of it.
+  const size_t psram_before = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
+
   jpeg_decode_engine_cfg_t engine_cfg = {};
   engine_cfg.intr_priority = 1;
   engine_cfg.timeout_ms = 50;
@@ -216,6 +225,9 @@ void Portall::setup() {
   // frame. Core 1 keeps both off the core ESPHome's loop runs on.
   xTaskCreatePinnedToCore(tusb_device_task, "usbd", 4096, nullptr, 5, nullptr, 1);
   xTaskCreatePinnedToCore(Portall::decode_task, "udisp", 4096, this, 4, nullptr, 1);
+
+  const size_t psram_after = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
+  this->psram_taken_ = psram_before > psram_after ? psram_before - psram_after : 0;
 
   this->stats_since_ms_ = millis();
   this->started_ms_ = millis();
@@ -838,6 +850,14 @@ void Portall::dump_config() {
     ESP_LOGCONFIG(TAG, "  Rotation: %u degrees, drawn as %ux%u (pixel-processing accelerator)",
                   (unsigned) this->rotation_, (unsigned) this->out_width_, (unsigned) this->out_height_);
   }
+  // Said out loud because the obvious reading of a log is the wrong one: free
+  // PSRAM does not move while a video plays, and that looks like external RAM
+  // going unused. It is the opposite -- every buffer a frame passes through was
+  // taken once at boot and is written over for each picture, so the figure that
+  // means something is how much was taken, not how much is moving.
+  ESP_LOGCONFIG(TAG, "  External RAM: %u KiB taken at boot and reused for every frame, %u KiB still free",
+                (unsigned) (this->psram_taken_ / 1024),
+                (unsigned) (heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024));
   // The sender has to be told the same geometry the board rejects everything
   // else for, so print the command rather than leaving it to be matched by
   // hand against the configuration above. Rotation is deliberately absent: the

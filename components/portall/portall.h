@@ -410,6 +410,13 @@ class Portall : public Component
   bool configured_{false};
   bool logged_unclaimed_{false};
   uint32_t started_ms_{0};
+  // How much external RAM this component took at boot, measured rather than
+  // added up from the sizes above -- the JPEG driver's own allocator rounds to
+  // cache lines and the speaker's block buffer is not this file's to size. It
+  // is a boot-time figure on purpose: nothing here allocates again once it is
+  // running, which is exactly why free PSRAM looks flat in a log while a video
+  // plays.
+  size_t psram_taken_{0};
 };
 
 /// Actions, so the panel's own automations can say when nobody is looking.
