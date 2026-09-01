@@ -1,7 +1,12 @@
-name: ESP32-P4 Panel
-version: "1.65.0"
+# The name in the store, which is free to change. The SLUG below is not:
+# Home Assistant identifies an add-on by it, so changing it would make the
+# Supervisor see a different add-on and every user would lose their
+# configuration and reinstall. It stays usb_display_panel for that reason
+# alone -- see "The rename to portall" in CLAUDE.md.
+name: Portall
+version: "1.66.0"
 slug: usb_display_panel
-description: Renders Home Assistant dashboards onto ESPHome portall panels over the network, with touch coming back
+description: Home Assistant, and any web page, on an ESP32-P4 panel over Wi-Fi -- rendered here, sent as pictures, touched back
 url: https://github.com/youkorr/esphome_esp-video
 arch:
   - amd64

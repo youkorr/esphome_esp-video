@@ -1,6 +1,6 @@
 # Makes this repository installable as a Home Assistant add-on repository, for
 # the panel sender under usb_display_panel/. Home Assistant reads this file and
 # that folder; ESPHome reads components/ and ignores both.
-name: youkorr ESP32-P4
+name: Portall by youkorr
 url: https://github.com/youkorr/esphome_esp-video
 maintainer: youkorr

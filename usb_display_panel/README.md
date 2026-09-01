@@ -1,4 +1,6 @@
-# ESP32-P4 Panel
+# Portall
+
+![Portall](logo.png)
 
 Renders Home Assistant dashboards onto ESPHome `portall` panels over the
 network, and replays the panels' touches back into them. It exists so the
