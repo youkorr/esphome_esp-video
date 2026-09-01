@@ -494,6 +494,39 @@ against a real playing `<video>` in the shipped browser -- twelve samples, the
 playhead advancing, `buffered` falling from 2.7 s to 0.2 s as it ate into the
 clip, and `dropped=` reported.
 
+**`--show-media` earned itself on its first real run: the video is torn down
+with sixteen seconds still buffered.** From a panel watching YouTube:
+
+    Media: playing: <movie_player> t=40.2 ready=4 net=2 playing ... buffered=19.8s frames=1010 dropped=3
+    Media: playing: <movie_player> t=42.2 ready=4 net=2 playing ... buffered=17.8s frames=1060 dropped=3
+    Media: playing: <movie_player> t=44.2 ready=4 net=2 playing ... buffered=15.8s frames=1110 dropped=3
+    Media: emptied: <movie_player> t=0.0 ready=0 net=3 paused
+
+Every candidate cause this project has chased is ruled out by those four
+lines. **`emptied`** is the page calling `load()` or clearing `src` -- the
+element is reset, `readyState` 0, `networkState` 3 (NETWORK_EMPTY), the
+playhead back at zero. It is not starvation: **15.8 seconds were sitting
+there**. It is not the link, not DNS, not the decoder and not the panel, whose
+own line in the same window is as good as it gets -- `panel wait 1%, 0
+skipped, worst gap 93 ms, loop 87.2 Hz` at 22 pictures a second and 1.4 MB/s.
+
+One detail worth keeping: `buffered` falls by exactly 2.0 s between samples
+2.0 s apart, so the far end never moved -- **fetching had already stopped**
+about twenty seconds before the tear-down, while the playhead ate through what
+was in hand. So the sequence is: the site stops fetching, then resets the
+player while a quarter of a minute is still buffered. That is a decision, not
+a shortage, and it matches what the user found by experiment -- let the
+advertisement run and playback survives, press Skip and it stops seconds
+later.
+
+After it, `8.0 pictures/s, 0 whole, 49.4 KiB/s`: a still page, which is the
+error screen.
+
+The general lesson is the one this whole area keeps teaching, and it is now
+paid for twice: **the evidence for a video that stops is in the seconds
+before it stops, when nothing is wrong and no event fires.** Every media line
+here used to be event-driven, so the log was silent exactly there.
+
 **Two kinds of `pause` now appear, and the buffer number is what tells them
 apart.** `buffered=0.0s` is starvation — nothing left ahead of the playhead.
 `buffered=17.1s` with the video paused at `t=4.2` is nothing of the kind: it is
