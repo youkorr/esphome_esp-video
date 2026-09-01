@@ -968,6 +968,23 @@ The rule that came out of it: **this component calls no ESPHome helper outside
 the components it declares a dependency on.** A convenience worth one log line
 is not worth a build that fails on a version this cannot test.
 
+And the version matters more than it looks. The user builds on **2026.9.0-dev**
+and the validation venv here was 2026.6.5 -- three months apart, and the whole
+of the difference. It is installable: `python3.12 -m venv` (dev needs 3.12) then
+`pip install "git+https://github.com/esphome/esphome@dev"`. Against it, every
+example passes -- `guition-10-home-assistant`, `ha-esp32p4 test audio` and
+`ws-usb-screen` with `micro_wake_word` stripped for the run, the other two
+whole.
+
+Every ESPHome API this component calls was then read against `dev` one by one:
+`speaker->play(data,len)`, `start`, `is_running`, `set_volume`,
+`set_mute_state`, `set_audio_stream_info`, `audio::AudioStreamInfo(bits,
+channels, rate)`, `display->draw_pixels_at` in its eleven-argument form,
+`touchscreen->register_listener`, `TouchPoints_t`, `mark_failed(LogString*)`.
+All unchanged. The only casualty was the helper that had just been added, which
+is the shape of the lesson: the code that had been compiled by users was fine,
+and the line written blind was not.
+
 **"The host has not configured this device" warned at panels that were
 working.** These are powered over USB-C, so a panel fed by Wi-Fi is nearly
 always plugged into a charger -- and a cable carrying nothing but power looks

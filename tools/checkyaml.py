@@ -24,6 +24,18 @@ exactly the kind of confidence this replaces.
     python3 tools/checkyaml.py yaml/*.yaml
     ESPHOME=/path/to/venv/bin/esphome python3 tools/checkyaml.py yaml/p4-*.yaml
 
+**Validate against the esphome the user builds with, not the newest release.**
+A board reported a compile error on 2026.9.0-dev over an API that exists in
+2026.6.5, which is what happened to be installed here -- so this checked a
+configuration nobody was running. `esphome version` says which one is being
+used, and installing dev takes a Python 3.12 virtualenv:
+
+    python3.12 -m venv /tmp/esphome-dev
+    /tmp/esphome-dev/bin/pip install "git+https://github.com/esphome/esphome@dev"
+
+It is still only half the check: `esphome config` validates YAML and codegen
+and never compiles C++, so an API that moved is found by whoever compiles.
+
 Two things it cannot check from a sandbox: micro_wake_word downloads its model
 from github.com during validation, and voice_assistant needs it. Where that
 host is unreachable the file cannot be validated whole, and the failure says
