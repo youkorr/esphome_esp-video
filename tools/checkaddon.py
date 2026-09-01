@@ -94,13 +94,13 @@ def check_image(folder):
     entry = folder / "run.py"
     if not dockerfile.exists() or not entry.exists():
         return 0
-    text = dockerfile.read_text()
+    docker_text = dockerfile.read_text()
     faults = []
 
     # What lands in the image, whether copied from the build context or
     # fetched over the network.
     shipped = set()
-    for line in text.splitlines():
+    for line in docker_text.splitlines():
         words = line.split()
         if words and words[0].upper() in ("COPY", "ADD") and len(words) >= 3:
             shipped.update(pathlib.PurePosixPath(w).name for w in words[1:-1])
@@ -180,7 +180,11 @@ def check_image(folder):
     config = folder / "config.yaml"
     if config.exists():
         version = str(yaml.safe_load(config.read_text()).get("version"))
-        bundle = re.search(r"^ARG BUNDLE=(\S+)", text, re.M)
+        # docker_text and not text: a loop above reads DOCS.md and README.md
+        # into a variable called text, and for several releases this line
+        # searched a README for ARG BUNDLE, found nothing, and passed in
+        # silence -- so the one check meant to stop a stale image never ran.
+        bundle = re.search(r"^ARG BUNDLE=(\S+)", docker_text, re.M)
         if bundle and bundle.group(1) != version:
             faults.append(
                 f"config.yaml is {version} and ARG BUNDLE is "
@@ -290,8 +294,22 @@ def check_version_moved(folder):
         print(f"  --     {folder}/config.yaml  (not a git checkout, version "
               f"{version} not checked against what changed)")
         return 0
-    bump = git("log", "--format=%H", "-1", f'-Sversion: "{version}"',
-               "--", str(folder / "config.yaml"))
+    # Walked rather than searched. `git log -S<string>` matches the commit that
+    # REMOVED a string as readily as the one that added it, so asking for the
+    # current version found the NEXT bump when there was one and reported that
+    # nothing had changed since -- a check that passed on exactly the state it
+    # was written to catch.
+    rel = f"{folder.name}/config.yaml"
+    bump = None
+    for commit in (git("log", "--format=%H", "--", rel) or "").splitlines():
+        blob = git("show", f"{commit}:{rel}")
+        if blob is None:
+            break
+        found = re.search(r'^version:\s*"?([^"\s]+)"?', blob, re.M)
+        if found and found.group(1) == version:
+            bump = commit          # keep walking back for the FIRST one
+        else:
+            break                  # the version changed here, so stop
     if not bump:
         print(f"  --     {folder}/config.yaml  (version {version} is not "
               f"committed yet, so there is nothing to compare)")
