@@ -566,6 +566,57 @@ Three things came out of that, and only the first is a guess:
   so nothing has to be swept for as the page builds itself, and it writes
   nothing into the page, so no Trusted Types policy can refuse it.
 
+**Signing in to Google is a different fault from the video stopping, and the
+browser's remaining tells were measured rather than guessed at.** Asked as
+*"c'est pour cela que je peux pas m'identifier sur YouTube il refuse?"*. It is
+not the same mechanism -- the video stopping was DNS and then YouTube checking
+its own advertising, both of which happen long after any sign-in -- and Google
+blocking sign-in from an automation-driven browser is not something this
+project should engineer around.
+
+What could be measured here, offline, is what a page can still see. On the
+shipped build with `present_browser()`'s disguise applied, on the sender's own
+page and in a secure context (the two things a first attempt got wrong -- the
+override is set per CDP SESSION so a second page does not have it, and
+`navigator.userAgentData` does not exist outside a secure context at all, so
+about:blank answers null whatever is set):
+
+| | value |
+|---|---|
+| user agent, and `sec-ch-ua` at the server | Chrome/141, brands Chromium + Google Chrome + Not?A_Brand |
+| `navigator.webdriver` | undefined |
+| the CDP `Runtime.enable` probe | not detected |
+| `window.chrome` | **undefined** (a real Chrome has it) |
+| `navigator.plugins.length`, `pdfViewerEnabled` | **0, false** (a real Chrome has 5, true) |
+| WebGL renderer | **SwiftShader** |
+| `navigator.languages` | **`en-US@posix`** |
+| `Accept-Language` at the server | **not sent at all** |
+
+The disguise holds where it was built to hold. The bottom two rows are not
+detection at all, they are **broken**: no real browser omits `Accept-Language`,
+and `en-US@posix` is the container's POSIX locale leaking through a field that
+is supposed to be a BCP 47 tag. The consequence has nothing to do with Google
+-- every site served its own default language to a French household.
+
+`--locale` (`locale:` in the add-on, `en-US` by default) fixes both, verified
+against a local server that logs its headers: `navigator.languages` becomes
+`["fr-FR"]` and the request carries `accept-language: fr-FR`. The other rows
+are left alone deliberately: forging `window.chrome` or a plugin list is
+anti-detection work, it is not what was asked for, and this project has already
+paid three times for changes nobody asked for.
+
+**And adding one option found a hole in the add-on that had nothing to do with
+it.** `locale` went into `config.yaml`, into its schema and into run.py's
+`SHARED_KEYS`, and still never reached a panel: `command_for()` emits from its
+own separate list of keys, which had not been touched. Nothing failed -- the
+form simply offered a setting that did nothing, which is worse than not
+offering it. It is the missing `COPY launcher.py` again in a different pair of
+lists, so `tools/checkaddon.py` now checks it the same way, by RUNNING
+`command_for()` with each option set and looking for the flag. The fault was
+reproduced against the check before the check was believed, and it caught one
+legitimate exception on its first run: `keep_profile` reaches the sender as
+`--profile <dir>` or not at all, never under its own name.
+
 **A profile on disk is what makes signing in worth doing.** Without
 `--profile` the browser is launched into a directory it throws away, so every
 restart is a first visit: a site signed into is signed out, and a consent

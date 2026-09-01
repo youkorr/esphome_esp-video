@@ -196,8 +196,66 @@ def check_image(folder):
     return 0
 
 
+def check_reaches_sender(folder):
+    """Does every option in the form actually reach ha_send.py?
+
+    The fault this exists for, found the same day it was written: `locale` was
+    added to config.yaml, to its schema and to run.py's SHARED_KEYS, and still
+    never reached a panel -- command_for() emits from its OWN list of keys, and
+    that list had not been touched. Nothing failed. The form offered a setting
+    that did nothing at all, which is worse than not offering it.
+
+    It is the launcher.py fault again in a different pair of lists, so it is
+    checked the same way: by running the thing rather than by reading it.
+    """
+    folder = pathlib.Path(folder)
+    doc = yaml.safe_load((folder / "config.yaml").read_text())
+    schema = doc.get("schema") or {}
+    sys.path.insert(0, str(folder))
+    try:
+        import run  # noqa: PLC0415 - the point is to import the shipped file
+    except Exception as err:  # noqa: BLE001 - any failure is the answer
+        print(f"  ECHEC  {folder}/run.py could not be imported: {err}")
+        return 1
+
+    # The ones that are the add-on's own business rather than the sender's.
+    ITS_OWN = {
+        "links", "panels", "token",
+        # Not a flag of its own: it decides whether there is a --profile at
+        # all, and what directory it names.
+        "keep_profile",
+        "launcher_title", "launcher_subtitle", "launcher_theme",
+        "launcher_color", "launcher_background", "launcher_background_blur",
+        "launcher_background_dim", "launcher_columns",
+    }
+    panel = {"host": "1.2.3.4", "width": 800, "height": 1280,
+             "rotate": "0", "touch_rotate": "0"}
+    faults = []
+    for key, spec in schema.items():
+        if key in ITS_OWN or not isinstance(spec, str):
+            continue
+        flag = "--" + key.replace("_", "-")
+        # A value a form could really carry, of roughly the right kind.
+        probe = True if spec.startswith("bool") else "7" if spec.startswith(
+            ("int", "float", "port")) else "probe"
+        argv = run.command_for({**panel, key: probe})
+        if flag not in argv:
+            faults.append(
+                f"{key} is in the form but command_for() never emits {flag}, "
+                f"so setting it does nothing"
+            )
+    if faults:
+        print(f"  ECHEC  {folder}/run.py")
+        for fault in faults:
+            print(f"         {fault}")
+        return 1
+    print(f"  ok     {folder}/run.py  (every option reaches the sender)")
+    return 0
+
+
 if __name__ == "__main__":
     files = sys.argv[1:] or ["portall/config.yaml"]
     bad = sum(check(f) for f in files)
     bad += sum(check_image(pathlib.Path(f).parent) for f in files)
+    bad += sum(check_reaches_sender(pathlib.Path(f).parent) for f in files)
     sys.exit(bad)

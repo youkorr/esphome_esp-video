@@ -9,6 +9,12 @@
   media lines that existed before only appeared once something had already
   gone wrong, which is the wrong moment -- the evidence is in the seconds
   before the stall, when nothing fires and the log is silent. Off by default.
+- **`locale`** -- the language pages are asked for, `en-US` unless you change
+  it. Measured on the shipped browser: left to itself it sent **no
+  `Accept-Language` header at all** and reported `en-US@posix` as its language,
+  which no real browser produces. So every site served its own default language
+  whatever the household speaks. Set it to `fr-FR` and YouTube, Jellyfin and
+  the rest come up in French.
 
 ## 2.0.0
 
