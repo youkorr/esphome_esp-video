@@ -2011,6 +2011,29 @@ name beside it. Anything past two characters is set smaller and clipped now --
 measured on what is *drawn*, so a name from the list counts as the one glyph
 it becomes.
 
+**The weather did not appear, and the address is why.** Reported as *"la
+meteo ne s'affiche pas pour l'heure et la date ca fonctionne"* -- which is the
+useful half of the report: the clock working means the bar renders and the
+script runs, so the fault is the reading.
+
+`Weather` took the shared `url:` as it stands and appended `/api/states/...`.
+That `url:` is nearly always a DASHBOARD -- `http://homeassistant:8123/
+lovelace/0` -- so it asked for
+`http://homeassistant:8123/lovelace/0/api/states/weather.home`, a 404 every
+time. It splits out the origin now.
+
+**And the failure line did not say what it had tried**, which is why this was
+not obvious from the log: `could not be read (HTTP Error 404)` is the same
+sentence whether the entity is misspelt, the token is wrong or the address has
+a dashboard glued to it. It names the address now. `why_not()` also breaks the
+silence in the other direction -- an entity asked for with no `url:` or no
+`token:` used to start no thread and say nothing at all, which is the silent
+no-op this file keeps recording.
+
+Verified with the url a panel really has: given
+`http://127.0.0.1:8160/lovelace/0`, the stand-in Home Assistant is asked for
+`/api/states/weather.forecast_home` and the reading reaches the page.
+
 **The clock, the date and the weather, because the real Homepage has them.**
 Reported from a household testing the launcher: *"il manque l'heure la date et
 meteo"*. Three decisions were worth making rather than copying.
