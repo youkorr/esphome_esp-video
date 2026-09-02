@@ -580,6 +580,20 @@ It is applied to the **request**, not afterwards, which is the only place it
 can work: `youtube.com/tv` is not a page but a junction, and by the time the
 address could be looked at, the redirect has already happened.
 
+**A tablet is the closest thing to what a panel actually is** -- 800x1280 in
+portrait is a ten-inch tablet, not a phone's narrow column and not a
+television. If the ordinary site reads too small from across the room, that is
+the string to try on the link:
+
+```yaml
+    user_agent: "Mozilla/5.0 (Linux; Android 14; Pixel Tablet) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36"
+```
+
+Pages are told the panel has a touchscreen, which is simply true and matters
+here: a device claiming to be an Android tablet while reporting no touch at
+all is a contradiction, and some sites answer it by serving the desktop
+layout anyway. Turned off by `no_touch`, where the claim would be false.
+
 **Do not use a Chromecast string** (`CrKey/...`). It makes YouTube treat the
 panel as a cast *receiver* -- the screen that says "ready to cast" and waits
 for a phone to send it something -- rather than as a television you can
