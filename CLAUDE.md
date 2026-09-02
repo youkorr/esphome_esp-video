@@ -702,6 +702,29 @@ entirely. Not verified: there is no route to any Google service from here. What
 is verified is that the option reaches the browser and that the string given is
 what a server receives.
 
+**A tablet is what the panel actually is, and the browser was denying the
+touchscreen.** Proposed by the user after the television interface turned out
+to need a remote: *"je pense qu'il serait plus interessant comme une tablette
+androide de haut de gamme"*. It is the better answer of the three -- 800x1280
+in portrait is a ten-inch tablet, where a phone string gives a narrow column
+and a television string gives an interface no finger can drive.
+
+It also exposed a plain inconsistency. `navigator.maxTouchPoints` read **0**
+on a device whose only input is a finger. Harmless on a desktop page; on a
+page told it is talking to an Android tablet it is two statements that cannot
+both be true, which is the client-hints fault in another costume -- and a site
+that resolves it by serving the desktop layout would have made the user's test
+fail for the wrong reason.
+
+`has_touch` is now on unless `--no-touch`. The thing to check before offering
+it was whether it breaks the way contacts are replayed, since a site that
+switched to touch handling would stop hearing our mouse events. Measured, with
+and without a tablet user agent: a press still fires **pointerdown, mousedown,
+mouseup, click** in that order and `mouse.wheel` still scrolls the same 200
+pixels. Pointer events are the modern unified path and fire either way; a page
+listening only for `touchstart` would not be reached, and none has been seen
+doing that.
+
 **The user agent belongs to the LINK, and asking why it did not was right.**
 Put as *"pourquoi tu la pas mis dans link"*, after a panel-wide one produced
 *"pret a castrer"* on the panel. Both halves of that are findings.

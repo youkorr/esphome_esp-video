@@ -487,7 +487,7 @@ MEDIA_PROBE_JS = """() => {
 
 
 def _launch(playwright, executable, profile, view, browser_args,
-            ignore=(), env=None, locale=None):
+            ignore=(), env=None, locale=None, touch=False):
     """Start the browser, and fall back to Playwright's own if it will not.
 
     Preferring a system browser is only safe if being wrong about it costs
@@ -503,12 +503,29 @@ def _launch(playwright, executable, profile, view, browser_args,
                 profile, args=browser_args, viewport=view,
                 device_scale_factor=1, executable_path=path,
                 ignore_default_args=list(ignore), env=env, locale=locale,
+                has_touch=touch,
             )
         return playwright.chromium.launch(
             args=browser_args, executable_path=path,
             ignore_default_args=list(ignore), env=env,
-        ).new_context(viewport=view, device_scale_factor=1, locale=locale)
+        ).new_context(viewport=view, device_scale_factor=1, locale=locale,
+                      has_touch=touch)
 
+    # A panel's only input is a finger, and the browser was telling every site
+    # it had no touchscreen at all -- navigator.maxTouchPoints 0, measured. On
+    # an ordinary desktop page that changes nothing, but it is a flat
+    # contradiction on a page given a tablet or phone user agent, which is the
+    # same fault as a user agent whose client hints disagree with it: two
+    # statements about one device that cannot both be true.
+    #
+    # Safe for the way contacts are replayed, which was the thing to check
+    # before offering it: measured with has_touch on, a press still fires
+    # pointerdown, mousedown, mouseup and click in that order, and
+    # mouse.wheel still scrolls the same 200 pixels. Pointer events are the
+    # modern unified path and fire either way; a page listening ONLY for
+    # touchstart would not be reached, and none has been seen doing that.
+    #
+    # Off with --no-touch, where the claim would be untrue.
     def playwrights_own():
         """Playwright's own browser -- the FULL Chromium, not the shell.
 
@@ -3550,11 +3567,12 @@ def main():
             print(f"Browser: keeping its profile in {args.profile}")
             context = _launch(
                 playwright, executable, args.profile, view, browser_args,
-                ignore, launch_env, args.locale,
+                ignore, launch_env, args.locale, not args.no_touch,
             )
         else:
             context = _launch(playwright, executable, None, view, browser_args,
-                              ignore, launch_env, args.locale)
+                              ignore, launch_env, args.locale,
+                              not args.no_touch)
         # Installed on the context so it is in every frame of every page,
         # including the ones a site makes for itself and the one that comes
         # back after the page is parked. It is the line that names why a video

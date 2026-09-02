@@ -1,5 +1,18 @@
 # Changelog
 
+## 2.3.1
+
+- Pages are now told the panel **has a touchscreen**. It was reporting
+  `navigator.maxTouchPoints: 0` on a device whose only input is a finger --
+  harmless on a desktop page, a flat contradiction on one given a phone or
+  tablet user agent, which some sites answer by serving the desktop layout
+  anyway. Measured safe for the way contacts are replayed: a press still fires
+  pointerdown, mousedown, mouseup and click, and scrolling is unchanged.
+  Off with `no_touch`.
+- A **tablet** user agent is documented for the YouTube link. An 800x1280
+  panel in portrait is a ten-inch tablet -- not a phone's narrow column, and
+  not a television needing a remote.
+
 ## 2.3.0
 
 - **A `user_agent` per link**, beside the `quality` per link, and for the same
