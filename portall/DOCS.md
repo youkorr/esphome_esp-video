@@ -663,6 +663,29 @@ Written down so it is not tried again.
 | a **Chromecast** string (`CrKey/...`) | makes YouTube treat the panel as a cast *receiver* -- the idle "ready to cast" screen, with no interface to sign into |
 | the ordinary sign-in form | refused by Google, see above |
 
+### Netflix, Prime Video, Disney+ and anything with DRM
+
+These need **Widevine**, and most of the browsers this can run do not have it.
+The log says so on the first secure page a panel opens:
+
+```
+Browser: no Widevine DRM, so Netflix, Prime Video, Disney+ and anything else
+that requires it will not play.
+```
+
+Google Chrome carries Widevine. The Chromium Playwright downloads does not --
+measured, it answers `NotSupportedError` for `com.widevine.alpha` -- and a
+distribution's Chromium usually does not either. The add-on installs Chrome
+where Google publishes a build for the machine, which is amd64 only: on a
+Raspberry Pi or any other arm64 box it falls back to the distribution's
+Chromium and there is no Widevine to be had. The `Browser: running ...` line
+at startup says which one you got.
+
+Signing in is a separate question from playing, and worth separating when
+something fails: the sign-in form is ordinary and the on-screen keyboard types
+into it, so a panel can usually reach an account even where it will never play
+a stream.
+
 ### Jellyfin, and anything with a code
 
 Jellyfin needs nothing from this add-on at all. Its **Quick Connect** is on its
