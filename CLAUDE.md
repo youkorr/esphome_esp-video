@@ -702,6 +702,46 @@ entirely. Not verified: there is no route to any Google service from here. What
 is verified is that the option reaches the browser and that the string given is
 what a server receives.
 
+**The phone is the remote, and it was already working while a D-pad was being
+designed for the panel.** Reported as *"le partage de youtube caste fonctionne
+meme si c'est saccade"*. Once the panel is paired, the YouTube app lists it as
+a device and sends it a video; the browsing happens on the phone, where the
+account and the subscriptions already are.
+
+So the on-screen remote is **not built and should not be**. The interface that
+needed one is driven from a device that has one, and the panel goes back to
+being what it is: a screen. Two rounds of design went into a D-pad before this
+was said, which is the usual lesson -- ask what the user already does before
+building the thing that would let them do it differently.
+
+What remains is that a cast video is *saccade*, and that is arithmetic rather
+than a fault. Full motion means every picture is a whole panel: at 800x1280
+and quality 40 that is roughly 70-100 KiB a picture, so 25 a second asks for
+1.8-2.5 MB/s -- against a radio measured at 25 Mbit/s and a busiest-ever
+recorded window of 2.5 MB/s. The board is not the limit and Espressif's own
+figure says so: the P4's JPEG decoder does 1080p at 30 fps, far above anything
+sent here.
+
+The levers, in order of effect:
+
+- **`quality:` on that link.** Already exists, costs nothing, and video hides
+  compression far better than a dashboard does.
+- **Drawing smaller and letting the PPA scale up.** Measured elsewhere in this
+  file: 400x640 into 800x1280 is 7.5 KiB a picture against 18.0, and 1.7 ms of
+  sender time against 8.7. It is the strongest lever by a distance -- and it
+  is currently **panel-wide**, because the board sizes `rgb_buffer_` for the
+  render size once in `setup()`. Per-link would mean allocating for the panel
+  size and taking the scale from each frame's own dimensions, which is C++ that
+  cannot be compiled or tested here. Identified, not built.
+- **Not H.264.** The P4 encodes it in hardware and decodes it only in
+  software, so changing the wire format moves the cost onto the cores that are
+  currently idle by design. JPEG per frame stays right.
+
+Nothing on GitHub is worth adopting: `plaincast`, `shanocast`,
+`cast-from-container` and `mirrorcast` all go the other way -- casting FROM a
+machine TO a device, or audio only. There is no panel-as-receiver project to
+borrow from, which is worth recording so it is not searched for again.
+
 **The television pairing does NOT sign the ordinary site in, and predicting
 that it would was a deduction standing in for a measurement.** The reasoning
 was that a cookie belongs to a domain rather than a path, so `/tv` and `/`
