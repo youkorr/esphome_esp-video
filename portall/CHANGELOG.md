@@ -1,6 +1,6 @@
 # Changelog
 
-## 2.3.2
+## 2.3.3
 
 - **A frame limit per link** (`fps:` beside `quality:`), and it is the setting
   that fixes a stuttering cast where lowering the quality did not. Measured on
@@ -13,6 +13,8 @@
   keeps the panel's own rate. A touch does not lift a capped link past its
   limit, or the stutter would return for two seconds on every brush of the
   glass.
+
+## 2.3.2
 
 - **The image is about 323 MB smaller.** `playwright install chromium` fetches
   two browsers -- the full Chromium (597 MB measured) and the headless shell
