@@ -1,11 +1,15 @@
 # Changelog
 
-## 2.3.3
+## 2.3.4
 
 - `stats` now ends with **`sound N/s`** whenever there is sound, and `lost`
   when the link was too busy to take it. The capture runs at 48 kHz whatever
   `fps` is, in 20 ms blocks, so 50 a second is all of it arriving -- and
-  "the audio breaks up" had no number to look at before this.
+  "the audio breaks up" had no number to look at before this. The sound is
+  **not** slowed by a link's `fps`: it is not tied to the picture rate at all,
+  and a lower limit gives it more room rather than less.
+
+## 2.3.3
 
 - **A frame limit per link** (`fps:` beside `quality:`), and it is the setting
   that fixes a stuttering cast where lowering the quality did not. Measured on
