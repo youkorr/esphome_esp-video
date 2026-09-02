@@ -1,5 +1,5 @@
 name: Portall
-version: "2.4.2"
+version: "2.4.3"
 # Home Assistant identifies an add-on by its slug, so this one moving from
 # usb_display_panel to portall makes the Supervisor see a NEW add-on: options
 # are not carried over and /data starts empty, which means the browser
@@ -173,6 +173,16 @@ options:
   # address, and served to the page from 127.0.0.1. The page itself never
   # reaches Home Assistant and never carries the token.
   launcher_weather: ""
+  # Your own styling, last in the page's stylesheet so it wins over everything
+  # above it. This is where the clock's size, its place and its colour live --
+  # and the date's, and the weather's, and the tiles' -- rather than a setting
+  # per thing that nobody can find in a form. The documentation carries
+  # ready-made lines to copy.
+  #
+  # It can only ever look wrong: a stylesheet runs nothing, and a rule the
+  # browser does not understand is skipped rather than fatal. Clear the field
+  # and the page is what it was.
+  launcher_css: ""
   links: []
   stats: true
   # A diagnostic, off by default: while a video plays it prints the playhead
@@ -223,6 +233,7 @@ schema:
   launcher_columns: int(0,6)?
   launcher_clock: bool?
   launcher_weather: str?
+  launcher_css: str?
   links:
     - name: str
       url: str

@@ -406,7 +406,7 @@ PAGE = """<!doctype html>
  /* Nothing to show is nothing drawn, rather than an empty box where a
     temperature should be. */
  .wx:empty, .now:empty { display: none; }
-</style></head>
+%(css)s</style></head>
 <body>
 <div class="wall"></div>
 <header>%(now)s<h1>%(title)s</h1>%(subtitle)s</header>
@@ -522,7 +522,7 @@ WEATHER_PATH = "/weather.json"
 
 def render(links, title="Panel", subtitle="", theme="dark",
            color=DEFAULT_PALETTE, background="", blur="off", dim=40,
-           columns=0, clock=True, weather=None):
+           columns=0, clock=True, weather=None, css=""):
     """The page, as one string.
 
     Every value is escaped. These come from a configuration file a person
@@ -604,7 +604,22 @@ def render(links, title="Panel", subtitle="", theme="dark",
     scripts = (CLOCK_JS if clock else "") + (
         WEATHER_JS % {"path": WEATHER_PATH} if weather is not None else "")
 
+    # Whatever the household wants to change, last in the sheet so it wins.
+    # CSS rather than a setting per thing: the ask was the clock's size, its
+    # place and its colour, and the next ask would have been the date's, then
+    # the weather's, then the tiles' -- four options today and a dozen by the
+    # end of the month, each of them a name somebody has to find in a form.
+    #
+    # It cannot do more than look wrong: a stylesheet runs nothing, and a rule
+    # the browser does not understand is skipped rather than fatal. The one
+    # thing to stop is closing the element early and writing markup after it,
+    # so anything that looks like the end of a tag is neutralised.
+    sheet = ""
+    if str(css or "").strip():
+        sheet = " " + str(css).replace("</", "<\\/") + "\n"
+
     return PAGE % {
+        "css": sheet,
         "now": now,
         "clockjs": scripts,
         "title": html.escape(title),
@@ -644,7 +659,7 @@ def render(links, title="Panel", subtitle="", theme="dark",
 
 def start(links, title="Panel", subtitle="", theme="dark",
           color=DEFAULT_PALETTE, background="", blur="off", dim=40,
-          columns=0, clock=True, weather=None):
+          columns=0, clock=True, weather=None, css=""):
     """Serve the page for as long as the add-on runs. Returns its address.
 
     One server for every panel: they all come home to the same list, and a
@@ -657,7 +672,7 @@ def start(links, title="Panel", subtitle="", theme="dark",
     first = weather() if weather is not None else None
     body = render(links, title, subtitle, theme, color, background, blur,
                   dim, columns, clock,
-                  first if weather is not None else None).encode()
+                  first if weather is not None else None, css).encode()
     _, wallpaper = _wallpaper(background)
     picture, kind = None, "application/octet-stream"
     if wallpaper:

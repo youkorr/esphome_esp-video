@@ -141,6 +141,7 @@ launcher_background_dim: 40   # 0..100
 launcher_columns: 0           # 0 lets the panel decide
 launcher_clock: true          # the time and the date above the links
 launcher_weather: weather.forecast_home   # empty for none
+launcher_css: ".time { font-size: 110px; }"   # your own styling, see below
 links:
   - name: Home Assistant
     url: http://homeassistant:8123/lovelace/0
@@ -328,6 +329,57 @@ launcher simply shows no weather and says so once in the log.
 Measured at the three panel shapes with the bar in place: tiles 350x166 at
 800x1280, 566x118 at 1280x800, 454x107 at 1024x600 -- unchanged, and nothing
 runs off the side.
+
+### Changing how it looks
+
+One option rather than a setting per thing. `launcher_css` goes **last** in the
+page's stylesheet, so anything you put there wins:
+
+```yaml
+launcher_css: |
+  .time { font-size: 96px; color: #38bdf8; }
+  .now  { justify-content: center; }
+```
+
+The parts you can name:
+
+| selector | what it is |
+|---|---|
+| `.now` | the whole bar. `justify-content: center` moves it |
+| `.time` | the clock |
+| `.date` | the date under it |
+| `.wx` | the weather box |
+| `.wx .sky` | the weather's symbol |
+| `.wx .out` | the temperature |
+| `header h1` | the title |
+| `.tile` | a link's card |
+| `.icon`, `.name`, `.desc` | the parts of a card |
+
+Ready-made lines:
+
+```yaml
+# a clock you can read from the far side of the room
+launcher_css: ".time { font-size: 110px; font-weight: 200; }"
+
+# the bar centred, the date hidden
+launcher_css: ".now { justify-content: center; } .date { display: none; }"
+
+# the clock in the palette's own colour rather than the text colour
+launcher_css: ".time { color: var(--accent); }"
+
+# the weather on the left, beside the clock, instead of pushed right
+launcher_css: ".wx { margin-left: 0; }"
+```
+
+`var(--accent)`, `var(--ink)`, `var(--faint)`, `var(--card)` and `var(--edge)`
+are the page's own colours, so a rule written with them follows
+`launcher_color` and the theme instead of fighting them.
+
+**It can only ever look wrong.** A stylesheet runs nothing, a rule the browser
+does not understand is skipped rather than fatal, and anything that looks like
+the end of the element is neutralised -- verified, including a deliberate
+attempt to close the tag and write markup after it. Clear the field and the
+page is what it was.
 
 ## The keyboard
 

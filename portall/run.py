@@ -285,6 +285,7 @@ def start_launcher(config):
         columns=config.get("launcher_columns", 0),
         clock=str(config.get("launcher_clock", True)).lower()
         not in ("false", "no", "0"),
+        css=str(config.get("launcher_css") or ""),
         weather=Weather(
             config.get("url"), config.get("token"),
             config.get("launcher_weather"),
