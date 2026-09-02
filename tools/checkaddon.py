@@ -236,6 +236,8 @@ def check_reaches_sender(folder):
         "launcher_color", "launcher_background", "launcher_background_blur",
         "launcher_background_dim", "launcher_columns",
         "launcher_clock", "launcher_weather", "launcher_css",
+        "launcher_clock_size", "launcher_weather_size",
+        "launcher_align", "launcher_clock_color",
     }
     panel = {"host": "1.2.3.4", "width": 800, "height": 1280,
              "rotate": "0", "touch_rotate": "0"}

@@ -519,10 +519,64 @@ def _wallpaper(background):
 
 WEATHER_PATH = "/weather.json"
 
+# Named sizes rather than a number, because "large" is a decision and "72px" is
+# an experiment. Each is a clamp so it still adapts between a 1024x600 panel
+# and a 800x1280 one -- the middle value is the one that governs on a panel.
+CLOCK_SIZES = {
+    "small": "clamp(22px, 5vw, 40px)",
+    "medium": "clamp(34px, 8vw, 68px)",
+    "large": "clamp(44px, 11vw, 96px)",
+    "huge": "clamp(56px, 15vw, 130px)",
+}
+DATE_SIZES = {
+    "small": "clamp(11px, 1.8vw, 16px)",
+    "medium": "clamp(14px, 2.4vw, 22px)",
+    "large": "clamp(17px, 3vw, 28px)",
+    "huge": "clamp(20px, 3.6vw, 34px)",
+}
+WEATHER_SIZES = {
+    "small": "clamp(13px, 2.2vw, 19px)",
+    "medium": "clamp(16px, 3vw, 26px)",
+    "large": "clamp(21px, 4vw, 34px)",
+    "huge": "clamp(26px, 5vw, 44px)",
+}
+DEFAULT_SIZE = "medium"
+
+
+def _sizes(clock_size, weather_size, align, colour, dark):
+    """The rules the named settings come to, or nothing when all are default.
+
+    Written into the sheet ABOVE launcher_css, so somebody who wants something
+    these cannot say still overrides them.
+    """
+    out = []
+    clock_size = str(clock_size or DEFAULT_SIZE).lower()
+    weather_size = str(weather_size or DEFAULT_SIZE).lower()
+    if clock_size in CLOCK_SIZES and clock_size != DEFAULT_SIZE:
+        out.append(f" .time {{ font-size: {CLOCK_SIZES[clock_size]}; }}")
+        out.append(f" .date {{ font-size: {DATE_SIZES[clock_size]}; }}")
+    if weather_size in WEATHER_SIZES and weather_size != DEFAULT_SIZE:
+        out.append(f" .wx {{ font-size: {WEATHER_SIZES[weather_size]}; }}")
+    where = str(align or "left").lower()
+    if where in ("center", "centre", "right"):
+        # The weather is pushed right by a margin, which would fight any
+        # alignment of the bar as a whole, so it goes when the bar is placed.
+        out.append(" .wx { margin-left: 0; }")
+        out.append(f" .now {{ justify-content: "
+                   f"{'center' if where.startswith('cent') else 'flex-end'}; }}")
+    tint = PALETTES.get(str(colour or "").lower())
+    if tint:
+        # The clock and the date together: asked for as one thing, and two
+        # colours a hand's breadth apart is not a look anybody wants.
+        out.append(f" .time, .date {{ color: {tint}; }}")
+    return ("\n".join(out) + "\n") if out else ""
+
 
 def render(links, title="Panel", subtitle="", theme="dark",
            color=DEFAULT_PALETTE, background="", blur="off", dim=40,
-           columns=0, clock=True, weather=None, css=""):
+           columns=0, clock=True, weather=None, css="",
+           clock_size=DEFAULT_SIZE, weather_size=DEFAULT_SIZE,
+           align="left", clock_color=""):
     """The page, as one string.
 
     Every value is escaped. These come from a configuration file a person
@@ -614,9 +668,9 @@ def render(links, title="Panel", subtitle="", theme="dark",
     # the browser does not understand is skipped rather than fatal. The one
     # thing to stop is closing the element early and writing markup after it,
     # so anything that looks like the end of a tag is neutralised.
-    sheet = ""
+    sheet = _sizes(clock_size, weather_size, align, clock_color, dark)
     if str(css or "").strip():
-        sheet = " " + str(css).replace("</", "<\\/") + "\n"
+        sheet += " " + str(css).replace("</", "<\\/") + "\n"
 
     return PAGE % {
         "css": sheet,
@@ -659,7 +713,9 @@ def render(links, title="Panel", subtitle="", theme="dark",
 
 def start(links, title="Panel", subtitle="", theme="dark",
           color=DEFAULT_PALETTE, background="", blur="off", dim=40,
-          columns=0, clock=True, weather=None, css=""):
+          columns=0, clock=True, weather=None, css="",
+          clock_size=DEFAULT_SIZE, weather_size=DEFAULT_SIZE,
+          align="left", clock_color=""):
     """Serve the page for as long as the add-on runs. Returns its address.
 
     One server for every panel: they all come home to the same list, and a
@@ -672,7 +728,8 @@ def start(links, title="Panel", subtitle="", theme="dark",
     first = weather() if weather is not None else None
     body = render(links, title, subtitle, theme, color, background, blur,
                   dim, columns, clock,
-                  first if weather is not None else None, css).encode()
+                  first if weather is not None else None, css,
+                  clock_size, weather_size, align, clock_color).encode()
     _, wallpaper = _wallpaper(background)
     picture, kind = None, "application/octet-stream"
     if wallpaper:

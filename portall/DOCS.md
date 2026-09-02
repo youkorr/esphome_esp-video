@@ -141,7 +141,11 @@ launcher_background_dim: 40   # 0..100
 launcher_columns: 0           # 0 lets the panel decide
 launcher_clock: true          # the time and the date above the links
 launcher_weather: weather.forecast_home   # empty for none
-launcher_css: ".time { font-size: 110px; }"   # your own styling, see below
+launcher_clock_size: medium   # small, medium, large, huge
+launcher_weather_size: medium # the same four
+launcher_align: left          # left, center, right
+launcher_clock_color: ""      # a palette name, empty for the theme's colour
+launcher_css: ""              # anything the four above cannot say, see below
 links:
   - name: Home Assistant
     url: http://homeassistant:8123/lovelace/0
@@ -332,8 +336,29 @@ runs off the side.
 
 ### Changing how it looks
 
-One option rather than a setting per thing. `launcher_css` goes **last** in the
-page's stylesheet, so anything you put there wins:
+The four things people actually change have their own settings:
+
+```yaml
+launcher_clock_size: huge      # small, medium, large, huge
+launcher_weather_size: small   # the same four
+launcher_align: center         # left, center, right
+launcher_clock_color: sky      # a Tailwind palette name, empty for the theme's
+```
+
+The sizes are named rather than given in pixels because *large* is a decision
+and *72px* is an experiment -- and each is still a range, so it adapts between
+a 1024x600 panel and a 800x1280 one. Measured at 1280x800: the clock goes
+**40px** at `small`, 68 at `medium`, 96 at `large` and **130** at `huge`, and
+the date follows it.
+
+`launcher_clock_color` takes the same palette names as `launcher_color`, so it
+is one vocabulary rather than two. It colours the clock and the date together:
+two colours a hand's breadth apart is not a look anybody wants.
+
+### And anything else
+
+For what those four cannot say, `launcher_css` goes **last** in the page's
+stylesheet -- after the settings above, so it overrides them too:
 
 ```yaml
 launcher_css: |

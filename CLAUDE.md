@@ -2034,12 +2034,30 @@ Verified with the url a panel really has: given
 `http://127.0.0.1:8160/lovelace/0`, the stand-in Home Assistant is asked for
 `/api/states/weather.forecast_home` and the reading reaches the page.
 
-**One stylesheet rather than a setting per thing, and the ask is what decided
-it.** Put as *"tu ne donnes pas la possibilite de changer d'emplacement de
-taille ou de couleur par exemple pour l'heure ou la date"* -- three settings
-asked for, and the next three would have been the date's, the weather's and
-the tiles'. Four options today, a dozen by the end of the month, each of them
-a name somebody has to find in a form that already carries twenty-five.
+**A stylesheet was the wrong FIRST answer, and the user said so twice.** Asked
+first as *"tu ne donnes pas la possibilite de changer d'emplacement de taille
+ou de couleur"*, answered with `launcher_css`, and then pushed back on:
+*"c'etait pas plus simple pour la meteo de choisir sa taille et pour l'heure
+et la date de choisir sa taille et couleur"*.
+
+The argument for one general mechanism was option count -- which is the
+maintainer's problem, not the household's. **This is the fourth time the same
+person has proposed a named per-thing setting over a general mechanism**, after
+the quality, the user agent and the frame limit per link, and they were right
+every time. That is a pattern worth trusting rather than re-arguing.
+
+So the four things people actually change are named:
+`launcher_clock_size`, `launcher_weather_size` (small/medium/large/huge),
+`launcher_align` (left/center/right) and `launcher_clock_color` (a palette
+name, the same vocabulary as `launcher_color` rather than a second one).
+Sizes are named rather than in pixels because *large* is a decision and *72px*
+is an experiment, and each stays a `clamp()` so it still adapts between panel
+shapes -- measured at 1280x800, the clock runs 40px at `small` to **130px** at
+`huge`, with the date following it.
+
+`launcher_css` stays and stays LAST, after those rules, so it overrides them.
+Verified: `clock_size: huge` gives 130px, and 40px of `launcher_css` on top
+wins. Named settings are the front door; the sheet is the way out of it.
 
 `launcher_css` goes **last** in the page's sheet so it wins, and the
 documentation carries the selectors (`.now`, `.time`, `.date`, `.wx`,
