@@ -702,6 +702,43 @@ entirely. Not verified: there is no route to any Google service from here. What
 is verified is that the option reaches the browser and that the string given is
 what a server receives.
 
+**Quality was not the lever, and the user's own two attempts are what proved
+it.** Reported as *"malgre mis en qualite 20 c'est saccade"*, with the line:
+
+    18.4 pictures/s, 22.2 made/s, 18.4 rectangles/s, 92 whole, 918.6 KiB/s,
+    panel wait 42%, 20 skipped, worst gap 898 ms, worst turn 23 ms, loop 94.3 Hz
+
+Against the same panel browsing the television interface minutes earlier --
+**1429 KiB/s at `panel wait 1%`, 0 skipped, worst gap 93 ms** -- it now
+saturates carrying **fewer** bytes while waiting forty times as much. That
+single comparison is the whole diagnosis: **bytes are not what runs out.**
+
+What changed is `92 whole` for 92 pictures. On full motion every picture is a
+whole panel, and a whole panel is a fixed cost the board pays each time -- one
+decode of the entire screen and one write of the entire screen -- whatever the
+JPEG weighs. Lowering the quality shrinks the JPEG and leaves that cost
+untouched, which is exactly what 40 -> 20 measured.
+
+`worst turn 23 ms` and `loop 94.3 Hz` rule out the machine running the sender,
+and `20 skipped` in five seconds IS the stutter: 22 made, 18 taken, four
+thrown away unevenly, hence `worst gap 898 ms`. **A steady 15 beats an erratic
+18.**
+
+`--page-fps PREFIX=FPS` and `fps:` on a link, the third setting to belong
+there after `quality:` and `user_agent:`. One lookup per turn of the loop
+rather than per picture, since the limit is consulted before a picture is
+released. A capped link caps the URGENT window too: lifting it to
+`urgent_fps` for two seconds after every contact would put the stutter
+straight back the moment somebody brushed the glass.
+
+**And it corrects something written here two days earlier.** Drawing smaller
+was called "the strongest lever by a distance" -- true of the SENDER's time and
+of the bytes, both measured, and both irrelevant to this bottleneck. The
+board's write to the display is panel-sized whatever the render size is, and
+with a PPA pass added the decode saving is partly given back. Neither the
+sender nor the link is what is short here, so that lever would not have moved
+this number. The ranking only ever holds against a measured bottleneck.
+
 **The phone is the remote, and it was already working while a D-pad was being
 designed for the panel.** Reported as *"le partage de youtube caste fonctionne
 meme si c'est saccade"*. Once the panel is paired, the YouTube app lists it as

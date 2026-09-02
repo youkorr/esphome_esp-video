@@ -536,6 +536,7 @@ links:
     icon: youtube
     user_agent: "Mozilla/5.0 (SMART-TV; Linux; Tizen 6.0) AppleWebKit/537.36 (KHTML, like Gecko) 85.0.4183.93/6.0 TV Safari/537.36"
     quality: 20
+    fps: 15
 ```
 
 Three things are doing the work, and all three are needed.
@@ -564,6 +565,47 @@ subscriptions are, and send the video to the panel.
 
 So the panel is the screen and the phone is everything else. To leave YouTube
 entirely, hold the top-left corner for a second, or swipe sideways out of it.
+
+#### Why `fps: 15`, and why quality alone did not fix it
+
+Quality was lowered from 40 to 20 on a panel and the video still stuttered.
+That is not a failure -- it is the measurement that says where the limit is.
+The stats line during a cast:
+
+```
+18.4 pictures/s, 22.2 made/s, 18.4 rectangles/s, 92 whole, 918.6 KiB/s,
+panel wait 42%, 20 skipped, worst gap 898 ms, worst turn 23 ms, loop 94.3 Hz
+```
+
+Read it against the same panel browsing the television interface a few minutes
+earlier: **1429 KiB/s at `panel wait 1%`, `0 skipped`**. So it now saturates
+carrying **fewer** bytes -- 919 against 1429 -- while waiting forty times as
+much. Bytes are not what runs out.
+
+What changed is `92 whole` for 92 pictures: on full motion **every** picture is
+a whole panel, and a whole panel is a fixed cost the board pays each time --
+one decode of the entire screen and one write of the entire screen -- whatever
+the JPEG weighs. So the thing to lower is the **number** of them.
+
+`worst turn 23 ms` and `loop 94.3 Hz` in the same line say the machine running
+the add-on is not the problem, and 20 skipped in five seconds is the stutter
+itself: the browser makes 22 a second, the panel takes 18, and four are thrown
+away unevenly -- which is where `worst gap 898 ms` comes from. **A steady 15
+looks far better than an erratic 18.**
+
+So put a frame limit on the link:
+
+```yaml
+    fps: 15
+```
+
+It applies to that page only, so the dashboard keeps the panel's own rate. A
+link that asks to be slower means it, so a touch does not lift it past its
+limit either -- otherwise the stutter would come straight back for two seconds
+every time somebody brushed the glass.
+
+Try 15, then 12 if it still breaks up. If `skipped` reaches 0 and `panel wait`
+falls, the limit is right.
 
 #### Why `quality: 20`
 
