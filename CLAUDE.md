@@ -785,6 +785,28 @@ something is already wrong. Caught by reading the surrounding code before
 believing the edit; the whole thing is assembled into `line` and printed once
 now.
 
+**The sound counter found a fault on its second day, and it was ours.** A
+user's log, on a panel showing a still page:
+
+    0.0 pictures/s, 0.0 made/s, 0.0 rectangles/s, 0 whole, 0.0 KiB/s,
+    panel wait 0%, 0 skipped, worst gap 0 ms, loop 116.5 Hz, sound 50/s
+
+Fifty blocks a second is the whole stream, and the page was playing nothing --
+so that is **93.8 KiB/s of digital silence**, sent for ever, at a panel that
+had nothing to show either. It contradicts the property this project
+advertises loudest: idle traffic 0.0 KiB/s. The `KiB/s` field counts pictures
+only, which is why nothing had ever shown it.
+
+`take()` drops a block that is **exactly** zero. Exactly rather than a
+threshold, because a null sink with nothing playing gives exact zeros and
+anything quieter than exact is somebody's quiet passage. Tested on five cases:
+all silence sends nothing, all sound sends everything, silence then sound
+sends the sound, a passage one sample away from silence still goes out, and so
+does the first block of a sound.
+
+The `sound` field disappears from the stats line over a silent page rather
+than reading 50/s, which is the honest reading of what is happening.
+
 **Lip sync is still not done and is now written down as such.** Nothing
 timestamps either stream, so the sound arrives slightly ahead of its picture by
 roughly what the picture path costs. Not measured on a panel. What a lower
