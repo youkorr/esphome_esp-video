@@ -23,11 +23,29 @@ WORKDIR /app
 # update really does fetch a current Playwright, a current Chromium and current
 # senders. It costs the browser download on each update, which is the price of
 # not running a year-old browser without knowing it.
-ARG BUNDLE=2.3.1
+ARG BUNDLE=2.3.2
 RUN echo "${BUNDLE}" > /app/BUNDLE
 
+# --no-shell, and it is worth 323 MB of image.
+#
+# "playwright install chromium" fetches TWO browsers: the full Chromium (597 MB
+# measured) and the headless shell (323 MB), and the shell is what a plain
+# headless launch() picks by default. The sender no longer wants it: it reaches
+# for playwright.chromium.executable_path, which names the FULL build, because
+# the shell is a cut-down one and looks like it to any site -- no
+# window.chrome, no plugins, its PDF viewer off and its notification permission
+# already denied, all of which matter to anybody signing in from a panel.
+#
+# So the shell was a fallback below a fallback: a system browser is preferred
+# above both, and the full Chromium above the shell. Dropping it costs nothing
+# that is reachable and takes a third of a gigabyte off an image that often
+# lands on a Raspberry Pi's SD card.
+#
+# Written to degrade rather than fail: an older Playwright that has never heard
+# of --no-shell installs both, exactly as before.
 RUN pip install --no-cache-dir --upgrade playwright pillow numpy \
-    && playwright install --with-deps chromium \
+    && (playwright install --with-deps chromium --no-shell \
+        || playwright install --with-deps chromium) \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/* /root/.cache/pip
 
