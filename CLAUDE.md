@@ -702,6 +702,31 @@ entirely. Not verified: there is no route to any Google service from here. What
 is verified is that the option reaches the browser and that the string given is
 what a server receives.
 
+**The television pairing does NOT sign the ordinary site in, and predicting
+that it would was a deduction standing in for a measurement.** The reasoning
+was that a cookie belongs to a domain rather than a path, so `/tv` and `/`
+share one jar -- true about cookies, and beside the point. Reported from the
+panel: the television tile is signed in, the ordinary tile is not, same
+profile, same moment.
+
+So the pairing authenticates the television **app**, not the browser's Google
+session -- whatever it stores is scoped to that interface, not the
+cookie-based session the ordinary site reads. Written here because it will be
+guessed again, and because it was stated confidently in chat before anybody
+looked.
+
+**And the two tiles side by side are the controlled experiment this whole
+video thread never had.** Same panel, same network, same minute: the
+signed-in television interface plays, and the anonymous ordinary site loses
+throughput and then loses the video -- which is exactly the `emptied` shape,
+the advertisement being verified. Nothing about the link, the board or the
+sender differs between the two. The account is what fixed the stopping video,
+and this is the proof.
+
+The consequence is that a panel wanting YouTube stays on the television
+interface, which needs arrow keys, OK and Back -- so the remote is no longer
+an idea to weigh against alternatives. The alternatives are closed.
+
 **A tablet is what the panel actually is, and the browser was denying the
 touchscreen.** Proposed by the user after the television interface turned out
 to need a remote: *"je pense qu'il serait plus interessant comme une tablette

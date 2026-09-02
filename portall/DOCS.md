@@ -580,6 +580,20 @@ It is applied to the **request**, not afterwards, which is the only place it
 can work: `youtube.com/tv` is not a page but a junction, and by the time the
 address could be looked at, the redirect has already happened.
 
+**The pairing signs in the television interface, not the ordinary site.** It
+is tempting to think otherwise -- a cookie belongs to a domain rather than a
+path, so `/tv` and `/` ought to share one. Reported from a panel: they do not.
+The television tile is signed in and the ordinary tile is not, on the same
+profile at the same moment, because the pairing authenticates the television
+app rather than the browser's Google session. So keep the television link as
+the one you use, not only as the one you sign in with.
+
+Side by side the two tiles also settle the older question about video
+stopping: the signed-in television interface plays, and the anonymous
+ordinary site loses its throughput and then its video. Same panel, same
+network, same minute. The advertisement was the cause, and an account is what
+removes it.
+
 **A tablet is the closest thing to what a panel actually is** -- 800x1280 in
 portrait is a ten-inch tablet, not a phone's narrow column and not a
 television. If the ordinary site reads too small from across the room, that is
