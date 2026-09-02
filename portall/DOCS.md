@@ -580,6 +580,17 @@ It is applied to the **request**, not afterwards, which is the only place it
 can work: `youtube.com/tv` is not a page but a junction, and by the time the
 address could be looked at, the redirect has already happened.
 
+**Your phone is the remote, and that is the whole answer to navigating it.**
+The television interface is built to be driven by a remote control, which a
+panel does not have -- and the fix is not to build one. Once the panel is
+paired to your account, the YouTube app on your phone lists it as a device:
+browse there, where you are signed in and where your subscriptions are, and
+send the video to the panel. Confirmed from a panel.
+
+That closes the last gap. Nothing has to be typed on the panel, nothing has
+to be navigated on it, and the account is on the phone where it already was.
+The panel is the screen and the phone is everything else.
+
 **The pairing signs in the television interface, not the ordinary site.** It
 is tempting to think otherwise -- a cookie belongs to a domain rather than a
 path, so `/tv` and `/` ought to share one. Reported from a panel: they do not.
