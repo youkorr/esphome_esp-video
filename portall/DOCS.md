@@ -139,6 +139,8 @@ launcher_background: http://homeassistant:8123/local/wall.jpg
 launcher_background_blur: md  # off, sm, md, xl
 launcher_background_dim: 40   # 0..100
 launcher_columns: 0           # 0 lets the panel decide
+launcher_clock: true          # the time and the date above the links
+launcher_weather: weather.forecast_home   # empty for none
 links:
   - name: Home Assistant
     url: http://homeassistant:8123/lovelace/0
@@ -297,6 +299,35 @@ no drawing at all, and none of these do.
 | opnsense | `opnsense` | zigbee2mqtt | `zigbee2mqtt` `z2m` |
 
 50 service logos, drawn from the add-on itself and never fetched.
+
+### The clock, the date and the weather
+
+Above the links, as on Homepage:
+
+```yaml
+launcher_clock: true
+launcher_weather: weather.forecast_home
+```
+
+**They follow the panel's `locale`.** The browser formats them, so `fr-FR`
+gives `19:00` and `mercredi 2 septembre`, `de-DE` gives `Mittwoch, 2.
+September`, and this add-on needs to know no language at all.
+
+**No seconds, on purpose.** A digit that changes every second is a rectangle
+sent to the panel every second for as long as it is awake -- the same reason
+nothing on this page animates. On the minute it is one small rectangle a
+minute, and a sleeping panel sends nothing whatever.
+
+The weather is read **by the add-on**, which already has your token and Home
+Assistant's address, and served to the page from `127.0.0.1`. The page never
+reaches Home Assistant and never carries the token -- putting one into the
+storage of every site a panel visits is a leak this project has already had to
+close once. It is refreshed every ten minutes; if it cannot be read, the
+launcher simply shows no weather and says so once in the log.
+
+Measured at the three panel shapes with the bar in place: tiles 350x166 at
+800x1280, 566x118 at 1280x800, 454x107 at 1024x600 -- unchanged, and nothing
+runs off the side.
 
 ## The keyboard
 

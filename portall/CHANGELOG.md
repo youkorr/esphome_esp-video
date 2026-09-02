@@ -2,6 +2,21 @@
 
 ## 2.3.5
 
+- **The launcher has a clock, a date and the weather**, above the links, as on
+  Homepage. `launcher_clock` is on by default; `launcher_weather` takes a Home
+  Assistant weather entity and is empty for none.
+  - They are formatted by the browser, so they follow the panel's `locale`:
+    `fr-FR` gives `19:00` and `mercredi 2 septembre` without this add-on
+    knowing any French.
+  - **No seconds**, deliberately: a digit changing every second is a rectangle
+    sent to the panel every second for as long as it is awake. On the minute it
+    is one small rectangle a minute.
+  - The weather is read by the **add-on**, which already has the token and the
+    address, and served to the page from 127.0.0.1 -- the page never reaches
+    Home Assistant and never carries the token. Refreshed every ten minutes; a
+    reading that cannot be had leaves the launcher with no weather and one line
+    in the log.
+
 - **The `DRM yes/no` field is gone, because it was wrong twice over.** It
   reported whether `navigator.requestMediaKeySystemAccess` exists, asked on
   `about:blank` -- where, measured, it does not exist for any browser, so the

@@ -157,6 +157,22 @@ options:
   # How many links across. 0 lets the panel decide, which is what a launcher
   # shown on three shapes of screen wants.
   launcher_columns: 0
+  # The time and the date, above the links. Formatted by the browser, so they
+  # follow `locale:` -- a French panel writes "lundi 2 septembre" without this
+  # add-on knowing any French.
+  #
+  # Deliberately without seconds: a digit that changes every second is a
+  # rectangle sent to the panel every second for as long as it is awake. On
+  # the minute it is one small rectangle a minute, and a sleeping panel sends
+  # nothing at all.
+  launcher_clock: true
+  # A Home Assistant weather entity -- weather.forecast_home, weather.chez_moi
+  # -- shown beside the clock. Empty for none.
+  #
+  # The reading is fetched by THIS ADD-ON, which already has the token and the
+  # address, and served to the page from 127.0.0.1. The page itself never
+  # reaches Home Assistant and never carries the token.
+  launcher_weather: ""
   links: []
   stats: true
   # A diagnostic, off by default: while a video plays it prints the playhead
@@ -205,6 +221,8 @@ schema:
   launcher_background_blur: list(off|sm|md|xl)?
   launcher_background_dim: int(0,100)?
   launcher_columns: int(0,6)?
+  launcher_clock: bool?
+  launcher_weather: str?
   links:
     - name: str
       url: str
