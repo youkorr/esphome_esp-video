@@ -728,6 +728,28 @@ a Pi falls to the distribution's Chromium and cannot play Netflix at all. That
 is not something to engineer around; it is something the log should say in one
 line instead of costing a diagnosis.
 
+**Netflix's sign-in is reCAPTCHA, and the page says so itself.** A photograph
+of a panel pointed at `https://www.netflix.com/fr/` -- the right address --
+showing *"Un probleme est survenu. Veuillez reessayer dans quelques minutes"*
+with the email field **still empty**, and along the bottom, in Netflix's own
+words: *"Cette page est protegee par Google reCAPTCHA pour nous assurer que
+vous n'etes pas un robot."*
+
+Nothing had been typed, so it is not the password, not the keyboard and not
+the DRM: reCAPTCHA v3 scores the browser silently on load and a driven one
+scores badly. Same wall as the Google sign-in, same supplier. Defeating a
+CAPTCHA is not something this project does, and that is a line rather than a
+difficulty.
+
+The useful thing is the ORDER of the two walls, because the second makes the
+first pointless: **Widevine first**. With no Widevine -- which is every arm64
+box, since Google publishes no Chrome for it -- signing in buys nothing at
+all, so `report_drm()`'s line is what to read before spending an evening on
+`import_profile`. And even with both solved a browser gets Widevine **L3**,
+which Netflix limits to standard definition, over the full-motion path that
+was just measured as the expensive one. Large effort, poor result; Jellyfin is
+the better answer for a panel and needs none of it.
+
 **And `keepalive` does not exist in this project.** Asked as *"je vois que
 keepalive n'est pas dans les link"* -- it is `keep_profile`, and it is a panel
 setting because a profile belongs to a browser and there is **one browser per
