@@ -2,6 +2,18 @@
 
 ## 2.3.2
 
+- **A frame limit per link** (`fps:` beside `quality:`), and it is the setting
+  that fixes a stuttering cast where lowering the quality did not. Measured on
+  a panel: at quality 20 it saturated carrying **919 KiB/s with 42% waiting**,
+  where the same panel had carried **1429 KiB/s at 1%** browsing a few minutes
+  earlier. Fewer bytes, forty times the waiting -- so bytes are not what runs
+  out. On full motion every picture is a whole panel, and a whole panel is a
+  fixed cost the board pays each time whatever the JPEG weighs, so the number
+  of them is the thing to lower. `fps: 15` on the YouTube link; the dashboard
+  keeps the panel's own rate. A touch does not lift a capped link past its
+  limit, or the stutter would return for two seconds on every brush of the
+  glass.
+
 - **The image is about 323 MB smaller.** `playwright install chromium` fetches
   two browsers -- the full Chromium (597 MB measured) and the headless shell
   (323 MB) -- and the sender stopped wanting the shell when it started

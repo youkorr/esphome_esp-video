@@ -1250,6 +1250,21 @@ def quality_for(url, page_quality, default):
     return default
 
 
+def fps_for(url, page_fps):
+    """The frame limit this address asks for, or None for the panel's own.
+
+    Prefix-matched and first-match-wins, like the quality and the user agent.
+    This one exists because the limit that matters for video is not the number
+    of BYTES but the number of whole panels a second the board has to draw --
+    which is what a measurement on a cast video said, at 918 KiB/s and 42%
+    waiting where the same panel had carried 1429 KiB/s at 1%.
+    """
+    for prefix, fps in page_fps:
+        if url.startswith(prefix):
+            return fps
+    return None
+
+
 def agent_for(url, page_agent):
     """The user agent this address asks for, or None to leave it alone.
 
@@ -3301,6 +3316,18 @@ def main():
         "--stats", action="store_true", help="print what is being sent every 5 seconds"
     )
     parser.add_argument(
+        "--page-fps",
+        action="append",
+        default=[],
+        metavar="PREFIX=FPS",
+        help="the frame limit for one address only. Repeatable, first match "
+        "wins. Video is where this matters: full motion makes every picture a "
+        "whole panel, and what the board is paying for then is the NUMBER of "
+        "whole panels a second, not their size -- so lowering the quality does "
+        "not help and lowering this does. A link that asks to be slower means "
+        "it, so a touch does not lift it past its own limit either",
+    )
+    parser.add_argument(
         "--page-agent",
         action="append",
         default=[],
@@ -3494,6 +3521,21 @@ def main():
     # first-match-wins rule, and the one that made it necessary is YouTube:
     # its television interface is what a panel can sign into with a code
     # typed on a phone, and a panel is not a television everywhere else.
+    page_fps = []
+    for pair in args.page_fps:
+        prefix, _, value = pair.partition("=")
+        try:
+            fps = float(value)
+        except ValueError:
+            fps = -1.0
+        if not prefix or fps <= 0:
+            parser.error(
+                f"--page-fps wants an address and a number of pictures a "
+                f"second joined by =, like https://www.youtube.com=15, and "
+                f"this one is {pair!r}"
+            )
+        page_fps.append((prefix, fps))
+
     page_agent = []
     for pair in args.page_agent:
         prefix, sep, value = pair.partition("=")
@@ -3725,6 +3767,8 @@ def main():
         # Both only move when --page-quality is in use.
         send_quality = args.quality
         quality_url = None
+        # The panel's own limits, to return to when a page asks for nothing.
+        base_interval, base_urgent = interval, urgent_interval
         hint = None if args.no_touch else HomeHint(page, page_w, page_h)
         hint_until = time.monotonic() + HOME_HINT_SECONDS
         capture = Screencast(page, page_w, page_h, args.capture_quality)
@@ -3865,6 +3909,34 @@ def main():
                     # belongs to any more: the press threw away everything that
                     # had been painted before it, so every frame that arrives
                     # from here is one that answers it.
+                    # What THIS page asks for. One lookup per turn, and only
+                    # when somebody configured any: page.url is local to
+                    # Playwright rather than a round trip, but a comparison
+                    # nobody needs is still a comparison.
+                    if page_quality or page_fps:
+                        here = page.url
+                        if here != quality_url:
+                            quality_url = here
+                            if page_quality:
+                                wanted = quality_for(here, page_quality,
+                                                     args.quality)
+                                if wanted != send_quality:
+                                    send_quality = wanted
+                                    print(f"Quality: {send_quality} for "
+                                          f"{here[:70]}", flush=True)
+                            if page_fps:
+                                want = fps_for(here, page_fps)
+                                if want is None:
+                                    interval, urgent_interval = (base_interval,
+                                                                 base_urgent)
+                                else:
+                                    # A link that asks to be slower means it,
+                                    # so the window a press opens does not lift
+                                    # it past its own limit -- which on a video
+                                    # would put the stutter straight back.
+                                    interval = urgent_interval = 1.0 / want
+                                    print(f"Frames: {want:g}/s for {here[:70]}",
+                                          flush=True)
                     limit = urgent_interval if started < urgent_until else interval
                     # Hold the newest frame back until the send rate allows it.
                     # Nothing is lost by waiting: take() only ever returns the
@@ -3952,20 +4024,6 @@ def main():
                                 last_full = started
                                 fulls += 1
 
-                        # Which quality this page asked for. Looked at once
-                        # per picture rather than per rectangle, and only when
-                        # somebody set any: page.url is local to Playwright
-                        # rather than a round trip, but a comparison nobody
-                        # needs is still a comparison.
-                        if page_quality:
-                            here = page.url
-                            if here != quality_url:
-                                quality_url = here
-                                wanted = quality_for(here, page_quality, args.quality)
-                                if wanted != send_quality:
-                                    send_quality = wanted
-                                    print(f"Quality: {send_quality} for {here[:70]}",
-                                          flush=True)
                         blobs = []
                         for x, y, w, h in rectangles:
                             buffer = io.BytesIO()

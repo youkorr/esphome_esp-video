@@ -126,6 +126,22 @@ def page_quality_from(config):
     return out
 
 
+def page_fps_from(config):
+    """--page-fps arguments for every link that asked for one.
+
+    The third setting to want to live on the link rather than the panel, and
+    the one that matters most for video: what a board pays for on full motion
+    is the NUMBER of whole panels a second, not their size, so a link showing a
+    film wants a lower limit while the dashboard keeps its own.
+    """
+    out = []
+    for link in config.get("links") or []:
+        url, fps = link.get("url"), link.get("fps")
+        if given(url) and given(fps):
+            out.append(f"{str(url).strip()}={float(fps):g}")
+    return out
+
+
 def page_agent_from(config):
     """--page-agent arguments for every link that asked to be told something.
 
@@ -348,6 +364,9 @@ def command_for(panel):
     # And a user agent per link, for the same reason and in the same shape.
     for link in panel.get("page_agent") or []:
         argv += ["--page-agent", link]
+    # And a frame limit per link, for the same reason again.
+    for link in panel.get("page_fps") or []:
+        argv += ["--page-fps", link]
     for key in (
         "touch_mirror_x",
         "touch_mirror_y",
@@ -510,6 +529,10 @@ def main():
     if agents:
         for panel in panels:
             panel.setdefault("page_agent", agents)
+    limits = page_fps_from(_config)
+    if limits:
+        for panel in panels:
+            panel.setdefault("page_fps", limits)
 
     missing = [p for p in panels if not p.get("host") or not p.get("url")]
     if missing:
