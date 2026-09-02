@@ -1,5 +1,18 @@
 # Changelog
 
+## 2.4.4
+
+- **The clock, the date and the weather get plain settings**, which is what was
+  asked for and what should have been offered first:
+  `launcher_clock_size` and `launcher_weather_size` (small, medium, large,
+  huge), `launcher_align` (left, center, right) and `launcher_clock_color`
+  (a palette name, the same list as `launcher_color`).
+  The sizes are named rather than in pixels because *large* is a decision and
+  *72px* is an experiment, and each is still a range so it adapts between panel
+  shapes. Measured at 1280x800: 40px at `small` through **130px** at `huge`.
+- `launcher_css` stays, and stays **last**, so it still overrides these for
+  anything they cannot say.
+
 ## 2.4.3
 
 - **`launcher_css`** -- your own styling for the launcher, last in the page's

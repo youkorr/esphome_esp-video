@@ -286,6 +286,10 @@ def start_launcher(config):
         clock=str(config.get("launcher_clock", True)).lower()
         not in ("false", "no", "0"),
         css=str(config.get("launcher_css") or ""),
+        clock_size=str(config.get("launcher_clock_size") or "medium"),
+        weather_size=str(config.get("launcher_weather_size") or "medium"),
+        align=str(config.get("launcher_align") or "left"),
+        clock_color=str(config.get("launcher_clock_color") or ""),
         weather=Weather(
             config.get("url"), config.get("token"),
             config.get("launcher_weather"),

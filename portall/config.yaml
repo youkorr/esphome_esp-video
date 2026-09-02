@@ -1,5 +1,5 @@
 name: Portall
-version: "2.4.3"
+version: "2.4.4"
 # Home Assistant identifies an add-on by its slug, so this one moving from
 # usb_display_panel to portall makes the Supervisor see a NEW add-on: options
 # are not carried over and /data starts empty, which means the browser
@@ -182,6 +182,17 @@ options:
   # It can only ever look wrong: a stylesheet runs nothing, and a rule the
   # browser does not understand is skipped rather than fatal. Clear the field
   # and the page is what it was.
+  # The clock's size, and the weather's: small, medium, large or huge. They
+  # are named rather than numbers because "large" is a decision and "72px" is
+  # an experiment -- and each is still a range, so it adapts between a 1024x600
+  # panel and a 800x1280 one.
+  launcher_clock_size: medium
+  launcher_weather_size: medium
+  # Where the bar sits: left, center or right.
+  launcher_align: left
+  # The clock and the date in a colour of their own -- a Tailwind palette name,
+  # the same list as launcher_color. Empty leaves them the theme's text colour.
+  launcher_clock_color: ""
   launcher_css: ""
   links: []
   stats: true
@@ -233,6 +244,10 @@ schema:
   launcher_columns: int(0,6)?
   launcher_clock: bool?
   launcher_weather: str?
+  launcher_clock_size: list(small|medium|large|huge)?
+  launcher_weather_size: list(small|medium|large|huge)?
+  launcher_align: list(left|center|right)?
+  launcher_clock_color: str?
   launcher_css: str?
   links:
     - name: str
