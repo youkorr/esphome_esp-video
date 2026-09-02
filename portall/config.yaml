@@ -1,5 +1,5 @@
 name: Portall
-version: "2.3.5"
+version: "2.4.0"
 # Home Assistant identifies an add-on by its slug, so this one moving from
 # usb_display_panel to portall makes the Supervisor see a NEW add-on: options
 # are not carried over and /data starts empty, which means the browser

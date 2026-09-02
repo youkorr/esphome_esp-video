@@ -1,6 +1,6 @@
 # Changelog
 
-## 2.3.5
+## 2.4.0
 
 - **The launcher has a clock, a date and the weather**, above the links, as on
   Homepage. `launcher_clock` is on by default; `launcher_weather` takes a Home
