@@ -1568,7 +1568,17 @@ class PanelWriter:
         # behind that arrives in gaps, and a gap is a click. Interleaving costs
         # nothing -- they are two types on one wire and the board reads
         # whichever turns up.
+        # Half a second and no more. Sound that could not be sent is sound
+        # whose moment has passed: a panel that is behind wants the newest
+        # samples, not a backlog to catch up through. A full deque drops its
+        # OLDEST on append, which is the right end to lose.
         self._audio = collections.deque(maxlen=25)
+        # Counted, because a stats line that says nothing about the sound
+        # leaves "the audio breaks up" with no number to look at -- and the
+        # answer is one of two quite different things: blocks never captured,
+        # or blocks captured and dropped here because the link was busy.
+        self._audio_sent = 0
+        self._audio_dropped = 0
         self._error = None
         self._stop = False
         # Still worth counting even though the loop no longer pays it: it is
@@ -1634,12 +1644,25 @@ class PanelWriter:
                     return
                 block = self._audio.popleft()
             self._endpoint.write(build_audio_header(len(block)) + block)
+            self._audio_sent += 1
+
+    def take_audio(self):
+        """Blocks written and blocks lost since this was last asked."""
+        with self._wake:
+            sent, dropped = self._audio_sent, self._audio_dropped
+            self._audio_sent = self._audio_dropped = 0
+        return sent, dropped
 
     def offer_audio(self, block):
         """Hand over one block of sound. Never blocks, never waits its turn."""
         with self._wake:
             if self._error is not None:
                 raise self._error
+            if len(self._audio) == self._audio.maxlen:
+                # append on a full deque discards the oldest silently, which is
+                # the behaviour wanted and the reason it has to be counted here
+                # rather than noticed later.
+                self._audio_dropped += 1
             self._audio.append(block)
             self._wake.notify()
 
@@ -4192,7 +4215,7 @@ def main():
                     if args.stats and now - stats_at >= 5.0:
                         elapsed = now - stats_at
                         blocked += writer.take_blocked()
-                        print(
+                        line = (
                             f"{pictures / elapsed:.1f} pictures/s, "
                             # What the browser made, against what was worth
                             # sending. Every frame counted here was painted and
@@ -4232,6 +4255,17 @@ def main():
                             # a press waits that long before it is even read.
                             f"loop {loops / elapsed:.1f} Hz"
                         )
+                        # The sound, and only when there is any. It answers the
+                        # one question the picture numbers cannot: the capture
+                        # runs at 48 kHz whatever --fps is, so 50 blocks a
+                        # second is the whole of it arriving. Fewer means the
+                        # browser produced less; `lost` means the link was too
+                        # busy to take it and the oldest half-second went.
+                        sound, lost = writer.take_audio()
+                        if sound or lost:
+                            line += (f", sound {sound / elapsed:.0f}/s"
+                                     + (f", {lost} lost" if lost else ""))
+                        print(line)
                         if args.show_changes and heat.any():
                             # Where the traffic is coming from. A dashboard that
                             # costs hundreds of kilobytes a second has something

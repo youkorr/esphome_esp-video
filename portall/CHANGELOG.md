@@ -2,6 +2,11 @@
 
 ## 2.3.3
 
+- `stats` now ends with **`sound N/s`** whenever there is sound, and `lost`
+  when the link was too busy to take it. The capture runs at 48 kHz whatever
+  `fps` is, in 20 ms blocks, so 50 a second is all of it arriving -- and
+  "the audio breaks up" had no number to look at before this.
+
 - **A frame limit per link** (`fps:` beside `quality:`), and it is the setting
   that fixes a stuttering cast where lowering the quality did not. Measured on
   a panel: at quality 20 it saturated carrying **919 KiB/s with 42% waiting**,

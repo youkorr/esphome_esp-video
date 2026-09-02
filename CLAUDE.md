@@ -702,6 +702,40 @@ entirely. Not verified: there is no route to any Google service from here. What
 is verified is that the option reaches the browser and that the string given is
 what a server receives.
 
+**"Est-ce que le son va suivre" is the right question about a frame limit, and
+the answer is that it is not tied to the picture rate at all.** The capture is
+`parec` on a null sink at 48 kHz in 20 ms blocks, so it runs at real time
+whatever `--fps` says; `fps` governs only how often a picture is made. Lowering
+it *helps* the sound, because the pictures it stops sending were being thrown
+away anyway and the room they free is room the audio was competing for --
+`_drain_audio()` already runs between the rectangles of a picture rather than
+behind them.
+
+What could not be answered was "is it actually getting through", because
+`--stats` said nothing about sound at all. It ends with `sound N/s` now, and
+`lost` when blocks were dropped: the deque is `maxlen=25`, half a second, and
+a full one discards its OLDEST on append -- the right end to lose, and exactly
+why it has to be counted at the moment it happens rather than noticed later.
+50 a second is the whole stream; fewer means the browser produced less.
+
+Tested against a stub endpoint over the three states: a link keeping up (10
+offered, 10 sent, 0 lost), a link that stopped taking anything (40 offered
+into 25, **15 lost**), and the same queue draining afterwards (25 sent).
+
+**And the first version of it would have crashed every panel running
+`stats`.** The line is a bare `print(f"...")`, not a variable, and the sound
+was appended to a `line` that does not exist -- a `NameError` five seconds into
+any run with the option on, which is the option somebody uses precisely when
+something is already wrong. Caught by reading the surrounding code before
+believing the edit; the whole thing is assembled into `line` and printed once
+now.
+
+**Lip sync is still not done and is now written down as such.** Nothing
+timestamps either stream, so the sound arrives slightly ahead of its picture by
+roughly what the picture path costs. Not measured on a panel. What a lower
+`fps` does help is the *variation*: an 898 ms gap between pictures is far more
+visible against steady sound than a constant small offset.
+
 **Quality was not the lever, and the user's own two attempts are what proved
 it.** Reported as *"malgre mis en qualite 20 c'est saccade"*, with the line:
 
