@@ -1,5 +1,18 @@
 # Changelog
 
+## 2.3.2
+
+- **The image is about 323 MB smaller.** `playwright install chromium` fetches
+  two browsers -- the full Chromium (597 MB measured) and the headless shell
+  (323 MB) -- and the sender stopped wanting the shell when it started
+  preferring the full build: the shell is a cut-down one and looks like it to
+  any site, which matters to anybody signing in from a panel. It was a fallback
+  below a fallback, since a system browser is preferred above both. `--no-shell`
+  drops it, and an older Playwright that has never heard of the flag still
+  installs both.
+- If no browser at all will start, the log now names each one that was looked
+  for instead of leaving a bare "Executable doesn't exist".
+
 ## 2.3.1
 
 - Pages are now told the panel **has a touchscreen**. It was reporting

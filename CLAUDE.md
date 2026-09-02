@@ -1506,6 +1506,26 @@ everything — at the cost of the browser download on each update.
 `present_browser()` prints the Chromium version at startup and warns below 114,
 so this is never diagnosed by guesswork again. Currently **1.65.0**.
 
+**The image carried two Playwright browsers and needed one.** `playwright
+install chromium` fetches the full Chromium **and** the headless shell -- 597
+MB and 323 MB, measured on the shipped install -- and a plain headless
+`launch()` picks the shell. Since `_launch` started reaching for
+`playwright.chromium.executable_path`, which names the full build, the shell
+became a fallback below a fallback: a system browser is preferred above both.
+
+`--no-shell` drops it, written as `--no-shell || (without it)` so an older
+Playwright that has never heard of the flag installs both exactly as before.
+That is a third of a gigabyte off an image that often lands on a Pi's SD card.
+
+The second browser stays. Chrome or the distribution's Chromium is there for
+the proprietary codecs Playwright's build lacks, and Playwright's own stays as
+the one browser the build guarantees -- the codec install is allowed to fail,
+so something has to be certain.
+
+With no shell behind it there is nothing left to fall back to, so
+`playwrights_own()` now names every browser it looked for when none will start,
+rather than letting a bare "Executable doesn't exist" reach a log.
+
 **A bump is only half the trap: work that lands AFTER one is invisible too.**
 Asked from the store as *"il ya pas de mise a de addon?"* -- there was no
 update offered, because the version had gone to 2.2.1 and the user agent per

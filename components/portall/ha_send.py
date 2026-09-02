@@ -566,8 +566,19 @@ def _launch(playwright, executable, profile, view, browser_args,
             except Exception as err:  # noqa: BLE001 - fall back and say so
                 why = " ".join(str(err).split())[:160]
                 print(f"Browser: the full Chromium would not start ({why}), "
-                      f"using the headless shell")
-        return start(None)
+                      f"trying the headless shell")
+        try:
+            return start(None)
+        except Exception as err:  # noqa: BLE001 - this one really is the end
+            # The add-on's image installs the full Chromium with --no-shell, so
+            # there is usually nothing here to fall back TO. Say which browsers
+            # were looked for rather than letting a bare "Executable doesn't
+            # exist" reach a log somebody has to guess from.
+            why = " ".join(str(err).split())[:200]
+            print(f"Browser: no browser would start. Looked for a system one, "
+                  f"then Playwright's Chromium at {full or 'an unknown path'}, "
+                  f"then its headless shell. Last error: {why}")
+            raise
 
     if executable is None:
         return playwrights_own()
