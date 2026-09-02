@@ -607,6 +607,19 @@ every time somebody brushed the glass.
 Try 15, then 12 if it still breaks up. If `skipped` reaches 0 and `panel wait`
 falls, the limit is right.
 
+**The sound does not slow down with it.** It is captured from the browser's
+own output at 48 kHz and is not tied to the picture rate at all, so a link
+limited to 15 pictures a second plays at full quality -- and gets there more
+easily, because the pictures no longer being sent were being thrown away in
+any case.
+
+What is **not** done is lip sync. Nothing timestamps either stream, so the
+sound tends to arrive slightly ahead of the picture it belongs to -- by roughly
+what the picture path costs, which is around a tenth of a second. It has not
+been measured on a panel. What a lower `fps` does help is the *variation*: an
+898 ms gap between pictures is far more visible against steady sound than a
+constant small offset is.
+
 #### Why `quality: 20`
 
 Start there and raise it if you want to. Full motion is the one thing this
@@ -624,9 +637,20 @@ If it still stutters, turn `stats` on and look at one line during a cast:
 
 | what the line says | what to do |
 |---|---|
-| `panel wait` high, `skipped` above 0 | the link. Lower `quality` further |
+| `skipped` above 0, `panel wait` high | too many whole panels a second. Lower the link's `fps` |
 | `made/s` well under `fps`, `worst turn` high | the machine running this add-on |
 | neither, but `dropped=` climbing under `show_media` | the browser itself |
+
+**And the sound.** The line ends with `sound N/s` whenever there is any. The
+capture runs at 48 kHz whatever `fps` is set to, in blocks of 20 ms, so **50 a
+second is all of it arriving**. Fewer means the browser produced less -- a
+quiet passage, or a page that is not playing. `lost` means the link was too
+busy to take it and half a second of it went, which is what audio breaking up
+sounds like.
+
+Lowering the link's `fps` helps the sound rather than hurting it: the pictures
+it stops sending are pictures the panel was throwing away anyway, and the room
+they free is room the sound was competing for.
 
 #### What does not work, and why
 
