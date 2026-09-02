@@ -1,5 +1,19 @@
 # Changelog
 
+## 2.4.3
+
+- **`launcher_css`** -- your own styling for the launcher, last in the page's
+  stylesheet so it wins. This is where the clock's size, its place and its
+  colour live, and the date's and the weather's and the tiles' too. One option
+  rather than a setting per thing: the next ask would have been the date, then
+  the weather, then the cards, and a form nobody can read is a form where the
+  setting that matters gets missed. The documentation lists the selectors and
+  carries lines to copy.
+- It can only ever look wrong: a stylesheet runs nothing, an unknown rule is
+  skipped, and anything resembling the end of the element is neutralised --
+  verified against a deliberate attempt to close the tag and write markup
+  after it.
+
 ## 2.4.2
 
 - **The weather now appears.** It asked Home Assistant at the shared `url:` as

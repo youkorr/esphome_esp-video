@@ -2034,6 +2034,26 @@ Verified with the url a panel really has: given
 `http://127.0.0.1:8160/lovelace/0`, the stand-in Home Assistant is asked for
 `/api/states/weather.forecast_home` and the reading reaches the page.
 
+**One stylesheet rather than a setting per thing, and the ask is what decided
+it.** Put as *"tu ne donnes pas la possibilite de changer d'emplacement de
+taille ou de couleur par exemple pour l'heure ou la date"* -- three settings
+asked for, and the next three would have been the date's, the weather's and
+the tiles'. Four options today, a dozen by the end of the month, each of them
+a name somebody has to find in a form that already carries twenty-five.
+
+`launcher_css` goes **last** in the page's sheet so it wins, and the
+documentation carries the selectors (`.now`, `.time`, `.date`, `.wx`,
+`.wx .sky`, `.wx .out`, `.tile`) with lines to copy. Rules written with
+`var(--accent)` and `var(--ink)` follow `launcher_color` and the theme rather
+than fighting them.
+
+It can only ever look wrong: a stylesheet runs nothing and an unknown rule is
+skipped. The one thing to stop is closing the element early and writing markup
+after it, so `</` is neutralised -- verified in the browser on seven cases,
+including a deliberate `</style><h1>BROKEN</h1><style>` which changed nothing
+and left no stray markup, and nonsense which was simply ignored. Size, colour
+and alignment all reach the computed style, singly and together.
+
 **The clock, the date and the weather, because the real Homepage has them.**
 Reported from a household testing the launcher: *"il manque l'heure la date et
 meteo"*. Three decisions were worth making rather than copying.
