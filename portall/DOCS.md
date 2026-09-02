@@ -672,6 +672,13 @@ If it still stutters, turn `stats` on and look at one line during a cast:
 | `made/s` well under `fps`, `worst turn` high | the machine running this add-on |
 | neither, but `dropped=` climbing under `show_media` | the browser itself |
 
+**Silence is not sent.** A page that is not playing anything produces digital
+silence, and sending it would cost **93.8 KiB/s** for ever -- 48 kHz of 16-bit
+mono -- at a panel showing a still page. So a block that is exactly zero is
+dropped, and `sound` disappears from the line rather than reading 50/s over a
+page that is silent. Exactly zero rather than a threshold: a quiet passage one
+sample away from silence still goes out.
+
 **And the sound.** The line ends with `sound N/s` whenever there is any. The
 capture runs at 48 kHz whatever `fps` is set to, in blocks of 20 ms, so **50 a
 second is all of it arriving**. Fewer means the browser produced less -- a

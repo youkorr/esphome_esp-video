@@ -1,5 +1,16 @@
 # Changelog
 
+## 2.4.1
+
+- **Silence is no longer sent to the panel**, which was costing **93.8 KiB/s**
+  for ever on any panel with sound -- 48 kHz of 16-bit mono, streamed at a
+  screen showing a page that was playing nothing. Found in a user's log the
+  day after the counter that shows it arrived: `0.0 pictures/s, 0.0 KiB/s ...
+  sound 50/s` on a still page, which contradicts the one thing this project
+  advertises loudest -- that an idle panel costs nothing.
+  Exactly-zero blocks are dropped, so a quiet passage one sample away from
+  silence still goes out.
+
 ## 2.4.0
 
 - **The launcher has a clock, a date and the weather**, above the links, as on

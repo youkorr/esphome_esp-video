@@ -1528,6 +1528,8 @@ class PageAudio:
         self._thread = None
         self.dropped = 0
         self.captured = 0
+        # Blocks that were nothing but silence and were not sent.
+        self.silent = 0
 
     def start(self):
         """True if there is sound to be had; False, with a reason, if not."""
@@ -1582,7 +1584,23 @@ class PageAudio:
         """Whatever has arrived since the last look, oldest first."""
         out = []
         while self._blocks and len(out) < limit:
-            out.append(self._blocks.popleft())
+            block = self._blocks.popleft()
+            # Digital silence is not worth a byte on the wire, and it is a lot
+            # of them: 48 kHz of 16-bit mono is 93.8 KiB/s, sent for ever at a
+            # panel showing a page that is not playing anything. Found in a
+            # user's log the day after the counter that shows it was added --
+            # `0.0 pictures/s, 0.0 KiB/s ... sound 50/s` on a still page --
+            # and it contradicts the one property this project advertises
+            # loudest, that an idle panel costs nothing.
+            #
+            # Exactly zero rather than a threshold: a null sink with nothing
+            # playing gives exact zeros, and anything quieter than exact is
+            # somebody's quiet passage. The speaker simply receives nothing,
+            # which is what silence is.
+            if not block.strip(b"\x00"):
+                self.silent += 1
+                continue
+            out.append(block)
         return out
 
     def close(self):
