@@ -158,6 +158,73 @@ def page_agent_from(config):
     return out
 
 
+class Weather:
+    """The house's own weather, read by the ADD-ON and never by the page.
+
+    run.py already has the token and the address of Home Assistant; the
+    launcher page has neither, and giving it either would put a long-lived
+    token into the storage of every site a panel visits -- a leak this project
+    has already had to close once. So the reading is fetched here, in the
+    background, and served to the page from 127.0.0.1.
+
+    An accessory must never cost the picture: every failure leaves the last
+    reading in place, or none at all, and says so once rather than each time.
+    """
+
+    EVERY_S = 600
+
+    def __init__(self, url, token, entity):
+        self.url = str(url or "").rstrip("/")
+        self.token = str(token or "")
+        self.entity = str(entity or "").strip()
+        self.state = None
+        self._said = False
+
+    def wanted(self):
+        return bool(self.entity and self.url and self.token)
+
+    def read(self):
+        import urllib.error
+        import urllib.request
+
+        where = f"{self.url}/api/states/{self.entity}"
+        request = urllib.request.Request(
+            where, headers={"Authorization": f"Bearer {self.token}"})
+        try:
+            with urllib.request.urlopen(request, timeout=10) as answer:
+                data = json.loads(answer.read().decode())
+        except Exception as err:  # noqa: BLE001 - any failure keeps the last
+            if not self._said:
+                self._said = True
+                say(f"[weather] {self.entity} could not be read ({err}) -- "
+                    f"the launcher will show no weather")
+            return
+        attributes = data.get("attributes") or {}
+        temperature = attributes.get("temperature")
+        unit = attributes.get("temperature_unit") or ""
+        self.state = {
+            "condition": data.get("state"),
+            "text": (f"{round(float(temperature))}{unit}"
+                     if temperature is not None else ""),
+        }
+        if self._said:
+            self._said = False
+            say(f"[weather] {self.entity} is readable again")
+
+    def run(self):
+        while True:
+            self.read()
+            time.sleep(self.EVERY_S)
+
+    def start(self):
+        """Read once now so the first page carries a value, then keep it fresh."""
+        if not self.wanted():
+            return None
+        self.read()
+        threading.Thread(target=self.run, name="weather", daemon=True).start()
+        return lambda: self.state
+
+
 def start_launcher(config):
     """Serve the page of links, if there are any, and say where it is.
 
@@ -183,6 +250,12 @@ def start_launcher(config):
         blur=str(config.get("launcher_background_blur") or "off"),
         dim=config.get("launcher_background_dim", 40),
         columns=config.get("launcher_columns", 0),
+        clock=str(config.get("launcher_clock", True)).lower()
+        not in ("false", "no", "0"),
+        weather=Weather(
+            config.get("url"), config.get("token"),
+            config.get("launcher_weather"),
+        ).start(),
     )
     if where is not None:
         say(f"Launcher: {len(links)} link(s) at {where}")

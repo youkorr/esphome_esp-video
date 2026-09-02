@@ -26,6 +26,7 @@ is allowed to be fetched at all.
 """
 import html
 import http.server
+import json
 import mimetypes
 import os
 import threading
@@ -387,13 +388,102 @@ PAGE = """<!doctype html>
  .desc { display: block; margin-top: .25em; color: var(--faint);
          font-size: clamp(12px, 2vw, 17px); overflow-wrap: anywhere; }
  .empty { color: var(--faint); font-size: clamp(14px, 2.4vw, 20px); }
+ /* The clock, the date and the weather, on one line above the links.
+    Deliberately without seconds: a digit that changes every second is a
+    rectangle on the wire every second for as long as the panel is awake,
+    which is the same reason nothing here animates. On the minute it is one
+    small rectangle a minute, and an asleep panel sends nothing at all. */
+ .now { display: flex; align-items: baseline; gap: .6em 1.2em;
+        flex-wrap: wrap; margin: 0 0 .6em; }
+ .time { font-size: clamp(34px, 8vw, 68px); font-weight: 300;
+         letter-spacing: -0.02em; line-height: 1; font-variant-numeric: tabular-nums; }
+ .date { color: var(--faint); font-size: clamp(14px, 2.4vw, 22px);
+         text-transform: capitalize; }
+ .wx { margin-left: auto; display: flex; align-items: center; gap: .35em;
+       font-size: clamp(16px, 3vw, 26px); }
+ .wx .sky { font-size: 1.5em; line-height: 1; }
+ .wx .out { color: var(--faint); font-size: .7em; }
+ /* Nothing to show is nothing drawn, rather than an empty box where a
+    temperature should be. */
+ .wx:empty, .now:empty { display: none; }
 </style></head>
 <body>
 <div class="wall"></div>
-<header><h1>%(title)s</h1>%(subtitle)s</header>
+<header>%(now)s<h1>%(title)s</h1>%(subtitle)s</header>
 <main>%(groups)s</main>
-</body></html>
+%(clockjs)s</body></html>
 """
+
+# The clock, written to tick on the MINUTE rather than on a timer that drifts.
+# Formatted by the browser, so it follows the panel's `locale:` -- a French
+# household gets "lundi 2 septembre" without this page knowing any French.
+CLOCK_JS = """<script>
+(() => {
+  const t = document.getElementById('t'), d = document.getElementById('d');
+  if (!t) return;
+  const draw = () => {
+    const now = new Date();
+    try {
+      t.textContent = now.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
+      d.textContent = now.toLocaleDateString([], {weekday: 'long', day: 'numeric', month: 'long'});
+    } catch (e) { /* a page that will not format is a page with no clock */ }
+    // To the next minute, not every 60000 ms from now: a timer that starts
+    // half a minute late stays half a minute late for ever, and the minute
+    // would turn over in the middle of nothing.
+    setTimeout(draw, 60000 - (now.getSeconds() * 1000 + now.getMilliseconds()) + 50);
+  };
+  draw();
+})();
+</script>
+"""
+
+# The weather, asked of the ADD-ON rather than of the internet -- run.py has
+# the token and the address of Home Assistant, and the page has neither. So
+# this fetch never leaves the machine, and a failure leaves the last reading
+# rather than a hole.
+WEATHER_JS = """<script>
+(() => {
+  const sky = document.getElementById('sky'), temp = document.getElementById('temp');
+  if (!sky) return;
+  const draw = async () => {
+    try {
+      const r = await fetch('%(path)s', {cache: 'no-store'});
+      if (r.ok) {
+        const w = await r.json();
+        if (w && w.icon) { sky.textContent = w.icon; temp.textContent = w.text || ''; }
+      }
+    } catch (e) { /* keep what is on the page */ }
+    setTimeout(draw, 600000);
+  };
+  setTimeout(draw, 600000);
+})();
+</script>
+"""
+
+# Home Assistant's own weather states, which are a fixed list.
+SKY = {
+    "clear-night": "\U0001F319", "cloudy": "\u2601\uFE0F",
+    "fog": "\U0001F32B\uFE0F", "hail": "\U0001F328\uFE0F",
+    "lightning": "\U0001F329\uFE0F", "lightning-rainy": "\u26C8\uFE0F",
+    "partlycloudy": "\u26C5", "pouring": "\U0001F327\uFE0F",
+    "rainy": "\U0001F326\uFE0F", "snowy": "\u2744\uFE0F",
+    "snowy-rainy": "\U0001F328\uFE0F", "sunny": "\u2600\uFE0F",
+    "windy": "\U0001F4A8", "windy-variant": "\U0001F4A8",
+    "exceptional": "\u26A0\uFE0F",
+}
+
+
+def weather_block(state):
+    """What Home Assistant said, as the two spans the page updates.
+
+    Given nothing, the spans are still there and empty -- `.wx:empty` hides
+    the box, and the script fills it when the first reading arrives.
+    """
+    if not state:
+        return "", ""
+    icon = SKY.get(str(state.get("condition") or "").lower(), "")
+    text = str(state.get("text") or "")
+    return html.escape(icon), html.escape(text)
 
 TILE = ('<a class="tile" href="%(url)s">'
         '<span class="icon%(icon_long)s">%(icon)s</span>'
@@ -427,9 +517,12 @@ def _wallpaper(background):
     return "none", None
 
 
+WEATHER_PATH = "/weather.json"
+
+
 def render(links, title="Panel", subtitle="", theme="dark",
            color=DEFAULT_PALETTE, background="", blur="off", dim=40,
-           columns=0):
+           columns=0, clock=True, weather=None):
     """The page, as one string.
 
     Every value is escaped. These come from a configuration file a person
@@ -496,7 +589,24 @@ def render(links, title="Panel", subtitle="", theme="dark",
     except (TypeError, ValueError):
         dim = 40
 
+    # The clock, the date and the weather, above the links. A panel that wants
+    # none of them draws none of them, and the header is what it always was.
+    sky, temp = weather_block(weather)
+    now = ""
+    if clock or weather is not None:
+        now = '<div class="now">'
+        if clock:
+            now += '<span class="time" id="t"></span><span class="date" id="d"></span>'
+        if weather is not None:
+            now += (f'<span class="wx"><span class="sky" id="sky">{sky}</span>'
+                    f'<span class="out" id="temp">{temp}</span></span>')
+        now += "</div>"
+    scripts = (CLOCK_JS if clock else "") + (
+        WEATHER_JS % {"path": WEATHER_PATH} if weather is not None else "")
+
     return PAGE % {
+        "now": now,
+        "clockjs": scripts,
         "title": html.escape(title),
         "subtitle": (f"<p>{html.escape(subtitle)}</p>"
                      if str(subtitle).strip() else ""),
@@ -534,14 +644,20 @@ def render(links, title="Panel", subtitle="", theme="dark",
 
 def start(links, title="Panel", subtitle="", theme="dark",
           color=DEFAULT_PALETTE, background="", blur="off", dim=40,
-          columns=0):
+          columns=0, clock=True, weather=None):
     """Serve the page for as long as the add-on runs. Returns its address.
 
     One server for every panel: they all come home to the same list, and a
     second copy of it would only be a second thing to keep in step.
     """
+    # `weather` is a callable returning the latest reading, or None. Called
+    # rather than passed by value because the page outlives any one reading:
+    # the add-on refreshes it in the background and the page asks for it every
+    # ten minutes.
+    first = weather() if weather is not None else None
     body = render(links, title, subtitle, theme, color, background, blur,
-                  dim, columns).encode()
+                  dim, columns, clock,
+                  first if weather is not None else None).encode()
     _, wallpaper = _wallpaper(background)
     picture, kind = None, "application/octet-stream"
     if wallpaper:
@@ -572,6 +688,17 @@ def start(links, title="Panel", subtitle="", theme="dark",
             self.wfile.write(payload)
 
         def do_GET(self):
+            if self.path.split("?")[0] == WEATHER_PATH:
+                # Whatever the add-on last read, as it stands. A reading that
+                # has not arrived yet is an empty object rather than an error:
+                # the page keeps what it has and asks again.
+                state = weather() if weather is not None else None
+                sky, temp = weather_block(state)
+                self._reply(
+                    json.dumps({"icon": sky, "text": temp}).encode(),
+                    "application/json",
+                )
+                return
             if self.path.split("?")[0] == WALLPAPER_PATH:
                 if picture is None:
                     self.send_error(404)

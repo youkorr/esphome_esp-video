@@ -1967,6 +1967,41 @@ name beside it. Anything past two characters is set smaller and clipped now --
 measured on what is *drawn*, so a name from the list counts as the one glyph
 it becomes.
 
+**The clock, the date and the weather, because the real Homepage has them.**
+Reported from a household testing the launcher: *"il manque l'heure la date et
+meteo"*. Three decisions were worth making rather than copying.
+
+**No seconds.** A digit that changes every second is a rectangle on the wire
+every second for as long as the panel is awake -- exactly the reason `HomeHint`
+does not pulse. The clock ticks on the MINUTE, and to the minute BOUNDARY
+rather than every 60000 ms from whenever the page loaded, or the turn-over
+would drift into the middle of nothing. One small rectangle a minute, and a
+sleeping panel sends none.
+
+**The browser formats them, so they follow the panel's `locale:`.** Measured:
+`fr-FR` gives `19:00` and `mercredi 2 septembre`, `de-DE` gives `Mittwoch, 2.
+September`, `en-US` gives `07:00 PM`. This add-on knows no language at all,
+which is the only version of this that does not rot.
+
+**The weather is read by the ADD-ON, never by the page.** `run.py` already has
+the token and Home Assistant's address; the launcher page has neither, and
+giving it either would put a long-lived token into the storage of every site a
+panel visits -- the leak this project already had to close once. So `Weather`
+polls `/api/states/<entity>` every ten minutes in a thread and the page asks
+`127.0.0.1:8099/weather.json`, which never leaves the machine. Every failure
+keeps the last reading and says so once, not each time.
+
+Verified end to end against a stand-in Home Assistant that checks the bearer
+token: read, turned into its two spans, served at `/weather.json`, and present
+in the page. And on the failure paths -- an unreachable Home Assistant leaves
+`state` None and prints one line, no entity configured starts no thread at
+all, and a page built with no weather carries no `.wx` box and keeps its
+clock.
+
+Measured in the browser at the three panel shapes with the bar in place: tiles
+**350x166 at 800x1280, 566x118 at 1280x800, 454x107 at 1024x600** -- the same
+figures as before it existed, and nothing off the side at any of them.
+
 **A quality per LINK, and the reasoning behind it is the user's.** Asked for
 in those words -- *"j'aurais preferer que dans les link ont puisse choisir la
 qualite c'est plus simple a gerer"* -- after `render_width:` was offered and
