@@ -1,5 +1,18 @@
 # Changelog
 
+## 2.3.5
+
+- **The `DRM yes/no` field is gone, because it was wrong twice over.** It
+  reported whether `navigator.requestMediaKeySystemAccess` exists, asked on
+  `about:blank` -- where, measured, it does not exist for any browser, so the
+  line said `no` always. And in a secure context, where it does exist, that
+  says nothing about Widevine: the same browser answers `NotSupportedError`
+  for `com.widevine.alpha`.
+- In its place, one honest line on the first secure page a panel opens, asking
+  for Widevine itself: **`Browser: no Widevine DRM, so Netflix, Prime Video,
+  Disney+ and anything else that requires it will not play`**. Nothing is
+  printed on an insecure page, where the question cannot be asked at all.
+
 ## 2.3.4
 
 - `stats` now ends with **`sound N/s`** whenever there is sound, and `lost`

@@ -702,6 +702,39 @@ entirely. Not verified: there is no route to any Google service from here. What
 is verified is that the option reaches the browser and that the string given is
 what a server receives.
 
+**The `DRM yes/no` field was wrong twice over, and a Netflix report is what
+exposed it.** `report_media()` printed it from whether
+`navigator.requestMediaKeySystemAccess` exists. Measured on the shipped build:
+
+| | API exists | Widevine |
+|---|---|---|
+| `about:blank`, which is the page it ran on | **no** | no API at all |
+| a secure context | yes | **refused: NotSupportedError** |
+
+So the line said `DRM no` for every browser whatever it carried, and a `yes`
+would still not have meant what a reader takes it to mean: the API's existence
+and Widevine's availability are different questions, and Netflix needs the
+second. A field that is always no, and whose yes would mislead, is worse than
+no field.
+
+`report_drm()` replaces it: asked once, on the first page that is a **secure
+context**, for `com.widevine.alpha` specifically, and silent everywhere else --
+a "no" from an insecure page would be a lie. Tested on three states: nothing
+said on about:blank, one line on a secure page, nothing on the same page again.
+
+The answer for a panel is that **Chrome carries Widevine and nothing else here
+does**, and Google publishes no arm64 Linux build -- so a Home Assistant box on
+a Pi falls to the distribution's Chromium and cannot play Netflix at all. That
+is not something to engineer around; it is something the log should say in one
+line instead of costing a diagnosis.
+
+**And `keepalive` does not exist in this project.** Asked as *"je vois que
+keepalive n'est pas dans les link"* -- it is `keep_profile`, and it is a panel
+setting because a profile belongs to a browser and there is **one browser per
+panel**. Every link a panel opens shares it, which is exactly why signing into
+one site stays signed in when the corner brings the panel home and it goes
+back. Per link it would have no meaning.
+
 **"Est-ce que le son va suivre" is the right question about a frame limit, and
 the answer is that it is not tied to the picture rate at all.** The capture is
 `parec` on a null sink at 48 kHz in 20 ms blocks, so it runs at real time

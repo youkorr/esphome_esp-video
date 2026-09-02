@@ -670,6 +670,56 @@ def pick_browser(wanted):
     return None
 
 
+WIDEVINE_PROBE_JS = """async () => {
+  if (!window.isSecureContext) return null;
+  if (!navigator.requestMediaKeySystemAccess) return 'no';
+  try {
+    await navigator.requestMediaKeySystemAccess('com.widevine.alpha', [{
+      initDataTypes: ['cenc'],
+      videoCapabilities: [{contentType: 'video/mp4; codecs="avc1.42E01E"'}],
+    }]);
+    return 'yes';
+  } catch (e) { return 'no'; }
+}"""
+
+
+def report_drm(page):
+    """Say once whether this browser can play a site that requires Widevine.
+
+    Asked on the page rather than at startup, because the question cannot be
+    answered anywhere else: the API exists only in a secure context, and the
+    page is `about:blank` when the browser is first looked at -- measured, the
+    API is absent there and present on http://127.0.0.1.
+
+    And asked for `com.widevine.alpha` specifically rather than for the API,
+    because the two are different questions: the shipped Chromium HAS the API
+    in a secure context and answers NotSupportedError for Widevine. Netflix,
+    Prime Video and Disney+ need the second answer, not the first.
+
+    Nothing is printed on an insecure page -- a dashboard served over plain
+    http cannot be asked at all, and a "no" from there would be a lie.
+    """
+    if getattr(report_drm, "said", False):
+        return
+    try:
+        answer = page.evaluate(WIDEVINE_PROBE_JS)
+    except Exception:  # noqa: BLE001 - a diagnostic must never cost the picture
+        return
+    if answer is None:
+        return
+    report_drm.said = True
+    if answer == "yes":
+        print("Browser: Widevine DRM is available")
+    else:
+        print(
+            "Browser: no Widevine DRM, so Netflix, Prime Video, Disney+ and "
+            "anything else that requires it will not play. Google Chrome "
+            "carries it; the Chromium Playwright downloads does not, and a "
+            "distribution's Chromium usually does not either. The line above "
+            "says which browser is running."
+        )
+
+
 def report_media(page):
     """Print what this browser can decode, and warn when a video site will fail.
 
@@ -684,10 +734,23 @@ def report_media(page):
         print(f"Browser: could not be asked what it decodes ({err})")
         return
     yes = lambda k: "yes" if can.get(k) else "no"  # noqa: E731
+    # No DRM field here any more, and it is worth saying why it went.
+    #
+    # It used to print `DRM yes/no` from whether
+    # navigator.requestMediaKeySystemAccess exists, and that was wrong twice
+    # over. Measured on the shipped build: on about:blank -- which is the page
+    # this runs on -- the API does not exist AT ALL, so the line said `DRM no`
+    # for every browser whatever it carried. And in a secure context, where it
+    # does exist, its existence still says nothing about Widevine: asked for
+    # com.widevine.alpha the same browser answers NotSupportedError.
+    #
+    # A field that is always no, and whose yes would not mean what a reader
+    # takes it to mean, is worse than no field. What replaces it is asked on
+    # the real page, once, and only where the answer can be true -- see
+    # report_drm().
     print(
         f"Browser: decodes H.264 {yes('h264')}, AAC {yes('aac')}, "
-        f"VP9 {yes('vp9')}, AV1 {yes('av1')}, Opus {yes('opus')}; "
-        f"DRM {yes('eme')}"
+        f"VP9 {yes('vp9')}, AV1 {yes('av1')}, Opus {yes('opus')}"
     )
     if not can.get("h264") or not can.get("aac"):
         print(
@@ -1030,6 +1093,9 @@ def open_page(page, args):
     #
     # Only when it differs, so an ordinary panel gains no line, and compared
     # with the trailing slash a browser adds by itself discounted.
+    # Once, on the first page that can answer it. A panel that never opens a
+    # secure page never gains the line, which is right: it would be a guess.
+    report_drm(page)
     try:
         landed = page.url
     except Exception:  # noqa: BLE001 - never worth failing a start over
