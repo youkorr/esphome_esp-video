@@ -1,10 +1,108 @@
 # esphome_esp-video
 
-External [ESPHome](https://esphome.io/) components for video capture, camera
-sensor drivers and LVGL camera display on Espressif ESP32 targets (especially
-the **ESP32-P4** with the MIPI-CSI interface).
+Two things live here, both for Espressif's **ESP32-P4** and both used through
+[ESPHome](https://esphome.io/):
 
-## Components
+- **[Portall](#portall--home-assistant-on-a-panel-over-wi-fi)** — Home
+  Assistant, and any web page, on a touch panel over Wi-Fi. No LVGL.
+- **[Camera components](#camera-components)** — video capture, MIPI-CSI sensor
+  drivers and an LVGL camera widget.
+
+---
+
+## Portall — Home Assistant on a panel over Wi-Fi
+
+<img src="portall/logo.png" alt="Portall" width="320">
+
+Put a Home Assistant dashboard on an ESP32-P4 touch panel **without writing a
+single line of LVGL**. The board is not running Home Assistant and is not
+running a browser: the machine that is already on all the time — your Home
+Assistant server — renders the page in a headless Chromium and sends the
+picture. Touches come back up the same socket and are replayed into that
+browser, so the panel behaves like the screen of the machine doing the
+rendering.
+
+```
+ Home Assistant box                                  ESP32-P4 panel
+ ┌───────────────────────────────┐                   ┌──────────────────────┐
+ │ Portall add-on                │  TCP :5000        │ portall component    │
+ │  headless Chromium            │ ────────────────▶ │  hardware JPEG decode│
+ │  tile diff → JPEG rectangles  │   only what moved │  PPA rotate / scale  │
+ │  replays touches into the page│ ◀──────────────── │  draw to the panel   │
+ └───────────────────────────────┘  touches, sleep   └──────────────────────┘
+```
+
+Only the parts of the screen that changed are sent, so **a still dashboard
+costs 0 KiB/s**. The P4 decodes the JPEG in hardware and rotates or scales it
+with the PPA, so the ceiling is the network rather than the CPU.
+
+**What you get**
+
+- Any web page, not only Home Assistant — Jellyfin, a camera, a train board
+- A launcher page built by the add-on, themed like Homepage, with 520 named
+  icons and 50 real service logos, all carried rather than fetched
+- An on-screen keyboard, so a panel with no keys can use a search box
+- YouTube in television mode: sign in with a code from your phone, then use
+  the phone as the remote — see the add-on's documentation
+- Sleep and wake from Home Assistant, presence-driven if you want
+- Sound for the page, over the same socket, into the panel's own speaker
+- Several panels from one add-on, each with its own browser and its own log
+
+**Measured** on three boards (Waveshare 7B 1024×600, M5Stack Tab5 720×1280,
+Guition 10" 800×1280): touch end to end 3–22 ms, ~105 ms from a tap to the
+picture changing, 22–25 pictures a second on a moving page, 0 KiB/s at rest.
+
+### Install the add-on
+
+In Home Assistant: **Settings → Add-ons → Add-on Store → ⋮ → Repositories**,
+and add
+
+```
+https://github.com/youkorr/esphome_esp-video
+```
+
+or click
+[![Open your Home Assistant instance and show the add add-on repository dialog.](https://my.home-assistant.io/badges/supervisor_add_addon_repository.svg)](https://my.home-assistant.io/redirect/supervisor_add_addon_repository/?repository_url=https%3A%2F%2Fgithub.com%2Fyoukorr%2Fesphome_esp-video)
+
+Then install **Portall**, and read its **Documentation** tab — the options,
+the launcher, the keyboard, the gestures and what each costs are all there.
+The source is under [`portall/`](portall/).
+
+### Flash the panel
+
+The board runs the `portall` ESPHome component. Validated example
+configurations are in [`yaml/`](yaml/) — start from
+`yaml/p4-home-assistant.yaml` (Waveshare) or
+`yaml/guition-10-home-assistant.yaml` (Guition 10").
+
+```yaml
+external_components:
+  - source:
+      type: git
+      url: https://github.com/youkorr/esphome_esp-video
+    components: [portall]
+
+portall:
+  display_id: main_screen
+  touchscreen_id: my_touch
+  port: 5000
+  width: 800
+  height: 1280
+```
+
+The token, the URL and the panel list belong in the add-on's options, not in
+the firmware.
+
+---
+
+## Camera components
+
+External ESPHome components for video capture, camera sensor drivers and LVGL
+camera display on Espressif ESP32 targets (especially the **ESP32-P4** with the
+MIPI-CSI interface).
+
+
+### Components
 
 | Component | Role |
 |-----------|------|
@@ -18,7 +116,7 @@ These three components work together:
 [MIPI-CSI sensor] → esp_cam_sensor → esp_video (ISP/encoding) → lvgl_camera_display → LVGL canvas
 ```
 
-## Installation in ESPHome
+### Installation in ESPHome
 
 Reference this repository as an external component source:
 
@@ -173,7 +271,7 @@ Valid for all sensors (passed to the native driver):
 | `1080P` | 1920 × 1080 |
 | `"WxH"` | free dimensions (e.g. `"800x600"`) |
 
-## Supported sensors and resolutions
+### Supported sensors and resolutions
 
 Four sensors are compiled into the driver. The tables below list every
 resolution that is actually wired into the build (driver format tables +
@@ -284,7 +382,7 @@ esp_cam_sensor:
 > **Tip:** For LVGL, prefer `pixel_format: RGB565`: it is the native format of the
 > LVGL `canvas`, which allows a zero-copy transfer without conversion.
 
-## Camera display in LVGL (Canvas)
+### Camera display in LVGL (Canvas)
 
 `lvgl_camera_display` copies every sensor frame into an LVGL `canvas` widget.
 Setup is done in **two steps**:
@@ -410,7 +508,7 @@ switch:
           id(camera_display).set_enabled(false);
 ```
 
-## Complete minimal example
+### Complete minimal example
 
 ```yaml
 external_components:

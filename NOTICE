@@ -3,10 +3,11 @@ esphome_esp-video — Third-party notices
 
 This repository provides ESPHome external components for video capture, camera
 sensor drivers and an LVGL camera display on Espressif ESP32 targets (especially
-the ESP32-P4). In addition to the original ESPHome integration code (under MIT,
-see the LICENSE file), it bundles ("vendors") source code from upstream projects.
-Each part keeps its own license. See LICENSES/Apache-2.0.txt for the full Apache
-License 2.0 text.
+the ESP32-P4), and Portall -- an ESPHome component plus a Home Assistant add-on
+that put a rendered web page on an ESP32-P4 panel. In addition to the original
+ESPHome integration code (under MIT, see the LICENSE file), it bundles
+("vendors") source code and assets from upstream projects. Each part keeps its
+own license. See LICENSES/Apache-2.0.txt for the full Apache License 2.0 text.
 
 --------------------------------------------------------------------------
 1. Espressif Systems (Shanghai) CO LTD
@@ -56,3 +57,32 @@ License 2.0 text.
    lvgl_camera_display requires the LVGL 9.5 fork for its PPA hardware
    acceleration. It is pulled separately as an external component (not vendored
    in this repository).
+
+--------------------------------------------------------------------------
+4. simple-icons (bundled in the Portall add-on)
+--------------------------------------------------------------------------
+   Source : https://github.com/simple-icons/simple-icons
+   License: CC0 1.0 Universal (public domain dedication).
+
+   portall/logos.py carries about fifty service marks as inline SVG path data,
+   taken from simple-icons, so that the launcher never has to fetch an icon
+   from the internet -- a panel is the one screen where nobody can find out
+   why a picture did not load.
+
+   CC0 covers the icon FILES. The marks themselves remain the trademarks of
+   the services they name, and are used here only to say which service a tile
+   opens. No endorsement by any of them is implied.
+
+--------------------------------------------------------------------------
+5. Portall's runtime dependencies (not vendored)
+--------------------------------------------------------------------------
+   The add-on image installs these at build time; none is redistributed here.
+
+     - Playwright and the Chromium it downloads  -- Apache-2.0 / BSD-3-Clause
+     - Google Chrome or the distribution's Chromium, when one is available
+     - PulseAudio, for the page's sound             -- LGPL-2.1-or-later
+     - Pillow and NumPy, in the sender              -- MIT-CMU / BSD-3-Clause
+
+   The udisp wire format the panel speaks is Espressif's, from their
+   usb_extend_screen example (Apache-2.0); portall's implementation of both
+   ends is original.
