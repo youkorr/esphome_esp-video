@@ -9,9 +9,17 @@
   anyway. Measured safe for the way contacts are replayed: a press still fires
   pointerdown, mousedown, mouseup and click, and scrolling is unchanged.
   Off with `no_touch`.
-- A **tablet** user agent is documented for the YouTube link. An 800x1280
-  panel in portrait is a ten-inch tablet -- not a phone's narrow column, and
-  not a television needing a remote.
+- **YouTube has one documented arrangement now, and it works completely**:
+  `youtube.com/tv` with a smart-television `user_agent` on the link,
+  `quality: 20`, signed in with a code typed on your phone, and the phone as
+  the remote. Every other route is listed with the way it fails -- the
+  pairing does not sign the ordinary site in, a phone or tablet string lands
+  on that same site, and a Chromecast string gets the idle "ready to cast"
+  screen. See **YouTube: television mode, and the phone as its remote**.
+- `quality: 20` is the starting point there, and the arithmetic is why: full
+  motion makes every picture a whole panel, so 800x1280 at quality 40 asks for
+  1.8-2.5 MB/s from the radio. Video hides compression far better than a
+  dashboard does.
 
 ## 2.3.0
 

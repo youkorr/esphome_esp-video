@@ -523,49 +523,11 @@ signed in.
 One directory per panel is not a choice: Chromium locks a profile, and a second
 browser pointed at the same one refuses to start.
 
-### Google, and YouTube subscriptions
+### YouTube: television mode, and the phone as its remote
 
-Ordinary sites sign in from the on-screen keyboard and stay signed in. **Google
-is the exception**: it refuses to sign a browser in when it can tell that
-browser is being driven by software, and that is a policy of theirs rather than
-a fault here. It is not something this add-on tries to defeat.
-
-Two things nevertheless help, and the first is free.
-
-**Use a browser that is not a cut-down one.** The add-on installs Google Chrome
-where there is a build for the machine, and the distribution's Chromium
-otherwise, and prefers either over the one Playwright downloads. The log says
-which it got:
-
-```
-Browser: running /usr/bin/google-chrome-stable
-```
-
-If that line is missing, the fallback now uses the **full** Chromium rather
-than the headless shell it used before. The difference is not cosmetic --
-measured on the same page with the same settings, the shell has no
-`window.chrome`, reports **0** browser plugins where a real Chrome reports 5,
-says its PDF viewer is disabled, and answers `denied` to a notification
-permission question a real browser answers `default`. Each of those is one line
-for a site to check. It costs about a tenth more processor and nothing at all
-in frame rate.
-
-**For YouTube, use its television interface.** This is the route that fits a
-panel, because it was designed for devices in exactly this position -- a
-screen, no keyboard, and an account to reach. You never type a password: the
-television shows a code and you enter it at `youtube.com/pair` on your phone.
-
-Point a link at `https://www.youtube.com/tv` and tell the browser it is a
-television:
-
-```yaml
-user_agent: "Mozilla/5.0 (X11; Linux armv7l) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/85.0.4183.93 Safari/537.36 CrKey/1.54.250320"
-```
-
-**Set it on the LINK, not on the panel.** A panel's `user_agent` applies to
-every page that panel shows, so it would tell Home Assistant and the launcher
-they are talking to a television as well. A link carries its own, the way
-`quality` already does:
+**This is the only arrangement that works, and it works completely.** Use it as
+written rather than as a starting point -- every other route was tried and each
+one fails in its own way, listed at the end.
 
 ```yaml
 links:
@@ -573,79 +535,67 @@ links:
     url: https://www.youtube.com/tv
     icon: youtube
     user_agent: "Mozilla/5.0 (SMART-TV; Linux; Tizen 6.0) AppleWebKit/537.36 (KHTML, like Gecko) 85.0.4183.93/6.0 TV Safari/537.36"
-    quality: 40
+    quality: 20
 ```
 
-It is applied to the **request**, not afterwards, which is the only place it
-can work: `youtube.com/tv` is not a page but a junction, and by the time the
-address could be looked at, the redirect has already happened.
+Three things are doing the work, and all three are needed.
 
-**Your phone is the remote, and that is the whole answer to navigating it.**
-The television interface is built to be driven by a remote control, which a
-panel does not have -- and the fix is not to build one. Once the panel is
-paired to your account, the YouTube app on your phone lists it as a device:
-browse there, where you are signed in and where your subscriptions are, and
-send the video to the panel. Confirmed from a panel.
+**1. `/tv` with a television user agent.** `youtube.com/tv` is a junction, not
+a page: a television is served the television interface, and everything else
+is redirected to the ordinary site. The user agent goes on the **link**, never
+on the panel -- a panel-wide one would tell Home Assistant and your launcher
+they are talking to a television too.
 
-That closes the last gap. Nothing has to be typed on the panel, nothing has
-to be navigated on it, and the account is on the phone where it already was.
-The panel is the screen and the phone is everything else.
+**2. Sign in with a code, from your phone.** The television interface never
+asks for a password: it shows a code, and you enter it at `youtube.com/pair`.
+Nothing is typed on the panel and no keyboard is needed. With `keep_profile`
+on, which is the default, this is done once.
 
-**The pairing signs in the television interface, not the ordinary site.** It
-is tempting to think otherwise -- a cookie belongs to a domain rather than a
-path, so `/tv` and `/` ought to share one. Reported from a panel: they do not.
-The television tile is signed in and the ordinary tile is not, on the same
-profile at the same moment, because the pairing authenticates the television
-app rather than the browser's Google session. So keep the television link as
-the one you use, not only as the one you sign in with.
+Google refuses to sign a browser in when it can tell it is being driven -- you
+will see *"This browser or app may not be secure"* if you try the ordinary
+sign-in form. That is their policy, it is not a fault here, and the code is
+how you go around it rather than through it.
 
-Side by side the two tiles also settle the older question about video
-stopping: the signed-in television interface plays, and the anonymous
-ordinary site loses its throughput and then its video. Same panel, same
-network, same minute. The advertisement was the cause, and an account is what
-removes it.
+**3. Your phone is the remote.** The television interface is built for a
+remote control, which a panel does not have -- and the answer is not to build
+one. Once the panel is paired, the YouTube app on your phone lists it as a
+device: browse there, where you are already signed in and where your
+subscriptions are, and send the video to the panel.
 
-**A tablet is the closest thing to what a panel actually is** -- 800x1280 in
-portrait is a ten-inch tablet, not a phone's narrow column and not a
-television. If the ordinary site reads too small from across the room, that is
-the string to try on the link:
+So the panel is the screen and the phone is everything else. To leave YouTube
+entirely, hold the top-left corner for a second, or swipe sideways out of it.
 
-```yaml
-    user_agent: "Mozilla/5.0 (Linux; Android 14; Pixel Tablet) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36"
-```
+#### Why `quality: 20`
 
-Pages are told the panel has a touchscreen, which is simply true and matters
-here: a device claiming to be an Android tablet while reporting no touch at
-all is a contradiction, and some sites answer it by serving the desktop
-layout anyway. Turned off by `no_touch`, where the claim would be false.
+Start there and raise it if you want to. Full motion is the one thing this
+pipeline finds expensive: every picture is a **whole panel** rather than a few
+rectangles, so at 800x1280 a picture costs roughly 70-100 KiB at quality 40 --
+which at 25 a second asks for 1.8-2.5 MB/s from a radio measured at 25 Mbit/s.
+That is the ceiling, and it is what a stuttering cast is running into.
 
-**Do not use a Chromecast string** (`CrKey/...`). It makes YouTube treat the
-panel as a cast *receiver* -- the screen that says "ready to cast" and waits
-for a phone to send it something -- rather than as a television you can
-navigate. A smart-television string is what asks for the interface with the
-sign-in code on it.
+Quality is the free lever, and video hides compression far better than a
+dashboard does: a dashboard at 20 looks poor, a film at 20 usually does not.
+The board is not the limit -- Espressif's figure for the P4's JPEG decoder is
+1080p at 30 frames a second, far above anything sent here.
 
-With `keep_profile` on, which is the default, the pairing is done once.
+If it still stutters, turn `stats` on and look at one line during a cast:
 
-The client hints sent beside the string follow **it**, not the browser
-underneath: give a Chromecast string and the request carries
-`sec-ch-ua: "Chromium";v="85", ...` to match. Give something that is not a
-Chrome at all -- a Tizen or webOS television -- and no hints are sent, which is
-what such a browser really does. Two headers disagreeing about one browser is
-the loudest thing either of them could say.
+| what the line says | what to do |
+|---|---|
+| `panel wait` high, `skipped` above 0 | the link. Lower `quality` further |
+| `made/s` well under `fps`, `worst turn` high | the machine running this add-on |
+| neither, but `dropped=` climbing under `show_media` | the browser itself |
 
-**This is confirmed from a panel.** With the smart-television string above on
-the link, the television interface loads, the code signs the account in, and
-the video plays:
+#### What does not work, and why
 
-```
-Media: playing: <ytlr-player__player-container-player> t=13.6 ready=4 net=2
-       playing page=visible focused buffered=6.4s frames=345 dropped=0
-```
+Written down so it is not tried again.
 
-`ytlr` is YouTube's own name for its television renderer, so that element is
-the proof the interface is the right one -- it exists neither on the ordinary
-site nor on the Chromecast screen. `dropped=0` is the panel keeping up with it.
+| | |
+|---|---|
+| the ordinary site | **not signed in.** The pairing authenticates the television app, not the browser's Google session -- so the ordinary site stays anonymous, gets advertisements, and the player is torn down a few seconds after one is skipped. Measured on a panel with both tiles open at once |
+| a phone or tablet user agent | same problem: it is still the ordinary site underneath |
+| a **Chromecast** string (`CrKey/...`) | makes YouTube treat the panel as a cast *receiver* -- the idle "ready to cast" screen, with no interface to sign into |
+| the ordinary sign-in form | refused by Google, see above |
 
 ### Jellyfin, and anything with a code
 
@@ -661,8 +611,12 @@ their own version of the same idea.
 
 ### Signing in somewhere else, and handing the session over
 
-This is the route that does not depend on getting past anything, and it comes
-straight from an observation worth repeating: **on a Raspberry Pi with
+**Use the television interface above instead.** This route works and is kept
+for anybody who wants it, but it is three steps with an obscure flag in the
+middle, and it is not what to hand to somebody who just wants YouTube on a
+panel.
+
+It comes from an observation worth repeating: **on a Raspberry Pi with
 Chromium you can sign in perfectly well.** That is true, and it says exactly
 where the difference is. It is not the browser -- it is the same Chromium. It
 is that a person is driving it, with no automation attached.
