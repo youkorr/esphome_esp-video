@@ -712,10 +712,37 @@ Raspberry Pi or any other arm64 box it falls back to the distribution's
 Chromium and there is no Widevine to be had. The `Browser: running ...` line
 at startup says which one you got.
 
+**And Netflix cannot be signed into either, for a different reason.** Its
+sign-in page carries, in its own words at the bottom: *"Cette page est
+protegee par Google reCAPTCHA pour nous assurer que vous n'etes pas un
+robot."* Reported from a panel pointed at `https://www.netflix.com/fr/` --
+which is the right address, nothing wrong with it -- the page answered *"Un
+probleme est survenu. Veuillez reessayer dans quelques minutes"* with the
+email field **still empty**. Nothing had been typed, so it is not the
+password, not the keyboard and not the DRM: reCAPTCHA scores the browser
+silently when the page loads, and a driven one scores badly.
+
+That is Google's anti-robot check, the same wall as the Google sign-in and by
+the same supplier, and defeating a CAPTCHA is not something this project will
+do.
+
+So there are **two** walls for Netflix, and the order matters:
+
+1. **Widevine**, for playing. Look at the log line above before anything else
+   -- with no Widevine, signing in would buy nothing at all.
+2. **reCAPTCHA**, for signing in. Only `import_profile` gets past it, by not
+   trying: the check is on the signing IN, and afterwards it is a cookie.
+
+Even with both solved, a browser gets Widevine **L3**, which Netflix limits to
+standard definition -- and full motion at a panel's own resolution is the
+expensive case measured under **YouTube** above. The effort is large and the
+result is poor. Jellyfin, which needs none of this, is the better answer for a
+panel.
+
 Signing in is a separate question from playing, and worth separating when
-something fails: the sign-in form is ordinary and the on-screen keyboard types
-into it, so a panel can usually reach an account even where it will never play
-a stream.
+something else fails: an ordinary site's sign-in form is plain and the
+on-screen keyboard types into it, so a panel can usually reach an account even
+where it will never play a stream.
 
 ### Jellyfin, and anything with a code
 
