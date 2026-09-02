@@ -1,5 +1,17 @@
 # Changelog
 
+## 2.4.2
+
+- **The weather now appears.** It asked Home Assistant at the shared `url:` as
+  it stands -- and that is nearly always a dashboard, so it was requesting
+  `http://homeassistant:8123/lovelace/0/api/states/weather.home`, a 404 every
+  time. It takes the origin now. Reported as the weather never showing while
+  the clock beside it worked.
+- The failure line names **the address it tried**, which is what would have
+  made the above obvious in one look instead of none. And an entity that was
+  asked for but cannot be read for a structural reason -- no `url:`, no
+  `token:` -- now says so rather than staying silent.
+
 ## 2.4.1
 
 - **Silence is no longer sent to the panel**, which was costing **93.8 KiB/s**

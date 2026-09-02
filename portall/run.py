@@ -174,7 +174,18 @@ class Weather:
     EVERY_S = 600
 
     def __init__(self, url, token, entity):
-        self.url = str(url or "").rstrip("/")
+        # The ORIGIN, not the address as it stands. The shared `url:` is
+        # nearly always a dashboard -- http://homeassistant:8123/lovelace/0 --
+        # and the first version of this appended /api/states/... straight to
+        # it, asking for
+        #   http://homeassistant:8123/lovelace/0/api/states/weather.home
+        # which is a 404 every time. Reported as the weather simply not
+        # appearing while the clock beside it worked.
+        from urllib.parse import urlsplit
+
+        split = urlsplit(str(url or ""))
+        self.url = (f"{split.scheme}://{split.netloc}"
+                    if split.scheme and split.netloc else "")
         self.token = str(token or "")
         self.entity = str(entity or "").strip()
         self.state = None
@@ -182,6 +193,21 @@ class Weather:
 
     def wanted(self):
         return bool(self.entity and self.url and self.token)
+
+    def why_not(self):
+        """Why an entity that was asked for cannot be read, or None.
+
+        Silence is right when nobody asked for weather. It is wrong when
+        somebody did and it never appears: that is the shape of fault this
+        project keeps having to find twice.
+        """
+        if not self.entity:
+            return None
+        if not self.url:
+            return "there is no url: to read it from"
+        if not self.token:
+            return "there is no token: to read it with"
+        return None
 
     def read(self):
         import urllib.error
@@ -196,7 +222,11 @@ class Weather:
         except Exception as err:  # noqa: BLE001 - any failure keeps the last
             if not self._said:
                 self._said = True
-                say(f"[weather] {self.entity} could not be read ({err}) -- "
+                # The address as well as the error. Without it, "could not be
+                # read" is the same line whether the entity is misspelt, the
+                # token is wrong, or the address had a dashboard path glued to
+                # it -- which is exactly the fault this once had.
+                say(f"[weather] could not read {where} ({err}) -- "
                     f"the launcher will show no weather")
             return
         attributes = data.get("attributes") or {}
@@ -218,6 +248,9 @@ class Weather:
 
     def start(self):
         """Read once now so the first page carries a value, then keep it fresh."""
+        blocked = self.why_not()
+        if blocked is not None:
+            say(f"[weather] {self.entity} was asked for but {blocked}")
         if not self.wanted():
             return None
         self.read()
