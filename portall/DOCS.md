@@ -154,14 +154,14 @@ links:
     group: Maison
     description: Salon, lumieres, volets
   - name: Jellyfin
-    url: http://192.168.1.20:8096
+    url: ""
     icon: jellyfin
     group: Media
     description: Films et series
     quality: 40                 # a film needs far fewer bytes than text
 panels:
   - name: salon
-    host: 192.168.1.11
+    host: ""
     url: launcher
     width: 800
     height: 1280
