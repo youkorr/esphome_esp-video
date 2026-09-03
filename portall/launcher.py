@@ -44,6 +44,10 @@ KEYWORD = "launcher"
 # Where the wallpaper is served from when it is a file on disk rather than an
 # address. One path, so the page can name it before the file has been read.
 WALLPAPER_PATH = "/wallpaper"
+# Where the page says a wallpaper would not play. A video that cannot be
+# decoded paints NOTHING -- the blank rectangle this project forbids -- and
+# the page has no other way to reach a log somebody reads.
+REPORT_PATH = "/report"
 # What the page asks to find out how many pictures the folder holds now.
 SLIDES_PATH = "/slides.json"
 
@@ -515,6 +519,38 @@ SLIDESHOW_JS = """<script>
 </script>
 """
 
+# A video that will not play, said out loud. The commonest cause by far is an
+# ordinary .mp4: H.264 is patented, so the browser Playwright downloads does
+# not carry it -- measured on the shipped build, canPlayType for
+# avc1.42E01E is "" while VP9, VP8 and AV1 all answer "probably". From the
+# panel that is a wallpaper that simply never appears.
+VIDEO_ERROR_JS = """<script>
+(() => {
+  const v = document.querySelector('.wall video');
+  if (!v) return;
+  // The code in words. A household reading "4" learns nothing, and 4 is by
+  // far the commonest here: it is what Chromium says for a file whose codec
+  // it does not carry.
+  const WHY = {1: 'the load was cancelled', 2: 'the network failed',
+               3: 'it could not be decoded',
+               4: 'this browser cannot play that format'};
+  const tell = () => {
+    const e = v.error || {};
+    try {
+      fetch('%(report)s?why=' + encodeURIComponent(
+        (WHY[e.code] || 'the browser would not play it')
+        + (e.message ? ': ' + e.message : '')), {cache: 'no-store'});
+    } catch (err) { /* an accessory must never cost the picture */ }
+  };
+  v.addEventListener('error', tell);
+  // The element's own error fires for a container it cannot open; a codec it
+  // cannot decode surfaces on the source instead, and a file that is simply
+  // not there gives neither until the fetch fails.
+  v.addEventListener('stalled', () => { if (v.error) tell(); });
+})();
+</script>
+"""
+
 # A GIF or a video that is NOT allowed to move still has a first frame worth
 # showing, and showing it is better than falling back to a flat colour.
 # A paused <video> already shows one; a GIF has to be drawn once into a canvas,
@@ -806,6 +842,7 @@ def render(links, title="", subtitle="", theme="dark",
     # video shows, costs the panel nothing and is what the switch is for.
     movie = ""
     wall_css = "none"
+    wants_video_report = False
     if kind == "url":
         # A picture fetched from somewhere else taints a canvas, so a GIF at
         # an address cannot be frozen where it lies -- measured, it went on
@@ -833,6 +870,7 @@ def render(links, title="", subtitle="", theme="dark",
         movie = (f'<video src="{html.escape(first, quote=True)}" muted '
                  f'playsinline preload="auto"'
                  f'{" autoplay loop" if motion else ""}></video>')
+        wants_video_report = True
     elif first:
         wall_css = f'url("{html.escape(first, quote=True)}")'
 
@@ -936,6 +974,8 @@ def render(links, title="", subtitle="", theme="dark",
         # A GIF nobody asked to move. Frozen rather than dropped: its first
         # frame is a perfectly good wallpaper, and a blank one is not.
         moving.append(FREEZE_JS)
+    if wants_video_report:
+        moving.append(VIDEO_ERROR_JS % {"report": REPORT_PATH})
 
     return PAGE % {
         "css": sheet,
@@ -1122,6 +1162,10 @@ def start(links, title="", subtitle="", theme="dark",
         except OSError:
             return 0
 
+    # Complaints already made, so a page reloaded every time somebody comes
+    # home does not fill the log with the same sentence.
+    said = set()
+
     class Handler(http.server.BaseHTTPRequestHandler):
         def log_message(self, *args):
             pass  # the add-on log is for panels, not for page requests
@@ -1147,6 +1191,26 @@ def start(links, title="", subtitle="", theme="dark",
                     json.dumps({"icon": sky, "text": temp}).encode(),
                     "application/json",
                 )
+                return
+            if self.path.split("?")[0] == REPORT_PATH:
+                # Said once per distinct complaint. A wallpaper that will not
+                # play would otherwise be a blank rectangle with nothing
+                # anywhere to explain it, which is the one failure this page
+                # is not allowed to produce.
+                why = (parse_qs(urlsplit(self.path).query).get("why") or [""])[0]
+                why = " ".join(str(why).split())[:200]
+                if why and why not in said:
+                    said.add(why)
+                    print(f"Launcher: the wallpaper video would not play "
+                          f"({why}). The commonest cause is an ordinary .mp4: "
+                          f"H.264 is patented and the browser this add-on "
+                          f"downloads does not carry it -- the sender's log "
+                          f"says 'decodes H.264 no' when that is it. Use a "
+                          f"WebM (VP9), or install a Chromium packaged by "
+                          f"your distribution, which the sender prefers.",
+                          flush=True)
+                self.send_response(204)
+                self.end_headers()
                 return
             if self.path.split("?")[0] == SLIDES_PATH:
                 self._reply(json.dumps(

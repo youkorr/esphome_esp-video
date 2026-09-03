@@ -23,7 +23,7 @@ WORKDIR /app
 # update really does fetch a current Playwright, a current Chromium and current
 # senders. It costs the browser download on each update, which is the price of
 # not running a year-old browser without knowing it.
-ARG BUNDLE=3.2.0
+ARG BUNDLE=3.2.1
 RUN echo "${BUNDLE}" > /app/BUNDLE
 
 # --no-shell, and it is worth 323 MB of image.
