@@ -1,0 +1,434 @@
+substitutions:
+  name: tab5-portall-screen
+
+esphome:
+  name: tab5-portall-screen
+  friendly_name: tab5_portall_screen
+
+esp32:
+  board: esp32-p4-evboard
+  cpu_frequency: 360MHz
+  flash_size: 16MB
+  engineering_sample: true
+  framework:
+    type: esp-idf
+    advanced:
+      enable_idf_experimental_features: yes
+
+logger:
+
+api:
+  encryption:
+    key: ""
+    
+psram:
+  mode: hex
+  speed: 200MHz
+
+esp_ldo:
+  - voltage: 2.5V
+    channel: 3
+    
+i2c:
+  - id: bsp_bus
+    sda: GPIO31
+    scl: GPIO32
+    frequency: 400kHz
+    
+ota:
+  - platform: esphome
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  ap:
+    ssid: tab5_portall_screen Fallback Hotspot
+    password: ""
+
+http_request:
+  
+update:
+  - platform: esp32_hosted
+    id: c6_firmware_update
+    name: "ESP32-C6 Firmware"
+    type: http
+    source: https://esphome.github.io/esp-hosted-firmware/manifest/esp32c6.json
+    update_interval: 6h
+    
+esp32_hosted:
+  variant: esp32c6
+  active_high: true
+  clk_pin: GPIO12
+  cmd_pin: GPIO13
+  d0_pin: GPIO11
+  d1_pin: GPIO10
+  d2_pin: GPIO9
+  d3_pin: GPIO8
+  reset_pin: GPIO15
+  use_psram: false
+  slot: 1
+  
+captive_portal:
+external_components:
+  - source:
+      type: git
+      url: https://github.com/youkorr/esphome_esp-video
+      ref: main
+    components: [portall]
+    refresh: 0s
+
+# ============================================================================
+# AUDIO FULL-DUPLEX — notre composant fdaudio (Espressif natif)
+# ============================================================================
+binary_sensor:
+  - platform: gpio
+    id: charging
+    name: "Charging Status"
+    pin:
+      pi4ioe5v6408: pi4ioe2
+      number: 6
+      mode: INPUT_PULLDOWN
+
+  - platform: gpio
+    id: headphone_detect
+    name: "Headphone Detect"
+    filters:
+      - delayed_on: 200ms
+      - delayed_off: 200ms
+    pin:
+      pi4ioe5v6408: pi4ioe1
+      number: 7
+      # Important: vérifiez si le pin doit être inversé selon votre hardware
+      inverted: false  # Ajustez selon votre circuit
+    on_press:
+      # Casque détecté - désactiver le speaker et configurer l'ES8388
+      then:
+        - logger.log: "Casque détecté - basculement vers sortie casque"
+        - switch.turn_off: speaker_enable
+        - select.set:
+            id: dac_output_select
+            option: "Line 1"  # Casque sur Line 1
+    on_release:
+      # Casque déconnecté - réactiver le speaker
+      then:
+        - logger.log: "Casque déconnecté - basculement vers speaker"
+        - switch.turn_on: speaker_enable
+        - select.set:
+            id: dac_output_select
+            option: "Line 1"  # TEST: Speaker aussi sur Line 1
+
+select:
+
+  - platform: template
+    id: wifi_antenna_select
+    name: "WiFi Antenna"
+    options:
+      - "Internal"
+      - "External"
+    optimistic: true
+    on_value:
+      - if:
+          condition:
+            lambda: return i == 0;
+          then:
+            - switch.turn_off: wifi_antenna_int_ext
+          else:
+            - switch.turn_on: wifi_antenna_int_ext
+
+  - platform: es8388
+    dac_output:
+      id: dac_output_select
+      name: "DAC Output"
+    adc_input_mic:
+      name: "ADC Input Mic"
+
+i2s_audio:
+  - id: mic_bus
+    i2s_lrclk_pin: GPIO29
+    i2s_bclk_pin: GPIO27
+    i2s_mclk_pin: GPIO30
+
+audio_adc:
+  - platform: es7210
+    id: es7210_adc
+    bits_per_sample: 16bit
+    sample_rate: 16000
+
+microphone:
+  - platform: i2s_audio
+    id: tab5_microphone
+    i2s_audio_id: mic_bus
+    i2s_din_pin: GPIO28
+    sample_rate: 16000
+    bits_per_sample: 16bit
+    adc_type: external
+
+audio_dac:
+  - platform: es8388
+    id: es8388_dac
+
+speaker:
+  - platform: i2s_audio
+    id: tab5_speaker
+    i2s_audio_id: mic_bus
+    i2s_dout_pin: GPIO26
+    audio_dac: es8388_dac
+    dac_type: external
+    channel: mono
+    buffer_duration: 100ms
+    bits_per_sample: 16bit
+    sample_rate: 48000
+
+media_player:
+  - platform: speaker
+    name: "Habbit Desk PRO"
+    id: speaker_player
+    announcement_pipeline:
+      speaker: tab5_speaker
+      format: FLAC
+      sample_rate: 48000
+      num_channels: 1
+    on_announcement:
+      # Stop the wake word (mWW or VA) if the mic is capturing
+      - if:
+          condition:
+            - microphone.is_capturing:
+          then:
+            - micro_wake_word.stop:
+    on_idle:
+      # Since VA isn't running, this is the end of user-intiated media playback. Restart the wake word.
+      - if:
+          condition:
+            not:
+              voice_assistant.is_running:
+          then:
+            - micro_wake_word.start:
+
+micro_wake_word:
+  id: my_wake_word
+  models:
+    - okay_nabu
+  on_wake_word_detected:
+    then:
+      #- lvgl.page.show: listening_page 
+      - light.turn_on: backlight
+      - logger.log: "Wake word detected"
+      - voice_assistant.start:
+          wake_word: !lambda return wake_word;
+
+voice_assistant:
+  microphone: tab5_microphone
+  media_player: speaker_player
+  micro_wake_word: my_wake_word
+  noise_suppression_level: 2
+  auto_gain: 31dBFS
+  volume_multiplier: 2.0
+  conversation_timeout: 300s
+  on_end:
+    - delay: 5s
+    - wait_until:
+        condition:
+          - media_player.is_announcing:
+        timeout: 0.5s
+    - wait_until:
+        - and:
+            - not:
+                media_player.is_announcing:
+            - not:
+                media_player.is_playing:                
+    - micro_wake_word.start:
+  on_client_connected:
+    - micro_wake_word.start:
+  on_client_disconnected:
+    - micro_wake_word.stop:
+
+
+    
+output:
+  - platform: ledc
+    pin: GPIO22
+    id: backlight_pwm
+    frequency: 1000Hz
+
+light:
+  - platform: monochromatic
+    output: backlight_pwm
+    id: backlight
+    name: Backlight
+    restore_mode: ALWAYS_ON
+pi4ioe5v6408:
+  - id: pi4ioe1
+    address: 0x43
+    # 0: O - wifi_antenna_int_ext
+    # 1: O - speaker_enable
+    # 2: O - external_5v_power
+    # 3: NC
+    # 4: O - lcd reset
+    # 5: O - touch panel reset
+    # 6: O - camera reset
+    # 7: I - headphone detect
+  - id: pi4ioe2
+    address: 0x44
+    # 0: O - wifi_power
+    # 1: NC
+    # 2: NC
+    # 3: O - usb_5v_power
+    # 4: O - poweroff pulse
+    # 5: O - quick charge enable (inverted)
+    # 6: I - charging status
+    # 7: O - charge enable
+switch:
+
+  - platform: gpio
+    id: wifi_power
+    name: "WiFi"
+    internal: true
+    pin:
+      pi4ioe5v6408: pi4ioe2
+      number: 0
+    restore_mode: ALWAYS_ON
+
+  - platform: gpio
+    id: speaker_enable
+    name: "Speaker Enable"
+    pin:
+      pi4ioe5v6408: pi4ioe1
+      number: 1
+    restore_mode: ALWAYS_ON
+    inverted: False
+
+  - platform: gpio
+    id: wifi_antenna_int_ext
+    internal: True
+    pin:
+      pi4ioe5v6408: pi4ioe1
+      number: 0
+
+  - platform: gpio
+    id: usb_5v_power
+    name: USB-A Power
+    pin:
+      pi4ioe5v6408: pi4ioe2
+      number: 3
+    restore_mode: ALWAYS_ON      
+  - platform: gpio
+    id: camera_reset
+    pin:
+      pi4ioe5v6408: pi4ioe1
+      number: 6
+    restore_mode: ALWAYS_ON  
+
+  - platform: gpio
+    id: interrupt_pin_toushsreen
+    name: "interrupt_pin_toushscreen"
+    pin:
+      inverted: true
+      number: GPIO23
+    restore_mode: ALWAYS_ON  
+
+globals:
+  - id: screen_off_delay
+    type: int
+    restore_value: no
+    initial_value: '60'
+    
+number:    
+  - platform: template
+    name: Veille de l ecran
+    id: auto_off
+    optimistic: true
+    restore_value: true
+    min_value: 0
+    max_value: 600
+    step: 10
+    initial_value: 60
+    mode: slider
+    unit_of_measurement: s
+    icon: mdi:television-off
+    on_value:
+      - lambda: 'id(screen_off_delay) = (int) x;'
+      - script.execute: screen_timeout  
+      
+  - platform: template
+    name: "Volume Portall"
+    id: volume_portall
+    min_value: 0
+    max_value: 100
+    step: 1
+    unit_of_measurement: "%"
+    mode: slider
+    optimistic: true
+    restore_value: true
+    initial_value: 36
+    on_value:
+      then:
+        - portall.set_volume:
+            volume: !lambda 'return x / 100.0;'
+        
+script:
+  - id: screen_timeout
+    mode: restart
+    then:
+      - if:
+          condition:
+            lambda: 'return id(screen_off_delay) > 0;'
+          then:
+            - delay: !lambda 'return id(screen_off_delay) * 1000;'
+            - light.turn_off: backlight
+
+    
+
+
+touchscreen:
+  - platform: gt911
+    id: touch_screen
+    i2c_id: bsp_bus
+    update_interval: 8ms
+    reset_pin:                      # expander pin 5 = BSP_TOUCH_EN (touch power)
+      pi4ioe5v6408: pi4ioe1
+      number: 5
+    calibration:
+      x_min: 0
+      x_max: 720
+      y_min: 0
+      y_max: 1280
+      
+display:
+  - platform: mipi_dsi
+    id: main_screen
+    model: M5Stack-Tab5
+    dimensions:
+      width: 720
+      height: 1280
+    pixel_mode: 16
+    update_interval: never
+    auto_clear_enabled: false
+    reset_pin:
+      pi4ioe5v6408: pi4ioe1
+      number: 4
+   
+portall:
+  display_id: main_screen
+  width: 720
+  height: 1280
+  rotation: 0
+  port: 5000
+  touchscreen_id: touch_screen
+  vendor_id: 0x303A
+  product_id: 0x2986          
+  sender_drive: false
+  max_frame_bytes: 300000
+  jpeg_quality: 9
+  max_fps: 60
+  manufacturer: Espressif
+  product: ESP_Extern_Screen
+  serial: "012-2021"
+  speaker_id: tab5_speaker
+  on_audio_start:
+    - switch.turn_on: speaker_enable
+    - micro_wake_word.stop
+  on_audio_stop:
+    - micro_wake_word.start
+    - switch.turn_off: speaker_enable
+  
+  
