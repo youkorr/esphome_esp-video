@@ -235,9 +235,10 @@ def check_reaches_sender(folder):
         "launcher_title", "launcher_subtitle", "launcher_theme",
         "launcher_color", "launcher_background", "launcher_background_blur",
         "launcher_background_dim", "launcher_columns",
-        "launcher_clock", "launcher_weather", "launcher_css",
-        "launcher_clock_size", "launcher_weather_size",
-        "launcher_align", "launcher_clock_color",
+        "launcher_clock", "launcher_weather",
+        "launcher_clock_size", "launcher_clock_color",
+        "launcher_date_size", "launcher_date_color",
+        "launcher_weather_size", "launcher_align",
     }
     panel = {"host": "1.2.3.4", "width": 800, "height": 1280,
              "rotate": "0", "touch_rotate": "0"}

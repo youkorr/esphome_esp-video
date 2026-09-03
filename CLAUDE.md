@@ -2034,43 +2034,58 @@ Verified with the url a panel really has: given
 `http://127.0.0.1:8160/lovelace/0`, the stand-in Home Assistant is asked for
 `/api/states/weather.forecast_home` and the reading reaches the page.
 
-**A stylesheet was the wrong FIRST answer, and the user said so twice.** Asked
-first as *"tu ne donnes pas la possibilite de changer d'emplacement de taille
-ou de couleur"*, answered with `launcher_css`, and then pushed back on:
-*"c'etait pas plus simple pour la meteo de choisir sa taille et pour l'heure
-et la date de choisir sa taille et couleur"*.
+**A stylesheet was the wrong answer, and it took the same person saying so
+three times to remove it.** Asked first as *"tu ne donnes pas la possibilite
+de changer d'emplacement de taille ou de couleur"*, answered with
+`launcher_css`; pushed back on as *"c'etait pas plus simple pour la meteo de
+choisir sa taille et pour l'heure et la date de choisir sa taille et
+couleur"*, answered with four named settings **beside** the sheet; and settled
+by *"je preferre que tu enleve le launcher_css car pour un particulier novice
+il va pas comprendre il faut au plus simple"*.
 
 The argument for one general mechanism was option count -- which is the
-maintainer's problem, not the household's. **This is the fourth time the same
+maintainer's problem, not the household's. **This is the fifth time the same
 person has proposed a named per-thing setting over a general mechanism**, after
 the quality, the user agent and the frame limit per link, and they were right
-every time. That is a pattern worth trusting rather than re-arguing.
+every time. Keeping the sheet "as the way out" was the same mistake a second
+time: a novice does not want a way out, and an option that exists is an option
+somebody has to read past.
 
-So the four things people actually change are named:
-`launcher_clock_size`, `launcher_weather_size` (small/medium/large/huge),
-`launcher_align` (left/center/right) and `launcher_clock_color` (a palette
-name, the same vocabulary as `launcher_color` rather than a second one).
-Sizes are named rather than in pixels because *large* is a decision and *72px*
-is an experiment, and each stays a `clamp()` so it still adapts between panel
-shapes -- measured at 1280x800, the clock runs 40px at `small` to **130px** at
-`huge`, with the date following it.
+**Homepage was read rather than remembered**, because the same person asked for
+that too -- *"je prefere que tu regarde comment ils ont homepage"* -- and it
+settles the design in three lines:
 
-`launcher_css` stays and stays LAST, after those rules, so it overrides them.
-Verified: `clock_size: huge` gives 130px, and 40px of `launcher_css` on top
-wins. Named settings are the front door; the sheet is the way out of it.
+| | Homepage |
+|---|---|
+| size | **per widget**, `text_size:` on a fixed scale `xs, sm, md, xl, 2xl, 3xl, 4xl` |
+| colour | **global only**, one `color:` in `settings.yaml`, a Tailwind palette name |
+| custom CSS | **not a config option at all** |
 
-`launcher_css` goes **last** in the page's sheet so it wins, and the
-documentation carries the selectors (`.now`, `.time`, `.date`, `.wx`,
-`.wx .sky`, `.wx .out`, `.tile`) with lines to copy. Rules written with
-`var(--accent)` and `var(--ink)` follow `launcher_color` and the theme rather
-than fighting them.
+So the shape is copied and the words are not. `launcher_clock_size`,
+`launcher_clock_color`, `launcher_date_size`, `launcher_date_color`,
+`launcher_weather_size` and `launcher_align`, every one of them a `list()` in
+the form. The date gets its own pair because that is what was asked for twice
+(*"pour aggrandir la date et changer sa couleur comment ont fait"*), and the
+weather gets no colour because it is an emoji -- a browser draws those in
+their own colours whatever the page says.
 
-It can only ever look wrong: a stylesheet runs nothing and an unknown rule is
-skipped. The one thing to stop is closing the element early and writing markup
-after it, so `</` is neutralised -- verified in the browser on seven cases,
-including a deliberate `</style><h1>BROKEN</h1><style>` which changed nothing
-and left no stray markup, and nonsense which was simply ignored. Size, colour
-and alignment all reach the computed style, singly and together.
+**The sizes keep `small/medium/large/huge` deliberately, and the reason is a
+migration rather than a preference.** Adopting `xs..4xl` would change the
+stored value of two options every existing install already has, and a stored
+value that is no longer a member of a `list()` is a **validation failure**, not
+a warning -- an add-on that will not start until somebody edits a dropdown they
+have never seen. A removed key only warns, which is why dropping `launcher_css`
+is free and renaming a scale is not. `theme` is the colours' own "no palette",
+a word rather than a blank first entry.
+
+Measured in the browser on the COMPUTED style, through `run.start_launcher()`
+and a real fetch rather than `render()` on its own: clock 40/68/96/**130** px
+at 1280x800, the date 16/22/28/34 independently of it, the weather 19/26/34/44,
+`sky` and `rose` reaching `.time` and `.date` separately, an unknown or empty
+name falling back to the theme rather than failing, the clock moving 64 -> 331
+-> 598 px across left/center/right, and `_bar()` emitting **nothing at all**
+when every setting is its default. Tiles unchanged at 566x118 on 1280x800 with
+six links in three groups, nothing off the side at any of the three shapes.
 
 **The clock, the date and the weather, because the real Homepage has them.**
 Reported from a household testing the launcher: *"il manque l'heure la date et
