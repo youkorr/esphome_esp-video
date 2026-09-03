@@ -413,6 +413,32 @@ appear without restarting the add-on. Only pictures are used -- `.jpg`,
 `.jpeg`, `.png`, `.webp`, `.gif`, `.avif`, `.bmp` -- so a stray text file in
 the folder is ignored rather than drawn as a broken square.
 
+#### Uploading the photographs
+
+There is nothing to install for this: **Home Assistant's own Media panel
+uploads them.** Media > My media > **Upload**, choose the files, and they land
+in `/media`, which this add-on already reads. Point `launcher_background` at
+that folder and they are the frame's pictures. Drop more in later and
+`launcher_slideshow_rescan` picks them up on its own.
+
+#### Photographs that are already on a server
+
+A NAS, an Immich, anything serving a folder over HTTP -- give the addresses
+instead of a folder:
+
+```yaml
+launcher_slideshow_urls:
+  - http://192.168.1.3:8080/eTBckVxL/1326045.jpeg
+  - http://192.168.1.3:8080/eTBckVxL/1326046.jpeg
+launcher_slideshow: true
+```
+
+The panel's own browser fetches them, exactly as it fetches any wallpaper
+given by address, so whatever serves them has to be reachable from the machine
+running this. Given both a folder and a list, the **list wins** -- a folder is
+what was there before, and the field just filled in is the one that was meant.
+There is no rescan for a list: it is what the form says it is.
+
 **What it costs, because this is the one feature here that is never free.**
 A panel sends only what changed, so a still page sends nothing at all. A
 picture that changes is a **whole panel** on the wire: about 130 KiB at
@@ -438,6 +464,18 @@ awake**: every frame is a whole panel, for ever, behind whatever else is on
 the screen. It works, it was measured working, and it is not something to
 leave on by accident. That is why it is a switch of its own rather than
 something a `.mp4` in the field turns on by itself.
+
+Both work whether the file is under `/config`, `/share` or `/media` or given
+by address. One detail that had to be built rather than assumed: a **GIF at an
+address** cannot be frozen where it lies, because holding it on one frame
+means reading its pixels back out of a canvas and a browser refuses that for a
+picture fetched from anywhere else. The add-on copies that one file here once,
+so it can. The log says when it does, and says so once if it could not -- in
+which case the GIF simply keeps moving. A video needs none of this: pausing
+one asks the browser for nothing.
+
+The slideshow list is pictures. A `.mp4` in `launcher_slideshow_urls` is not
+loaded -- put it in `launcher_background` on its own.
 
 ### Changing how it looks
 
