@@ -2231,6 +2231,30 @@ Two ordering faults in the mirror, both invisible from reading and both fatal:
 `mirrored` was passed to `render()` on the line above where it was computed,
 and the `picture, mime = None, ...` that follows threw the copied bytes away.
 
+**"Does the slideshow go on running behind a link?" -- no, and it is worth
+recording because it is the natural thing to suspect.** Asked as *"si vous
+allez dans link home assistant, jellyfin le slide show est fonctionnel en
+parallele ce qui ralentit le link"*.
+
+There is **one browser page per panel** and a tile is a plain `<a href>`, so
+opening one navigates that page away: the launcher document is destroyed and
+its timers -- the slideshow, the clock, the weather -- go with it. There is no
+second page to run them in.
+
+Measured against a picture server that counts what it is asked for: **7
+pictures in 4 s on the launcher, 0 in the 6 s after clicking a tile, 6 again
+in the 4 s after coming home.** Nothing survives the navigation.
+
+What IS true, and is probably what was felt: a slideshow makes the LAUNCHER
+expensive, and a tile is tapped while that burst is still in flight. Every
+change of picture is a whole panel, and each second of fade is one per frame
+-- so a fade of 2 s at 25 fps has fifty whole panels on the wire at the moment
+somebody touches the glass. The link is not being slowed by anything running
+beside it; it is starting behind a queue the launcher just made.
+`launcher_slideshow_fade: 0` and a longer delay is the test, and `stats` says
+which it is -- the `whole` count and KiB/s while the launcher is showing
+against the same fields once the link is open.
+
 **A quality per LINK, and the reasoning behind it is the user's.** Asked for
 in those words -- *"j'aurais preferer que dans les link ont puisse choisir la
 qualite c'est plus simple a gerer"* -- after `render_width:` was offered and
