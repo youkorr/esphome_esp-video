@@ -285,11 +285,17 @@ def start_launcher(config):
         columns=config.get("launcher_columns", 0),
         clock=str(config.get("launcher_clock", True)).lower()
         not in ("false", "no", "0"),
-        css=str(config.get("launcher_css") or ""),
-        clock_size=str(config.get("launcher_clock_size") or "medium"),
-        weather_size=str(config.get("launcher_weather_size") or "medium"),
+        clock_size=str(config.get("launcher_clock_size")
+                       or launcher.DEFAULT_SIZE),
+        clock_color=str(config.get("launcher_clock_color")
+                        or launcher.FOLLOW_THEME),
+        date_size=str(config.get("launcher_date_size")
+                      or launcher.DEFAULT_SIZE),
+        date_color=str(config.get("launcher_date_color")
+                       or launcher.FOLLOW_THEME),
+        weather_size=str(config.get("launcher_weather_size")
+                         or launcher.DEFAULT_SIZE),
         align=str(config.get("launcher_align") or "left"),
-        clock_color=str(config.get("launcher_clock_color") or ""),
         weather=Weather(
             config.get("url"), config.get("token"),
             config.get("launcher_weather"),

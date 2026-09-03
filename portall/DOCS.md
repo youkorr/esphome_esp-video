@@ -142,10 +142,11 @@ launcher_columns: 0           # 0 lets the panel decide
 launcher_clock: true          # the time and the date above the links
 launcher_weather: weather.forecast_home   # empty for none
 launcher_clock_size: medium   # small, medium, large, huge
+launcher_clock_color: theme   # a palette name, or theme for the theme's colour
+launcher_date_size: medium    # the same four
+launcher_date_color: theme    # the same palette names
 launcher_weather_size: medium # the same four
 launcher_align: left          # left, center, right
-launcher_clock_color: ""      # a palette name, empty for the theme's colour
-launcher_css: ""              # anything the four above cannot say, see below
 links:
   - name: Home Assistant
     url: http://homeassistant:8123/lovelace/0
@@ -336,75 +337,33 @@ runs off the side.
 
 ### Changing how it looks
 
-The four things people actually change have their own settings:
+Each part of the bar has its own setting, and every one of them is a list you
+pick from:
 
 ```yaml
 launcher_clock_size: huge      # small, medium, large, huge
+launcher_clock_color: sky      # a palette name, or theme
+launcher_date_size: large      # the same four
+launcher_date_color: slate     # the same palette names
 launcher_weather_size: small   # the same four
 launcher_align: center         # left, center, right
-launcher_clock_color: sky      # a Tailwind palette name, empty for the theme's
 ```
 
-The sizes are named rather than given in pixels because *large* is a decision
-and *72px* is an experiment -- and each is still a range, so it adapts between
-a 1024x600 panel and a 800x1280 one. Measured at 1280x800: the clock goes
-**40px** at `small`, 68 at `medium`, 96 at `large` and **130** at `huge`, and
-the date follows it.
+This is Homepage's shape rather than its words: a fixed list for each thing
+and no stylesheet field anywhere. The sizes are named rather than given in
+pixels because *large* is a decision and *72px* is an experiment, and each is
+still a range, so it adapts between a 1024x600 panel and a 800x1280 one.
+Measured at 1280x800, the clock goes **40px** at `small`, 68 at `medium`, 96 at
+`large` and **130px** at `huge`; the date and the weather have the same four.
 
-`launcher_clock_color` takes the same palette names as `launcher_color`, so it
-is one vocabulary rather than two. It colours the clock and the date together:
-two colours a hand's breadth apart is not a look anybody wants.
+The colours take the same palette names as `launcher_color`, so it is one
+vocabulary rather than two: slate, gray, zinc, neutral, stone, red, amber,
+yellow, lime, green, emerald, teal, cyan, sky, blue, indigo, violet, purple,
+fuchsia, pink, rose. **`theme`** is the default and means what it says -- the
+text colour of whichever theme is on.
 
-### And anything else
-
-For what those four cannot say, `launcher_css` goes **last** in the page's
-stylesheet -- after the settings above, so it overrides them too:
-
-```yaml
-launcher_css: |
-  .time { font-size: 96px; color: #38bdf8; }
-  .now  { justify-content: center; }
-```
-
-The parts you can name:
-
-| selector | what it is |
-|---|---|
-| `.now` | the whole bar. `justify-content: center` moves it |
-| `.time` | the clock |
-| `.date` | the date under it |
-| `.wx` | the weather box |
-| `.wx .sky` | the weather's symbol |
-| `.wx .out` | the temperature |
-| `header h1` | the title |
-| `.tile` | a link's card |
-| `.icon`, `.name`, `.desc` | the parts of a card |
-
-Ready-made lines:
-
-```yaml
-# a clock you can read from the far side of the room
-launcher_css: ".time { font-size: 110px; font-weight: 200; }"
-
-# the bar centred, the date hidden
-launcher_css: ".now { justify-content: center; } .date { display: none; }"
-
-# the clock in the palette's own colour rather than the text colour
-launcher_css: ".time { color: var(--accent); }"
-
-# the weather on the left, beside the clock, instead of pushed right
-launcher_css: ".wx { margin-left: 0; }"
-```
-
-`var(--accent)`, `var(--ink)`, `var(--faint)`, `var(--card)` and `var(--edge)`
-are the page's own colours, so a rule written with them follows
-`launcher_color` and the theme instead of fighting them.
-
-**It can only ever look wrong.** A stylesheet runs nothing, a rule the browser
-does not understand is skipped rather than fatal, and anything that looks like
-the end of the element is neutralised -- verified, including a deliberate
-attempt to close the tag and write markup after it. Clear the field and the
-page is what it was.
+The weather has no colour of its own on purpose: it is an emoji, which the
+browser draws in its own colours whatever you asked for.
 
 ## The keyboard
 

@@ -1,5 +1,5 @@
 name: Portall
-version: "2.4.4"
+version: "2.5.0"
 # Home Assistant identifies an add-on by its slug, so this one moving from
 # usb_display_panel to portall makes the Supervisor see a NEW add-on: options
 # are not carried over and /data starts empty, which means the browser
@@ -173,27 +173,23 @@ options:
   # address, and served to the page from 127.0.0.1. The page itself never
   # reaches Home Assistant and never carries the token.
   launcher_weather: ""
-  # Your own styling, last in the page's stylesheet so it wins over everything
-  # above it. This is where the clock's size, its place and its colour live --
-  # and the date's, and the weather's, and the tiles' -- rather than a setting
-  # per thing that nobody can find in a form. The documentation carries
-  # ready-made lines to copy.
+  # The bar above the links: how big each part of it is, what colour the clock
+  # and the date are, and where the whole bar sits.
   #
-  # It can only ever look wrong: a stylesheet runs nothing, and a rule the
-  # browser does not understand is skipped rather than fatal. Clear the field
-  # and the page is what it was.
-  # The clock's size, and the weather's: small, medium, large or huge. They
-  # are named rather than numbers because "large" is a decision and "72px" is
-  # an experiment -- and each is still a range, so it adapts between a 1024x600
-  # panel and a 800x1280 one.
+  # The sizes are small, medium, large or huge -- named rather than a number of
+  # pixels because "large" is a decision and "72px" is an experiment, and each
+  # is still a range so it adapts between a 1024x600 panel and a 800x1280 one.
   launcher_clock_size: medium
+  # A Tailwind palette name, the same list as launcher_color. "theme" leaves
+  # it the text colour of whichever theme is on.
+  launcher_clock_color: theme
+  launcher_date_size: medium
+  launcher_date_color: theme
+  # The weather has no colour of its own: it is an emoji, which a browser
+  # draws in its own colours whatever this said.
   launcher_weather_size: medium
   # Where the bar sits: left, center or right.
   launcher_align: left
-  # The clock and the date in a colour of their own -- a Tailwind palette name,
-  # the same list as launcher_color. Empty leaves them the theme's text colour.
-  launcher_clock_color: ""
-  launcher_css: ""
   links: []
   stats: true
   # A diagnostic, off by default: while a video plays it prints the playhead
@@ -245,10 +241,11 @@ schema:
   launcher_clock: bool?
   launcher_weather: str?
   launcher_clock_size: list(small|medium|large|huge)?
+  launcher_clock_color: list(theme|slate|gray|zinc|neutral|stone|red|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)?
+  launcher_date_size: list(small|medium|large|huge)?
+  launcher_date_color: list(theme|slate|gray|zinc|neutral|stone|red|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)?
   launcher_weather_size: list(small|medium|large|huge)?
   launcher_align: list(left|center|right)?
-  launcher_clock_color: str?
-  launcher_css: str?
   links:
     - name: str
       url: str

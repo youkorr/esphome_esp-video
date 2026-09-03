@@ -519,9 +519,14 @@ def _wallpaper(background):
 
 WEATHER_PATH = "/weather.json"
 
-# Named sizes rather than a number, because "large" is a decision and "72px" is
-# an experiment. Each is a clamp so it still adapts between a 1024x600 panel
-# and a 800x1280 one -- the middle value is the one that governs on a panel.
+# Named rather than a number of pixels because "large" is a decision and "72px"
+# is an experiment. The words are the plain ones rather than Homepage's own
+# xs/sm/md/xl/2xl scale: what is worth copying from that dashboard is the shape
+# -- a fixed list per thing and no stylesheet field anywhere -- and somebody
+# filling in a form at eight in the evening reads "large" faster than "2xl".
+#
+# Each step is a clamp, so it adapts between a 1024x600 panel and a 800x1280
+# one; the middle value is the one that governs on a panel.
 CLOCK_SIZES = {
     "small": "clamp(22px, 5vw, 40px)",
     "medium": "clamp(34px, 8vw, 68px)",
@@ -542,21 +547,42 @@ WEATHER_SIZES = {
 }
 DEFAULT_SIZE = "medium"
 
+# "theme" is the palette name for no palette at all: the clock takes the text
+# colour of whichever theme is on. A word rather than an empty field, because
+# a dropdown whose first entry is blank reads as a setting nobody finished.
+FOLLOW_THEME = "theme"
 
-def _sizes(clock_size, weather_size, align, colour, dark):
+
+def _one_size(rule, table, want):
+    """One font-size rule, or nothing when the size is the default."""
+    want = str(want or DEFAULT_SIZE).lower()
+    if want not in table or want == DEFAULT_SIZE:
+        return []
+    return [f" {rule} {{ font-size: {table[want]}; }}"]
+
+
+def _one_colour(rule, want):
+    """One colour rule, or nothing when it follows the theme."""
+    tint = PALETTES.get(str(want or "").lower())
+    return [f" {rule} {{ color: {tint}; }}"] if tint else []
+
+
+def _bar(clock_size, clock_color, date_size, date_color, weather_size, align):
     """The rules the named settings come to, or nothing when all are default.
 
-    Written into the sheet ABOVE launcher_css, so somebody who wants something
-    these cannot say still overrides them.
+    Every one of them is a list in the add-on's form, so what arrives here is
+    a word from a fixed set or nothing -- there is no stylesheet field behind
+    this any more, and nothing a household types reaches the page as CSS.
     """
     out = []
-    clock_size = str(clock_size or DEFAULT_SIZE).lower()
-    weather_size = str(weather_size or DEFAULT_SIZE).lower()
-    if clock_size in CLOCK_SIZES and clock_size != DEFAULT_SIZE:
-        out.append(f" .time {{ font-size: {CLOCK_SIZES[clock_size]}; }}")
-        out.append(f" .date {{ font-size: {DATE_SIZES[clock_size]}; }}")
-    if weather_size in WEATHER_SIZES and weather_size != DEFAULT_SIZE:
-        out.append(f" .wx {{ font-size: {WEATHER_SIZES[weather_size]}; }}")
+    out += _one_size(".time", CLOCK_SIZES, clock_size)
+    out += _one_size(".date", DATE_SIZES, date_size)
+    out += _one_size(".wx", WEATHER_SIZES, weather_size)
+    out += _one_colour(".time", clock_color)
+    # The date is faint by default, so a palette given for it has to beat that
+    # rule as well as set a colour -- both live on .date, so the later one in
+    # the sheet wins and this is it.
+    out += _one_colour(".date", date_color)
     where = str(align or "left").lower()
     if where in ("center", "centre", "right"):
         # The weather is pushed right by a margin, which would fight any
@@ -564,19 +590,15 @@ def _sizes(clock_size, weather_size, align, colour, dark):
         out.append(" .wx { margin-left: 0; }")
         out.append(f" .now {{ justify-content: "
                    f"{'center' if where.startswith('cent') else 'flex-end'}; }}")
-    tint = PALETTES.get(str(colour or "").lower())
-    if tint:
-        # The clock and the date together: asked for as one thing, and two
-        # colours a hand's breadth apart is not a look anybody wants.
-        out.append(f" .time, .date {{ color: {tint}; }}")
     return ("\n".join(out) + "\n") if out else ""
 
 
 def render(links, title="Panel", subtitle="", theme="dark",
            color=DEFAULT_PALETTE, background="", blur="off", dim=40,
-           columns=0, clock=True, weather=None, css="",
-           clock_size=DEFAULT_SIZE, weather_size=DEFAULT_SIZE,
-           align="left", clock_color=""):
+           columns=0, clock=True, weather=None,
+           clock_size=DEFAULT_SIZE, clock_color=FOLLOW_THEME,
+           date_size=DEFAULT_SIZE, date_color=FOLLOW_THEME,
+           weather_size=DEFAULT_SIZE, align="left"):
     """The page, as one string.
 
     Every value is escaped. These come from a configuration file a person
@@ -658,19 +680,14 @@ def render(links, title="Panel", subtitle="", theme="dark",
     scripts = (CLOCK_JS if clock else "") + (
         WEATHER_JS % {"path": WEATHER_PATH} if weather is not None else "")
 
-    # Whatever the household wants to change, last in the sheet so it wins.
-    # CSS rather than a setting per thing: the ask was the clock's size, its
-    # place and its colour, and the next ask would have been the date's, then
-    # the weather's, then the tiles' -- four options today and a dozen by the
-    # end of the month, each of them a name somebody has to find in a form.
-    #
-    # It cannot do more than look wrong: a stylesheet runs nothing, and a rule
-    # the browser does not understand is skipped rather than fatal. The one
-    # thing to stop is closing the element early and writing markup after it,
-    # so anything that looks like the end of a tag is neutralised.
-    sheet = _sizes(clock_size, weather_size, align, clock_color, dark)
-    if str(css or "").strip():
-        sheet += " " + str(css).replace("</", "<\\/") + "\n"
+    # The bar's own rules, after the sheet above and before nothing: there is
+    # no stylesheet field any more. It was offered first, on the argument that
+    # one general mechanism beats a setting per thing -- and that argument is
+    # the maintainer's convenience, not the household's. Homepage names the
+    # size of each widget on a fixed scale and has no CSS field at all, which
+    # is the shape this follows now.
+    sheet = _bar(clock_size, clock_color, date_size, date_color,
+                 weather_size, align)
 
     return PAGE % {
         "css": sheet,
@@ -713,9 +730,10 @@ def render(links, title="Panel", subtitle="", theme="dark",
 
 def start(links, title="Panel", subtitle="", theme="dark",
           color=DEFAULT_PALETTE, background="", blur="off", dim=40,
-          columns=0, clock=True, weather=None, css="",
-          clock_size=DEFAULT_SIZE, weather_size=DEFAULT_SIZE,
-          align="left", clock_color=""):
+          columns=0, clock=True, weather=None,
+          clock_size=DEFAULT_SIZE, clock_color=FOLLOW_THEME,
+          date_size=DEFAULT_SIZE, date_color=FOLLOW_THEME,
+          weather_size=DEFAULT_SIZE, align="left"):
     """Serve the page for as long as the add-on runs. Returns its address.
 
     One server for every panel: they all come home to the same list, and a
@@ -728,8 +746,9 @@ def start(links, title="Panel", subtitle="", theme="dark",
     first = weather() if weather is not None else None
     body = render(links, title, subtitle, theme, color, background, blur,
                   dim, columns, clock,
-                  first if weather is not None else None, css,
-                  clock_size, weather_size, align, clock_color).encode()
+                  first if weather is not None else None,
+                  clock_size, clock_color, date_size, date_color,
+                  weather_size, align).encode()
     _, wallpaper = _wallpaper(background)
     picture, kind = None, "application/octet-stream"
     if wallpaper:

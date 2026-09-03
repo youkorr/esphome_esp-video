@@ -1,5 +1,26 @@
 # Changelog
 
+## 2.5.0
+
+- **`launcher_css` is gone.** It was offered first, on the argument that one
+  general mechanism beats a setting per thing -- and that argument is the
+  maintainer's convenience, not the household's. Nobody should have to write a
+  stylesheet to make the date bigger. Homepage was read rather than remembered
+  before this was rewritten: it names the size of each widget from a fixed
+  list and has no CSS field at all, which is the shape followed here.
+- **The date has its own size and its own colour**, beside the clock's:
+  `launcher_date_size` and `launcher_date_color`.
+- **The colours are lists now, not a typed-in name.** `launcher_clock_color`
+  and `launcher_date_color` offer the same palette names as `launcher_color`,
+  with **`theme`** for the theme's own text colour. If the update reports an
+  invalid configuration -- 2.4.4 stored an empty value here, which is no longer
+  one of the choices -- set both to `theme` and save.
+- The sizes keep the words they had: small, medium, large, huge. Homepage's own
+  scale runs `xs` to `4xl`, and "large" is what somebody filling in a form at
+  eight in the evening reads faster.
+- The weather has no colour of its own on purpose: it is an emoji, which the
+  browser draws in its own colours whatever it was told.
+
 ## 2.4.4
 
 - **The clock, the date and the weather get plain settings**, which is what was
