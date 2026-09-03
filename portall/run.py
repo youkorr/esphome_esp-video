@@ -336,6 +336,7 @@ def start_launcher(config):
         every=config.get("launcher_slideshow_seconds", 30),
         fade=config.get("launcher_slideshow_fade", 1),
         rescan=config.get("launcher_slideshow_rescan", 60),
+        urls=config.get("launcher_slideshow_urls") or [],
         weather=Weather(
             # The dashboard's own link is what has the address and the
             # token now, and it is the only thing here that ever had a use

@@ -1,5 +1,5 @@
 name: Portall
-version: "3.0.0"
+version: "3.1.0"
 # Home Assistant identifies an add-on by its slug, so this one moving from
 # usb_display_panel to portall makes the Supervisor see a NEW add-on: options
 # are not carried over and /data starts empty, which means the browser
@@ -157,9 +157,18 @@ options:
   launcher_weather_size: medium
   # Where the bar sits: left, center or right.
   launcher_align: left
-  # The digital photograph frame: cycle through the pictures in the folder
-  # given as launcher_background. Off shows the first one and nothing more.
+  # The digital photograph frame: cycle through the pictures. Off shows the
+  # first one and nothing more.
   launcher_slideshow: false
+  # Where those pictures are, when they are NOT on this machine: one address
+  # per entry, http:// or https://. A photo server, a NAS, anything serving a
+  # folder over HTTP -- the panel's own browser fetches them, so whatever
+  # serves them has to be reachable from here.
+  #
+  # Leave it empty to use the FOLDER given as launcher_background instead,
+  # which is the route for pictures you upload: Home Assistant's Media panel
+  # (Media > My media > Upload) writes into /media, and this add-on reads it.
+  launcher_slideshow_urls: []
   # How long each picture is shown, in seconds.
   launcher_slideshow_seconds: 30
   # How long one picture takes to fade into the next, in seconds. THIS is the
@@ -229,6 +238,8 @@ schema:
   launcher_align: list(left|center|right)?
   launcher_background_motion: bool?
   launcher_slideshow: bool?
+  launcher_slideshow_urls:
+    - str?
   launcher_slideshow_seconds: int(5,3600)?
   launcher_slideshow_fade: int(0,10)?
   launcher_slideshow_rescan: int(1,1440)?

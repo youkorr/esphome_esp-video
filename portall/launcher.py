@@ -30,6 +30,7 @@ import json
 import mimetypes
 import os
 import threading
+import urllib.request
 from urllib.parse import parse_qs, urlsplit
 
 import logos
@@ -475,12 +476,16 @@ SLIDESHOW_JS = """<script>
   const a = document.getElementById('wa'), b = document.getElementById('wb');
   if (!a || !b) return;
   const every = %(every)s * 1000, rescan = %(rescan)s * 60000;
-  let count = %(count)s, at = 0, top = a;
+  // A list of addresses, whatever they are addresses OF. A folder gives
+  // /wallpaper?i=N served from here; pictures already on a server give their
+  // own addresses and this page fetches them exactly as a browser would.
+  let srcs = %(sources)s, at = 0, top = a;
   const show = () => {
-    if (count < 2) return;
-    at = (at + 1) %% count;
+    if (srcs.length < 2) return;
+    at = (at + 1) %% srcs.length;
     // The layer underneath is the one to load into: it is invisible, so a
-    // picture that takes a moment to arrive is never seen arriving.
+    // picture that takes a moment to arrive is never seen arriving -- and a
+    // picture that never arrives leaves the one showing where it is.
     const under = (top === a) ? b : a;
     const img = new Image();
     img.onload = () => {
@@ -489,12 +494,19 @@ SLIDESHOW_JS = """<script>
       under.style.opacity = '1'; top.style.opacity = '0';
       top = under;
     };
-    img.src = '%(path)s?i=' + at;
+    img.src = srcs[at];
   };
+  // Only a folder can gain a picture while the panel is running, so only a
+  // folder asks. A list of addresses is what the form says it is.
   const look = async () => {
     try {
       const r = await fetch('%(list)s', {cache: 'no-store'});
-      if (r.ok) { const j = await r.json(); if (j && j.count >= 0) count = j.count; }
+      if (r.ok) {
+        const j = await r.json();
+        if (j && j.count > 0) {
+          srcs = Array.from({length: j.count}, (_, i) => '%(path)s?i=' + i);
+        }
+      }
     } catch (e) { /* the folder is the add-on's business, not the page's */ }
   };
   if (every > 0) setInterval(show, every);
@@ -612,6 +624,27 @@ def _moves(name):
 
 def _is_movie(name):
     return str(name or "").split("?")[0].lower().endswith(MOVIE_SUFFIXES)
+
+
+def _addresses(urls):
+    """The pictures somebody gave by address rather than by path.
+
+    A household's photographs are as likely to be on a server already -- a
+    NAS, an Immich, anything serving a folder over HTTP -- as under one of the
+    three mounts this add-on can read. Those are fetched by the panel's own
+    browser, exactly as any wallpaper given by address always was.
+    """
+    out = []
+    for entry in urls or []:
+        entry = str(entry or "").strip()
+        if entry.startswith(("http://", "https://", "data:")):
+            out.append(entry)
+        elif entry:
+            print(f"Launcher: ignoring the slideshow address {entry!r} -- it "
+                  f"has to begin with http:// or https://. A picture on this "
+                  f"machine goes in launcher_background as a path instead.",
+                  flush=True)
+    return out
 
 
 def _wallpaper(background):
@@ -735,7 +768,8 @@ def render(links, title="", subtitle="", theme="dark",
            clock_size=DEFAULT_SIZE, clock_color=FOLLOW_THEME,
            date_size=DEFAULT_SIZE, date_color=FOLLOW_THEME,
            weather_size=DEFAULT_SIZE, align="left",
-           motion=False, slideshow=False, every=30, fade=1, rescan=60):
+           motion=False, slideshow=False, every=30, fade=1, rescan=60,
+           urls=(), mirrored=False):
     """The page, as one string.
 
     Every value is escaped. These come from a configuration file a person
@@ -746,7 +780,14 @@ def render(links, title="", subtitle="", theme="dark",
     dark = str(theme).lower() != "light"
     accent = PALETTES.get(str(color).lower(), PALETTES[DEFAULT_PALETTE])
 
-    kind, where, files = _wallpaper(background)
+    addresses = _addresses(urls)
+    if addresses:
+        # Given both, the addresses win: a folder is what somebody had before
+        # they filled this in, and the field they just filled in is the one
+        # they mean.
+        kind, where, files = "urls", None, addresses
+    else:
+        kind, where, files = _wallpaper(background)
     has_wall = kind != "none"
     # A video is an element rather than a background-image, so the wall is
     # built here rather than in one CSS line. Only a video that is ALLOWED to
@@ -755,14 +796,21 @@ def render(links, title="", subtitle="", theme="dark",
     movie = ""
     wall_css = "none"
     if kind == "url":
-        first = background
+        # A picture fetched from somewhere else taints a canvas, so a GIF at
+        # an address cannot be frozen where it lies -- measured, it went on
+        # looping with motion off. start() copies that one here first, and
+        # this is where the copy is used instead.
+        first = WALLPAPER_PATH if mirrored else background
     elif kind == "file":
         first = WALLPAPER_PATH
     elif kind == "folder":
         first = f"{WALLPAPER_PATH}?i=0"
+    elif kind == "urls":
+        first = files[0]
     else:
         first = ""
-    source = where if kind in ("file", "folder") else background
+    source = (files[0] if kind == "urls"
+              else where if kind in ("file", "folder") else background)
     if first and _is_movie(source):
         # preload="auto" even when it is not allowed to play. A <video> paints
         # nothing until it has a frame, and a blank rectangle where a
@@ -861,13 +909,19 @@ def render(links, title="", subtitle="", theme="dark",
     except (TypeError, ValueError):
         every, fade, rescan = 30.0, 1.0, 60.0
     moving = []
-    if kind == "folder" and slideshow and len(files) > 1:
-        moving.append(SLIDESHOW_JS % {"every": every, "rescan": rescan,
-                                      "count": len(files),
-                                      "path": WALLPAPER_PATH,
-                                      "list": SLIDES_PATH})
-    elif wall_css != "none" and kind != "folder" and _moves(source) \
-            and not motion:
+    if kind in ("folder", "urls") and slideshow and len(files) > 1:
+        moving.append(SLIDESHOW_JS % {
+            "every": every,
+            # Only a folder can gain a picture while the panel runs.
+            "rescan": rescan if kind == "folder" else 0,
+            "sources": json.dumps(
+                [f"{WALLPAPER_PATH}?i={i}" for i in range(len(files))]
+                if kind == "folder" else files),
+            "path": WALLPAPER_PATH,
+            "list": SLIDES_PATH,
+        })
+    elif wall_css != "none" and kind not in ("folder", "urls") \
+            and _moves(source) and not motion:
         # A GIF nobody asked to move. Frozen rather than dropped: its first
         # frame is a perfectly good wallpaper, and a blank one is not.
         moving.append(FREEZE_JS)
@@ -926,12 +980,48 @@ def start(links, title="", subtitle="", theme="dark",
           clock_size=DEFAULT_SIZE, clock_color=FOLLOW_THEME,
           date_size=DEFAULT_SIZE, date_color=FOLLOW_THEME,
           weather_size=DEFAULT_SIZE, align="left",
-          motion=False, slideshow=False, every=30, fade=1, rescan=60):
+          motion=False, slideshow=False, every=30, fade=1, rescan=60,
+          urls=()):
     """Serve the page for as long as the add-on runs. Returns its address.
 
     One server for every panel: they all come home to the same list, and a
     second copy of it would only be a second thing to keep in step.
     """
+    addresses = _addresses(urls)
+    if addresses:
+        print(f"Launcher: {len(addresses)} picture(s) by address"
+              + (f", one every {every}s with a {fade}s fade" if slideshow
+                 else ", showing the first")
+              + ". They are fetched by the panel's own browser, so the "
+                "machine serving them has to be reachable from here.",
+              flush=True)
+        kind, where, files = "urls", None, addresses
+    else:
+        kind, where, files = _wallpaper(background)
+
+    # A GIF at an address that is not allowed to move is the one case the
+    # page cannot handle by itself: freezing it means reading its pixels back
+    # out of a canvas, and a browser refuses that for a picture fetched from
+    # anywhere else. Copied here once, it is same-origin and the freeze works.
+    # Never fatal, and never for a video -- pausing one needs no canvas.
+    picture, mime = None, "application/octet-stream"
+    mirrored = False
+    if kind == "url" and not motion and _moves(where or background) \
+            and not _is_movie(where or background):
+        try:
+            with urllib.request.urlopen(background, timeout=10) as answer:
+                picture = answer.read()
+                mime = answer.headers.get("Content-Type") or "image/gif"
+            mirrored = True
+            print(f"Launcher: copied the wallpaper here "
+                  f"({len(picture) // 1024} KiB) so it can be held on its "
+                  f"first frame; launcher_background_motion lets it play.",
+                  flush=True)
+        except Exception as err:  # noqa: BLE001 - an accessory, never a cost
+            print(f"Launcher: could not copy {background} ({err}) -- it will "
+                  f"keep moving, because a picture fetched from elsewhere "
+                  f"cannot be frozen by the page.", flush=True)
+
     # `weather` is a callable returning the latest reading, or None. Called
     # rather than passed by value because the page outlives any one reading:
     # the add-on refreshes it in the background and the page asks for it every
@@ -942,13 +1032,16 @@ def start(links, title="", subtitle="", theme="dark",
                   first if weather is not None else None,
                   clock_size, clock_color, date_size, date_color,
                   weather_size, align,
-                  motion, slideshow, every, fade, rescan).encode()
-    kind, where, files = _wallpaper(background)
+                  # Already sifted just above, so the page does not repeat
+                  # the complaint about an address that is not one.
+                  motion, slideshow, every, fade, rescan, addresses,
+                  mirrored).encode()
     # One picture is read once and held; a folder is read per request. A
     # holiday folder is gigabytes, and the add-on has no business holding it
     # -- while re-reading one file for every panel that comes home would be a
     # disk seek where there is no need for one.
-    picture, mime = None, "application/octet-stream"
+    if not mirrored:
+        picture, mime = None, "application/octet-stream"
     if kind == "file":
         try:
             with open(where, "rb") as handle:

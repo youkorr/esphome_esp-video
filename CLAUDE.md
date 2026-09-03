@@ -2190,6 +2190,47 @@ nothing off the side** -- which is also the answer to *"si ils mettent la
 dalle en portrait est ce cela pas tous ce decaler?"*: the page is fluid and
 portrait is the shape it was measured at first.
 
+**The photograph frame could not be tested, and the reason is where the
+photographs live.** Reported as *"je n'ai pas tester
+launcher_background_motion, launcher_slideshow pour un raison que mes image
+ont une adresse ip de mon server par exemple
+http://192.168.1.3:8080/eTBckVxL/1326045.jpeg il etait preferable qu'il upload
+ce que je veut"*. The slideshow read a FOLDER under /config, /share or /media,
+and a household's photographs are as likely to be on a server already.
+
+Two answers, and only one of them is code:
+
+- **Uploading needs nothing from this project.** Home Assistant's own Media
+  panel -- Media > My media > Upload -- writes into `/media`, which this
+  add-on already mounts read-only. That was checked against Home Assistant's
+  documentation rather than remembered, and it is now the documented route for
+  a photograph frame.
+- **`launcher_slideshow_urls`**, a list of addresses, which the panel's own
+  browser fetches exactly as it already fetched a single wallpaper by address.
+  A new key rather than making `launcher_background` a list, for the reason
+  this file already records: a stored string where a list is now expected is a
+  validation failure, and it would have stopped the add-on of everybody who
+  had set a wallpaper.
+
+**And the GIF really was broken by address, which the report half-guessed.**
+Freezing a GIF means reading its pixels back out of a canvas, and a browser
+refuses that for a picture fetched from anywhere else -- so with motion off a
+remote GIF went on looping while a local one froze. `start()` copies that one
+file here once, where the page can freeze it. A video never needed it: pausing
+one asks the browser for nothing, and a remote `.webm` was already correct on
+both sides of the switch.
+
+Measured on the pixels, against a server serving pictures at addresses with no
+extension in the path -- which is the shape the user's own server produces:
+three cycling and wrapping, the first held with the slideshow off, a list
+beating a folder when both are given, an entry that is not an address ignored
+with one line saying why, and a GIF and a video by address each still and
+moving on either side of `launcher_background_motion`.
+
+Two ordering faults in the mirror, both invisible from reading and both fatal:
+`mirrored` was passed to `render()` on the line above where it was computed,
+and the `picture, mime = None, ...` that follows threw the copied bytes away.
+
 **A quality per LINK, and the reasoning behind it is the user's.** Asked for
 in those words -- *"j'aurais preferer que dans les link ont puisse choisir la
 qualite c'est plus simple a gerer"* -- after `render_width:` was offered and

@@ -1,5 +1,27 @@
 # Changelog
 
+## 3.1.0
+
+- **`launcher_slideshow_urls`** -- the photograph frame, for pictures that are
+  already on a server. A NAS, an Immich, anything serving a folder over HTTP:
+  give the addresses, one per entry, instead of a folder this add-on can read.
+  The panel's own browser fetches them. Given both, the list wins.
+- **Uploading photographs needs nothing from this add-on**, and the
+  documentation now says where: Home Assistant's Media panel (Media > My media
+  > Upload) writes into `/media`, which is already mounted here. Point
+  `launcher_background` at that folder.
+- **A GIF given by address can be frozen now.** Holding one on its first frame
+  means reading its pixels back out of a canvas, which a browser refuses for a
+  picture fetched from anywhere else -- so with `launcher_background_motion`
+  off it went on looping. The add-on copies that one file here once, where the
+  page can freeze it, and says so in the log. A video never needed this:
+  pausing one asks the browser for nothing.
+- Measured on the pixels, on a server serving pictures at addresses with no
+  extension in the path, which is the shape a photo server really produces:
+  three cycling and wrapping, the first one held with the slideshow off, an
+  address that is not one ignored with a line saying why, and a GIF and a
+  video by address each still and moving on either side of the switch.
+
 ## 3.0.0
 
 **Read "Moving from 2.x" in the documentation before updating.** Two settings
