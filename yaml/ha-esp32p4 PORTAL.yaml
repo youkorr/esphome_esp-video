@@ -1,0 +1,421 @@
+substitutions:
+  name: ha-esp32p4
+
+
+esphome:
+  name: ha-esp32p4
+  friendly_name: HA_ESP32P4
+
+esp32:
+  board: esp32-p4-evboard
+  cpu_frequency: 360MHz
+  flash_size: 16MB
+  framework:
+    type: esp-idf
+    advanced:
+      enable_idf_experimental_features: yes
+
+
+   
+      
+logger:
+
+
+debug:  
+
+api:
+  encryption:
+    key: ""
+
+ota:
+  - platform: esphome
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  power_save_mode: none
+  ap:
+    ssid: HA_ESP32P4 Fallback Hotspot
+    password: ""
+
+captive_portal:
+  
+esp32_hosted:
+  variant: ESP32C6
+  active_high: true
+  slot: 1
+  reset_pin: GPIO54
+  cmd_pin: GPIO19
+  clk_pin: GPIO18
+  d0_pin: GPIO14
+  d1_pin: GPIO15
+  d2_pin: GPIO16
+  d3_pin: GPIO17 
+  use_psram: false
+
+esp_ldo:
+  - channel: 3
+    voltage: 2.5V
+
+psram:
+  speed: 200MHz
+
+
+    
+external_components:
+  - source:
+      type: git
+      url: https://github.com/youkorr/esphome_esp-video
+      ref: main
+    components: [portall]
+    refresh: 0s 
+
+  - source:
+      type: git
+      url: https://github.com/youkorr/lvgl_9.5
+      ref: main 
+    refresh: always
+    
+  - source: github://kvj/esphome@jd9365_gsl3680
+    refresh: 0s
+    components: [jd9365]
+
+
+  - source: github://jtenniswood/esphome-media-player@main
+    components: [ gsl3680 ]
+    refresh: 0s
+
+#############################################################
+
+#############################################################
+i2c:
+  - id: i2c_bus
+    sda: GPIO7
+    scl: GPIO8
+    scan: true
+    frequency: 400kHz
+
+# -------------------------------------------
+# Audio
+# ------------------------------------------- 
+i2s_audio:
+  - id: audio_bus
+    i2s_mclk_pin: GPIO13
+    i2s_lrclk_pin: GPIO10
+    i2s_bclk_pin: GPIO12
+
+# DAC pour la sortie haut-parleur
+audio_dac:
+  - platform: es8311
+    id: es8311_dac
+    i2c_id: i2c_bus
+    address: 0x18
+
+
+
+# Lit les données I2S venant du micro (GPIO11)
+microphone:
+  - platform: i2s_audio
+    id: esp32_microphone
+    i2s_audio_id: audio_bus
+    i2s_din_pin: GPIO11
+    adc_type: external
+    sample_rate: 16000
+    
+speaker:
+  - platform: i2s_audio
+    id: esp32_speaker
+    i2s_audio_id: audio_bus
+    i2s_dout_pin: GPIO9
+    dac_type: external
+    timeout: never
+    channel: mono
+    buffer_duration: 100ms
+    bits_per_sample: 16bit
+    sample_rate: 44100
+
+  - platform: mixer
+    id: mixing_speaker
+    output_speaker: esp32_speaker
+    #num_channels: 1
+    source_speakers:
+      - id: announcement_mixing_input
+        timeout: never
+      - id: media_mixing_input
+        timeout: never
+      - id: portall_media_mixing_input
+        timeout: never        
+
+media_player:
+  - platform: speaker
+    name: "ESP32 P4 Media Player"
+    id: speaker_media_player
+    task_stack_in_psram: true
+    volume_min: 0.5
+    volume_max: 0.75
+    volume_increment: 0.05
+    announcement_pipeline:
+      speaker: announcement_mixing_input
+      format: FLAC
+      sample_rate: 44100
+      num_channels: 1
+    media_pipeline:
+      speaker: media_mixing_input
+      format: FLAC
+      num_channels: 2
+      sample_rate: 44100
+    on_announcement:
+      - switch.turn_on: audio_amplifier
+    on_play:
+      - switch.turn_on: audio_amplifier
+    on_idle:
+      - switch.turn_off: audio_amplifier
+
+
+        
+
+    
+switch:
+  - platform: gpio
+    pin: GPIO20 
+    name: "Audio Amplifier"
+    id: audio_amplifier
+    restore_mode: ALWAYS_OFF   
+    
+binary_sensor:
+  - platform: template
+    name: "En charge"
+    # Si la tension lue dépasse le seuil de batterie pleine, 
+    # c'est que l'alimentation USB est branchée.
+    # (Ajustez le 2.45 en fonction des mesures réelles sur votre carte)
+    lambda: |-
+      if (id(battery_voltage).state > 2.45) {
+        return true;
+      } else {
+        return false;
+      }
+
+sensor:
+  - platform: adc
+    pin: GPIO52
+    id: battery_voltage
+    name: "Battery Voltage"
+    unit_of_measurement: "V"
+    accuracy_decimals: 1
+    device_class: "voltage"
+    entity_category: "diagnostic"
+    update_interval: 300s
+    attenuation: 12db # Scales the ESP32 ADC range to read up to ~3.6V safely
+    filters:
+      - multiply: 1.73 # Example multiplier to scale the divided voltage back to 
+        
+  - platform: copy
+    id: battery_percent
+    source_id: battery_voltage
+    name: "Battery level"
+    unit_of_measurement: "%"
+    accuracy_decimals: 0
+    device_class: "battery"
+    entity_category: "diagnostic"
+    filters:
+      # Utilisation de calibrate_linear au lieu d'un lambda (plus propre)
+      # 3.2V correspond à 0%, 4.2V correspond à 100%
+      - calibrate_linear:
+          - 3.2 -> 0.0
+          - 4.2 -> 100.0
+      - clamp:
+          min_value: 0
+          max_value: 100
+          
+  - platform: debug
+    cpu_frequency:
+      name: CPU Frequency  
+
+  - platform: wifi_signal
+    name: "WiFi Signal"
+    update_interval: 120s
+    unit_of_measurement: "dBm"
+
+  - platform: internal_temperature
+    name: "ESP32 Internal Temperature"
+    update_interval: 30s
+
+  - platform: template
+    name: "SRAM Usage"
+    icon: mdi:memory
+    unit_of_measurement: "KB"
+    device_class: data_size
+    state_class: measurement
+    accuracy_decimals: 1
+    update_interval: 300s
+    lambda: |-
+      const size_t total = heap_caps_get_total_size(MALLOC_CAP_INTERNAL);
+      return (total - heap_caps_get_free_size(MALLOC_CAP_INTERNAL)) / 1024.0;
+
+  - platform: template
+    name: "PSRAM Usage"
+    icon: mdi:memory
+    unit_of_measurement: "MB"
+    device_class: data_size
+    state_class: measurement
+    accuracy_decimals: 2
+    update_interval: 300s
+    lambda: |-
+      const size_t total = heap_caps_get_total_size(MALLOC_CAP_SPIRAM);
+      if (total == 0)
+        return 0.0;
+      return (total - heap_caps_get_free_size(MALLOC_CAP_SPIRAM)) / (1024.0 * 1024.0);
+      
+
+            
+number:
+  - platform: template
+    name: "Volume Portall"
+    id: volume_portall
+    min_value: 0
+    max_value: 100
+    step: 1
+    unit_of_measurement: "%"
+    mode: slider
+    optimistic: true
+    restore_value: true
+    initial_value: 36
+    on_value:
+      then:
+        - portall.set_volume:
+            volume: !lambda 'return x / 100.0;'
+
+    
+  - platform: template
+    id: brightness_slider
+    name: "Luminosité Écran"
+    icon: "mdi:brightness-6"
+    min_value: 0
+    max_value: 100
+    step: 1
+    unit_of_measurement: "%"
+    mode: slider
+    optimistic: true
+    restore_value: true
+    initial_value: 50
+    on_value:
+      then:
+        - if:
+            condition:
+              lambda: 'return x > 0;'
+            then:
+              - light.turn_on:
+                  id: backlight
+                  brightness: !lambda 'return x / 100.0;'
+            else:
+              - light.turn_off:
+                  id: backlight
+
+  - platform: template
+    name: Veille de l ecran
+    id: auto_off
+    optimistic: true
+    restore_value: true
+    min_value: 0
+    max_value: 600
+    step: 10
+    initial_value: 300
+    mode: slider
+    unit_of_measurement: s
+    icon: mdi:television-off
+    on_value:
+      - lambda: 'id(screen_off_delay) = (int) x;'
+      - script.execute: screen_timeout
+
+script:
+  - id: screen_timeout
+    mode: restart
+    then:
+      - if:
+          condition:
+            lambda: 'return id(screen_off_delay) > 0;'
+          then:
+            - delay: !lambda 'return id(screen_off_delay) * 1000;'
+            - light.turn_off: backlight
+            #- usb_display.wake: udisp              
+    
+
+globals:
+  - id: screen_off_delay
+    type: int
+    restore_value: no
+    initial_value: '0'
+
+
+output:
+  # Backlight LED
+  - platform: ledc
+    pin: GPIO23
+    id: GPIO23
+    frequency: 100Hz
+    min_power: 0.03
+    zero_means_zero: true
+
+light:
+  - platform: monochromatic
+    output: GPIO23
+    name: Backlight
+    id: backlight
+    restore_mode: RESTORE_DEFAULT_ON
+    
+touchscreen:
+  - platform: gsl3680
+    id: my_touch
+    reset_pin: GPIO22
+    interrupt_pin: GPIO21
+    calibration:
+      x_min: 0
+      x_max: 800
+      y_min: 0
+      y_max: 1280
+    transform:
+      swap_xy: false
+      mirror_x: true
+      mirror_y: false 
+    on_touch:
+      - light.turn_on: backlight
+      - script.execute: screen_timeout
+      #- usb_display.wake: udisp        
+
+        
+      
+    
+display:
+  - platform: mipi_dsi
+    model: JC8012P4A1
+    id: main_screen
+    pixel_mode: 16
+    update_interval: never
+    auto_clear_enabled: false
+    #rotation: 0
+
+portall:
+  display_id: main_screen
+  touchscreen_id: my_touch
+  id: udisp
+  port: 5000
+  width: 800
+  height: 1280
+  max_fps: 60
+  jpeg_quality: 9
+  #render_width: 640
+  #render_height: 1024
+  rotation: 0
+  max_frame_bytes: 300000
+  sender_drive: false
+  vendor_id: 0x303A
+  product_id: 0x2986
+  manufacturer: Espressif
+  product: ESP_Extern_Screen
+  serial: "012-2021"
+  speaker_id: portall_media_mixing_input
+  on_audio_start:
+    - switch.turn_on: audio_amplifier
+
+ 
+    
