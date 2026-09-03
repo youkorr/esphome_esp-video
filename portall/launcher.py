@@ -30,6 +30,7 @@ import json
 import mimetypes
 import os
 import threading
+from urllib.parse import parse_qs, urlsplit
 
 import logos
 
@@ -42,6 +43,8 @@ KEYWORD = "launcher"
 # Where the wallpaper is served from when it is a file on disk rather than an
 # address. One path, so the page can name it before the file has been read.
 WALLPAPER_PATH = "/wallpaper"
+# What the page asks to find out how many pictures the folder holds now.
+SLIDES_PATH = "/slides.json"
 
 # Homepage names its palettes after Tailwind's, so these do too. Only the
 # middle shade is given: the surfaces, the borders and the text are mixed from
@@ -71,6 +74,10 @@ PALETTES = {
     "fuchsia": "#d946ef",
     "pink": "#ec4899",
     "rose": "#f43f5e",
+    # Not Tailwind palettes, and asked for by name: a clock somebody wants
+    # plainly white on a photograph, or plainly black on a light theme.
+    "white": "#ffffff",
+    "black": "#000000",
 }
 DEFAULT_PALETTE = "slate"
 
@@ -337,6 +344,17 @@ PAGE = """<!doctype html>
    filter: blur(%(blur)s) brightness(%(brightness)s);
    transform: scale(1.06);   /* so a blur does not show the page's edge */
  }
+ /* Two layers rather than one, so a slideshow can fade the next picture in
+    over the one showing. The pair is stacked and only their opacity moves;
+    swapping a background-image on a single layer is a hard cut, and the
+    fade is the whole of what was asked for. */
+ .wall.b { opacity: 0; }
+ .wall.fade { transition: opacity %(fade)ss linear; }
+ /* A video fills its layer exactly as a picture does. object-fit is the
+    video's own version of background-size: cover. */
+ .wall > video {
+   width: 100%%; height: 100%%; object-fit: cover; display: block;
+ }
  header { padding: 4vh 5vw 1vh; }
  h1 { margin: 0; font-size: clamp(22px, 4.5vw, 40px); font-weight: 650;
       letter-spacing: -0.01em; }
@@ -393,13 +411,18 @@ PAGE = """<!doctype html>
     rectangle on the wire every second for as long as the panel is awake,
     which is the same reason nothing here animates. On the minute it is one
     small rectangle a minute, and an asleep panel sends nothing at all. */
- .now { display: flex; align-items: baseline; gap: .6em 1.2em;
+ .now { display: flex; align-items: center; gap: .6em 1.2em;
         flex-wrap: wrap; margin: 0 0 .6em; }
+ /* The date sits UNDER the time rather than beside it, which is what a clock
+    looks like everywhere else and what leaves the weather its own room on a
+    narrow panel. */
+ .when { display: flex; flex-direction: column; gap: .15em; }
  .time { font-size: clamp(34px, 8vw, 68px); font-weight: 300;
          letter-spacing: -0.02em; line-height: 1; font-variant-numeric: tabular-nums; }
  .date { color: var(--faint); font-size: clamp(14px, 2.4vw, 22px);
          text-transform: capitalize; }
  .wx { margin-left: auto; display: flex; align-items: center; gap: .35em;
+       align-self: center;
        font-size: clamp(16px, 3vw, 26px); }
  .wx .sky { font-size: 1.5em; line-height: 1; }
  .wx .out { color: var(--faint); font-size: .7em; }
@@ -408,8 +431,8 @@ PAGE = """<!doctype html>
  .wx:empty, .now:empty { display: none; }
 %(css)s</style></head>
 <body>
-<div class="wall"></div>
-<header>%(now)s<h1>%(title)s</h1>%(subtitle)s</header>
+<div class="wall" id="wa">%(movie)s</div><div class="wall b" id="wb"></div>
+<header>%(now)s%(heading)s</header>
 <main>%(groups)s</main>
 %(clockjs)s</body></html>
 """
@@ -425,7 +448,7 @@ CLOCK_JS = """<script>
     const now = new Date();
     try {
       t.textContent = now.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
-      d.textContent = now.toLocaleDateString([], {weekday: 'long', day: 'numeric', month: 'long'});
+      d.textContent = now.toLocaleDateString([], {weekday: 'long', day: 'numeric', month: 'long', year: 'numeric'});
     } catch (e) { /* a page that will not format is a page with no clock */ }
     // To the next minute, not every 60000 ms from now: a timer that starts
     // half a minute late stays half a minute late for ever, and the minute
@@ -433,6 +456,81 @@ CLOCK_JS = """<script>
     setTimeout(draw, 60000 - (now.getSeconds() * 1000 + now.getMilliseconds()) + 50);
   };
   draw();
+})();
+</script>
+"""
+
+# A slideshow, and it is worth being clear about what it costs before
+# reading the code: a picture that changes is a WHOLE PANEL on the wire, and a
+# fade is one whole panel per frame for as long as it lasts. At 800x1280 and
+# quality 80 that is roughly 130 KiB a frame, so two seconds of fade at 25 fps
+# is about six megabytes -- against a still page, which sends nothing at all.
+# The delay between pictures is what averages that down; the fade is what
+# multiplies it. Nought is a hard cut and costs exactly one panel.
+#
+# The list is asked of the add-on rather than built into the page, so a
+# photograph dropped into the folder appears without a restart.
+SLIDESHOW_JS = """<script>
+(() => {
+  const a = document.getElementById('wa'), b = document.getElementById('wb');
+  if (!a || !b) return;
+  const every = %(every)s * 1000, rescan = %(rescan)s * 60000;
+  let count = %(count)s, at = 0, top = a;
+  const show = () => {
+    if (count < 2) return;
+    at = (at + 1) %% count;
+    // The layer underneath is the one to load into: it is invisible, so a
+    // picture that takes a moment to arrive is never seen arriving.
+    const under = (top === a) ? b : a;
+    const img = new Image();
+    img.onload = () => {
+      under.style.backgroundImage = 'url("' + img.src + '")';
+      under.classList.add('fade'); top.classList.add('fade');
+      under.style.opacity = '1'; top.style.opacity = '0';
+      top = under;
+    };
+    img.src = '%(path)s?i=' + at;
+  };
+  const look = async () => {
+    try {
+      const r = await fetch('%(list)s', {cache: 'no-store'});
+      if (r.ok) { const j = await r.json(); if (j && j.count >= 0) count = j.count; }
+    } catch (e) { /* the folder is the add-on's business, not the page's */ }
+  };
+  if (every > 0) setInterval(show, every);
+  if (rescan > 0) setInterval(look, rescan);
+})();
+</script>
+"""
+
+# A GIF or a video that is NOT allowed to move still has a first frame worth
+# showing, and showing it is better than falling back to a flat colour.
+# A paused <video> already shows one; a GIF has to be drawn once into a canvas,
+# which is what stops it looping.
+FREEZE_JS = """<script>
+(() => {
+  const wall = document.getElementById('wa');
+  if (!wall) return;
+  // getComputedStyle, not .style: the picture is named in the sheet the page
+  // was built with, and nothing has ever written it inline.
+  const named = getComputedStyle(wall).backgroundImage || '';
+  const found = named.match(/url\(["']?([^"')]+)["']?\)/);
+  if (!found) return;
+  const src = found[1];
+  const img = new Image();
+  img.onload = () => {
+    try {
+      const c = document.createElement('canvas');
+      c.width = img.naturalWidth; c.height = img.naturalHeight;
+      c.getContext('2d').drawImage(img, 0, 0);
+      wall.style.backgroundImage = 'url("' + c.toDataURL('image/jpeg', 0.9) + '")';
+    } catch (e) {
+      // A picture fetched from somewhere else taints the canvas and
+      // toDataURL throws. It keeps moving, which is the honest outcome:
+      // the alternative is a blank wall.
+    }
+  };
+  img.src = src;
 })();
 </script>
 """
@@ -494,27 +592,65 @@ EMPTY = ('<p class="empty">No links yet. Add them under <b>links</b> in this '
          "add-on's configuration, then restart it.</p>")
 
 
-def _wallpaper(background):
-    """What the page should name as its picture, and what to serve for it.
+# What a folder of pictures may hold. Deliberately short: these are what a
+# camera and a phone produce, and a folder of holiday photographs should not
+# turn into a page of broken squares because something dropped a .txt in it.
+PICTURE_SUFFIXES = (".jpg", ".jpeg", ".png", ".webp", ".gif", ".avif", ".bmp")
+MOVIE_SUFFIXES = (".mp4", ".webm", ".mov", ".m4v")
 
-    Returns (css, path_to_serve). An address is used as it stands -- the panel
-    fetches it itself, and Home Assistant's own /local is the obvious place to
-    keep one. A path is served from here instead, because the page is on
-    127.0.0.1 and a file:// URL in a page is refused by every browser there is.
+
+def _moves(name):
+    """Whether this is something that would move if it were let to.
+
+    A GIF is in both lists on purpose: it is a picture that plays, so it is a
+    picture for the purpose of finding it in a folder and a moving thing for
+    the purpose of deciding whether it may move.
+    """
+    lowered = str(name or "").split("?")[0].lower()
+    return lowered.endswith(MOVIE_SUFFIXES) or lowered.endswith(".gif")
+
+
+def _is_movie(name):
+    return str(name or "").split("?")[0].lower().endswith(MOVIE_SUFFIXES)
+
+
+def _wallpaper(background):
+    """What the page should show behind everything, and what to serve for it.
+
+    Returns (kind, value, files):
+      "none"                 -- the plain colour
+      "url",  an address     -- fetched by the panel itself; Home Assistant's
+                                own /local is the obvious place to keep one
+      "file", one path       -- served from here, because the page is on
+                                127.0.0.1 and no browser loads a file:// URL
+      "folder", a path, and the pictures in it, sorted -- a slideshow
     """
     background = str(background or "").strip()
     if not background:
-        return "none", None
+        return "none", None, []
     if background.startswith(("http://", "https://", "data:")):
-        return f'url("{html.escape(background, quote=True)}")', None
+        return "url", background, []
     if os.path.isfile(background):
-        return f'url("{WALLPAPER_PATH}")', background
+        return "file", background, []
+    if os.path.isdir(background):
+        # Sorted so the order is the one somebody sees in their file manager,
+        # which is the only order they can predict or rearrange.
+        files = sorted(
+            entry for entry in os.listdir(background)
+            if entry.lower().endswith(PICTURE_SUFFIXES)
+            and os.path.isfile(os.path.join(background, entry))
+        )
+        if files:
+            return "folder", background, files
+        print(f"Launcher: {background} is a folder with no pictures in it -- "
+              f"the plain colour is being used.", flush=True)
+        return "none", None, []
     # Said once, at startup, rather than left as a blank wall nobody can
     # explain from the panel.
     print(f"Launcher: no wallpaper at {background} -- the plain colour is "
-          f"being used. Put the file under /config, /share or /media, or give "
-          f"an address the panel can reach.", flush=True)
-    return "none", None
+          f"being used. Put the file or the folder under /config, /share or "
+          f"/media, or give an address the panel can reach.", flush=True)
+    return "none", None, []
 
 
 WEATHER_PATH = "/weather.json"
@@ -593,12 +729,13 @@ def _bar(clock_size, clock_color, date_size, date_color, weather_size, align):
     return ("\n".join(out) + "\n") if out else ""
 
 
-def render(links, title="Panel", subtitle="", theme="dark",
+def render(links, title="", subtitle="", theme="dark",
            color=DEFAULT_PALETTE, background="", blur="off", dim=40,
            columns=0, clock=True, weather=None,
            clock_size=DEFAULT_SIZE, clock_color=FOLLOW_THEME,
            date_size=DEFAULT_SIZE, date_color=FOLLOW_THEME,
-           weather_size=DEFAULT_SIZE, align="left"):
+           weather_size=DEFAULT_SIZE, align="left",
+           motion=False, slideshow=False, every=30, fade=1, rescan=60):
     """The page, as one string.
 
     Every value is escaped. These come from a configuration file a person
@@ -608,8 +745,37 @@ def render(links, title="Panel", subtitle="", theme="dark",
     """
     dark = str(theme).lower() != "light"
     accent = PALETTES.get(str(color).lower(), PALETTES[DEFAULT_PALETTE])
-    wall_css, _ = _wallpaper(background)
-    has_wall = wall_css != "none"
+
+    kind, where, files = _wallpaper(background)
+    has_wall = kind != "none"
+    # A video is an element rather than a background-image, so the wall is
+    # built here rather than in one CSS line. Only a video that is ALLOWED to
+    # move becomes one: a still frame of the same file, which is what a paused
+    # video shows, costs the panel nothing and is what the switch is for.
+    movie = ""
+    wall_css = "none"
+    if kind == "url":
+        first = background
+    elif kind == "file":
+        first = WALLPAPER_PATH
+    elif kind == "folder":
+        first = f"{WALLPAPER_PATH}?i=0"
+    else:
+        first = ""
+    source = where if kind in ("file", "folder") else background
+    if first and _is_movie(source):
+        # preload="auto" even when it is not allowed to play. A <video> paints
+        # nothing until it has a frame, and a blank rectangle where a
+        # photograph should be is the failure nobody can diagnose from a
+        # panel. "metadata" was enough for the 12 KiB clip this was measured
+        # against -- Chromium fetched the whole of it anyway -- but that is
+        # exactly what it need not do for a large one, so the guarantee is
+        # worth the fetch.
+        movie = (f'<video src="{html.escape(first, quote=True)}" muted '
+                 f'playsinline preload="auto"'
+                 f'{" autoplay loop" if motion else ""}></video>')
+    elif first:
+        wall_css = f'url("{html.escape(first, quote=True)}")'
 
     # Grouped in the order the groups first appear, so the list in the form is
     # the order on the panel and nobody has to think about sorting.
@@ -672,7 +838,8 @@ def render(links, title="Panel", subtitle="", theme="dark",
     if clock or weather is not None:
         now = '<div class="now">'
         if clock:
-            now += '<span class="time" id="t"></span><span class="date" id="d"></span>'
+            now += ('<div class="when"><span class="time" id="t"></span>'
+                    '<span class="date" id="d"></span></div>')
         if weather is not None:
             now += (f'<span class="wx"><span class="sky" id="sky">{sky}</span>'
                     f'<span class="out" id="temp">{temp}</span></span>')
@@ -689,13 +856,38 @@ def render(links, title="Panel", subtitle="", theme="dark",
     sheet = _bar(clock_size, clock_color, date_size, date_color,
                  weather_size, align)
 
+    try:
+        every, fade, rescan = float(every), float(fade), float(rescan)
+    except (TypeError, ValueError):
+        every, fade, rescan = 30.0, 1.0, 60.0
+    moving = []
+    if kind == "folder" and slideshow and len(files) > 1:
+        moving.append(SLIDESHOW_JS % {"every": every, "rescan": rescan,
+                                      "count": len(files),
+                                      "path": WALLPAPER_PATH,
+                                      "list": SLIDES_PATH})
+    elif wall_css != "none" and kind != "folder" and _moves(source) \
+            and not motion:
+        # A GIF nobody asked to move. Frozen rather than dropped: its first
+        # frame is a perfectly good wallpaper, and a blank one is not.
+        moving.append(FREEZE_JS)
+
     return PAGE % {
         "css": sheet,
         "now": now,
-        "clockjs": scripts,
-        "title": html.escape(title),
-        "subtitle": (f"<p>{html.escape(subtitle)}</p>"
-                     if str(subtitle).strip() else ""),
+        "clockjs": scripts + "".join(moving),
+        # The tab's name, which no panel ever shows -- but a page with no
+        # <title> is one nobody can find in a browser either.
+        "title": html.escape(str(title).strip() or "Portall"),
+        # No heading at all when there is nothing to head: a page whose
+        # every tile is labelled does not need the word "Panel" over it, and
+        # a title nobody set is exactly that.
+        "heading": (
+            (f"<h1>{html.escape(title)}</h1>" if str(title).strip() else "")
+            + (f"<p>{html.escape(subtitle)}</p>"
+               if str(subtitle).strip() else "")),
+        "movie": movie,
+        "fade": max(0.0, fade),
         "groups": "".join(body) or EMPTY,
         "columns": grid,
         "scheme": "dark" if dark else "light",
@@ -728,12 +920,13 @@ def render(links, title="Panel", subtitle="", theme="dark",
     }
 
 
-def start(links, title="Panel", subtitle="", theme="dark",
+def start(links, title="", subtitle="", theme="dark",
           color=DEFAULT_PALETTE, background="", blur="off", dim=40,
           columns=0, clock=True, weather=None,
           clock_size=DEFAULT_SIZE, clock_color=FOLLOW_THEME,
           date_size=DEFAULT_SIZE, date_color=FOLLOW_THEME,
-          weather_size=DEFAULT_SIZE, align="left"):
+          weather_size=DEFAULT_SIZE, align="left",
+          motion=False, slideshow=False, every=30, fade=1, rescan=60):
     """Serve the page for as long as the add-on runs. Returns its address.
 
     One server for every panel: they all come home to the same list, and a
@@ -748,21 +941,64 @@ def start(links, title="Panel", subtitle="", theme="dark",
                   dim, columns, clock,
                   first if weather is not None else None,
                   clock_size, clock_color, date_size, date_color,
-                  weather_size, align).encode()
-    _, wallpaper = _wallpaper(background)
-    picture, kind = None, "application/octet-stream"
-    if wallpaper:
+                  weather_size, align,
+                  motion, slideshow, every, fade, rescan).encode()
+    kind, where, files = _wallpaper(background)
+    # One picture is read once and held; a folder is read per request. A
+    # holiday folder is gigabytes, and the add-on has no business holding it
+    # -- while re-reading one file for every panel that comes home would be a
+    # disk seek where there is no need for one.
+    picture, mime = None, "application/octet-stream"
+    if kind == "file":
         try:
-            with open(wallpaper, "rb") as handle:
+            with open(where, "rb") as handle:
                 picture = handle.read()
-            kind = mimetypes.guess_type(wallpaper)[0] or kind
-            print(f"Launcher: wallpaper {wallpaper} "
+            mime = mimetypes.guess_type(where)[0] or mime
+            print(f"Launcher: wallpaper {where} "
                   f"({len(picture) // 1024} KiB)", flush=True)
         except OSError as err:
             # Read once at startup rather than per request: a panel coming
             # home should not wait on a disk, and a file that has gone away
             # should not turn into a broken page later on.
-            print(f"Launcher: could not read {wallpaper} ({err})", flush=True)
+            print(f"Launcher: could not read {where} ({err})", flush=True)
+    elif kind == "folder":
+        print(f"Launcher: {len(files)} picture(s) in {where}"
+              + (f", one every {every}s with a {fade}s fade" if slideshow
+                 else ", showing the first")
+              + ". A picture that changes is a whole panel on the wire, and "
+                "each second of fade is one whole panel per frame.",
+              flush=True)
+
+    def from_folder(index):
+        """One picture out of the folder, re-read each time it is asked for.
+
+        The folder is re-listed here rather than trusted from startup, so a
+        photograph dropped in appears without the add-on being restarted --
+        and the name is taken from that listing rather than from the request,
+        which is what keeps this from serving anything outside the folder.
+        """
+        try:
+            now = sorted(
+                entry for entry in os.listdir(where)
+                if entry.lower().endswith(PICTURE_SUFFIXES)
+                and os.path.isfile(os.path.join(where, entry))
+            )
+            if not now:
+                return None, None
+            name = now[index % len(now)]
+            with open(os.path.join(where, name), "rb") as handle:
+                return handle.read(), (mimetypes.guess_type(name)[0]
+                                       or "application/octet-stream")
+        except (OSError, ValueError):
+            return None, None
+
+    def how_many():
+        try:
+            return sum(1 for entry in os.listdir(where)
+                       if entry.lower().endswith(PICTURE_SUFFIXES)
+                       and os.path.isfile(os.path.join(where, entry)))
+        except OSError:
+            return 0
 
     class Handler(http.server.BaseHTTPRequestHandler):
         def log_message(self, *args):
@@ -790,14 +1026,31 @@ def start(links, title="Panel", subtitle="", theme="dark",
                     "application/json",
                 )
                 return
+            if self.path.split("?")[0] == SLIDES_PATH:
+                self._reply(json.dumps(
+                    {"count": how_many() if kind == "folder" else 0}
+                ).encode(), "application/json")
+                return
             if self.path.split("?")[0] == WALLPAPER_PATH:
+                if kind == "folder":
+                    asked = parse_qs(urlsplit(self.path).query).get("i", ["0"])
+                    try:
+                        index = int(asked[0])
+                    except ValueError:
+                        index = 0
+                    blob, sort = from_folder(index)
+                    if blob is None:
+                        self.send_error(404)
+                        return
+                    self._reply(blob, sort)
+                    return
                 if picture is None:
                     self.send_error(404)
                     return
                 # The one thing here worth caching: it does not change while
                 # the add-on runs, and a panel coming home should not fetch a
                 # megabyte again.
-                self._reply(picture, kind)
+                self._reply(picture, mime)
                 return
             self._reply(body, "text/html; charset=utf-8")
 

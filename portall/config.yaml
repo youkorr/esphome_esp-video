@@ -1,5 +1,5 @@
 name: Portall
-version: "2.5.0"
+version: "2.6.0"
 # Home Assistant identifies an add-on by its slug, so this one moving from
 # usb_display_panel to portall makes the Supervisor see a NEW add-on: options
 # are not carried over and /data starts empty, which means the browser
@@ -86,42 +86,6 @@ options:
   # language whatever the household speaks, and it reports a language tag no
   # real browser produces.
   locale: en-US
-  # What the browser says it is. Empty is right for nearly everything: the
-  # sender takes the browser's own and drops the word Headless from it.
-  #
-  # It is here for one case, and it is the case somebody signing in runs into.
-  # Google refuses to sign a browser in when it can tell it is being driven,
-  # so a panel cannot reach an account -- and an account is what subscriptions
-  # live in. YouTube's television interface exists for exactly this shape of
-  # device: no keyboard, no password typed, you enter a code on your phone
-  # instead. It is served to things that look like televisions, so a panel
-  # asks for it by saying it is one here and pointing a link at
-  # https://www.youtube.com/tv.
-  #
-  # It applies to EVERY page that panel shows, so a panel told to say it is a
-  # television says it to Home Assistant and to the launcher as well. Put it
-  # in the watching panel's own entry rather than here.
-  #
-  # The client hints sent beside it follow the string given rather than the
-  # browser underneath, so the two cannot contradict each other -- a Chrome
-  # string gets matching brands, and a string that is not a Chrome at all gets
-  # none, which is what such a browser really sends.
-  #
-  # "off" leaves the browser's own string untouched. Anything else is used
-  # verbatim.
-  user_agent: ""
-  # A browser profile to start from, signed in by hand somewhere else.
-  #
-  # This is the answer to Google refusing to sign a panel in. What Google
-  # checks is the signing IN -- afterwards the session is a cookie like any
-  # other, and a cookie written by an ordinary browser works here. So sign in
-  # on any machine with a Chromium a person clicks on (a Raspberry Pi is the
-  # obvious one), then hand the profile over. See the documentation.
-  #
-  # A folder this add-on can read: under /share, /config or /media. It is
-  # COPIED into the panel's own profile, once, and only when that profile is
-  # still empty -- so what a panel signs into afterwards is never thrown away.
-  import_profile: ""
   # The page a panel comes home to, built by this add-on from the list below.
   # Put "launcher" in a panel's url and it starts here; hold the top-left
   # corner for a second from anywhere and it comes back here.
@@ -135,19 +99,27 @@ options:
   # difference. Measured on full motion at 800x1280, quality 60 costs
   # 1123 KiB/s and quality 40 costs 930. It applies while that page is open
   # and goes back to the panel's own quality everywhere else.
-  launcher_title: Panel
-  launcher_subtitle: ""
-  # The look, in Homepage's own vocabulary, so that somebody who knows that
-  # dashboard knows this one. theme is dark or light; color is one of
-  # Tailwind's palette names and everything else on the page is mixed from it.
+  # dark or light.
   launcher_theme: dark
-  launcher_color: slate
-  # A wallpaper is either an address the panel can reach -- Home Assistant
-  # serves anything in /config/www at /local, so
-  # http://homeassistant:8123/local/wall.jpg is the easy one -- or a file this
-  # add-on can read, under /config, /share or /media. Anything else leaves the
-  # plain colour, and the log says which it was.
+  # A wallpaper is any of four things:
+  #   nothing         -- the plain colour
+  #   an address      -- Home Assistant serves /config/www at /local, so
+  #                      http://homeassistant:8123/local/wall.jpg is the easy
+  #                      one
+  #   a file          -- under /config, /share or /media, served from here
+  #   a FOLDER        -- under the same three: a digital photograph frame.
+  #                      The first picture is shown; turn launcher_slideshow
+  #                      on to cycle through them.
+  # Anything else leaves the plain colour, and the log says which it was.
   launcher_background: ""
+  # Let a GIF or an MP4 wallpaper actually move.
+  #
+  # Off by default, and not out of caution: a picture that changes is a WHOLE
+  # PANEL on the wire, so a video wallpaper is the panel's entire bandwidth
+  # for as long as it is awake -- against a still page, which sends nothing at
+  # all. Off, a video shows its first frame and a GIF is frozen on its own, so
+  # the picture is still there and costs nothing.
+  launcher_background_motion: false
   # off, sm, md or xl. A blurred photograph is a background; a sharp one
   # competes with the links in front of it.
   launcher_background_blur: md
@@ -190,6 +162,19 @@ options:
   launcher_weather_size: medium
   # Where the bar sits: left, center or right.
   launcher_align: left
+  # The digital photograph frame: cycle through the pictures in the folder
+  # given as launcher_background. Off shows the first one and nothing more.
+  launcher_slideshow: false
+  # How long each picture is shown, in seconds.
+  launcher_slideshow_seconds: 30
+  # How long one picture takes to fade into the next, in seconds. THIS is the
+  # expensive setting, not the slideshow: a fade is one whole panel per frame
+  # for as long as it lasts, so at 25 fps two seconds is about fifty of them.
+  # 0 is a hard cut and costs exactly one.
+  launcher_slideshow_fade: 1
+  # How often the folder is looked at again, in minutes, so a photograph
+  # dropped in appears without restarting the add-on.
+  launcher_slideshow_rescan: 60
   links: []
   stats: true
   # A diagnostic, off by default: while a video plays it prints the playhead
@@ -228,12 +213,7 @@ schema:
   blank_after: float?
   keep_profile: bool?
   locale: str?
-  user_agent: str?
-  import_profile: str?
-  launcher_title: str?
-  launcher_subtitle: str?
   launcher_theme: list(dark|light)?
-  launcher_color: list(slate|gray|zinc|neutral|stone|red|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)?
   launcher_background: str?
   launcher_background_blur: list(off|sm|md|xl)?
   launcher_background_dim: int(0,100)?
@@ -241,11 +221,16 @@ schema:
   launcher_clock: bool?
   launcher_weather: str?
   launcher_clock_size: list(small|medium|large|huge)?
-  launcher_clock_color: list(theme|slate|gray|zinc|neutral|stone|red|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)?
+  launcher_clock_color: list(theme|slate|gray|zinc|neutral|stone|red|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose|white|black)?
   launcher_date_size: list(small|medium|large|huge)?
-  launcher_date_color: list(theme|slate|gray|zinc|neutral|stone|red|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)?
+  launcher_date_color: list(theme|slate|gray|zinc|neutral|stone|red|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose|white|black)?
   launcher_weather_size: list(small|medium|large|huge)?
   launcher_align: list(left|center|right)?
+  launcher_background_motion: bool?
+  launcher_slideshow: bool?
+  launcher_slideshow_seconds: int(5,3600)?
+  launcher_slideshow_fade: int(0,10)?
+  launcher_slideshow_rescan: int(1,1440)?
   links:
     - name: str
       url: str

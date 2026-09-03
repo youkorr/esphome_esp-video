@@ -258,6 +258,16 @@ class Weather:
         return lambda: self.state
 
 
+def truthy(value):
+    """What a switch in the add-on's form means.
+
+    A bool from the Supervisor, or the word somebody wrote by hand in YAML --
+    both reach here, and "false" as a string is not true however Python feels
+    about it.
+    """
+    return str(value).strip().lower() not in ("false", "no", "0", "off", "")
+
+
 def start_launcher(config):
     """Serve the page of links, if there are any, and say where it is.
 
@@ -275,16 +285,12 @@ def start_launcher(config):
         return None
     where = launcher.start(
         links,
-        title=str(config.get("launcher_title") or "Panel"),
-        subtitle=str(config.get("launcher_subtitle") or ""),
         theme=str(config.get("launcher_theme") or "dark"),
-        color=str(config.get("launcher_color") or launcher.DEFAULT_PALETTE),
         background=str(config.get("launcher_background") or ""),
         blur=str(config.get("launcher_background_blur") or "off"),
         dim=config.get("launcher_background_dim", 40),
         columns=config.get("launcher_columns", 0),
-        clock=str(config.get("launcher_clock", True)).lower()
-        not in ("false", "no", "0"),
+        clock=truthy(config.get("launcher_clock", True)),
         clock_size=str(config.get("launcher_clock_size")
                        or launcher.DEFAULT_SIZE),
         clock_color=str(config.get("launcher_clock_color")
@@ -296,6 +302,11 @@ def start_launcher(config):
         weather_size=str(config.get("launcher_weather_size")
                          or launcher.DEFAULT_SIZE),
         align=str(config.get("launcher_align") or "left"),
+        motion=truthy(config.get("launcher_background_motion", False)),
+        slideshow=truthy(config.get("launcher_slideshow", False)),
+        every=config.get("launcher_slideshow_seconds", 30),
+        fade=config.get("launcher_slideshow_fade", 1),
+        rescan=config.get("launcher_slideshow_rescan", 60),
         weather=Weather(
             config.get("url"), config.get("token"),
             config.get("launcher_weather"),
