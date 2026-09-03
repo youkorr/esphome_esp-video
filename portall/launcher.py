@@ -563,14 +563,25 @@ WEATHER_JS = """<script>
         if (w && w.icon) { sky.textContent = w.icon; temp.textContent = w.text || ''; }
       }
     } catch (e) { /* keep what is on the page */ }
-    setTimeout(draw, 600000);
   };
-  setTimeout(draw, 600000);
+  // AT ONCE, and then on a timer. Scheduling only the timer is what made a
+  // panel show the temperature from whenever the add-on had started: the
+  // number in the page it was served was ten hours old and the first fetch
+  // that could have corrected it was ten minutes away. Reported as 16 degrees
+  // on the panel against 30 on the dashboard.
+  draw();
+  // Two minutes rather than ten. The add-on refreshes its own reading every
+  // ten, so polling at the same interval meant the page could sit twenty
+  // minutes behind the house -- and this fetch never leaves the machine, so
+  // it costs nothing. Writing the same text into the DOM paints nothing, so
+  // an unchanged reading is not a rectangle on the wire.
+  setInterval(draw, 120000);
 })();
 </script>
 """
 
-# Home Assistant's own weather states, which are a fixed list.
+# Home Assistant's weather states, as the one character each of them is. Its
+# own list, because the state names are Home Assistant's and not this page's.
 SKY = {
     "clear-night": "\U0001F319", "cloudy": "\u2601\uFE0F",
     "fog": "\U0001F32B\uFE0F", "hail": "\U0001F328\uFE0F",
@@ -1022,20 +1033,38 @@ def start(links, title="", subtitle="", theme="dark",
                   f"keep moving, because a picture fetched from elsewhere "
                   f"cannot be frozen by the page.", flush=True)
 
-    # `weather` is a callable returning the latest reading, or None. Called
-    # rather than passed by value because the page outlives any one reading:
-    # the add-on refreshes it in the background and the page asks for it every
-    # ten minutes.
-    first = weather() if weather is not None else None
-    body = render(links, title, subtitle, theme, color, background, blur,
-                  dim, columns, clock,
-                  first if weather is not None else None,
-                  clock_size, clock_color, date_size, date_color,
-                  weather_size, align,
-                  # Already sifted just above, so the page does not repeat
-                  # the complaint about an address that is not one.
-                  motion, slideshow, every, fade, rescan, addresses,
-                  mirrored).encode()
+    # `weather` is a callable returning the latest reading, or None -- the
+    # add-on refreshes it in the background and this is asked for it at each
+    # request rather than once at startup.
+    #
+    # Built once at startup was the other half of a panel showing the
+    # temperature from whenever the add-on had been started: the page is
+    # static bytes, so the number in it never moved however often the add-on
+    # re-read the house. It is rebuilt when the reading changes and reused
+    # when it has not -- which is at most once every ten minutes, and never
+    # at all on a panel with no weather.
+    cache = {}
+
+    def page():
+        state = weather() if weather is not None else None
+        key = weather_block(state) if state else None
+        if "bytes" not in cache or cache["key"] != key:
+            cache["key"] = key
+            cache["bytes"] = render(
+                links, title, subtitle, theme, color, background, blur,
+                dim, columns, clock,
+                state if weather is not None else None,
+                clock_size, clock_color, date_size, date_color,
+                weather_size, align,
+                # Already sifted just above, so the page does not repeat
+                # the complaint about an address that is not one.
+                motion, slideshow, every, fade, rescan, addresses,
+                mirrored).encode()
+        return cache["bytes"]
+
+    # Once here, so a fault in the page is reported at startup rather than
+    # the first time somebody comes home to it.
+    page()
     # One picture is read once and held; a folder is read per request. A
     # holiday folder is gigabytes, and the add-on has no business holding it
     # -- while re-reading one file for every panel that comes home would be a
@@ -1145,7 +1174,7 @@ def start(links, title="", subtitle="", theme="dark",
                 # megabyte again.
                 self._reply(picture, mime)
                 return
-            self._reply(body, "text/html; charset=utf-8")
+            self._reply(page(), "text/html; charset=utf-8")
 
     try:
         server = http.server.ThreadingHTTPServer(("127.0.0.1", PORT), Handler)

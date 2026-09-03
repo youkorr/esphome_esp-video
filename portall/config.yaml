@@ -1,5 +1,5 @@
 name: Portall
-version: "3.1.0"
+version: "3.2.0"
 # Home Assistant identifies an add-on by its slug, so this one moving from
 # usb_display_panel to portall makes the Supervisor see a NEW add-on: options
 # are not carried over and /data starts empty, which means the browser
@@ -60,16 +60,6 @@ options:
   # room when nothing is waiting for text. Set it to the layout you want the
   # letters in, or off to leave it out.
   keyboard: qwerty
-  # How long a panel has to have been dark before its page is let go of.
-  # Stopping the picture does not stop the page: it goes on painting and
-  # running its timers for a screen nobody can see, and measured on a
-  # container, a sleeping panel still cost 1.1 seconds of CPU every ten. Past
-  # this delay the page is parked and that falls to 0.15. It is loaded again
-  # when the panel wakes, which takes about three seconds -- three seconds
-  # showing the dashboard as it was, not a black screen, because the board
-  # still holds the last picture it was sent. Short sleeps never reach the
-  # delay and stay instant. 0 leaves the page running.
-  blank_after: 300
   # Keep the browser's profile between restarts, one directory per panel under
   # the add-on's own storage. Without it every restart is a first visit: a site
   # signed into is signed out again, and a consent banner comes back. With it,
@@ -220,7 +210,6 @@ schema:
   fps: float?
   quality: int(1,95)?
   keyboard: list(off|qwerty|azerty)?
-  blank_after: float?
   keep_profile: bool?
   locale: str?
   launcher_theme: list(dark|light)?

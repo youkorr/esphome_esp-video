@@ -1,5 +1,30 @@
 # Changelog
 
+## 3.2.0
+
+- **The weather on the launcher was frozen at whatever the add-on had started
+  with.** Reported as 16 degrees on a panel against 30 on the dashboard, and
+  as taking ten minutes to catch up -- which is exactly what it was. Two
+  faults, both on the page:
+  - the script scheduled its first reading for **ten minutes after the page
+    loaded** instead of reading at once, so nothing could correct the number
+    before then;
+  - and the page itself was built **once, at startup**, so the number in it
+    never moved however often the add-on re-read the house.
+
+  Measured against a stand-in Home Assistant, the shipped 3.1.0 beside this
+  one: 3.1.0 makes **0** requests for the reading at load and still shows
+  `16°C` after the panel comes home; this makes one per load and shows
+  `30°C`. The page also asks every two minutes now rather than every ten --
+  that fetch never leaves the machine, and writing the same text paints
+  nothing, so an unchanged reading is not a rectangle on the wire.
+- **`blank_after` is off the top of the form.** It is not the timer that turns
+  a screen off -- that is the board's own YAML -- it is what the SERVER does a
+  while after the panel has gone dark: let the page go, so a machine that is
+  on anyway stops spending a second of CPU every ten on a screen nobody is
+  looking at. It keeps its 300 seconds, and stays available on a panel's own
+  entry for anyone who wants another number or `0`.
+
 ## 3.1.0
 
 - **`launcher_slideshow_urls`** -- the photograph frame, for pictures that are

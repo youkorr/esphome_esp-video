@@ -156,7 +156,7 @@ Assistant dashboard to appear; without one it does neither.
 | `fps` | Upper bound on how often a change is acted on. 25 by default; the one setting that decides whether video looks like video. See below |
 | `quality` | JPEG quality, 1..95 |
 | `keyboard` | The on-screen keyboard's layout, or `off`. See below |
-| `blank_after` | Seconds dark before a sleeping panel's page is let go of. See below |
+| `blank_after` | Seconds dark before a sleeping panel's page is let go of, 300 by default. **Per panel only** -- it is not the same thing as the timer that turns your backlight off, see below |
 | `keep_profile` | Keep the browser signed in between restarts. See below |
 | `import_profile` | A browser profile signed in by hand elsewhere, to start this panel from. **Per panel only** -- it does not belong to a house. See below |
 | `user_agent` | What the browser says it is. Empty is right for nearly everything -- it is here for YouTube's television interface. **Per panel or per link only**, because a panel told to say it is a television says it to Home Assistant too. See below |
@@ -1016,15 +1016,25 @@ frames a second and 20 timer callbacks a second, for a screen nobody can see.
 Neither throttling the renderer nor declaring the page frozen changes that;
 only navigating away does.
 
-So after `blank_after` seconds dark, the page is parked on a blank one.
-Measured on a container over ten seconds of sleep: 1.1 seconds of CPU with the
-page still running against 0.15 with it parked.
+So after `blank_after` seconds dark -- 300 by default -- the page is parked on
+a blank one. Measured on a container over ten seconds of sleep: 1.1 seconds of
+CPU with the page still running against 0.15 with it parked.
 
 It is loaded again when the panel wakes, which takes about three seconds. That
 is three seconds showing the dashboard as it was rather than a black screen --
 the board still holds the last picture it was sent. The delay is what keeps a
-short sleep instant: a panel woken inside it never gave its page up. Set
-`blank_after` to 0 to leave the page running.
+short sleep instant: a panel woken inside it never gave its page up.
+
+**This is not the timer that turns your screen off, and it is not a substitute
+for one.** The backlight and the panel's own sleep are the board's business,
+in its ESPHome YAML -- `portall.sleep` is what tells the sender to stop
+rendering. `blank_after` is what happens on the SERVER a while after that: the
+browser lets the page go so a machine that is on anyway stops spending a
+second of CPU every ten on a screen nobody is looking at. Because a household
+setting a timer in its YAML has no reason to think about that, it is no longer
+offered at the top of the options -- it keeps its 300 seconds, and a panel that
+wants another number, or `0` to leave the page running, sets it in its own
+entry.
 
 ## What it costs
 
