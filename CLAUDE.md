@@ -2034,6 +2034,61 @@ Verified with the url a panel really has: given
 `http://127.0.0.1:8160/lovelace/0`, the stand-in Home Assistant is asked for
 `/api/states/weather.forecast_home` and the reading reaches the page.
 
+**The weather was frozen at whatever the add-on had started with, and the
+report named the mechanism without meaning to.** *"sur le tableau il indique
+16 degree et sur home assistant 30 degree"*, then *"il met environ 10 minute
+pour y arriver"*. Ten minutes is `WEATHER_JS`'s interval, and that is the
+whole clue.
+
+Two faults, both on the page and neither in the reading:
+
+- `draw()` was **only scheduled**, never called. `setTimeout(draw, 600000)`
+  and nothing else, so the first fetch that could correct the page was ten
+  minutes away.
+- and the body was rendered **once in `start()`** and served as static bytes
+  for the life of the add-on, so the number baked into it was from boot
+  however often `Weather` re-read the house. That is the half that made it
+  survive coming home, and it is the half a reader would not suspect: the
+  add-on's own polling was correct all along.
+
+`page()` rebuilds when the reading CHANGES -- keyed on `weather_block()`'s own
+output, so it is a few renders a day and a request costs a dictionary lookup.
+Per request would re-list a photograph folder from disk every time a panel came
+home.
+
+Measured with the shipped 3.1.0 beside it, same stand-in Home Assistant, same
+page, the house warming from 16 to 30 in between:
+
+| | fetches at load | first paint | after coming home |
+|---|---|---|---|
+| 3.1.0 | **0** | 16°C | **16°C** |
+| now | 1 per load | 16°C | **30°C** |
+
+The page also asks every two minutes rather than ten: the add-on refreshes on
+its own ten-minute timer, so matching intervals let the page sit twenty
+minutes behind the house, and this fetch never leaves the machine. Writing the
+same text into the DOM paints nothing, so an unchanged reading is not a
+rectangle on the wire.
+
+**And the edit that fixed it deleted `SKY`**, which is the mistake this file
+already records under a different name: a replacement anchored on
+`def weather_block(state):` swallowed the map of Home Assistant's weather
+states that sat above it. It surfaced as `NameError: name 'SKY' is not
+defined` the moment a test built a page with weather on -- not from reading
+the diff. What found it in one line afterwards was diffing the module-level
+names against `git show HEAD:` and listing what had gone; that check is worth
+running after any anchored edit in a file this size.
+
+**`blank_after` came off the form, and the reason it was there is worth
+keeping.** Asked as *"supprime blank after car je me sers deja d'un temps
+donne pour eteindre l'ecran sur le yaml de esphome"*. Those are two different
+things and the option's name did not say so: the backlight and `portall.sleep`
+are the board's, in its own YAML, while `blank_after` is what the SERVER does
+a while later -- letting the page go, which is measured at 1.1 s of CPU every
+ten seconds against 0.15. So the behaviour stays at its 300 seconds and the
+knob moves to a panel's own entry, beside `user_agent` and `import_profile`,
+for the same reason: a household has no reason to think about it.
+
 **A stylesheet was the wrong answer, and it took the same person saying so
 three times to remove it.** Asked first as *"tu ne donnes pas la possibilite
 de changer d'emplacement de taille ou de couleur"*, answered with
