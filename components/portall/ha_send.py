@@ -980,6 +980,26 @@ def origin_of(url):
     return f"{parts.scheme}://{parts.netloc}"
 
 
+def install_tokens(context, pairs):
+    """One token per Home Assistant, each guarded by its own origin.
+
+    A house has one dashboard and a panel usually shows it, which is why this
+    took a single token for so long. What broke that is the launcher: the
+    token belongs to the Home Assistant LINK rather than to the panel, so a
+    panel can carry the house's dashboard alongside pages that must never see
+    it. One origin is written at most once -- the panel's own token first, so
+    a panel that overrides the house keeps its own.
+    """
+    done = set()
+    for url, token in pairs:
+        origin = origin_of(url)
+        if not origin or origin in done or not token:
+            continue
+        done.add(origin)
+        install_token(context, url, token)
+    return sorted(done)
+
+
 def install_token(context, url, token):
     """Write the token where the frontend expects to find it after a login.
 
@@ -3290,6 +3310,19 @@ def main():
         "say so per destination rather than per panel",
     )
     parser.add_argument(
+        "--page-token",
+        action="append",
+        default=[],
+        metavar="URL=TOKEN",
+        help="a Home Assistant long-lived token and the address it belongs "
+        "to, for a dashboard this panel reaches through a link rather than "
+        "showing itself: --page-token http://homeassistant:8123=eyJ... . "
+        "Repeatable, one per Home Assistant. A token belongs to an ORIGIN, "
+        "which is why it is given with one: the frontend ignores a record "
+        "whose address is not its own, and every other site a panel visits "
+        "must never be given the token at all",
+    )
+    parser.add_argument(
         "--token-url",
         default=None,
         help="the Home Assistant the token belongs to, when it is not the page "
@@ -3548,6 +3581,39 @@ def main():
                     f"$env:HA_TOKEN = (Get-Clipboard -Raw).Trim()"
                 )
 
+        # A token reached through a link, one per Home Assistant. Split on the
+        # FIRST "=" only: a JWT is base64url and carries none, but an address
+        # can, and a query string with one in it would otherwise take the
+        # token's first character with it.
+        pairs = []
+        for entry in args.page_token:
+            address, sep, token = str(entry).partition("=")
+            address, token = address.strip(), token.strip()
+            # Never the entry itself in any of these lines. The right-hand
+            # side is a long-lived token, and a token in a log is a token
+            # leaked: the add-on log is readable from the Home Assistant
+            # interface and is the first thing anybody pastes into a forum.
+            if not sep or not address or not token:
+                # Never fatal either. A token that cannot be read costs one
+                # dashboard its login; refusing to start costs the panel every
+                # page it has, and the supervisor then restarts it for ever.
+                print("Ignoring a --page-token that does not read "
+                      "ADDRESS=TOKEN.", flush=True)
+                continue
+            parts = token.split(".")
+            if len(parts) != 3 or len(parts[2]) != 43:
+                print(f"Ignoring the token for {address}: a Home Assistant "
+                      f"token is three dot-separated parts with a 43-character "
+                      f"signature, and this is "
+                      f"{len(parts)} part(s) with {len(parts[-1])}. It was cut "
+                      f"or joined while being copied.", flush=True)
+                continue
+            pairs.append((address, token))
+        # --no-token means this panel is not showing Home Assistant at all,
+        # and that has to reach the links as well -- they are the house's, and
+        # a panel opted out of the dashboard should carry none of them.
+        args.page_token = [] if args.no_token else pairs
+
     try:
         from PIL import Image
     except ImportError as err:
@@ -3747,8 +3813,16 @@ def main():
         context.add_init_script(HOME_HINT_JS)
         # Which requests the page could not make. Silent on a page that works.
         watch_failed_requests(context)
+        # The panel's own token first, so a panel that sets one keeps it over
+        # the house's for the same dashboard.
+        pairs = []
         if args.token:
-            install_token(context, args.token_url or args.url, args.token)
+            pairs.append((args.token_url or args.url, args.token))
+        pairs += args.page_token
+        if pairs:
+            done = install_tokens(context, pairs)
+            if len(done) > 1:
+                print(f"Tokens installed for {', '.join(done)}")
         # Filled in once the keyboard exists, which is after the page. The
         # binding has to be installed before the page is created so that every
         # frame has it, including ones the page makes later.

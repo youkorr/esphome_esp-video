@@ -142,6 +142,35 @@ def page_fps_from(config):
     return out
 
 
+def page_tokens_from(config):
+    """--page-token arguments for every link that carries one.
+
+    A token belongs to an ORIGIN, so it belongs to the link that names one --
+    which is what a household said when they asked why Home Assistant's token
+    sat at the top of a form beside a list of links. It is handed to every
+    panel, the same way a quality or a user agent per link is: the links are
+    the house's, and a panel that never opens the dashboard is unaffected.
+    """
+    out = []
+    for link in config.get("links") or []:
+        url, token = link.get("url"), link.get("token")
+        if given(url) and given(token):
+            out.append(f"{str(url).strip()}={str(token).strip()}")
+    return out
+
+
+def home_assistant_link(config):
+    """The link that carries a token, which is the Home Assistant one.
+
+    Nothing else in the list has any use for one, so this needs no separate
+    setting saying which link is the dashboard: the token is the mark.
+    """
+    for link in config.get("links") or []:
+        if given(link.get("url")) and given(link.get("token")):
+            return str(link["url"]).strip(), str(link["token"]).strip()
+    return None, None
+
+
 def page_agent_from(config):
     """--page-agent arguments for every link that asked to be told something.
 
@@ -308,7 +337,10 @@ def start_launcher(config):
         fade=config.get("launcher_slideshow_fade", 1),
         rescan=config.get("launcher_slideshow_rescan", 60),
         weather=Weather(
-            config.get("url"), config.get("token"),
+            # The dashboard's own link is what has the address and the
+            # token now, and it is the only thing here that ever had a use
+            # for either.
+            *home_assistant_link(config),
             config.get("launcher_weather"),
         ).start(),
     )
@@ -378,14 +410,15 @@ def load_panels():
                     }
                     for panel in panels
                 ]
-                # A panel that is not showing Home Assistant must not be given
-                # the house's token -- and the token is shared, so without this
-                # it would inherit one, have it written into that site's
-                # storage, and then wait thirty seconds for a dashboard that
-                # was never coming. Dropping the token is the whole switch: the
-                # sender already treats a panel with none as an ordinary page.
+                # A panel that is not showing Home Assistant must be given no
+                # token at all -- neither one of its own nor any the links
+                # carry. Dropping them is the whole switch: the sender already
+                # treats a panel with none as an ordinary page.
+                #
+                # The key is READ rather than popped, because the links are
+                # handed out later and that step has to ask the same question.
                 for panel in merged:
-                    if str(panel.pop("home_assistant", True)).lower() in (
+                    if str(panel.get("home_assistant", True)).lower() in (
                         "false",
                         "no",
                         "0",
@@ -495,6 +528,10 @@ def command_for(panel):
     # And a frame limit per link, for the same reason again.
     for link in panel.get("page_fps") or []:
         argv += ["--page-fps", link]
+    # And the token of the Home Assistant a link opens. Not a panel setting:
+    # a token belongs to an origin, and the link is what names one.
+    for link in panel.get("page_token") or []:
+        argv += ["--page-token", link]
     for key in (
         "touch_mirror_x",
         "touch_mirror_y",
@@ -632,17 +669,18 @@ def main():
             # install the token for the launcher's own address -- and the
             # frontend ignores a record whose hassUrl is not its own, so the
             # dashboard behind a tile would ask to log in with the token
-            # sitting unused in its storage. The shared url: is the house's
-            # Home Assistant address; that is what that field is for.
-            home = _config.get("url")
+            # sitting unused in its storage. The Home Assistant LINK is the
+            # house's dashboard address now, which is where the token lives
+            # too, so the two can no longer disagree.
+            home, _ = home_assistant_link(_config)
             if given(panel.get("token")) and not given(panel.get("token_url")):
-                if given(home) and str(home).strip().lower() != LAUNCHER_KEYWORD:
+                if given(home):
                     panel["token_url"] = home
                 else:
                     say(f"[{panel.get('name', 'panel')}] this panel starts on "
-                        f"the launcher and has a token, but no Home Assistant "
-                        f"address to attach it to. Put the dashboard's address "
-                        f"in the url at the top of the options, or a tile "
+                        f"the launcher and has a token of its own, but no "
+                        f"link carries a Home Assistant address to attach it "
+                        f"to. Give the dashboard's link a token, or a tile "
                         f"opening it will ask to log in.")
             panel["url"] = where
 
@@ -661,10 +699,28 @@ def main():
     if limits:
         for panel in panels:
             panel.setdefault("page_fps", limits)
+    # A panel that opted out of Home Assistant carries none of the house's
+    # tokens, which is the whole of what home_assistant: false ever meant.
+    keys = page_tokens_from(_config)
+    if keys:
+        for panel in panels:
+            if str(panel.get("home_assistant", True)).strip().lower() \
+                    not in ("false", "no", "0"):
+                panel.setdefault("page_token", keys)
 
     missing = [p for p in panels if not p.get("host") or not p.get("url")]
     if missing:
-        say("Every panel needs at least host and url")
+        # Named, because the url used to be inheritable from the top of the
+        # form and is not any more: a configuration that worked yesterday
+        # arrives here today with nothing to show, and "every panel needs a
+        # url" does not say that a setting moved.
+        say("Every panel needs a host and a url of its own: "
+            + ", ".join(str(p.get("name") or p.get("host") or "?")
+                        for p in missing)
+            + ". Put \"launcher\" there for the page of links, or the "
+              "address of the page that panel shows. Home Assistant's own "
+              "address is a link now rather than a setting at the top -- see "
+              "\"Moving from 2.x\" in the documentation.")
         return 1
 
     stop = threading.Event()
