@@ -465,6 +465,22 @@ the screen. It works, it was measured working, and it is not something to
 leave on by accident. That is why it is a switch of its own rather than
 something a `.mp4` in the field turns on by itself.
 
+**A video wallpaper has to be a WebM, not an ordinary .mp4** -- on the browser
+this add-on downloads. H.264 is patented and that build does not carry it:
+measured on the shipped Chromium, `canPlayType` for `avc1.42E01E` answers
+nothing at all, while VP9, VP8 and AV1 all answer *probably*. From the panel
+that is a wallpaper that simply never appears, so the log now says so in one
+line when it happens.
+
+Two ways out, and the first is the easy one:
+
+- **convert it once**: `ffmpeg -i film.mp4 -c:v libvpx-vp9 -crf 34 -b:v 0 -an
+  film.webm` -- and `-an` because a wallpaper has no business making noise;
+- or **install a Chromium packaged by your distribution** on the machine
+  running this. Those carry the proprietary codecs, and the sender prefers a
+  system browser over its own. Its startup line says which way it went:
+  `Browser: decodes H.264 yes` or `no`.
+
 Both work whether the file is under `/config`, `/share` or `/media` or given
 by address. One detail that had to be built rather than assumed: a **GIF at an
 address** cannot be frozen where it lies, because holding it on one frame

@@ -2089,6 +2089,35 @@ ten seconds against 0.15. So the behaviour stays at its 300 seconds and the
 knob moves to a panel's own entry, beside `user_agent` and `import_profile`,
 for the same reason: a household has no reason to think about it.
 
+**The video wallpaper that "does not start" is H.264, and the panel could not
+say so.** Reported with the address of an ordinary film --
+`.../goku-ultra-instinct_2.1920x1080.mp4`. Measured on the shipped browser
+with `canPlayType` rather than `MediaSource.isTypeSupported`, because a
+wallpaper is a plain `<video src>` and the two are answered by different code:
+
+| | answer |
+|---|---|
+| `video/mp4; codecs="avc1.42E01E, mp4a.40.2"` | **nothing at all** |
+| `video/mp4` with no codec named | maybe -- which is why the container tells you nothing |
+| `video/webm; codecs="vp9"`, vp8, av1 | probably |
+
+So the file was never going to play, and a `<video>` with no frame paints
+NOTHING -- the blank rectangle this file already forbids twice. The wallpaper
+tests here had all used a WebM, which is the one format that build definitely
+carries: **the test format was chosen to work.**
+
+`VIDEO_ERROR_JS` reports the element's `error` to `REPORT_PATH` on the
+launcher's own server, which prints it once per distinct complaint and names
+both ways out. The code is put into words first -- a household reading "4"
+learns nothing, and 4 (`MEDIA_ERR_SRC_NOT_SUPPORTED`) is by far the commonest
+here. Verified on a real undecodable file: one line for two visits, and
+nothing at all for the WebM beside it, with motion on and off.
+
+The sender already prints `Browser: decodes H.264 yes/no` at startup, and that
+line is the one to read: the add-on installs a second browser for the
+proprietary codecs and that install is allowed to fail, so which answer a box
+gives is not knowable from here.
+
 **A stylesheet was the wrong answer, and it took the same person saying so
 three times to remove it.** Asked first as *"tu ne donnes pas la possibilite
 de changer d'emplacement de taille ou de couleur"*, answered with

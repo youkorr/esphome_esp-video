@@ -1,5 +1,17 @@
 # Changelog
 
+## 3.2.1
+
+- **A video wallpaper that will not play now says so.** Reported as an .mp4
+  that never started. It is not the configuration: H.264 is patented and the
+  browser this add-on downloads does not carry it -- measured on the shipped
+  build, `canPlayType` for `avc1.42E01E` answers nothing while VP9, VP8 and
+  AV1 all answer *probably*. A `<video>` that cannot decode its file paints
+  **nothing**, which is the blank rectangle nobody can diagnose from a panel.
+  The page now reports the failure to the add-on and the log names the cause
+  and the two ways out, once rather than on every visit.
+- The documentation says it too, with the one-line conversion to WebM.
+
 ## 3.2.0
 
 - **The weather on the launcher was frozen at whatever the add-on had started
