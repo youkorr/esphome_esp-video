@@ -1,5 +1,32 @@
 # Changelog
 
+## 3.0.0
+
+**Read "Moving from 2.x" in the documentation before updating.** Two settings
+left the top of the options page, and an update that finds them missing shows
+a panel a login screen rather than a dashboard.
+
+- **Home Assistant is a link now.** `token` and `url` are gone from the top of
+  the form; the dashboard's address and its token go on the **Home Assistant
+  link**, beside `quality:`, `fps:` and `user_agent:` which already lived
+  there. Asked for in those words after somebody testing this could not see
+  why a token sat above a list of links, and they were right: a token belongs
+  to an address, and the list already had one per link.
+- **Copy your token out before you update** -- it is not shown anywhere else
+  once the field is gone -- and give **every panel a `url:` of its own**
+  (`launcher`, or the page it shows). The url used to be inheritable from the
+  top and there is nothing at the top to inherit any more. The log names any
+  panel that is missing one.
+- The token is written into the storage of **that address and nowhere else**,
+  which is what lets one panel carry the house's dashboard alongside YouTube,
+  Jellyfin and anything else without any of them seeing it. Measured across
+  three origins in a browser: each gets its own token, a repeat of the same
+  address is ignored, and a third origin gets nothing at all.
+- `home_assistant: false` on a panel now withholds the links' tokens as well
+  as its own, which is what that switch always meant.
+- `port`, `fps` and `quality` **stay** at the top. They are the panel's, not
+  the link's -- and `fps` and `quality` already exist per link as overrides.
+
 ## 2.6.0
 
 - **Five settings are gone from the form**, because they only filled it:

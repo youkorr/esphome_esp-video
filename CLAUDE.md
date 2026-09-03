@@ -2406,6 +2406,65 @@ then tries to spawn its own -- slow, and a second server nobody wanted.
 with it: Home Assistant paints in stages and is worth letting settle, a
 launcher page has no such staging, so it gets 800 ms.
 
+**Home Assistant became a LINK, and the token went with it -- 3.0.0.** Asked
+as *"il ne comprenne pas pourquoi dans option il y a le token, url de home
+assistant ... alors qu'il ya deja un link ... tu aurais faire un link a part
+pour home assistant"*, relayed from people testing the add-on. It is the same
+instinct that produced `quality:`, `user_agent:` and `fps:` on a link, and it
+is right for the same reason with one extra: **a token belongs to an ORIGIN**,
+which is a fact this file already records twice, and a link is the only thing
+in the configuration that names one.
+
+So `token:` and `url:` are off the top of the form. `links:` gains `token:`,
+the sender gains repeatable **`--page-token ADDRESS=TOKEN`**, and
+`install_tokens()` writes one guarded init script per origin, first wins --
+the panel's own token ahead of the links', so a panel that overrides the house
+keeps its own. `home_assistant: false` now withholds the links' tokens too,
+which is what that switch always meant; it is READ rather than popped in
+`load_panels`, because the links are handed out later and that step asks the
+same question.
+
+What is NOT moved, and the user did not argue: `port`, `fps` and `quality`
+stay at the top. They are the panel's, and the last two already exist per link
+as overrides.
+
+**Two things had to be decided rather than coded.**
+
+- **Removing a key only warns; changing a `list()`'s members fails.** That
+  asymmetry is why `launcher_css` could go quietly two releases ago and why
+  this one is a **major version with a migration section**: a stored `token`
+  under a key the schema no longer has is dropped by the Supervisor before
+  run.py ever sees it, so no fallback is possible and nothing can carry it
+  across. Copy it out first or lose it.
+- **The url is no longer inheritable**, so every panel needs one. The message
+  names the panels that are missing one and says the setting moved, because a
+  configuration that worked yesterday arrives with nothing to show and "every
+  panel needs a url" does not explain that.
+
+**A log line printed the token, and it was written in this same change.**
+`print(f"Ignoring --page-token {entry!r}")` echoes the right-hand side --
+which is a long-lived token -- into a log that is readable from the Home
+Assistant interface and is the first thing anybody pastes into a forum. Caught
+by reading the test's own output rather than by reading the code. Nothing in
+these paths prints an entry now; the address alone, never the value. The rule
+was already in this file for a token in a file, a log or a commit, and it was
+broken by the change that moved tokens around.
+
+The same run found the shape check too loose: `http://x=not.a.jwt` passed,
+because three dot-separated parts was the whole test. Every Home Assistant
+token's signature is 43 characters -- measured, and the main `--token` path
+already checked it -- so this one does too.
+
+Verified in three places, because the two ends being right has not been enough
+before: `install_tokens` in a real browser across three origins served on
+three ports (each gets its own token, a repeated address is ignored, the third
+origin gets nothing at all); `command_for` against the options a form would
+produce (the launcher panel carries `--page-token`, a `home_assistant: false`
+panel carries no token anywhere on its line); and the JOIN between them -- the
+line run.py builds, fed to the sender's own parser, then to `install_tokens`
+with a recording stub, which is where the last several faults of this shape
+have lived.
+
 **The token belongs to an ORIGIN, and the launcher is a different one.** A
 panel started on the launcher was handed `--url http://127.0.0.1:8099/`, so
 `install_token` derived its origin from that and wrote `hassUrl` naming the

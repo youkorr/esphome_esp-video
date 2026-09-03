@@ -21,6 +21,51 @@ it prints the `touch_rotate` and mirror values to use, and no two panels agree:
     python ha_send.py --calibrate --host ip esp32P4 --port 5000 \
         --width 1024 --height 600 --rotate 180
 
+## Moving from 2.x: Home Assistant is a link now
+
+**Read this before updating to 3.0.0.** Two settings left the top of the
+options page, and an update that finds them missing shows a panel a login
+screen rather than a dashboard.
+
+`token` and `url` were at the top, above a list of links -- which is what
+somebody testing this said made no sense, and they were right. A token belongs
+to an **address**, the list already has one per link, and Home Assistant is
+just the first link. So that is where both live now:
+
+```yaml
+links:
+  - name: Home Assistant
+    url: http://homeassistant:8123/lovelace/0
+    icon: home-assistant
+    token: eyJhbGciOi...          # the long-lived token goes HERE
+  - name: Jellyfin
+    url: http://192.168.1.20:8096
+    icon: jellyfin
+panels:
+  - name: salon
+    host: 192.168.1.11
+    url: launcher                 # each panel says what it shows
+    ...
+```
+
+Three steps, and the second is the one that is easy to miss:
+
+1. **Copy your token out of the old `token:` field before you update**, or out
+   of the Supervisor's YAML view. It is not shown anywhere else.
+2. Put it on the **Home Assistant link**, with that dashboard's address as the
+   link's `url:`.
+3. Give **every panel a `url:` of its own** -- `launcher` for the page of
+   links, or the address of whatever that panel shows. It used to be
+   inheritable from the top; there is nothing at the top to inherit any more.
+
+What you get for it: the token is written into the storage of **that address
+and nowhere else**, so a panel can carry the house's dashboard alongside
+YouTube, Jellyfin and anything else without any of them ever seeing it. A
+panel with `home_assistant: false` is given none of the links' tokens at all.
+
+The log says `Every panel needs a host and a url of its own` and names them if
+step 3 was missed.
+
 ## Moving from the old add-on
 
 This used to be called **ESP32-P4 Panel**, with the slug `usb_display_panel` --
@@ -76,11 +121,14 @@ See the header of `esp32p4-panel.service` for the six commands.
 
 ## Options
 
-Everything except a panel's own name, address, size and calibration can be set
-once at the top and every panel inherits it; a panel that sets one for itself
-keeps its own.
-The token in particular is the same for a whole house, and long enough that
-repeating it per panel is mostly a way to get one of them wrong.
+Everything except a panel's own name, address, size, calibration and `url` can
+be set once at the top and every panel inherits it; a panel that sets one for
+itself keeps its own.
+
+**Home Assistant's address and token are not up there.** They are a link, with
+the token on the link -- see *Moving from 2.x* above. A token belongs to an
+address, and writing it into the storage of only that address is what lets one
+panel carry the dashboard alongside every other site it visits.
 
 The token is what gets a browser with no keyboard past Home Assistant's login
 screen, and it is still needed even here, where this runs beside Home
@@ -101,7 +149,7 @@ Assistant dashboard to appear; without one it does neither.
 | `name` | What this panel is called in the log |
 | `host`, `port` | The panel's address, and its `port:` |
 | `url` | The page to render. A Home Assistant dashboard, or any other site. From inside an add-on a Home Assistant address is `http://homeassistant:8123/...` -- see below |
-| `token` | A long-lived access token. Leave it empty for a page that is not Home Assistant |
+| `token` | A long-lived access token, for a panel that shows a dashboard **directly** rather than reaching one through a link. Leave it empty otherwise -- the Home Assistant link carries its own |
 | `width`, `height` | Must match the component's |
 | `rotate` | Turns the picture, for a panel not mounted upright |
 | `touch_rotate`, `touch_mirror_x`, `touch_mirror_y` | From `--calibrate` |
@@ -151,6 +199,7 @@ links:
     icon: home-assistant
     group: Maison
     description: Salon, lumieres, volets
+    token: eyJhbGciOi...          # the dashboard's long-lived token
   - name: Jellyfin
     url: ""
     icon: jellyfin
@@ -949,9 +998,12 @@ entirely -- that is video, and it costs what video costs.
 ## The address to give it
 
 From inside an add-on, use the name Home Assistant answers to on the add-on
-network:
+network, as the Home Assistant **link's** address:
 
-    url: http://homeassistant:8123/lovelace/0
+    links:
+      - name: Home Assistant
+        url: http://homeassistant:8123/lovelace/0
+        token: eyJhbGciOi...
 
 Not a remote-access address. Tailscale's `*.ts.net`, Nabu Casa's
 `*.ui.nabu.casa` and dynamic DNS names exist to reach the house from outside;
