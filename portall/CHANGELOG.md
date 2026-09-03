@@ -1,5 +1,32 @@
 # Changelog
 
+## 2.6.0
+
+- **Five settings are gone from the form**, because they only filled it:
+  `launcher_title`, `launcher_subtitle`, `launcher_color`, `user_agent` and
+  `import_profile`. A launcher whose every tile is labelled does not need the
+  word "Panel" over it, so with no title there is now no heading at all.
+  `user_agent` and `import_profile` are **not** removed as features -- they
+  stay on a panel's own entry, and `user_agent` on a link, which is where they
+  always belonged: a panel told to say it is a television was saying it to
+  Home Assistant as well.
+- **The date sits under the time, and carries the year.**
+- **White and black** join the palette names for `launcher_clock_color` and
+  `launcher_date_color`. Neither is a Tailwind palette, and both are what
+  somebody actually wants over a photograph.
+- **A digital photograph frame.** `launcher_background` now takes a FOLDER as
+  well as a file or an address; `launcher_slideshow` cycles through it, with
+  `launcher_slideshow_seconds`, `launcher_slideshow_fade` and
+  `launcher_slideshow_rescan` -- the last so a photograph dropped in appears
+  without a restart. Off, a folder shows its first picture.
+- **A GIF or an MP4 wallpaper can move**, behind `launcher_background_motion`,
+  off by default. Off, a video shows its first frame and a GIF is frozen on
+  its own -- the picture is there and costs nothing.
+- **What the moving wallpapers cost, in one line, because it is the only thing
+  here that is never free:** a picture that changes is a whole panel on the
+  wire, about 130 KiB at 800x1280. A hard cut costs one; each second of fade
+  costs about `fps` of them; a playing video costs that for ever.
+
 ## 2.5.0
 
 - **`launcher_css` is gone.** It was offered first, on the argument that one

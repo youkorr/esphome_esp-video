@@ -2122,6 +2122,74 @@ Measured in the browser at the three panel shapes with the bar in place: tiles
 **350x166 at 800x1280, 566x118 at 1280x800, 454x107 at 1024x600** -- the same
 figures as before it existed, and nothing off the side at any of them.
 
+**Five settings came off the form because they only filled it**, said as
+*"il ne serve pas il remplit option seulement"*: `launcher_title`,
+`launcher_subtitle`, `launcher_color`, `user_agent` and `import_profile`.
+
+Two of them are worth recording rather than just listing. `launcher_color` was
+the accent every other colour is mixed from -- at 8% on the ground and 14% on a
+card, which is very likely WHY nobody noticed it doing anything; the launcher
+is slate now and nothing else changed. And with no title there is now **no
+heading at all** rather than the word "Panel" over every launcher: a page whose
+every tile is labelled does not need one.
+
+`user_agent` and `import_profile` were removed from the SHARED block only.
+Both survive per panel, and `user_agent` per link -- which is where this file
+already said they belonged, since a panel told to say it is a television says
+it to Home Assistant as well.
+
+**The date sits under the time and carries the year**, which is what a clock
+looks like everywhere else. `.when` is a column inside `.now`, so the weather
+keeps its own room on a narrow panel. **White and black** joined the palette
+names: neither is a Tailwind palette, and both are what somebody wants over a
+photograph.
+
+**The digital photograph frame, and what it costs.** `launcher_background`
+takes a FOLDER as well as a file or an address -- one setting rather than a
+second one beside it -- and `launcher_slideshow` cycles through it, with
+`_seconds`, `_fade` and `_rescan`. `launcher_background_motion` lets a GIF or
+an MP4 actually move, off by default.
+
+The cost is the part worth keeping, because it is the one feature here that
+contradicts the property this project advertises loudest. **A picture that
+changes is a whole panel on the wire** -- about 130 KiB at 800x1280 and
+quality 80. A hard cut costs one; each second of fade costs about `fps` of
+them, so two seconds at 25 is six megabytes a picture; a playing video costs
+that for ever, behind everything else on the screen. The delay averages it
+down and the fade multiplies it, which is the opposite of where somebody would
+look first.
+
+**Three faults, and none was visible from reading the code.**
+
+- **The served path carries no extension.** A file wallpaper is served at
+  `/wallpaper`, so `_moves("/wallpaper")` was false and a GIF was never
+  frozen. What may move has to be judged from the SOURCE on disk.
+- **The picture is named in the STYLESHEET, not inline.** `FREEZE_JS` read
+  `wall.style.backgroundImage`, got an empty string and returned at its first
+  line. `getComputedStyle` is what has it.
+- **A paused `<video>` with only its metadata loaded paints nothing** -- a
+  blank rectangle where a photograph should be, which is the failure nobody
+  can diagnose from a panel. `preload="auto"` guarantees a frame.
+
+And a measurement trap of the usual shape: the first video test read plain
+white for a paused video and it was **the test's own video**, recorded from a
+page that was still white when the recording started. The fix was to the
+ruler. Playwright's `record_video_dir` is what made a real .webm to test
+against with no ffmpeg in the container -- the browser recording a page that
+flashes two colours.
+
+Verified on the PIXELS off a screenshot rather than on the markup: three
+coloured pictures in a folder cycling red -> green -> blue -> red once a
+second and wrapping; the same folder with the slideshow off holding its first
+picture for 2.4 s; 7 of 14 samples caught mid-fade with a 2 s fade; a GIF
+frozen on one colour with motion off and two colours with it on; a real video
+paused on its first frame and playing with it on; a `.txt` in the folder
+ignored. The bar measured at all three panel shapes with the date under the
+clock -- **350x166 at 800x1280, 566x118 at 1280x800, 454x107 at 1024x600,
+nothing off the side** -- which is also the answer to *"si ils mettent la
+dalle en portrait est ce cela pas tous ce decaler?"*: the page is fluid and
+portrait is the shape it was measured at first.
+
 **A quality per LINK, and the reasoning behind it is the user's.** Asked for
 in those words -- *"j'aurais preferer que dans les link ont puisse choisir la
 qualite c'est plus simple a gerer"* -- after `render_width:` was offered and

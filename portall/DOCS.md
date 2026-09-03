@@ -110,8 +110,8 @@ Assistant dashboard to appear; without one it does neither.
 | `keyboard` | The on-screen keyboard's layout, or `off`. See below |
 | `blank_after` | Seconds dark before a sleeping panel's page is let go of. See below |
 | `keep_profile` | Keep the browser signed in between restarts. See below |
-| `import_profile` | A browser profile signed in by hand elsewhere, to start this panel from. See below |
-| `user_agent` | What the browser says it is. Empty is right for nearly everything -- it is here for YouTube's television interface. See below |
+| `import_profile` | A browser profile signed in by hand elsewhere, to start this panel from. **Per panel only** -- it does not belong to a house. See below |
+| `user_agent` | What the browser says it is. Empty is right for nearly everything -- it is here for YouTube's television interface. **Per panel or per link only**, because a panel told to say it is a television says it to Home Assistant too. See below |
 | `locale` | The language pages are asked for -- `fr-FR`, `de-DE`, `en-GB`. Not cosmetic: without it the browser sends no `Accept-Language` at all and every site serves its own default |
 | `stats` | Print what is being sent every five seconds |
 | `show_media` | While a video plays, print its playhead and how many seconds are buffered ahead of it. Off by default -- turn it on to diagnose a video that stops |
@@ -131,13 +131,11 @@ The add-on builds the home page itself, from a list you fill in. Put `launcher`
 in a panel's `url:` and it starts there:
 
 ```yaml
-launcher_title: Maison
-launcher_subtitle: ""
 launcher_theme: dark          # dark or light
-launcher_color: sky           # a Tailwind palette name, as Homepage uses
 launcher_background: http://homeassistant:8123/local/wall.jpg
 launcher_background_blur: md  # off, sm, md, xl
 launcher_background_dim: 40   # 0..100
+launcher_background_motion: false   # let a GIF or an MP4 actually move
 launcher_columns: 0           # 0 lets the panel decide
 launcher_clock: true          # the time and the date above the links
 launcher_weather: weather.forecast_home   # empty for none
@@ -315,9 +313,11 @@ launcher_clock: true
 launcher_weather: weather.forecast_home
 ```
 
+The date sits **under** the time and carries the year.
+
 **They follow the panel's `locale`.** The browser formats them, so `fr-FR`
-gives `19:00` and `mercredi 2 septembre`, `de-DE` gives `Mittwoch, 2.
-September`, and this add-on needs to know no language at all.
+gives `19:00` and `mercredi 2 septembre 2026`, `de-DE` gives `Mittwoch, 2.
+September 2026`, and this add-on needs to know no language at all.
 
 **No seconds, on purpose.** A digit that changes every second is a rectangle
 sent to the panel every second for as long as it is awake -- the same reason
@@ -331,9 +331,64 @@ storage of every site a panel visits is a leak this project has already had to
 close once. It is refreshed every ten minutes; if it cannot be read, the
 launcher simply shows no weather and says so once in the log.
 
-Measured at the three panel shapes with the bar in place: tiles 350x166 at
-800x1280, 566x118 at 1280x800, 454x107 at 1024x600 -- unchanged, and nothing
-runs off the side.
+**A panel in portrait is fine, and it was measured rather than assumed.** The
+page is fluid: the tiles reflow, the bar wraps, and the weather stays at the
+right-hand edge. With six links in three groups and the bar in place, tiles are
+350x166 at 800x1280, 566x118 at 1280x800 and 454x107 at 1024x600, with nothing
+running off the side at any of them -- the same figures as before the date
+moved under the clock.
+
+### The wallpaper, and the digital photograph frame
+
+`launcher_background` takes any of four things:
+
+| | |
+|---|---|
+| nothing | the plain colour |
+| an address | the panel fetches it itself. Home Assistant serves `/config/www` at `/local`, so `http://homeassistant:8123/local/wall.jpg` is the easy one |
+| a file | under `/config`, `/share` or `/media`, served by the add-on |
+| **a folder** | under the same three -- a digital photograph frame |
+
+A folder shows its first picture. Turn `launcher_slideshow` on and it cycles:
+
+```yaml
+launcher_background: /media/photos          # the folder
+launcher_slideshow: true
+launcher_slideshow_seconds: 30              # how long each picture is shown
+launcher_slideshow_fade: 1                  # how long one fades into the next
+launcher_slideshow_rescan: 60               # minutes between re-reading it
+```
+
+`launcher_slideshow_rescan` is what makes a photograph dropped into the folder
+appear without restarting the add-on. Only pictures are used -- `.jpg`,
+`.jpeg`, `.png`, `.webp`, `.gif`, `.avif`, `.bmp` -- so a stray text file in
+the folder is ignored rather than drawn as a broken square.
+
+**What it costs, because this is the one feature here that is never free.**
+A panel sends only what changed, so a still page sends nothing at all. A
+picture that changes is a **whole panel** on the wire: about 130 KiB at
+800x1280 and quality 80. So
+
+- `launcher_slideshow_fade: 0` is a hard cut and costs **one** whole panel;
+- a **1 second** fade costs about `fps` of them -- twenty-five at the default;
+- a **2 second** fade costs about fifty, which is six megabytes a picture.
+
+`launcher_slideshow_seconds` is what averages that down. Thirty seconds with a
+one-second fade is roughly 110 KiB/s; the same fade every five seconds is six
+times that. If a panel starts stuttering while the pictures change, the fade
+is the setting to lower, not the delay.
+
+### A GIF or a video as the wallpaper
+
+`launcher_background_motion` decides whether it is allowed to move, and it is
+**off** by default. Off, an MP4 shows its first frame and a GIF is frozen on
+its own first frame -- the picture is there, and it costs the panel nothing.
+
+On, a video wallpaper is the panel's **entire bandwidth for as long as it is
+awake**: every frame is a whole panel, for ever, behind whatever else is on
+the screen. It works, it was measured working, and it is not something to
+leave on by accident. That is why it is a switch of its own rather than
+something a `.mp4` in the field turns on by itself.
 
 ### Changing how it looks
 
@@ -356,11 +411,15 @@ still a range, so it adapts between a 1024x600 panel and a 800x1280 one.
 Measured at 1280x800, the clock goes **40px** at `small`, 68 at `medium`, 96 at
 `large` and **130px** at `huge`; the date and the weather have the same four.
 
-The colours take the same palette names as `launcher_color`, so it is one
-vocabulary rather than two: slate, gray, zinc, neutral, stone, red, amber,
-yellow, lime, green, emerald, teal, cyan, sky, blue, indigo, violet, purple,
-fuchsia, pink, rose. **`theme`** is the default and means what it says -- the
-text colour of whichever theme is on.
+The colours are Tailwind's palette names -- slate, gray, zinc, neutral, stone,
+red, amber, yellow, lime, green, emerald, teal, cyan, sky, blue, indigo,
+violet, purple, fuchsia, pink, rose -- plus **white** and **black**, which are
+not palettes and are what somebody actually wants over a photograph.
+**`theme`** is the default and means what it says: the text colour of
+whichever theme is on.
+
+The date sits **under** the time, which is what a clock looks like everywhere
+else, and it carries the year.
 
 The weather has no colour of its own on purpose: it is an emoji, which the
 browser draws in its own colours whatever you asked for.

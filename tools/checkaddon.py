@@ -229,22 +229,17 @@ def check_reaches_sender(folder):
         # Not a flag of its own: it decides whether there is a --profile at
         # all, and what directory it names.
         "keep_profile",
-        # Acted on by the add-on before the sender starts, by copying a folder
-        # into that profile. The sender never hears about it.
-        "import_profile",
-        "launcher_title", "launcher_subtitle", "launcher_theme",
-        "launcher_color", "launcher_background", "launcher_background_blur",
-        "launcher_background_dim", "launcher_columns",
-        "launcher_clock", "launcher_weather",
-        "launcher_clock_size", "launcher_clock_color",
-        "launcher_date_size", "launcher_date_color",
-        "launcher_weather_size", "launcher_align",
+        # Every launcher_* setting is the PAGE's, built here and served from
+        # 127.0.0.1. None of them is a flag on a sender, so this list is one
+        # rule rather than a roll call that has to be kept in step.
     }
     panel = {"host": "1.2.3.4", "width": 800, "height": 1280,
              "rotate": "0", "touch_rotate": "0"}
     faults = []
     for key, spec in schema.items():
-        if key in ITS_OWN or not isinstance(spec, str):
+        if key in ITS_OWN or key.startswith("launcher_"):
+            continue
+        if not isinstance(spec, str):
             continue
         flag = "--" + key.replace("_", "-")
         # A value a form could really carry, of roughly the right kind.
