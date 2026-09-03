@@ -1,9 +1,9 @@
 substitutions:
-  name: tab5-usb-screen
+  name: tab5-portall-screen
 
 esphome:
-  name: tab5-usb-screen
-  friendly_name: tab5_usb_screen
+  name: tab5-portall-screen
+  friendly_name: tab5_portall_screen
 
 esp32:
   board: esp32-p4-evboard
@@ -19,7 +19,7 @@ logger:
 
 api:
   encryption:
-    key: "3G7oouF0MwyCgahGQpWXNaQhNy+PitFtfghoZwVQY/A="
+    key: ""
     
 psram:
   mode: hex
@@ -42,8 +42,8 @@ wifi:
   ssid: !secret wifi_ssid
   password: !secret wifi_password
   ap:
-    ssid: tab5_usb_screen Fallback Hotspot
-    password: "abyFGIhttRy9"
+    ssid: tab5_portall_screen Fallback Hotspot
+    password: ""
 
 http_request:
   
@@ -65,7 +65,7 @@ esp32_hosted:
   d2_pin: GPIO9
   d3_pin: GPIO8
   reset_pin: GPIO15
-  use_psram: true
+  use_psram: false
   slot: 1
   
 captive_portal:
@@ -74,7 +74,7 @@ external_components:
       type: git
       url: https://github.com/youkorr/esphome_esp-video
       ref: main
-    components: [usb_display]
+    components: [portall]
     refresh: 0s
 
 # ============================================================================
@@ -116,15 +116,6 @@ binary_sensor:
         - select.set:
             id: dac_output_select
             option: "Line 1"  # TEST: Speaker aussi sur Line 1
-
-  #- platform: template
-    #id: voice_active  
-
-  #- platform: template
-    #name: "Camera Streaming Status"
-    #id: camera_streaming_status
-    #lambda: |-
-      #return id(camera_streaming_active);
 
 select:
 
@@ -235,13 +226,10 @@ voice_assistant:
   conversation_timeout: 300s
   on_end:
     - delay: 5s
-    #- lvgl.page.show: page_home  
-    # Wait a short amount of time to see if an announcement starts
     - wait_until:
         condition:
           - media_player.is_announcing:
         timeout: 0.5s
-    # Announcement is finished and the I2S bus is free
     - wait_until:
         - and:
             - not:
@@ -358,13 +346,24 @@ number:
     unit_of_measurement: s
     icon: mdi:television-off
     on_value:
-      # Prise en compte immediate : le compte a rebours repart avec la
-      # nouvelle valeur au lieu d'attendre le prochain toucher.
       - lambda: 'id(screen_off_delay) = (int) x;'
-      - script.execute: screen_timeout   
-
-  - platform: usb_display
-    name: "Volume écran USB"
+      - script.execute: screen_timeout  
+      
+  - platform: template
+    name: "Volume Portall"
+    id: volume_portall
+    min_value: 0
+    max_value: 100
+    step: 1
+    unit_of_measurement: "%"
+    mode: slider
+    optimistic: true
+    restore_value: true
+    initial_value: 36
+    on_value:
+      then:
+        - portall.set_volume:
+            volume: !lambda 'return x / 100.0;'
         
 script:
   - id: screen_timeout
@@ -407,16 +406,8 @@ display:
     reset_pin:
       pi4ioe5v6408: pi4ioe1
       number: 4
-
-#usb_display:
-  #display_id: main_screen
-  #width: 720
-  #height: 1280
-  #frame_buffers: 4
-  #max_frame_bytes: 131072
-  #usb_speed: high
-  #product: udisp    
-usb_display:
+   
+portall:
   display_id: main_screen
   width: 720
   height: 1280
@@ -424,11 +415,11 @@ usb_display:
   port: 5000
   touchscreen_id: touch_screen
   vendor_id: 0x303A
-  product_id: 0x2986          # <- la seule correction nécessaire
+  product_id: 0x2986          
   sender_drive: false
   max_frame_bytes: 300000
-  jpeg_quality: 6
-  max_fps: 30
+  jpeg_quality: 9
+  max_fps: 60
   manufacturer: Espressif
   product: ESP_Extern_Screen
   serial: "012-2021"
