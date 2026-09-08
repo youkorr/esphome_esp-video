@@ -421,12 +421,21 @@ def pick_monitor(monitors, wanted, panel_w, panel_h):
     return monitors[1]
 
 
-def describe_monitors(monitors):
-    """Every screen, as Windows reports it. monitors[0] is all of them joined."""
+def describe_monitors(monitors, panels=()):
+    """Every screen, as Windows reports it. monitors[0] is all of them joined.
+
+    A screen that is exactly some panel's size is named, because that is the
+    one that will be taken and saying so is the whole point of the listing.
+    """
     for index, monitor in enumerate(monitors):
-        where = "all of them joined" if index == 0 else f"at {monitor['left']},{monitor['top']}"
-        print(f"    {index}: {monitor['width']}x{monitor['height']}, {where}"
-              + ("   <- primary" if index == 1 else ""))
+        where = ("all of them joined" if index == 0
+                 else f"at {monitor['left']},{monitor['top']}")
+        note = "   <- primary" if index == 1 else ""
+        for panel in panels:
+            if (index and monitor["width"] == panel["width"]
+                    and monitor["height"] == panel["height"]):
+                note = f"   <- this one goes to {panel['name']}"
+        print(f"    {index}: {monitor['width']}x{monitor['height']}, {where}{note}")
 
 
 SERVICE_TYPE = "_portall._tcp.local."
@@ -801,13 +810,35 @@ def main():
             import mss
         except ImportError as err:
             raise SystemExit(f"{err}. pip install mss") from err
+        # Ask the panels what shape they are, so this can say which screen
+        # will be taken rather than leaving that to be worked out. Printing
+        # advice unconditionally is what made a list that was already correct
+        # look as though something was still wrong.
+        panels = discover(2.0)
         screenshotter = getattr(mss, "MSS", None) or mss.mss
         with screenshotter() as sct:
             print("The screens Windows is showing:")
-            describe_monitors(sct.monitors)
-        print("\nA virtual display made for a panel should be exactly the "
-              "panel's size, and Windows has to be set to Extend onto it "
-              "rather than Duplicate.")
+            describe_monitors(sct.monitors, panels)
+            matched = [
+                panel for panel in panels
+                for monitor in sct.monitors[1:]
+                if monitor["width"] == panel["width"]
+                and monitor["height"] == panel["height"]
+            ]
+        for panel in panels:
+            if panel in matched:
+                print(f"\n{panel['name']} is {panel['width']}x{panel['height']} "
+                      f"and a screen of that size is here, so it will be found "
+                      f"with no arguments at all.")
+            else:
+                print(f"\n{panel['name']} is {panel['width']}x{panel['height']} "
+                      f"and no screen is that size. A virtual display set to "
+                      f"exactly that will be picked up by itself; Windows also "
+                      f"has to be set to Extend onto it rather than Duplicate.")
+        if not panels:
+            print("\nNo panel answered, so this cannot say which screen would "
+                  "be taken. A virtual display made for a panel should be "
+                  "exactly the panel's size.")
         return 0
 
     # Run with nothing at all and it finds the panel by itself. The address,
