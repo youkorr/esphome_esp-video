@@ -3227,6 +3227,47 @@ keyboard, the add-on option that never reached `command_for()`, the command
 that was never named, and now the command that was named and still had to be
 typed in a window nobody could find.
 
+## A screen can be the right size and still be a copy: Windows was duplicating
+
+**Reported after the setup finally worked: *"tout s'est bien passe au
+redemarrage de windows, il affiche un miroir de mon ecran primaire, il ne fait
+pas secondaire"*.** The driver installed, the resolution took, the restart
+happened -- and the panel was still a mirror. Every check this program had said
+the screen was there and the right size, and every one of them was true.
+
+**Windows' projection mode is what decides it, and nothing about the driver
+does.** In *Duplicate*, both adapters are handed the same desktop: the virtual
+display exists, is exactly the panel's size, is found by `--monitor auto`, and
+its content IS the primary's. From the glass that is indistinguishable from
+having no second screen at all, which is why it survived four rounds of fixing
+the driver.
+
+**Two monitors sharing an origin is the signature**, and it is the only thing
+here that can see the difference: cloned adapters report the same rectangle.
+`duplicated()` returns those indices, `pick_monitor` says so at the moment it
+picks such a screen, and `describe_monitors` marks them in every listing --
+including `--check`, whose whole job is to separate causes that look identical.
+
+Three things came from it, and the second is the one that should have existed
+already:
+
+- **`--extend`**, which runs Windows' own `DisplaySwitch.exe /extend` -- what
+  Win+P drives, and it needs **no administrator**. The one fix in this whole
+  area that costs nothing.
+- **`--setup` now asks for it**, before it checks its work. A virtual display
+  can arrive cloning, so a setup that installs the driver and sets the
+  resolution and stops has done everything except the step that makes the
+  screen a screen.
+- and the message names both routes, because Windows+P is faster than finding
+  a terminal -- which this file has already recorded four times.
+
+Exercised on both layouts: a virtual screen sharing the primary's origin is
+picked and then called out with both fixes; the same screen at its own offset
+is picked silently. `duplicated()` returns `[1, 3]` and `[]` respectively.
+**Not verified on Windows** -- no DisplaySwitch here, and whether a cloned VDD
+really reports a shared origin on their machine is the one assumption in it.
+Their `--check` output is what settles that, and it now prints the positions.
+
 ## Repository conventions
 
 - Work on branch `claude/esphome-pr-outdated-mdq36w`, then merge into `main`

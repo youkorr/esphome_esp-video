@@ -473,10 +473,25 @@ def pick_monitor(monitors, wanted, panel_w, panel_h):
     """
     if str(wanted).lower() != "auto":
         return monitors[int(wanted)]
+    clones = duplicated(monitors)
     for index, monitor in enumerate(monitors[1:], start=1):
         if monitor["width"] == panel_w and monitor["height"] == panel_h:
             print(f"Capturing monitor {index}, which is {panel_w}x{panel_h} "
                   f"-- the panel's own size")
+            # The right size and still a copy. Windows is CLONING it, which no
+            # amount of driver or resolution fixes, and from the glass it is
+            # identical to having no second screen -- which is how it survived
+            # a working setup and a restart.
+            if index in clones:
+                print()
+                print("But Windows is DUPLICATING that screen, so it shows the")
+                print("same desktop as another one. That is why the panel is a")
+                print("mirror even though the screen is now the right size.")
+                print()
+                print("    Press Windows+P and choose Extend (Etendre).")
+                print()
+                print("    Or run:  portall.exe --extend")
+                print()
             return monitor
     # Say what there WAS, not only what there was not. Without the list this
     # was a dead end from the other side of a chat window: a virtual display
@@ -514,16 +529,60 @@ def pick_monitor(monitors, wanted, panel_w, panel_h):
     return monitors[1]
 
 
+def duplicated(monitors):
+    """Screens Windows is CLONING, by index. Empty when every one is its own.
+
+    Two monitors sharing an origin is what duplicating looks like from here:
+    both adapters are handed the same desktop, so they report the same
+    rectangle. It is the whole of a report that survived a driver install and
+    a restart -- "au redemarrage il affiche un miroir de mon ecran primaire" --
+    because a virtual display in clone mode IS a copy of the primary, and
+    every check this program had said the screen was there and the right size.
+
+    Windows' own projection mode decides it and nothing about the driver does,
+    which is why the setup could be entirely correct and the panel still show
+    a mirror.
+    """
+    seen = {}
+    clones = set()
+    for index, monitor in enumerate(monitors):
+        if index == 0:                            # the union of them all
+            continue
+        where = (monitor["left"], monitor["top"])
+        if where in seen:
+            clones.add(seen[where])
+            clones.add(index)
+        seen[where] = index
+    return sorted(clones)
+
+
+def extend_displays():
+    """Ask Windows to give the second screen a desktop of its own.
+
+    DisplaySwitch.exe is Windows' own, is what Win+P drives, and needs no
+    administrator. Called at the end of the setup because a virtual display
+    that arrives in clone mode is a screen that exists, is the right size,
+    passes every check here, and shows a copy.
+    """
+    code, out = _run(["DisplaySwitch.exe", "/extend"])
+    return code == 0, out.strip()
+
+
 def describe_monitors(monitors, panels=()):
     """Every screen, as Windows reports it. monitors[0] is all of them joined.
 
     A screen that is exactly some panel's size is named, because that is the
     one that will be taken and saying so is the whole point of the listing.
+    Screens sharing an origin are called out as duplicated: from a panel that
+    is indistinguishable from having no second screen at all.
     """
+    clones = duplicated(monitors)
     for index, monitor in enumerate(monitors):
         where = ("all of them joined" if index == 0
                  else f"at {monitor['left']},{monitor['top']}")
         note = "   <- primary" if index == 1 else ""
+        if index in clones:
+            note += "   <- DUPLICATED, showing the same desktop as another"
         for panel in panels:
             if (index and monitor["width"] == panel["width"]
                     and monitor["height"] == panel["height"]):
@@ -1342,6 +1401,14 @@ def setup_windows(args):
     # project keeps recording -- and it recorded it again: reported back as
     # "il se comporte comme un miroir ... il n'est pas reconnu par windows",
     # from a run that had just told them everything was finished.
+    # A virtual display can arrive CLONING the primary, which is a screen that
+    # exists, is the right size, passes every check below, and shows a copy.
+    print()
+    print("Asking Windows to extend onto it rather than duplicate")
+    fine, said = extend_displays()
+    print("  done" if fine else f"  could not: {said or 'DisplaySwitch refused'}")
+    print("  (Windows+P, then Extend, is the same thing by hand)")
+
     print()
     print("--- did it work? ---")
     print()
@@ -1481,6 +1548,14 @@ def main():
         help="undo --install-startup and exit",
     )
     parser.add_argument(
+        "--extend",
+        action="store_true",
+        help="tell Windows to extend onto the second screen instead of "
+        "duplicating the first, and stop. This is what Windows+P does, and it "
+        "is the fix when the panel is the right size and still shows a copy. "
+        "Needs no administrator",
+    )
+    parser.add_argument(
         "--pause",
         action="store_true",
         help="wait for Enter before finishing. --setup puts this on the "
@@ -1526,6 +1601,15 @@ def main():
             digest = hashlib.sha256(handle.read()).hexdigest()[:12]
         print(f"{os.path.basename(me)} {digest}, {os.path.getsize(me)} bytes")
         return 0
+
+    if args.extend:
+        if sys.platform != "win32":
+            raise SystemExit("--extend drives Windows' own DisplaySwitch, so "
+                             "it only means something on Windows.")
+        fine, said = extend_displays()
+        print("Windows is extending onto the second screen now."
+              if fine else f"DisplaySwitch would not: {said}")
+        return 0 if fine else 1
 
     if args.check:
         return check_windows(args)
