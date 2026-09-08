@@ -15,8 +15,8 @@ you want; --uninstall-startup takes it back out.
 
 Requirements:
 
-    pip install mss pillow zeroconf          # over the network
-    pip install pyusb mss pillow libusb-package   # over a cable
+    pip install mss pillow numpy zeroconf    # over the network
+    pip install pyusb mss pillow numpy libusb-package   # over a cable
 
 Over the network, nothing has to be typed at all: the board advertises its
 address and the shape of its panel from its own ESPHome configuration, so
@@ -290,6 +290,104 @@ class _TcpEndpoint:
 
     def close(self):
         self._sock.close()
+
+
+# Only what changed is sent, and these are what decide that. Every number here
+# was measured on a panel by the Home Assistant sender this is ported from --
+# ha_send.py -- rather than picked.
+TILE = 64
+# A rectangle costs the board a fixed amount on top of its pixels: its header,
+# its own JPEG tables, one more DMA transfer set up. 1.5 ms, against a
+# whole-panel decode of 8.5 ms for the 0.6144 megapixels of a 1024x600 panel.
+RECT_FIXED_MS = 1.5
+PANEL_DECODE_MS_PER_MPX = 8.5 / 0.6144
+# No rectangle narrower or shorter than this. The P4's JPEG decoder is a DMA
+# engine working in 16x16 units and a sliver stalls it -- a 32x128 strip comes
+# back as ESP_ERR_TIMEOUT rather than as pixels. Slivers are the panel's own
+# edge wherever its size is not a multiple of the tile.
+MIN_RECT = 64
+# However little changes, redraw everything this often. A rectangle lost to a
+# busy board or a hiccup would otherwise stay wrong forever, because nothing
+# marks that area as changed again.
+FULL_REDRAW_SECONDS = 30.0
+# A sender that transmits only what changed is SILENT while nothing changes,
+# and silence is indistinguishable from having died. The board's patience is
+# 30 seconds; this is what proves life inside it.
+HEARTBEAT_S = 3.0
+
+
+def rect_cost_fraction(width, height):
+    """What one rectangle costs, as a fraction of redrawing the whole panel.
+
+    A ratio, and only the numerator is fixed -- a whole-panel decode grows with
+    the pixels -- so it cannot be one constant for every panel. 0.176 at
+    1024x600, 0.106 at 800x1280.
+    """
+    return RECT_FIXED_MS / (PANEL_DECODE_MS_PER_MPX * width * height / 1e6)
+
+
+def changed_rectangles(previous, current, tile=TILE):
+    """Where the two pictures differ, as few rectangles as reasonable.
+
+    Tiles that differ are found first, merged along each row, then rows that
+    ended up with the same run merged down the columns -- a window that moved,
+    a menu that opened. One rectangle costs the board a header, a JPEG's own
+    tables and a decode, so a handful of large ones beats a crowd of small ones
+    even carrying a few unchanged pixels along.
+
+    Returns (x, y, w, h) tuples in pixels.
+    """
+    import numpy as np  # noqa: F401 - kept local so --help needs no numpy
+
+    height, width = current.shape[:2]
+    tiles_x = (width + tile - 1) // tile
+    tiles_y = (height + tile - 1) // tile
+
+    # One vectorised comparison over the whole picture, and the colour axis is
+    # deliberately left alone: reducing it away first with np.any(axis=-1)
+    # reads every byte again along the one axis that is not contiguous, and
+    # measured fifteen times slower for the same answer.
+    differing = previous != current
+
+    rectangles = []
+    for ty in range(tiles_y):
+        top = ty * tile
+        bottom = min(top + tile, height)
+        row = differing[top:bottom]
+        run_start = None
+        for tx in range(tiles_x):
+            left = tx * tile
+            right = min(left + tile, width)
+            differs = bool(row[:, left:right].any())
+            if differs and run_start is None:
+                run_start = left
+            elif not differs and run_start is not None:
+                rectangles.append((run_start, top, left - run_start, bottom - top))
+                run_start = None
+        if run_start is not None:
+            rectangles.append((run_start, top, width - run_start, bottom - top))
+
+    # Stack rows covering the same columns that touch. Rows come in order, so
+    # the candidate is always the one just added.
+    merged = []
+    for x, y, w, h in rectangles:
+        if merged:
+            mx, my, mw, mh = merged[-1]
+            if mx == x and mw == w and my + mh == y:
+                merged[-1] = (mx, my, mw, mh + h)
+                continue
+        merged.append((x, y, w, h))
+
+    # Widen anything the decoder would choke on, backwards so it stays inside
+    # the panel. A panel smaller than the minimum keeps whatever it has.
+    grown = []
+    for x, y, w, h in merged:
+        if w < MIN_RECT and width >= MIN_RECT:
+            x, w = min(x, width - MIN_RECT), MIN_RECT
+        if h < MIN_RECT and height >= MIN_RECT:
+            y, h = min(y, height - MIN_RECT), MIN_RECT
+        grown.append((x, y, w, h))
+    return grown
 
 
 SERVICE_TYPE = "_portall._tcp.local."
@@ -656,10 +754,11 @@ def main():
 
     try:
         import mss
+        import numpy as np
         from PIL import Image
     except ImportError as err:
         raise SystemExit(
-            f"{err}. Install the dependencies: pip install mss pillow"
+            f"{err}. Install the dependencies: pip install mss pillow numpy"
             + ("" if args.host or args.discover else " pyusb")
         ) from err
 
@@ -681,11 +780,23 @@ def main():
     # touches USB, which is the first thing anybody trying the network sender
     # runs into.
     if not args.host:
-        import usb.core  # noqa: F401 - the send loop uses it through wait_for_endpoint
-        import usb.util  # noqa: F401
+        import usb.core
+        import usb.util
+
+        # The classes that mean "the board went away". Captured here rather
+        # than named in the except clause, because over the network usb is
+        # never imported and naming it there would be a NameError on the first
+        # hiccup -- which is exactly when it must not be.
+        lost = (usb.core.USBError, OSError)
+    else:
+        lost = (OSError,)
 
     interval = 1.0 / args.fps if args.fps > 0 else 0.0
     frame_id = 0
+    # Worked out from the panel rather than assumed: it is a ratio, and a
+    # whole-panel decode grows with the pixels while a rectangle's overhead
+    # does not.
+    rect_cost = rect_cost_fraction(args.width, args.height)
 
     # mss.mss() is a deprecated alias for mss.MSS(), which older versions do not
     # have.
@@ -714,8 +825,16 @@ def main():
                 )
 
                 frames = 0
+                rectangles_sent = 0
+                wholes = 0
                 total_bytes = 0
                 stats_at = time.monotonic()
+                # Per connection, not per run: a board that came back has
+                # forgotten everything, so the first picture after it must be
+                # a whole one.
+                previous = None
+                last_full = 0.0
+                last_sent = time.monotonic()
                 try:
                     while True:
                         started = time.monotonic()
@@ -733,53 +852,64 @@ def main():
                                 (args.width, args.height), Image.BILINEAR
                             )
 
-                        buffer = io.BytesIO()
-                        image.save(buffer, format="JPEG", quality=args.quality)
-                        payload = buffer.getvalue()
+                        # What changed, and nothing else. This is the whole
+                        # difference between a panel that costs the link
+                        # everything and one that costs nothing while a desktop
+                        # sits still -- which is what a desktop mostly does.
+                        current = np.asarray(image)
+                        if previous is None or started - last_full >= FULL_REDRAW_SECONDS:
+                            rectangles = [(0, 0, args.width, args.height)]
+                            last_full = started
+                            wholes += 1
+                        else:
+                            rectangles = changed_rectangles(previous, current)
+                            covered = sum(w * h for _, _, w, h in rectangles)
+                            # Give up on pieces only when the whole panel is
+                            # actually cheaper. It is the COUNT that decides,
+                            # not the area: twenty scattered rectangles cost
+                            # the board more than one decode of everything,
+                            # while one large rectangle beats it on both bytes
+                            # and time.
+                            if rectangles and (
+                                covered / (args.width * args.height)
+                                + rect_cost * len(rectangles) > 1.0
+                            ):
+                                rectangles = [(0, 0, args.width, args.height)]
+                                last_full = started
+                                wholes += 1
 
-                        endpoint.write(
-                            build_header(
-                                args.width, args.height, len(payload), frame_id
+                        for x, y, w, h in rectangles:
+                            buffer = io.BytesIO()
+                            image.crop((x, y, x + w, y + h)).save(
+                                buffer, format="JPEG", quality=args.quality
                             )
-                            + payload
-                        )
-                        frame_id = (frame_id + 1) & 0x3FF
-
-                        # Keep the return channel empty. This sender mirrors a
-                        # desktop, so it has nothing to do with the contacts,
-                        # but leaving them unread would eventually cost the
-                        # board a send.
-                        if hasattr(endpoint, "read_touches"):
-                            for contacts in endpoint.read_touches():
-                                if not args.show_touches:
-                                    continue
-                                if contacts:
-                                    print(
-                                        "touch "
-                                        + ", ".join(
-                                            f"#{i} at {x},{y}" for i, x, y in contacts
-                                        )
-                                    )
-                                else:
-                                    print("touch released")
-
-                        frames += 1
-                        total_bytes += len(payload)
-                        now = time.monotonic()
-                        if now - stats_at >= 5.0:
-                            elapsed = now - stats_at
-                            print(
-                                f"{frames / elapsed:.1f} fps, {total_bytes / frames / 1024:.0f} KiB/frame, "
-                                f"{total_bytes / elapsed / 1024 / 1024:.1f} MiB/s"
+                            payload = buffer.getvalue()
+                            endpoint.write(
+                                build_header(w, h, len(payload), frame_id, x, y)
+                                + payload
                             )
-                            frames = 0
-                            total_bytes = 0
-                            stats_at = now
+                            rectangles_sent += 1
+                            total_bytes += len(payload)
+
+                        if rectangles:
+                            previous = current
+                            frames += 1
+                            # One identifier for the whole picture, so the
+                            # board admits or drops its rectangles together and
+                            # never shows half an update.
+                            frame_id = (frame_id + 1) & 0x3FF
+                            last_sent = started
+                        elif started - last_sent >= HEARTBEAT_S:
+                            # Nothing changed, so nothing was sent -- and a
+                            # silent sender is indistinguishable from a dead
+                            # one to a board counting down its timeout.
+                            endpoint.write(build_heartbeat())
+                            last_sent = started
 
                         remaining = interval - (time.monotonic() - started)
                         if remaining > 0:
                             time.sleep(remaining)
-                except (usb.core.USBError, OSError) as err:
+                except lost as err:
                     print(f"Lost the board ({err}), waiting for it to come back")
                 finally:
                     if device is not None:
