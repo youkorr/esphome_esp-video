@@ -497,6 +497,21 @@ def pick_monitor(monitors, wanted, panel_w, panel_h):
     # was a dead end from the other side of a chat window: a virtual display
     # that exists but is the wrong size, one Windows has not been told to
     # extend onto, and one that is simply not there all read the same.
+    # Print the diagnostic here rather than naming a command that asks for it.
+    # Four rounds of this ended with the driver's own state never once being
+    # seen, because --check is a thing somebody has to know to run and the
+    # ordinary run is the thing they already ran. The failing path IS the
+    # diagnostic now.
+    if sys.platform == "win32":
+        present, working, what = virtual_display_state()
+        print("Virtual display driver:")
+        if not present:
+            print("    NONE INSTALLED")
+        else:
+            for line in what.splitlines():
+                print(f"    {line}")
+            if not working:
+                print("    ^ installed but NOT running, so it makes no monitor")
     print(f"No monitor is {panel_w}x{panel_h}. What Windows is showing:")
     describe_monitors(monitors)
     # Say what this IS, not only what is missing. Reported from a panel as
@@ -1045,27 +1060,69 @@ def _run(command, check=False):
 DRIVER_NAMES = "Virtual Display|IddSample|Idd Device|usb_graphic|xfz1986"
 
 
-def virtual_display_present():
-    """Whether Windows has an indirect display driver, and what state it is in.
+def _display_devices():
+    """Raw lines from Windows about any indirect display driver it has.
 
-    Asked of Windows rather than of the filesystem: a folder left behind by an
-    uninstall would answer yes, and then the setup would configure a driver
-    that is not there and report success.
+    Status|Class|FriendlyName|InstanceId, one per device.
 
-    NOT restricted to -Class Display, which the first version was. These
+    NOT restricted to -Class Display, which the first version was: these
     enumerate under more than one class depending on the driver and the
     version, so a class filter is a way to answer "nothing installed" about a
-    driver that is sitting right there. The Status comes back too: a driver
-    present and in Error is a different problem from one absent, and the two
-    were previously the same empty string.
+    driver sitting right there. Asked of Windows rather than of the filesystem,
+    because a folder left behind by an uninstall would answer yes.
     """
     code, out = _run([
         "powershell", "-NoProfile", "-Command",
         "Get-PnpDevice -ErrorAction SilentlyContinue "
         f"| Where-Object {{ $_.FriendlyName -match '{DRIVER_NAMES}' }} "
-        "| ForEach-Object { \"$($_.Status)  $($_.Class)  $($_.FriendlyName)\" }",
+        "| ForEach-Object { \"$($_.Status)|$($_.Class)|$($_.FriendlyName)"
+        "|$($_.InstanceId)\" }",
     ])
-    return code == 0 and out.strip() != "", out.strip()
+    lines = [l for l in out.splitlines() if l.strip()] if code == 0 else []
+    return lines
+
+
+def virtual_display_state():
+    """(present, working, what it says) about the indirect display driver.
+
+    The two are not the same question and treating them as one cost a round.
+    A driver that is INSTALLED BUT DISABLED answers yes to "is it there",
+    creates no monitor at all, and is what a panel showing a mirror looks like
+    after a setup that reported success -- because the setup saw "present",
+    skipped the install it did not need, and never did the enable it did.
+    """
+    lines = _display_devices()
+    working = any(l.split("|")[0].strip().upper() == "OK" for l in lines)
+    said = "\n".join(
+        "  ".join(part for part in l.split("|")[:3]) for l in lines)
+    return bool(lines), working, said
+
+
+def enable_virtual_display():
+    """Turn on a driver that is installed and switched off. Needs administrator.
+
+    Every device that is not already OK, by instance id rather than by name --
+    a name is what a person reads and an id is what Windows acts on.
+    """
+    ids = [l.split("|")[3] for l in _display_devices()
+           if len(l.split("|")) > 3 and l.split("|")[0].strip().upper() != "OK"]
+    if not ids:
+        return True, "nothing was switched off"
+    trouble = []
+    for one in ids:
+        code, out = _run([
+            "powershell", "-NoProfile", "-Command",
+            f"Enable-PnpDevice -InstanceId '{one}' -Confirm:$false",
+        ])
+        if code != 0:
+            trouble.append(out.strip())
+    return not trouble, "; ".join(trouble)
+
+
+def virtual_display_present():
+    """Kept as the yes/no, for callers that only want that."""
+    present, _working, said = virtual_display_state()
+    return present, said
 
 
 def screens_windows_has():
@@ -1096,11 +1153,15 @@ def check_windows(args):
                          "means something on Windows.")
 
     print("Virtual display driver")
-    present, what = virtual_display_present()
+    present, working, what = virtual_display_state()
     if present:
         for line in what.splitlines():
             print(f"    {line}")
-        print("    (a line beginning OK is working; Error or Unknown is not)")
+        if not working:
+            print()
+            print("    INSTALLED BUT NOT RUNNING. That is why there is no third")
+            print("    screen to drag a window onto: a driver that is switched")
+            print("    off makes no monitor. --setup turns it on.")
     else:
         print("    NONE INSTALLED.")
         print("    This is why the panel is a copy of the main screen and why")
@@ -1365,9 +1426,16 @@ def setup_windows(args):
     width, height = panel["width"], panel["height"]
     print(f"  {panel['name']}: {width}x{height}")
 
-    present, what = virtual_display_present()
-    if present:
-        print(f"Virtual display driver: already installed ({what})")
+    present, working, what = virtual_display_state()
+    if present and working:
+        print(f"Virtual display driver: already installed and on\n{what}")
+    elif present:
+        # Installed and switched off is the case that cost a round: it answers
+        # "present" to every question and makes no monitor at all.
+        print(f"Virtual display driver: installed but NOT running\n{what}")
+        print("Turning it on")
+        fine, trouble = enable_virtual_display()
+        print("  done" if fine else f"  could not: {trouble}")
     else:
         print(f"Virtual display driver: not installed, asking winget for it")
         code, out = _run([

@@ -3268,6 +3268,42 @@ is picked silently. `duplicated()` returns `[1, 3]` and `[]` respectively.
 really reports a shared origin on their machine is the one assumption in it.
 Their `--check` output is what settles that, and it now prints the positions.
 
+## Installed and switched off answers "yes" to every question this asked
+
+**Reported with the fact that settles it: *"il est deja en mode etendre mais
+il ne fait pas un ecran a part que je peux glisser des fenetres"*.** Windows was
+extending, and there was no third screen to drag anything onto -- so the
+duplicate theory of the previous round was wrong, and Windows simply had no
+such monitor.
+
+**A driver can be installed and DISABLED, and those are different questions.**
+`virtual_display_present()` returned True for any matching device whatever its
+Status, so `--setup` saw "already installed", skipped the install it did not
+need, and **never did the enable it did**. A driver that is switched off
+creates no monitor at all -- which is exactly a panel showing a mirror after a
+setup that reported success and a restart that changed nothing.
+
+`virtual_display_state()` returns present, working and the text separately;
+`enable_virtual_display()` runs `Enable-PnpDevice` by **instance id** rather
+than by name, on every device that is not already OK. `--setup` calls it when
+the driver is there and not running, and `--check` says which of the two states
+it is, because they need different next steps.
+
+**And the failing run is the diagnostic now.** Four rounds of this ended with
+the driver's own state never once being seen, because `--check` is a thing
+somebody has to know to run and the ordinary run is the thing they already ran.
+So `pick_monitor`'s fallback prints the driver and its status before the
+monitor list. Asking somebody to run a second command to find out why the first
+one did not work is the same mistake as naming a command they then have to
+find a terminal for, in a smaller costume.
+
+Exercised with the state query stubbed: a driver in Error prints
+`installed but NOT running, so it makes no monitor` above the monitor list,
+then the usual explanation. **Not verified on Windows** -- no `Get-PnpDevice`
+and no `Enable-PnpDevice` here, and whether the Status really reads Error
+rather than Unknown for a switched-off VDD is the assumption the next run
+settles.
+
 ## Repository conventions
 
 - Work on branch `claude/esphome-pr-outdated-mdq36w`, then merge into `main`
