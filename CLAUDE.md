@@ -2989,6 +2989,50 @@ cases: a console and no flag redirects nothing, a console with the flag writes
 the file, and no console at all behaves as it always did. **The exe itself is
 not built or run here**, and the workflow has never been executed.
 
+## A second screen is Windows' to make, not this project's
+
+**Reported as *"cela fonctionne mais ce n'est pas un ecran secondaire juste il
+recopie l'ecran principal"*, with the sender's own explanation on the screen
+above it.** The log was:
+
+    No monitor is 1024x600. What Windows is showing:
+        0: 3200x1086, all of them joined
+        1: 1920x1080, at 0,0   <- primary
+        2: 1280x800, at 1920,-6
+    Set the virtual display to exactly 1024x600 and it will be picked up by
+    itself. Sending the primary one, scaled, meanwhile.
+
+Every word of that is true and it did not answer the question being asked. It
+says what is MISSING; the reader wants to know what they are LOOKING AT, and
+that it will not change on its own. `pick_monitor` now says the panel is
+showing a copy of the main screen, that portall does not make screens because
+Windows does and only makes one when there is a display adapter behind it, and
+names the kind of thing to install.
+
+**And the same missing screen is most of the frame rate.** Their stats, at
+`--fps 30`:
+
+    12.8 pictures/s, 18.4 rectangles/s, 18 whole, 333.9 KiB/s,
+    panel wait 0%, 32 skipped, worst turn 47 ms
+
+`panel wait 0%` rules out the link and the board outright, so the cost is in
+the loop, and `skipped` counts turns where the writer still held the last
+picture. Measured here on a dashboard-shaped picture, per picture:
+
+| the screen being captured | grab-side work | whole-panel encode |
+|---|---|---|
+| 1920x1080 squeezed to 1024x600 | **18.7 ms** | 1.7 ms |
+| a screen already 1024x600 | **0.7 ms** | 1.7 ms |
+
+Twenty-seven times the work, thrown away for nothing: the scaling exists only
+because the screen is the wrong size. The grab itself is 3.4x the pixels too
+(2.07 MP against 0.61), and that half cannot be measured here -- there is no
+screen in this container. So a virtual display at exactly the panel's size is
+not merely how the panel becomes a second desktop; it is also the frame rate.
+
+The message says both now, because the two were reported a week apart as
+separate complaints and have one cause.
+
 ## Repository conventions
 
 - Work on branch `claude/esphome-pr-outdated-mdq36w`, then merge into `main`
