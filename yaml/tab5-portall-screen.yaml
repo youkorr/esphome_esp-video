@@ -19,7 +19,7 @@ logger:
 
 api:
   encryption:
-    key: ""
+    key: !secret api_encryption_key
     
 psram:
   mode: hex
@@ -42,7 +42,7 @@ wifi:
   ssid: !secret wifi_ssid
   password: !secret wifi_password
   ap:
-    ssid: tab5_portall_screen Fallback Hotspot
+    ssid: tab5_portall_screen Fallback
     password: ""
 
 http_request:
