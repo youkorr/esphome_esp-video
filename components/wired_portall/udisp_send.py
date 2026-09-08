@@ -53,6 +53,7 @@ import io
 import os
 import struct
 import sys
+import threading
 import time
 
 # Payload types from Espressif's udisp protocol. Only JPEG is implemented on
@@ -498,6 +499,109 @@ def describe_monitors(monitors, panels=()):
                     and monitor["height"] == panel["height"]):
                 note = f"   <- this one goes to {panel['name']}"
         print(f"    {index}: {monitor['width']}x{monitor['height']}, {where}{note}")
+
+
+class PanelWriter:
+    """Keeps the socket's blocking write off the capture loop.
+
+    ``sendall`` does not return until the board has taken the bytes, and while
+    it waits nothing else happens at all: no screen is grabbed, no picture is
+    made, no pointer is noticed. That is harmless while the link keeps up and
+    it is the whole of the stutter when it does not -- a radio that goes away
+    for a couple of hundred milliseconds leaves whatever was in flight to
+    drain afterwards, and the loop stops for as long as that takes. On the
+    Home Assistant sender this was measured turning a single turn of the loop
+    into three seconds.
+
+    Writing from a thread turns a stall into the right kind of loss. The loop
+    never waits; a link that cannot keep up costs PICTURES, and a picture is
+    exactly the thing that is safe to lose, because the one after it replaces
+    it entirely.
+
+    One picture is held and no more, and it is all-or-nothing. A rectangle is
+    never resent, so half a picture would leave that part of the panel wrong
+    until the thirty-second redraw.
+    """
+
+    def __init__(self, endpoint):
+        self._endpoint = endpoint
+        self._wake = threading.Condition()
+        self._slot = None
+        self._error = None
+        self._stop = False
+        self.blocked = 0.0
+        # When the write in progress began, or None between writes. Without
+        # it the whole of a long write is credited to the window in which it
+        # FINISHES, and a stall longer than a window prints a percentage of
+        # time that cannot exist.
+        self._writing_since = None
+        self._thread = threading.Thread(
+            target=self._run, name="panel-writer", daemon=True)
+        self._thread.start()
+
+    def _run(self):
+        while True:
+            with self._wake:
+                while self._slot is None and not self._stop:
+                    self._wake.wait()
+                if self._stop:
+                    return
+                blobs = self._slot
+                self._writing_since = time.monotonic()
+            try:
+                for blob in blobs:
+                    self._endpoint.write(blob)
+            except OSError as err:
+                # Handed to the loop, which owns reconnecting.
+                with self._wake:
+                    self._error = err
+                    self._slot = None
+                    self._wake.notify_all()
+                return
+            with self._wake:
+                if self._writing_since is not None:
+                    self.blocked += time.monotonic() - self._writing_since
+                    self._writing_since = None
+                self._slot = None
+                self._wake.notify_all()
+
+    def ready(self):
+        """Whether the panel has caught up enough to be given another."""
+        with self._wake:
+            if self._error is not None:
+                raise self._error
+            return self._slot is None
+
+    def offer(self, blobs):
+        """Hand over a whole picture. Only call this after ready()."""
+        with self._wake:
+            if self._error is not None:
+                raise self._error
+            self._slot = blobs
+            self._wake.notify()
+
+    def take_blocked(self):
+        """Seconds spent writing since this was last asked.
+
+        Including the write still going on: credited as it accrues rather than
+        when it ends, so a stall longer than a window is spread across the
+        windows it spans instead of arriving all at once.
+        """
+        with self._wake:
+            spent, self.blocked = self.blocked, 0.0
+            if self._writing_since is not None:
+                now = time.monotonic()
+                spent += now - self._writing_since
+                self._writing_since = now
+        return spent
+
+    def close(self):
+        with self._wake:
+            self._stop = True
+            self._wake.notify_all()
+        # Never wait on a write that may itself be stuck: the socket is about
+        # to be closed under it, and the thread is a daemon.
+        self._thread.join(timeout=0.5)
 
 
 SERVICE_TYPE = "_portall._tcp.local."
@@ -1088,7 +1192,10 @@ def main():
                     + (f", rotated {args.rotate} degrees here" if args.rotate else "")
                 )
 
+                writer = PanelWriter(endpoint)
                 frames = 0
+                skipped = 0
+                worst_turn = 0.0
                 rectangles_sent = 0
                 wholes = 0
                 total_bytes = 0
@@ -1102,6 +1209,19 @@ def main():
                 try:
                     while True:
                         started = time.monotonic()
+
+                        # Ask before doing any work at all. A panel that has
+                        # not taken the last picture will not take this one
+                        # either, and grabbing, diffing and encoding for it
+                        # would be a whole turn spent on something to throw
+                        # away. What is lost is a PICTURE, which is the right
+                        # thing to lose: the next one replaces it entirely.
+                        if not writer.ready():
+                            skipped += 1
+                            remaining = interval - (time.monotonic() - started)
+                            if remaining > 0:
+                                time.sleep(remaining)
+                            continue
 
                         shot = sct.grab(monitor)
                         image = Image.frombytes("RGB", shot.size, shot.rgb)
@@ -1148,18 +1268,23 @@ def main():
                                 last_full = started
                                 wholes += 1
 
+                        blobs = []
                         for x, y, w, h in rectangles:
                             buffer = io.BytesIO()
                             image.crop((x, y, x + w, y + h)).save(
                                 buffer, format="JPEG", quality=args.quality
                             )
                             payload = buffer.getvalue()
-                            endpoint.write(
+                            blobs.append(
                                 build_header(w, h, len(payload), frame_id, x, y)
                                 + payload
                             )
                             rectangles_sent += 1
                             total_bytes += len(payload)
+                        if blobs:
+                            # The whole picture in one handover, so the writer
+                            # cannot be interrupted halfway through it.
+                            writer.offer(blobs)
 
                         if rectangles:
                             previous = current
@@ -1173,7 +1298,7 @@ def main():
                             # Nothing changed, so nothing was sent -- and a
                             # silent sender is indistinguishable from a dead
                             # one to a board counting down its timeout.
-                            endpoint.write(build_heartbeat())
+                            writer.offer([build_heartbeat()])
                             last_sent = started
 
                         now = time.monotonic()
@@ -1186,24 +1311,38 @@ def main():
                             # divides by a count -- a desktop that did not
                             # change sends nothing, and this line has to print
                             # for that case rather than raise on it.
+                            # `panel wait` is the writer thread's time, not
+                            # the loop's, so it can sit near 100% without a
+                            # stutter -- when it does, `skipped` is what the
+                            # link is costing. `worst turn` is the longest
+                            # single pass of the loop, which says whether a
+                            # pause was the socket or this machine.
+                            waited = writer.take_blocked()
                             print(
                                 f"{frames / elapsed:.1f} pictures/s, "
                                 f"{rectangles_sent / elapsed:.1f} rectangles/s, "
                                 f"{wholes} whole, "
-                                f"{total_bytes / elapsed / 1024:.1f} KiB/s"
+                                f"{total_bytes / elapsed / 1024:.1f} KiB/s, "
+                                f"panel wait {min(100, waited / elapsed * 100):.0f}%, "
+                                f"{skipped} skipped, "
+                                f"worst turn {worst_turn * 1000:.0f} ms"
                             )
                             frames = 0
+                            skipped = 0
+                            worst_turn = 0.0
                             rectangles_sent = 0
                             wholes = 0
                             total_bytes = 0
                             stats_at = now
 
+                        worst_turn = max(worst_turn, time.monotonic() - started)
                         remaining = interval - (time.monotonic() - started)
                         if remaining > 0:
                             time.sleep(remaining)
                 except lost as err:
                     print(f"Lost the board ({err}), waiting for it to come back")
                 finally:
+                    writer.close()
                     if device is not None:
                         usb.util.dispose_resources(device)
                     else:
