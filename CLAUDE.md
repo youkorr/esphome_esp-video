@@ -1839,6 +1839,14 @@ add-on options.
 - A string replacement that spanned too far silently deleted `send_picture`,
   `_target_picture`, `calibrate` and `Screencast`. A test caught it
   (`NameError`). Prefer narrow, anchored edits in `ha_send.py`; it is ~46 KB.
+  It happened twice more since: an anchored edit swallowed the `SKY` map, and
+  in `wired_portall/udisp_send.py` one swallowed the whole `--stats` block --
+  where the *follow-up* replacement meant to rewrite that block then found
+  nothing to match and **did nothing at all, silently**. Neither Python nor a
+  syntax check can see it: the file still parses, it simply stopped printing.
+  Reported by the user as a sender that said nothing after connecting. So:
+  `assert s.count(old) == 1` before every replace, and after an anchored
+  deletion check that what you expected to survive is still there.
 - `queue_touch_` uses `touchscreen::TouchPoints_t` and must stay inside
   `#ifdef USE_TOUCHSCREEN`. Touch is decoupled from `CFG_TUD_HID`.
 - **Two example configs were shipped that do not compile, and a "parse check"
