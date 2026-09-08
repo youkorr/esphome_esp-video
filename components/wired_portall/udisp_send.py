@@ -390,6 +390,31 @@ def changed_rectangles(previous, current, tile=TILE):
     return grown
 
 
+def pick_monitor(monitors, wanted, panel_w, panel_h):
+    """Which screen to send, given what the panel said it is.
+
+    mss numbers monitors from 1, with 0 meaning all of them joined. A number
+    is obeyed. "auto" looks for one whose size is EXACTLY the panel's, which
+    is the whole point: a virtual display created for this panel is set to the
+    panel's resolution, so it identifies itself without anybody counting
+    screens -- and a screen that is the right shape is never the laptop's own.
+
+    Falls back to the primary, because a wrong screen is better than none, and
+    says which it took.
+    """
+    if str(wanted).lower() != "auto":
+        return monitors[int(wanted)]
+    for index, monitor in enumerate(monitors[1:], start=1):
+        if monitor["width"] == panel_w and monitor["height"] == panel_h:
+            print(f"Capturing monitor {index}, which is {panel_w}x{panel_h} "
+                  f"-- the panel's own size")
+            return monitor
+    print(f"No monitor is {panel_w}x{panel_h}, so the primary one is being "
+          f"sent and scaled. A virtual display set to the panel's size would "
+          f"be picked up by itself.")
+    return monitors[1]
+
+
 SERVICE_TYPE = "_portall._tcp.local."
 
 
@@ -659,7 +684,13 @@ def main():
         help="must match the height: of the wired_portall component",
     )
     parser.add_argument(
-        "--monitor", type=int, default=1, help="which monitor to capture (1 = primary)"
+        "--monitor",
+        default="auto",
+        help="which monitor to capture: a number (1 = primary), or auto. "
+        "auto takes the one whose size is exactly the panel's, which is what "
+        "a virtual display set to the panel's resolution will be -- so a "
+        "second screen created for this is found without being counted. "
+        "Failing that, the primary one",
     )
     parser.add_argument(
         "--rotate",
@@ -695,6 +726,13 @@ def main():
         "exit. Windows only",
     )
     parser.add_argument(
+        "--usb",
+        action="store_true",
+        help="send over the cable instead of the network. This copy is for a "
+        "panel fed over Wi-Fi, so the network is what it does when nothing "
+        "says otherwise",
+    )
+    parser.add_argument(
         "--discover",
         action="store_true",
         help="find panels on the network by mDNS and use one, instead of "
@@ -718,6 +756,12 @@ def main():
 
     if args.uninstall_startup:
         return uninstall_startup()
+
+    # Run with nothing at all and it finds the panel by itself. The address,
+    # the size and the rotation are in the board's own ESPHome configuration,
+    # so there is nothing here worth asking a person to type.
+    if not args.discover and not args.host and not args.usb:
+        args.discover = True
 
     if args.discover:
         panels = discover()
@@ -811,7 +855,8 @@ def main():
 
     try:
         with screenshotter() as sct:
-            monitor = sct.monitors[args.monitor]
+            monitor = pick_monitor(sct.monitors, args.monitor,
+                                   args.width, args.height)
             # Outer loop: one pass per connection. Unplugging the board, or
             # reflashing it, ends the inner loop and comes back here to wait for
             # it rather than ending the program.
