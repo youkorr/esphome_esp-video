@@ -595,6 +595,44 @@ def _require_startup_path():
     return path
 
 
+LOG_NAME = "udisp_send.log"
+LOG_MAX_BYTES = 1024 * 1024
+
+
+def _log_to_file_when_hidden():
+    """Write to a file when there is nowhere else to write.
+
+    The login task runs under pythonw.exe, which has no console: sys.stdout is
+    None there, and print() silently does nothing. That is fine until it is
+    not -- a sender that fails to start leaves no trace at all, and from the
+    outside that is indistinguishable from a panel that is off, a network that
+    is down and a file that was never installed.
+
+    Returns the path it is writing to, or None when there is a console and
+    this is somebody watching it.
+    """
+    if sys.stdout is not None:
+        return None
+    where = os.path.join(
+        os.environ.get("LOCALAPPDATA") or os.path.expanduser("~"),
+        "esphome-udisp", LOG_NAME)
+    try:
+        os.makedirs(os.path.dirname(where), exist_ok=True)
+        # Started again means started over. A log that only grows is one
+        # nobody reads, and what matters is this run.
+        if os.path.exists(where) and os.path.getsize(where) > LOG_MAX_BYTES:
+            os.remove(where)
+        handle = open(where, "a", encoding="utf-8", buffering=1)
+    except OSError:
+        # Never fatal. A sender that will not start because it could not open
+        # its log is worse than one that says nothing.
+        return None
+    handle.write(f"\n--- started {time.strftime('%Y-%m-%d %H:%M:%S')} ---\n")
+    sys.stdout = handle
+    sys.stderr = handle
+    return where
+
+
 def _install_copy():
     """Put a copy of this script somewhere that will still be there at login.
 
@@ -675,6 +713,9 @@ def install_startup(args):
         )
     print(f"Installed: {path}")
     print(f"Running:   {copied}")
+    print(f"Log:       {os.path.join(os.path.dirname(copied), LOG_NAME)}")
+    print("It runs with no console, so that log is where it says what it is")
+    print("doing and why it stopped.")
     print("It starts at the next login, and waits for the board rather than")
     print("failing when it is not plugged in yet.")
     return 0
@@ -789,6 +830,10 @@ def main():
         help="undo --install-startup and exit",
     )
     args = parser.parse_args()
+
+    # Before anything that might print, so a hidden run has somewhere to say
+    # what went wrong.
+    _log_to_file_when_hidden()
 
     if args.version:
         # The file's own fingerprint, not a number somebody has to remember to
