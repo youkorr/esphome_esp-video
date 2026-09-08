@@ -1517,6 +1517,40 @@ field name and both enumerators are taken from working code in
 `youkorr/lvgl_9.5`, not from memory, so they exist on this IDF — but the change
 itself has only been schema-checked.
 
+**A panel really is a PC screen over Wi-Fi, and the first log from one says
+where the time goes.** `wired_portall` on a Waveshare 7B, fed by
+`udisp_send.py --discover` from Windows 11:
+
+    First frame from the host: 78049 bytes compressed, 1024x600 at 0,0
+    64x128 @ 6.2 fps, 4093 us/draw (3188 in the PPA), 0 dropped
+    1024x600 @ 13.1 fps, 5278 us/draw (3957 in the PPA), 0 dropped
+    64x408 @ 9.0 fps, 11105 us/draw (8623 in the PPA), 0 dropped
+
+Two findings, and the first is the one that decided the project was viable.
+
+**No `H_SDIO_DRV` at all, and `0 dropped` on every line** -- no buffer, no too
+soon, no decode, no rotate. A sustained INBOUND stream is exactly what
+espressif/esp-hosted-mcu#184 is about, and it did not appear. The rectangles
+in those lines are the diff working: 64x128, 192x64, 64x408 are pieces of a
+desktop, not panels.
+
+**And the PPA is 72-78% of every draw**, on all seven lines of that log --
+14865 us of 18964 on a whole panel, 3188 of 4093 on a 64x128 rectangle. This
+was written here as "silicon that was idle", which was an assumption stated as
+a fact: idle it may be, cheap it is not. The whole of that cost exists only
+because `rotation:` is not 0 -- the board allocates the rotation buffer and
+makes the pass only when rotating or scaling.
+
+The Waveshare 7B cannot do it in its own hardware either: ESPHome's model for
+it is declared `no_transform=True`, so the MADCTL flip that makes a 180 free
+on other displays is unavailable. Checked in ESPHome's own source rather than
+assumed, after its `rotation_as_transform` said a 180 "is always possible if x
+and y mirroring are supported" -- which for this panel they are not.
+
+So the turn is in one of two places and the PC is the one with cycles to
+spare. That is the opposite of the advice given when `rotation:` was moved
+into the YAML, and it is the log that corrects it.
+
 **Free PSRAM standing still is what a working panel looks like, and it was
 read as the opposite.** Reported as *"la psram n'est pas sollicitee meme quant
 je lance une video"* -- and it is the natural reading of a log, because the

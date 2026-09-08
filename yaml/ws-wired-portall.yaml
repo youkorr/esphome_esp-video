@@ -27,10 +27,29 @@ substitutions:
   # two numbers that must agree are two numbers that will not.
   panel_width: "1024"
   panel_height: "600"
-  # The Waveshare 7B is usually mounted the other way up. The board turns the
-  # picture in HARDWARE, through the PPA, on silicon that is otherwise idle --
-  # so this belongs here rather than as --rotate on the sender's command line,
-  # which would cost the PC a transpose of every frame.
+  # The Waveshare 7B is usually mounted the other way up.
+  #
+  # WHERE the turn happens is worth measuring rather than assuming, and this
+  # was assumed wrongly at first: the PPA is not free. From a panel's own log,
+  # every line of it, the accelerator is 72-78% of the time a draw takes --
+  # 14865 us out of 18964 on a whole panel, 3188 out of 4093 on a 64x128
+  # rectangle. That whole cost exists only because of this number: at 0, and
+  # with no scaling, the board never allocates the rotation buffer and never
+  # makes the pass.
+  #
+  # This panel cannot do it in its own hardware -- ESPHome's model for the 7B
+  # is declared no_transform, so the MADCTL trick that makes a 180 free on
+  # other displays is not available here. So it is one of two places, and the
+  # PC is the one with cycles to spare:
+  #
+  #   here            the board turns it; simplest, and costs it 3/4 of a draw
+  #   0 + --rotate 180  the PC turns it; one transpose per frame there, and
+  #                     the board skips the accelerator entirely
+  #
+  # Try both and read `us/draw` in the board's log. Worth trying alongside:
+  # ppa_burst: 128 on the component -- 64 is what a different workload
+  # concluded, and the microseconds are printed so this one can decide for
+  # itself.
   panel_rotation: "180"
   panel_port: "5000"
 
