@@ -18,9 +18,15 @@ Requirements:
     pip install mss pillow numpy zeroconf    # over the network
     pip install pyusb mss pillow numpy libusb-package   # over a cable
 
-On Windows there is a script beside this one, windows/setup.ps1, that does
-the whole of the PC side in one line -- the dependencies, this file, and the
-login task -- so that none of the below has to be typed either.
+On Windows this same file is also shipped frozen, as portall.exe, which is
+what the panel's own waiting screen asks for: one download, double-clicked,
+with no Python and no pip. It is built by .github/workflows/portall-exe.yml on
+a Windows runner, because PyInstaller cannot cross-compile. Everything below
+applies to it unchanged -- portall.exe --install-startup is the same command
+with the same effect.
+
+There is also a script beside this one, windows/setup.ps1, that does the whole
+of the PC side in one line for somebody who would rather have the Python.
 
 Over the network, nothing has to be typed at all: the board advertises its
 address and the shape of its panel from its own ESPHome configuration, so
@@ -761,11 +767,28 @@ def _require_startup_path():
     return path
 
 
+def frozen():
+    """Whether this is running as portall.exe rather than as a .py.
+
+    PyInstaller sets sys.frozen and puts the real program in sys.executable;
+    __file__ then points inside a bundle that is unpacked to a temporary
+    directory and deleted afterwards. Every path decision below has to ask
+    this, and getting it wrong produces a login task pointing at a folder that
+    no longer exists -- which works exactly once.
+    """
+    return getattr(sys, "frozen", False)
+
+
+def own_path():
+    """The file to copy, to hash, and to run again: the exe, or this script."""
+    return os.path.abspath(sys.executable if frozen() else __file__)
+
+
 LOG_NAME = "udisp_send.log"
 LOG_MAX_BYTES = 1024 * 1024
 
 
-def _log_to_file_when_hidden():
+def _log_to_file_when_hidden(forced=False):
     """Write to a file when there is nowhere else to write.
 
     The login task runs under pythonw.exe, which has no console: sys.stdout is
@@ -774,10 +797,18 @@ def _log_to_file_when_hidden():
     outside that is indistinguishable from a panel that is off, a network that
     is down and a file that was never installed.
 
+    A frozen build breaks that test rather than passing it. portall.exe is
+    built with a console so that somebody who double-clicks it sees it working,
+    and the login script then starts it with that console HIDDEN -- so
+    sys.stdout is a perfectly good handle to a window nobody can see, and every
+    line goes nowhere while looking like it went somewhere. `forced` is how the
+    login script says which of the two this is; the flag is written into the
+    command line at install time rather than guessed at here.
+
     Returns the path it is writing to, or None when there is a console and
     this is somebody watching it.
     """
-    if sys.stdout is not None:
+    if sys.stdout is not None and not forced:
         return None
     where = os.path.join(
         os.environ.get("LOCALAPPDATA") or os.path.expanduser("~"),
@@ -812,9 +843,9 @@ def _install_copy():
         os.environ.get("LOCALAPPDATA") or os.path.expanduser("~"), "esphome-udisp"
     )
     os.makedirs(target_dir, exist_ok=True)
-    target = os.path.join(target_dir, "udisp_send.py")
+    source = own_path()
+    target = os.path.join(target_dir, os.path.basename(source))
 
-    source = os.path.abspath(__file__)
     if os.path.normcase(source) != os.path.normcase(target):
         with open(source, "rb") as src, open(target, "wb") as dst:
             dst.write(src.read())
@@ -830,16 +861,23 @@ def install_startup(args):
     """
     path = _require_startup_path()
 
-    # pythonw.exe is the interpreter without a console; fall back to the one
-    # running this if the installation has no windowed build.
-    interpreter = os.path.join(os.path.dirname(sys.executable), "pythonw.exe")
-    if not os.path.exists(interpreter):
-        interpreter = sys.executable
-
     copied = _install_copy()
-    parts = [
-        interpreter,
-        copied,
+    if frozen():
+        # The executable IS the program. Handing it to an interpreter would
+        # be asking Python to run a Windows binary.
+        parts = [copied]
+    else:
+        # pythonw.exe is the interpreter without a console; fall back to the
+        # one running this if the installation has no windowed build.
+        interpreter = os.path.join(os.path.dirname(sys.executable), "pythonw.exe")
+        if not os.path.exists(interpreter):
+            interpreter = sys.executable
+        parts = [interpreter, copied]
+    # A hidden window is not the same as no window, and only this run knows
+    # which it is about to become. Said out loud on the command line rather
+    # than sniffed at startup.
+    parts += ["--log-file"]
+    parts += [
         "--monitor",
         str(args.monitor),
         "--fps",
@@ -1009,11 +1047,18 @@ def main():
         action="store_true",
         help="undo --install-startup and exit",
     )
+    parser.add_argument(
+        "--log-file",
+        action="store_true",
+        help="write everything to a file beside the installed copy instead of "
+        "to the console. --install-startup puts this on the command line it "
+        "writes, because a run started at login has a console nobody can see",
+    )
     args = parser.parse_args()
 
     # Before anything that might print, so a hidden run has somewhere to say
     # what went wrong.
-    _log_to_file_when_hidden()
+    _log_to_file_when_hidden(forced=args.log_file)
 
     if args.version:
         # The file's own fingerprint, not a number somebody has to remember to
@@ -1022,9 +1067,10 @@ def main():
         # window an old file and a broken one look identical.
         import hashlib
 
-        with open(os.path.abspath(__file__), "rb") as handle:
+        me = own_path()
+        with open(me, "rb") as handle:
             digest = hashlib.sha256(handle.read()).hexdigest()[:12]
-        print(f"udisp_send.py {digest}, {os.path.getsize(os.path.abspath(__file__))} bytes")
+        print(f"{os.path.basename(me)} {digest}, {os.path.getsize(me)} bytes")
         return 0
 
     if args.uninstall_startup:

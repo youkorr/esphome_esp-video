@@ -1,0 +1,77 @@
+# Builds portall.exe -- the Windows sender, with no Python to install.
+#
+# This exists because the panel's own waiting screen says "RUN PORTALL.EXE",
+# and because four steps in front of a room is three too many. It runs on a
+# Windows runner because PyInstaller cannot cross-compile: a Windows binary
+# has to be built on Windows, and this repository's author has none.
+#
+# Run it from the Actions tab (Run workflow), or push a tag beginning with
+# portall-v. A tag also attaches the exe to a release, so there is a stable
+# link to give people.
+name: portall.exe
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "portall-v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          # Not the newest. A frozen build inherits its interpreter's own
+          # floor, and 3.11 is what Windows 10 and 11 both run without
+          # argument; the sender uses nothing newer.
+          python-version: "3.11"
+
+      - name: Install what the sender needs, and what freezes it
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pyinstaller mss pillow numpy zeroconf
+
+      - name: Build
+        run: >
+          pyinstaller --onefile --name portall
+          --collect-submodules zeroconf
+          --console
+          components/wired_portall/udisp_send.py
+
+      - name: Say what came out
+        # Proof that it starts at all, which --version answers without needing
+        # a panel, a network or a screen: it prints the file's own fingerprint
+        # and stops. A build that produces an exe that cannot run is worse
+        # than a build that fails.
+        run: |
+          dir dist
+          .\dist\portall.exe --version
+          .\dist\portall.exe --help | Select-Object -First 5
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: portall-exe
+          path: dist/portall.exe
+          if-no-files-found: error
+
+      - name: Attach it to the release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/portall.exe
+          body: |
+            portall.exe -- send a Windows screen to an ESP32-P4 panel over Wi-Fi.
+
+            Download it, double-click it. It finds the panel on the network by
+            itself and takes the panel's size and rotation from what the board
+            advertises, so there is nothing to configure and nothing to type.
+
+            To have it start at every login, once:
+
+                portall.exe --install-startup
