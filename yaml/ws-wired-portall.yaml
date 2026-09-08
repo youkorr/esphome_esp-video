@@ -1,0 +1,154 @@
+# A panel as a screen for a PC, over Wi-Fi.
+#
+# This is the TEST firmware for components/wired_portall -- a copy of portall
+# under its own name, so that experimenting with the PC-screen path cannot
+# break the panels people are running portall on today. Nothing here is
+# particular to Home Assistant: the board listens on a TCP port and draws
+# whatever udisp client connects to it.
+#
+# The board side needs no change for this. What is being tried is the SENDER:
+#
+#     pip install mss pillow
+#     python udisp_send.py --host <the panel's ip> --port 5000 --width 1024 --height 600 --fps 5
+#
+# Start at a low --fps. That sender sends a WHOLE panel per frame with no
+# diff, so it is deliberately heavy -- the question it answers is whether a
+# sustained INBOUND stream holds, or whether the ESP-Hosted SDIO stall
+# (espressif/esp-hosted-mcu#184) shows up as `H_SDIO_DRV: task still writing
+# Rx data to queue!` in this board's log.
+#
+# Board: Waveshare ESP32-P4-WIFI6-Touch-LCD-7B, 1024x600.
+# Audio is left out on purpose -- see ws-usb-screen.yaml for that stack.
+
+substitutions:
+  name: wired-portall
+
+esphome:
+  name: ${name}
+  friendly_name: ${name}
+
+esp32:
+  board: esp32-p4-evboard
+  flash_size: 32MB
+  cpu_frequency: 360MHz
+  framework:
+    type: esp-idf
+    advanced:
+      enable_idf_experimental_features: true
+
+logger:
+
+api:
+  encryption:
+    key: !secret api_encryption_key
+
+ota:
+  - platform: esphome
+
+psram:
+  mode: hex
+  speed: 200MHz
+
+esp_ldo:
+  - voltage: 2.5V
+    channel: 3
+
+i2c:
+  - id: bsp_bus
+    sda: GPIO7
+    scl: GPIO8
+    frequency: 400kHz
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  # Not the default light sleep. A panel taking a picture many times a second
+  # is not a sensor that speaks once a minute: a radio that sleeps between
+  # beacons adds latency and lets the access point buffer, which is exactly
+  # what a sustained inbound stream cannot afford.
+  power_save_mode: none
+  ap:
+    ssid: ${name} Fallback
+    password: ""
+
+esp32_hosted:
+  variant: ESP32C6
+  reset_pin: GPIO54
+  cmd_pin: GPIO19
+  clk_pin: GPIO18
+  d0_pin: GPIO14
+  d1_pin: GPIO15
+  d2_pin: GPIO16
+  d3_pin: GPIO17
+  active_high: true
+  use_psram: false
+  slot: 1
+
+captive_portal:
+
+external_components:
+  - source:
+      type: git
+      url: https://github.com/youkorr/esphome_esp-video
+      ref: main
+    components: [wired_portall]
+    refresh: 0s
+
+output:
+  - platform: ledc
+    pin: GPIO32
+    id: backlight_pwm
+    frequency: 1000Hz
+    inverted: true
+
+light:
+  - platform: monochromatic
+    output: backlight_pwm
+    name: Display Backlight
+    id: backlight
+    restore_mode: RESTORE_DEFAULT_ON
+    default_transition_length: 250ms
+
+touchscreen:
+  - platform: gt911
+    id: touch
+    i2c_id: bsp_bus
+    reset_pin: GPIO23
+    update_interval: 20ms
+    on_touch:
+      - light.turn_on: backlight
+    transform:
+      swap_xy: false
+      mirror_x: true
+      mirror_y: true
+
+display:
+  - platform: mipi_dsi
+    id: main_screen
+    model: WAVESHARE-ESP32-P4-WIFI6-TOUCH-LCD-7B
+    pixel_mode: 16
+    update_interval: never
+    auto_clear_enabled: false
+
+wired_portall:
+  display_id: main_screen
+  touchscreen_id: touch
+  # The whole of what makes this a network screen. Without it the board is
+  # USB-only, and the device-wide network tuning is not applied either.
+  port: 5000
+  # Must match what the PC sender is told. A frame of another size is dropped
+  # rather than drawn at the wrong shape.
+  width: 1024
+  height: 600
+  rotation: 0
+  vendor_id: 0x303A
+  product_id: 0x2986
+  # No mass-storage volume: it exists to hand the sender script to a computer
+  # over the cable, and this panel is fed over Wi-Fi.
+  sender_drive: false
+  max_frame_bytes: 300000
+  jpeg_quality: 9
+  max_fps: 60
+  manufacturer: Espressif
+  product: ESP_Extern_Screen
+  serial: "012-2021"
