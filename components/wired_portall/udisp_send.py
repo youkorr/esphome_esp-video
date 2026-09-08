@@ -15,7 +15,16 @@ you want; --uninstall-startup takes it back out.
 
 Requirements:
 
-    pip install pyusb mss pillow libusb-package
+    pip install mss pillow zeroconf          # over the network
+    pip install pyusb mss pillow libusb-package   # over a cable
+
+Over the network, nothing has to be typed at all: the board advertises its
+address and the shape of its panel from its own ESPHome configuration, so
+
+    ./udisp_send.py --discover
+
+finds it and takes the rest from what it said. See
+yaml/ws-wired-portall.yaml for the mdns: block that does the advertising.
 
 libusb-package is what supplies the libusb library pyusb needs. On Linux and
 macOS the system one is used if it is already installed, so it is optional
@@ -283,6 +292,83 @@ class _TcpEndpoint:
         self._sock.close()
 
 
+SERVICE_TYPE = "_portall._tcp.local."
+
+
+def discover(seconds=3.0):
+    """Panels that said what they are, over mDNS.
+
+    The board advertises this from its ESPHome configuration -- the address,
+    the port, and the shape of the panel -- so none of it has to be typed
+    here. That is the whole point: the YAML already knows, and a number typed
+    twice is a number that will disagree eventually.
+
+    Returns a list of dicts, or an empty list. Never raises: a machine with no
+    mDNS on it is a machine that gives an address by hand, not one that fails.
+    """
+    try:
+        from zeroconf import ServiceBrowser, ServiceListener, Zeroconf
+    except ImportError:
+        print("Discovery needs zeroconf: pip install zeroconf")
+        return []
+    import socket as _socket
+    import time as _time
+
+    found = {}
+
+    class Listener(ServiceListener):
+        def _look(self, zc, type_, name):
+            info = zc.get_service_info(type_, name, timeout=2000)
+            if info is None:
+                return
+            # A panel may answer on several addresses; the first that is a
+            # plain IPv4 one is what a socket wants.
+            addresses = [
+                _socket.inet_ntop(_socket.AF_INET, packed)
+                for packed in info.addresses
+                if len(packed) == 4
+            ]
+            if not addresses:
+                return
+            txt = {
+                key.decode(errors="replace"): (value or b"").decode(errors="replace")
+                for key, value in (info.properties or {}).items()
+            }
+
+            def number(key):
+                try:
+                    return int(txt.get(key, ""))
+                except ValueError:
+                    return None
+
+            found[name] = {
+                "name": name.split(".")[0],
+                "host": addresses[0],
+                "port": info.port,
+                "width": number("width"),
+                "height": number("height"),
+                # What the BOARD does, not what the sender should do. It turns
+                # the picture in hardware, so rotating here as well would turn
+                # it twice.
+                "rotation": number("rotation"),
+                "format": txt.get("format", ""),
+            }
+
+        add_service = _look
+        update_service = _look
+
+        def remove_service(self, zc, type_, name):
+            found.pop(name, None)
+
+    zeroconf = Zeroconf()
+    try:
+        ServiceBrowser(zeroconf, SERVICE_TYPE, Listener())
+        _time.sleep(seconds)
+    finally:
+        zeroconf.close()
+    return sorted(found.values(), key=lambda panel: panel["name"])
+
+
 def connect_tcp(host, port):
     """Wait for the board to answer, the same way the USB path waits for it."""
     import socket
@@ -504,6 +590,21 @@ def main():
         "exit. Windows only",
     )
     parser.add_argument(
+        "--discover",
+        action="store_true",
+        help="find panels on the network by mDNS and use one, instead of "
+        "being given --host, --width and --height. The board advertises its "
+        "address and its shape from its ESPHome configuration, so nothing "
+        "here has to be typed. With several panels found, they are listed "
+        "and one is chosen with --panel",
+    )
+    parser.add_argument(
+        "--panel",
+        default=None,
+        help="which discovered panel to use, by name, when --discover finds "
+        "more than one",
+    )
+    parser.add_argument(
         "--uninstall-startup",
         action="store_true",
         help="undo --install-startup and exit",
@@ -512,8 +613,44 @@ def main():
 
     if args.uninstall_startup:
         return uninstall_startup()
+
+    if args.discover:
+        panels = discover()
+        if not panels:
+            parser.error(
+                "no panel answered on the network. Check the board has port: "
+                "set and the mdns: services block from ws-wired-portall.yaml, "
+                "and that this machine is on the same network -- mDNS does "
+                "not cross a router."
+            )
+        for panel in panels:
+            print(f"  {panel['name']}  {panel['host']}:{panel['port']}  "
+                  f"{panel['width']}x{panel['height']}"
+                  + (f", the board turns it {panel['rotation']} degrees"
+                     if panel["rotation"] else ""))
+        chosen = panels[0]
+        if args.panel:
+            named = [p for p in panels if p["name"] == args.panel]
+            if not named:
+                parser.error(f"no panel called {args.panel!r} was found")
+            chosen = named[0]
+        elif len(panels) > 1:
+            parser.error("several panels answered -- say which with --panel")
+        # Only what was not given by hand. Somebody who typed a size meant it.
+        if not args.host:
+            args.host, args.port = chosen["host"], chosen["port"]
+        if args.width is None:
+            args.width = chosen["width"]
+        if args.height is None:
+            args.height = chosen["height"]
+        # Deliberately NOT --rotate. The board turns the picture in hardware,
+        # so rotating it here as well would turn it twice; the number is
+        # advertised so this can say what is happening, not so it can act.
+        print(f"Using {chosen['name']} at {args.host}:{args.port}, "
+              f"{args.width}x{args.height}")
+
     if args.width is None or args.height is None:
-        parser.error("--width and --height are required")
+        parser.error("--width and --height are required, or use --discover")
     if args.install_startup:
         return install_startup(args)
 
@@ -522,7 +659,8 @@ def main():
         from PIL import Image
     except ImportError as err:
         raise SystemExit(
-            f"{err}. Install the dependencies: pip install pyusb mss pillow"
+            f"{err}. Install the dependencies: pip install mss pillow"
+            + ("" if args.host or args.discover else " pyusb")
         ) from err
 
     # Pillow's ROTATE_n turn counter-clockwise, and moved into an enum in 9.1
@@ -537,8 +675,14 @@ def main():
         270: transposes.ROTATE_90,
     }[args.rotate]
 
-    import usb.core
-    import usb.util
+    # NOT for a panel fed over the network. pyusb is what talks to a board on
+    # a cable, and a machine sending over Wi-Fi has no reason to install it --
+    # this used to die here with "No module named 'usb'" on a path that never
+    # touches USB, which is the first thing anybody trying the network sender
+    # runs into.
+    if not args.host:
+        import usb.core  # noqa: F401 - the send loop uses it through wait_for_endpoint
+        import usb.util  # noqa: F401
 
     interval = 1.0 / args.fps if args.fps > 0 else 0.0
     frame_id = 0
@@ -558,10 +702,15 @@ def main():
                     device, endpoint = None, connect_tcp(args.host, args.port)
                 else:
                     device, endpoint = wait_for_endpoint(args.vid, args.pid)
+                # Say where it is really going: over the network the USB
+                # identifiers are not merely useless, they name a device that
+                # is not in this at all.
+                where = (f"{args.host}:{args.port}" if args.host
+                         else f"{args.vid:04x}:{args.pid:04x}")
                 print(
                     f"Sending {args.width}x{args.height} at up to {args.fps:g} fps to "
-                    f"{args.vid:04x}:{args.pid:04x}"
-                    + (f", rotated {args.rotate} degrees" if args.rotate else "")
+                    f"{where}"
+                    + (f", rotated {args.rotate} degrees here" if args.rotate else "")
                 )
 
                 frames = 0

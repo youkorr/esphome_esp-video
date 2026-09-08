@@ -22,6 +22,17 @@
 
 substitutions:
   name: wired-portall
+  # One source of truth for the panel's shape. It is used twice below -- once
+  # to configure the board, once to tell the network what to send it -- and
+  # two numbers that must agree are two numbers that will not.
+  panel_width: "1024"
+  panel_height: "600"
+  # The Waveshare 7B is usually mounted the other way up. The board turns the
+  # picture in HARDWARE, through the PPA, on silicon that is otherwise idle --
+  # so this belongs here rather than as --rotate on the sender's command line,
+  # which would cost the PC a transpose of every frame.
+  panel_rotation: "180"
+  panel_port: "5000"
 
 esphome:
   name: ${name}
@@ -86,6 +97,26 @@ esp32_hosted:
 
 captive_portal:
 
+# What makes the panel findable without anybody typing an address. ESPHome
+# already advertises itself as _esphomelib._tcp; this adds a service of the
+# panel's own, so a program on a PC can browse for _portall._tcp and be told
+# where the panel is AND what shape it is, from this file, once.
+#
+# Nothing on the board changes for this: the service is advertised by
+# ESPHome's own mDNS component, which is already running.
+mdns:
+  services:
+    - service: "_portall"
+      protocol: "_tcp"
+      port: ${panel_port}
+      txt:
+        width: ${panel_width}
+        height: ${panel_height}
+        rotation: ${panel_rotation}
+        # What it speaks, so a sender that grows a second format later can
+        # tell which panels understand it.
+        format: "udisp-jpeg"
+
 external_components:
   - source:
       type: git
@@ -135,12 +166,12 @@ wired_portall:
   touchscreen_id: touch
   # The whole of what makes this a network screen. Without it the board is
   # USB-only, and the device-wide network tuning is not applied either.
-  port: 5000
-  # Must match what the PC sender is told. A frame of another size is dropped
-  # rather than drawn at the wrong shape.
-  width: 1024
-  height: 600
-  rotation: 0
+  port: ${panel_port}
+  # Announced over mDNS below, so the sender is told rather than typed at.
+  # A frame of another size is dropped rather than drawn at the wrong shape.
+  width: ${panel_width}
+  height: ${panel_height}
+  rotation: ${panel_rotation}
   vendor_id: 0x303A
   product_id: 0x2986
   # No mass-storage volume: it exists to hand the sender script to a computer

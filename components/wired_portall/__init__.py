@@ -22,8 +22,16 @@ yaml/ws-wired-portall.yaml is a validated example.
 
 The board needs nothing new for the PC-screen path: it already listens on
 port: and draws whatever udisp client connects. What is being worked on is the
-SENDER, and components/portall/udisp_send.py is where that starts -- it
-already captures a screen, scales it, and speaks this protocol over TCP.
+SENDER -- udisp_send.py next to this file, which captures a screen, scales it,
+and speaks this protocol over TCP.
+
+Finding the panel needs nothing here either, and that is worth knowing before
+anybody adds it: ESPHome's own mdns: component advertises whatever services a
+configuration asks for, so the example YAML announces _portall._tcp with the
+panel's width, height and rotation in its TXT records. `udisp_send.py
+--discover` browses for that and takes the address and the shape from it, so
+none of it is typed. One place holds those numbers -- the YAML -- and the
+sender is told rather than asked.
 """
 import logging
 import os
