@@ -3196,6 +3196,37 @@ that the message prints the command against their exact three-monitor layout,
 that `--setup` still refuses cleanly off Windows, and that `--pause` reaches
 the help.
 
+## "Comment je le fais avec le terminal ?" is the answer being wrong
+
+**Four rounds ended there**, and the question is the finding. Round one named
+the class of driver to go and install. Round two named `--setup`. Round three
+made `--setup` elevate itself. Every one of them still ended with a command
+somebody had to type somewhere they had to find first -- and a person who
+downloaded one file and double-clicked it should not have to learn where
+PowerShell lives to make their screen work.
+
+So the plain run now **asks**. `offer_setup` puts one question on the screen at
+the one moment the fault is certain and somebody is watching, and Enter is yes.
+
+**Three guards, and the middle one is the one that matters.** A run started at
+login has a console nobody can see -- a prompt there would wait for a keypress
+for ever with the panel dark and nothing saying why. That is the same hole
+`--log-file` exists for, so `--log-file` is what marks it, with an absent or
+redirected stdin as the second test. The others: Windows only, and only when
+the screen really is the wrong size, so a panel that is already a second
+desktop is never asked anything.
+
+Exercised over six states with stdin and the platform stubbed -- a login run, a
+console that is not a tty, stdin gone entirely, a screen already the panel's
+size, not Windows, and a watched run answering no -- all silent and all False;
+then the yes path with the elevation stubbed, which asks and returns True.
+
+**The shape, now recorded a fourth time in this file:** a fix the reader cannot
+reach from where they are standing has not been delivered. The invisible
+keyboard, the add-on option that never reached `command_for()`, the command
+that was never named, and now the command that was named and still had to be
+typed in a window nobody could find.
+
 ## Repository conventions
 
 - Work on branch `claude/esphome-pr-outdated-mdq36w`, then merge into `main`

@@ -1227,6 +1227,55 @@ def relaunch_as_admin():
     return True
 
 
+def offer_setup(args, monitor):
+    """Ask, instead of printing a command for somebody to go and type.
+
+    Four rounds of this ended with "comment je le fais avec le terminal ?",
+    which is the right question and the sign that the answer was wrong. Naming
+    the command was already the second attempt; the first only named the class
+    of driver. A person who downloaded one file and double-clicked it should
+    not have to learn where PowerShell is to make their screen work.
+
+    Three guards, and the middle one is the important one:
+
+    - Windows only, since it installs a Windows driver.
+    - **Never when nobody is there.** A run started at login has a console it
+      cannot be seen through, and a prompt there would wait for a keypress for
+      ever, with the panel dark and no way to tell why. --log-file is what that
+      run is marked with, and an absent or redirected stdin says the same.
+    - And only when the screen really is the wrong size, so a panel that is
+      already a second desktop is never asked anything.
+
+    Returns True when setup was started and this run should stop.
+    """
+    if sys.platform != "win32" or args.log_file:
+        return False
+    if monitor["width"] == args.width and monitor["height"] == args.height:
+        return False
+    try:
+        if sys.stdin is None or not sys.stdin.isatty():
+            return False
+    except (AttributeError, ValueError):
+        return False
+
+    print()
+    try:
+        answer = input("Set that up now? Windows will ask permission. [Y/n] ")
+    except (EOFError, KeyboardInterrupt):
+        print()
+        return False
+    if answer.strip().lower() in ("n", "no", "non"):
+        print("Carrying on with a copy of the main screen.")
+        return False
+
+    print()
+    setup_windows(args)
+    print()
+    print("When that window has finished, restart Windows once and start this")
+    print("again. Until then the panel can only be shown a copy.")
+    return True
+
+
 def setup_windows(args):
     """The whole PC side in one command, and never again.
 
@@ -1634,6 +1683,10 @@ def main():
         with screenshotter() as sct:
             monitor = pick_monitor(sct.monitors, args.monitor,
                                    args.width, args.height)
+            # Offer to fix it here rather than leaving instructions. This is
+            # the one moment the fault is certain and somebody is watching.
+            if offer_setup(args, monitor):
+                return 0
             # The arrow is drawn at the size of the SCREEN being captured, and
             # that screen is often larger than the panel -- on a mirrored
             # 1920x1080 shown at 1024x600 the pointer would arrive shrunk by
