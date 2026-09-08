@@ -49,10 +49,17 @@ jobs:
         # a panel, a network or a screen: it prints the file's own fingerprint
         # and stops. A build that produces an exe that cannot run is worse
         # than a build that fails.
+        #
+        # The WHOLE help, not the first few lines. An exe carries whatever the
+        # source had on the day it was built, and "portall.exe --setup, je le
+        # trouve pas" is what that looks like from the other end -- a flag
+        # pushed after the last build, in a binary that could not have it.
+        # Printing every option means the log of each build answers, on its
+        # own, which ones that build can do.
         run: |
           dir dist
           .\dist\portall.exe --version
-          .\dist\portall.exe --help | Select-Object -First 5
+          .\dist\portall.exe --help
 
       - uses: actions/upload-artifact@v7
         with:
