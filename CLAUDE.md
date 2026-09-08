@@ -3033,6 +3033,87 @@ not merely how the panel becomes a second desktop; it is also the frame rate.
 The message says both now, because the two were reported a week apart as
 separate complaints and have one cause.
 
+## Windows will not add a screen over Wi-Fi without something installed
+
+**Pushed back on, rightly, as *"si vous quittez portall.exe vous pouvez plus
+vous servir de cet ecran secondaire ... trouve une solution ... meme si tu me
+dis que c'est impossible car moi je dis que c'est possible, tu ne cherches pas
+au bon endroit"*.** Two of those are fair: the exe's lifetime had never been
+addressed at all, and Miracast had been ruled out from memory rather than
+re-checked. Researched properly this time, with sources.
+
+**The chip half is closed and now has a citation.** The ESP32-P4 has a
+**hardware H.264 ENCODER and a software decoder** (tinyH264) -- Espressif's own
+component documentation. Miracast, and Miracast-over-Infrastructure with it,
+mandates H.264 in the SINK. So the one way Windows adds a screen over Wi-Fi
+with nothing installed is the one way this chip cannot receive. That is not a
+gap in the search; it is the reason spacedesk ships a driver rather than
+appearing in the wireless-display list.
+
+**And Microsoft's own words say what the answer is instead:** "streaming the
+display output over a network to a remote client (remote display) is one of
+the typical scenarios where an **IDD** is required." A network screen on
+Windows is an indirect display driver. There is no second route.
+
+**Espressif already shipped one, and the board already speaks to it.** The
+`usb_extend_screen` example carries a **signed** IDD driver --
+`xfz1986_usb_graphic_250224_rc_sign.exe`, built from the open
+`chuanjinpang/win10_idd_xfz1986_usb_graphic_driver_display` -- which binds by
+product id: **0x2987** for a display-only board, **0x2986** for their composite
+one with touch. Install it, plug the board in, and Windows gains a display
+adapter. **No exe, nothing running, no terminal.** `components/wired_portall/
+__init__.py` has warned about those two identifiers for a while, and
+`yaml/ws-usb-screen.yaml` is already that configuration -- so the truly
+zero-software route was sitting in this repository, over a cable, unmentioned.
+That file now **validates** (it did not: an empty `api:` encryption key, then a
+fallback hotspot SSID over the 32-character limit -- the same two faults
+CLAUDE.md already records for the Guition pair, in a third file).
+
+So the honest ranking, and it is about *signing* rather than about difficulty:
+
+| | second screen | on the PC | verified |
+|---|---|---|---|
+| USB + Espressif's signed IDD | yes, real | **nothing** | their driver is signed; this pairing is untested here |
+| Wi-Fi + Virtual Display Driver + portall.exe | yes, real | one signed driver, one program at login | driver signed via SignPath, installable by `winget` |
+| Wi-Fi + a custom IDD speaking udisp | yes, real | **nothing** | needs an EV certificate; unsigned means test-signing mode, which is worse than running a program |
+
+The third is the dream and the blocker is not code. An unsigned driver forces
+Windows into test mode, which is a bigger ask of a household than a program in
+the Startup folder. Espressif's is signed because Espressif paid for it.
+
+**`--setup` is the second row made into one command**, because the complaint
+underneath was never really about quitting: it was four manual steps, of which
+the last has to happen at every login. It discovers the panel, installs the
+driver by `winget install --id=VirtualDrivers.Virtual-Display-Driver`, sets the
+virtual screen to the panel's own size, and installs the login task.
+
+The resolution is set by **EDITING** the driver's `vdd_settings.xml`, never by
+generating one: that file belongs to another project and carries elements this
+one has never heard of, so writing a fresh one from a README would mean
+inventing a schema -- which is how a working install becomes a driver that will
+not start. Only `<resolutions>` and a `<count>` are touched, the original is
+kept beside it, and every change is printed. One resolution rather than the
+shipped list, which is both what makes `--monitor auto` able to recognise the
+screen and the answer to a panel that reported *"il m'affiche plusieurs
+ecrans"*.
+
+Tested here on a realistic file over four cases: three resolutions and a count
+of three collapse to one and a backup appears; a second run says "already
+exactly one screen" and **rewrites nothing** (the first version reported the
+same change twice, which reads as a setting that will not stick); a different
+panel size changes it again; and a file with no `<resolutions>` is refused,
+loudly and byte-for-byte untouched. **Nothing Windows-side is verified** --
+no winget, no driver, no admin here.
+
+**What is still true and worth saying plainly: portall.exe is the cable.** A
+screen is a screen only while something drives it, which is as true of spacedesk
+as of this. The fix is that it starts with Windows and is never looked at, not
+that it stops being needed.
+
+Sources: Espressif esp_h264 component docs; Microsoft "Indirect Display Driver
+Model Overview"; espressif/esp-iot-solution `usb_extend_screen/windows_driver`;
+VirtualDrivers/Virtual-Display-Driver.
+
 ## Repository conventions
 
 - Work on branch `claude/esphome-pr-outdated-mdq36w`, then merge into `main`

@@ -940,6 +940,203 @@ def install_startup(args):
     return 0
 
 
+# Where the Virtual Display Driver keeps the file that says what shapes its
+# monitor can be. Its own README names the first; the others are where
+# installs have been seen to land.
+VDD_SETTINGS_PATHS = (
+    r"C:\VirtualDisplayDriver\vdd_settings.xml",
+    r"C:\IddSampleDriver\vdd_settings.xml",
+    os.path.join(os.environ.get("ProgramFiles", r"C:\Program Files"),
+                 "VirtualDisplayDriver", "vdd_settings.xml"),
+)
+
+VDD_WINGET_ID = "VirtualDrivers.Virtual-Display-Driver"
+
+
+def _run(command, check=False):
+    """Run something and hand back (code, output). Never raises on a bad exit."""
+    import subprocess
+
+    try:
+        done = subprocess.run(command, capture_output=True, text=True,
+                              timeout=600)
+    except FileNotFoundError:
+        return 127, f"{command[0]} is not on this machine"
+    except Exception as err:                      # noqa: BLE001 - reported, not raised
+        return 1, str(err)
+    out = (done.stdout or "") + (done.stderr or "")
+    if check and done.returncode != 0:
+        raise SystemExit(out.strip() or f"{command[0]} failed")
+    return done.returncode, out
+
+
+def virtual_display_present():
+    """Whether Windows already has a virtual display driver installed.
+
+    Asked of Windows rather than of the filesystem: a folder left behind by an
+    uninstall would answer yes, and then the setup would configure a driver
+    that is not there and report success.
+    """
+    code, out = _run([
+        "powershell", "-NoProfile", "-Command",
+        "Get-PnpDevice -Class Display -ErrorAction SilentlyContinue "
+        "| Where-Object { $_.FriendlyName -match 'Virtual Display|IddSample' } "
+        "| Select-Object -ExpandProperty FriendlyName",
+    ])
+    return code == 0 and out.strip() != "", out.strip()
+
+
+def vdd_settings_path():
+    for path in VDD_SETTINGS_PATHS:
+        if os.path.exists(path):
+            return path
+    return None
+
+
+def set_panel_resolution(path, width, height, hz=60):
+    """Make the virtual monitor exactly the panel's size, and only that.
+
+    EDITED, never regenerated. This file belongs to another project and carries
+    elements this one has never heard of; writing a fresh one from a README
+    would mean inventing a schema, which is how a working install becomes a
+    driver that will not start. Everything not named here is left untouched,
+    and the original is kept beside it.
+
+    Only one resolution, because that is what makes the panel findable: --monitor
+    auto takes the screen whose size is EXACTLY the panel's, and a driver
+    offering twenty shapes is a screen that could be any of them. It is also the
+    answer to a panel that reported several monitors -- the shipped file declares
+    a list, and each entry is another mode Windows may pick.
+
+    Returns the list of changes made, in words, or raises SystemExit.
+    """
+    import shutil
+    import xml.etree.ElementTree as ET
+
+    try:
+        tree = ET.parse(path)
+    except ET.ParseError as err:
+        raise SystemExit(f"{path} is not readable as XML ({err}). Left alone.")
+    root = tree.getroot()
+    changed = []
+
+    # Every list of resolutions, wherever it sits: the file has been seen with
+    # one at the top and with one per monitor, and this has to work on both.
+    lists = [el for el in root.iter() if el.tag.lower() == "resolutions"]
+    if not lists:
+        raise SystemExit(
+            f"{path} has no <resolutions> in it, so this is not the file this "
+            "was written for. Left alone -- set the resolution in the Virtual "
+            "Display Driver's own app instead."
+        )
+    wanted = (str(width), str(height), str(hz))
+    for holder in lists:
+        entries = list(holder)
+        # Say nothing when there is nothing to say. Run twice, the second run
+        # reported the same change as the first and rewrote the file to do it
+        # -- which reads as a setting that will not stick.
+        if len(entries) == 1:
+            have = tuple(
+                (entries[0].findtext(tag) or "").strip()
+                for tag in ("width", "height", "refresh_rate")
+            )
+            if have == wanted:
+                continue
+        for child in entries:
+            holder.remove(child)
+        entry = ET.SubElement(holder, "resolution")
+        ET.SubElement(entry, "width").text = str(width)
+        ET.SubElement(entry, "height").text = str(height)
+        ET.SubElement(entry, "refresh_rate").text = str(hz)
+        changed.append(
+            f"{len(entries)} resolutions -> one, {width}x{height} at {hz} Hz")
+
+    # A count of monitors, if this version has one. Named conservatively: only
+    # an element that already holds a small number is touched, so a tag that
+    # merely happens to contain the word is not overwritten with a 1.
+    for el in root.iter():
+        if "count" not in el.tag.lower():
+            continue
+        text = (el.text or "").strip()
+        if text.isdigit() and 0 < int(text) < 100 and text != "1":
+            el.text = "1"
+            changed.append(f"<{el.tag}> {text} -> 1, so there is one screen")
+
+    if not changed:
+        return ["already exactly one screen at the panel's size"]
+
+    backup = path + ".before-portall"
+    if not os.path.exists(backup):
+        shutil.copyfile(path, backup)
+        changed.append(f"the original is kept at {backup}")
+    tree.write(path, encoding="utf-8", xml_declaration=True)
+    return changed
+
+
+def setup_windows(args):
+    """The whole PC side in one command, and never again.
+
+    This exists because the alternative is a page of instructions: install a
+    driver from another project, find its XML, work out which resolution to
+    put in it, then run this by hand at every login. Every one of those steps
+    was reported as a place to get stuck, and the last of them is why quitting
+    this program takes the second screen away.
+    """
+    if sys.platform != "win32":
+        raise SystemExit(
+            "--setup installs a Windows display driver, so it only means "
+            "something on Windows."
+        )
+
+    print("Looking for the panel, to take its size from what it advertises")
+    panels = discover()
+    if not panels:
+        raise SystemExit(
+            "No panel answered. It has to be on and on this network for its "
+            "size to be read; --panel names one, or give --width and --height "
+            "by hand."
+        )
+    panel = panels[0]
+    width, height = panel["width"], panel["height"]
+    print(f"  {panel['name']}: {width}x{height}")
+
+    present, what = virtual_display_present()
+    if present:
+        print(f"Virtual display driver: already installed ({what})")
+    else:
+        print(f"Virtual display driver: not installed, asking winget for it")
+        code, out = _run([
+            "winget", "install", "--id", VDD_WINGET_ID, "-e",
+            "--accept-package-agreements", "--accept-source-agreements",
+        ])
+        if code != 0:
+            raise SystemExit(
+                f"winget could not install it:\n{out.strip()}\n\n"
+                "This step needs an administrator window, and winget itself on "
+                "older builds of Windows. The driver can also be installed by "
+                "hand from the Virtual Display Driver releases page; run this "
+                "again afterwards and it will do the rest."
+            )
+        print("  installed")
+
+    path = vdd_settings_path()
+    if path is None:
+        print("Its settings file is not where it usually is, so the resolution")
+        print(f"has to be set to {width}x{height} in the driver's own app.")
+    else:
+        print(f"Setting the virtual screen to the panel's own size, in {path}")
+        for line in set_panel_resolution(path, width, height):
+            print(f"  {line}")
+
+    print()
+    install_startup(args)
+    print()
+    print("Done. Restart Windows once, so the driver's new size is picked up.")
+    print("After that the panel is a second screen every time the PC starts,")
+    print("with nothing to run and nothing to type.")
+    return 0
+
+
 def uninstall_startup():
     path = _require_startup_path()
     if not os.path.exists(path):
@@ -1063,6 +1260,13 @@ def main():
         help="undo --install-startup and exit",
     )
     parser.add_argument(
+        "--setup",
+        action="store_true",
+        help="do the whole PC side once: install the virtual display driver, "
+        "set it to the panel's own size, and start at every login. Needs an "
+        "administrator window. After it, nothing has to be run by hand again",
+    )
+    parser.add_argument(
         "--log-file",
         action="store_true",
         help="write everything to a file beside the installed copy instead of "
@@ -1087,6 +1291,9 @@ def main():
             digest = hashlib.sha256(handle.read()).hexdigest()[:12]
         print(f"{os.path.basename(me)} {digest}, {os.path.getsize(me)} bytes")
         return 0
+
+    if args.setup:
+        return setup_windows(args)
 
     if args.uninstall_startup:
         return uninstall_startup()
