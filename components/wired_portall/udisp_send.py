@@ -906,6 +906,28 @@ def main():
                             endpoint.write(build_heartbeat())
                             last_sent = started
 
+                        now = time.monotonic()
+                        if now - stats_at >= 5.0:
+                            elapsed = now - stats_at
+                            # `whole` is the field to read. The rectangle count
+                            # cannot say on its own: a whole panel is one
+                            # rectangle and so is a window that grew, and the
+                            # two differ by a hundred kilobytes. Nothing here
+                            # divides by a count -- a desktop that did not
+                            # change sends nothing, and this line has to print
+                            # for that case rather than raise on it.
+                            print(
+                                f"{frames / elapsed:.1f} pictures/s, "
+                                f"{rectangles_sent / elapsed:.1f} rectangles/s, "
+                                f"{wholes} whole, "
+                                f"{total_bytes / elapsed / 1024:.1f} KiB/s"
+                            )
+                            frames = 0
+                            rectangles_sent = 0
+                            wholes = 0
+                            total_bytes = 0
+                            stats_at = now
+
                         remaining = interval - (time.monotonic() - started)
                         if remaining > 0:
                             time.sleep(remaining)
