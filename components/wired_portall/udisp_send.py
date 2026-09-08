@@ -484,9 +484,24 @@ def pick_monitor(monitors, wanted, panel_w, panel_h):
     # extend onto, and one that is simply not there all read the same.
     print(f"No monitor is {panel_w}x{panel_h}. What Windows is showing:")
     describe_monitors(monitors)
-    print("Set the virtual display to exactly "
-          f"{panel_w}x{panel_h} and it will be picked up by itself. "
-          "Sending the primary one, scaled, meanwhile.")
+    # Say what this IS, not only what is missing. Reported from a panel as
+    # "ce n'est pas un ecran secondaire juste il recopie l'ecran principal" --
+    # with this message on the screen above it, saying the true thing in words
+    # that did not answer the question being asked.
+    print()
+    print("So the panel is showing a COPY of your main screen, and it will go on")
+    print("showing a copy. portall does not make screens -- Windows does, and it")
+    print("only makes one when there is a display adapter behind it. For a screen")
+    print("you can drag a window onto, install a virtual display driver (the one")
+    print("usually used for this is the Virtual Display Driver, VDD Control) and")
+    print(f"set it to exactly {panel_w}x{panel_h}. It is then found by itself,")
+    print("which is what auto matches on, and nothing here has to be told.")
+    print()
+    big = f"{monitors[1]['width']}x{monitors[1]['height']}"
+    print(f"It costs frames as well, not only the second desktop: all of {big}")
+    print(f"has to be grabbed and then squeezed down to {panel_w}x{panel_h} for every")
+    print("picture. A screen that is already the panel's size needs neither.")
+    print("Sending the primary one, scaled, meanwhile.")
     return monitors[1]
 
 
