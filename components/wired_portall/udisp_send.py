@@ -970,20 +970,113 @@ def _run(command, check=False):
     return done.returncode, out
 
 
+# What an indirect display driver calls itself, whichever one is installed.
+# Espressif's is in here beside the Virtual Display Driver because a board fed
+# over a cable is the other route to the same thing, and somebody who has that
+# one installed should not be told they have nothing.
+DRIVER_NAMES = "Virtual Display|IddSample|Idd Device|usb_graphic|xfz1986"
+
+
 def virtual_display_present():
-    """Whether Windows already has a virtual display driver installed.
+    """Whether Windows has an indirect display driver, and what state it is in.
 
     Asked of Windows rather than of the filesystem: a folder left behind by an
     uninstall would answer yes, and then the setup would configure a driver
     that is not there and report success.
+
+    NOT restricted to -Class Display, which the first version was. These
+    enumerate under more than one class depending on the driver and the
+    version, so a class filter is a way to answer "nothing installed" about a
+    driver that is sitting right there. The Status comes back too: a driver
+    present and in Error is a different problem from one absent, and the two
+    were previously the same empty string.
     """
     code, out = _run([
         "powershell", "-NoProfile", "-Command",
-        "Get-PnpDevice -Class Display -ErrorAction SilentlyContinue "
-        "| Where-Object { $_.FriendlyName -match 'Virtual Display|IddSample' } "
-        "| Select-Object -ExpandProperty FriendlyName",
+        "Get-PnpDevice -ErrorAction SilentlyContinue "
+        f"| Where-Object {{ $_.FriendlyName -match '{DRIVER_NAMES}' }} "
+        "| ForEach-Object { \"$($_.Status)  $($_.Class)  $($_.FriendlyName)\" }",
     ])
     return code == 0 and out.strip() != "", out.strip()
+
+
+def screens_windows_has():
+    """Every screen Windows is showing, or None when that cannot be asked."""
+    try:
+        import mss
+    except ImportError:
+        return None
+    try:
+        screenshotter = getattr(mss, "MSS", None) or mss.mss
+        with screenshotter() as sct:
+            return [dict(m) for m in sct.monitors]
+    except Exception:                             # noqa: BLE001 - diagnostic only
+        return None
+
+
+def check_windows(args):
+    """Say where the PC side stands, in one command, without changing anything.
+
+    Written because "it behaves like a mirror and Windows does not know the
+    panel" has three quite different causes that look identical from a panel:
+    no driver, a driver at the wrong size, and a driver Windows has disabled.
+    Each needs a different next step and none of them is visible from the
+    picture on the glass.
+    """
+    if sys.platform != "win32":
+        raise SystemExit("--check asks Windows about its displays, so it only "
+                         "means something on Windows.")
+
+    print("Virtual display driver")
+    present, what = virtual_display_present()
+    if present:
+        for line in what.splitlines():
+            print(f"    {line}")
+        print("    (a line beginning OK is working; Error or Unknown is not)")
+    else:
+        print("    NONE INSTALLED.")
+        print("    This is why the panel is a copy of the main screen and why")
+        print("    Windows forgets it: the second desktop is the DRIVER's, not")
+        print("    this program's. Run --setup in an administrator window.")
+
+    print()
+    print("Its settings file")
+    path = vdd_settings_path()
+    print(f"    {path}" if path else "    not found in any of the usual places")
+
+    print()
+    print("Screens Windows is showing")
+    monitors = screens_windows_has()
+    if monitors is None:
+        print("    could not be asked")
+    else:
+        describe_monitors(monitors)
+
+    wanted = None
+    if args.width and args.height:
+        wanted = (args.width, args.height)
+    else:
+        panels = discover(seconds=2.0)
+        if panels:
+            wanted = (panels[0]["width"], panels[0]["height"])
+            print(f"\nThe panel says it is {wanted[0]}x{wanted[1]}")
+
+    print()
+    if wanted and monitors:
+        match = [i for i, m in enumerate(monitors)
+                 if i and m["width"] == wanted[0] and m["height"] == wanted[1]]
+        if match:
+            print(f"Monitor {match[0]} is exactly the panel's size, so this is a")
+            print("second desktop rather than a copy. That is what it should say.")
+        else:
+            print(f"NO screen is {wanted[0]}x{wanted[1]}, so the panel can only be")
+            print("shown a copy of another one. Either the driver is missing, or")
+            print("it is installed at a different size -- the two lines above say")
+            print("which. Restarting Windows once is what makes a size change take.")
+    else:
+        print("Without the panel's size nothing above can be judged against it;")
+        print("give --width and --height, or leave the panel on and try again.")
+    return 0
 
 
 def vdd_settings_path():
@@ -1130,10 +1223,25 @@ def setup_windows(args):
 
     print()
     install_startup(args)
+
+    # Ask Windows whether any of that took, rather than saying Done. The first
+    # version printed success unconditionally, which is the silent no-op this
+    # project keeps recording -- and it recorded it again: reported back as
+    # "il se comporte comme un miroir ... il n'est pas reconnu par windows",
+    # from a run that had just told them everything was finished.
     print()
-    print("Done. Restart Windows once, so the driver's new size is picked up.")
-    print("After that the panel is a second screen every time the PC starts,")
-    print("with nothing to run and nothing to type.")
+    print("--- did it work? ---")
+    print()
+    args.width, args.height = width, height
+    check_windows(args)
+    print()
+    present, _ = virtual_display_present()
+    if not present:
+        print("The driver is still not installed, so nothing above will happen.")
+        print("That is the step to chase; the rest is done and harmless.")
+        return 1
+    print("Restart Windows once if a size changed: a driver reads that file when")
+    print("it starts, so a running one is still the size it was.")
     return 0
 
 
@@ -1260,6 +1368,13 @@ def main():
         help="undo --install-startup and exit",
     )
     parser.add_argument(
+        "--check",
+        action="store_true",
+        help="say where the PC side stands -- whether a virtual display driver "
+        "is installed, what size it is, and whether any screen matches the "
+        "panel -- and change nothing. Needs no administrator",
+    )
+    parser.add_argument(
         "--setup",
         action="store_true",
         help="do the whole PC side once: install the virtual display driver, "
@@ -1291,6 +1406,9 @@ def main():
             digest = hashlib.sha256(handle.read()).hexdigest()[:12]
         print(f"{os.path.basename(me)} {digest}, {os.path.getsize(me)} bytes")
         return 0
+
+    if args.check:
+        return check_windows(args)
 
     if args.setup:
         return setup_windows(args)
