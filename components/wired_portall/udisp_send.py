@@ -394,6 +394,64 @@ def changed_rectangles(previous, current, tile=TILE):
     return grown
 
 
+# The pointer, drawn by hand, because no screen capture carries it.
+#
+# Windows composites the cursor over the desktop rather than into it: mss,
+# BitBlt and the Desktop Duplication API alike hand over a picture with no
+# pointer in it. On a panel that is only being watched nobody minds. On a
+# second screen somebody is working on, not seeing where you are pointing
+# makes it useless.
+#
+# A drawn arrow rather than the real cursor bitmap: fetching that means
+# GetCursorInfo, GetIconInfo and DrawIconEx onto a device context, and then
+# carrying the result into a PIL image. This is seven points and works the
+# same on every machine, at the cost of not showing the I-beam or the busy
+# ring.
+CURSOR = ((0, 0), (0, 17), (4, 13), (7, 20), (10, 19), (7, 12), (12, 12))
+
+
+def cursor_position():
+    """Where the pointer is, in desktop coordinates, or None.
+
+    Windows only, and never fatal: a machine that will not say is a machine
+    that gets no pointer drawn, not one that stops sending its screen.
+    """
+    try:
+        import ctypes
+
+        class Point(ctypes.Structure):
+            _fields_ = [("x", ctypes.c_long), ("y", ctypes.c_long)]
+
+        point = Point()
+        if not ctypes.windll.user32.GetCursorPos(ctypes.byref(point)):
+            return None
+        return point.x, point.y
+    except Exception:  # noqa: BLE001 - no cursor is not a reason to stop
+        return None
+
+
+def draw_cursor(image, monitor, position, scale=1.0):
+    """Put the pointer into the picture, if it is on this screen.
+
+    Drawn before the diff sees the picture, so moving the mouse marks the
+    tiles it left and the tiles it arrived on, and both are sent -- which is
+    what makes it rub out cleanly rather than leave a trail.
+    """
+    if position is None:
+        return
+    x = position[0] - monitor["left"]
+    y = position[1] - monitor["top"]
+    if not (0 <= x < monitor["width"] and 0 <= y < monitor["height"]):
+        return  # the pointer is on one of the other screens
+    from PIL import ImageDraw
+
+    points = [(x + px * scale, y + py * scale) for px, py in CURSOR]
+    draw = ImageDraw.Draw(image)
+    # White with a black outline, so it is visible over anything. A single
+    # colour disappears over half the desktops there are.
+    draw.polygon(points, fill=(255, 255, 255), outline=(0, 0, 0))
+
+
 def pick_monitor(monitors, wanted, panel_w, panel_h):
     """Which screen to send, given what the panel said it is.
 
@@ -800,6 +858,20 @@ def main():
         "from a cache can be told from the current one",
     )
     parser.add_argument(
+        "--no-cursor",
+        dest="cursor",
+        action="store_false",
+        help="leave the mouse pointer out. No screen capture carries it, so "
+        "it is drawn on; a panel that is only being watched does not need it",
+    )
+    parser.add_argument(
+        "--cursor-size",
+        type=float,
+        default=1.0,
+        help="how large to draw the pointer, as a multiple. Worth raising on "
+        "a panel being read across a room",
+    )
+    parser.add_argument(
         "--list-monitors",
         action="store_true",
         help="print the screens Windows is showing, with their sizes, and "
@@ -982,6 +1054,7 @@ def main():
     # does not.
     rect_cost = rect_cost_fraction(args.width, args.height)
 
+
     # mss.mss() is a deprecated alias for mss.MSS(), which older versions do not
     # have.
     screenshotter = getattr(mss, "MSS", None) or mss.mss
@@ -990,6 +1063,12 @@ def main():
         with screenshotter() as sct:
             monitor = pick_monitor(sct.monitors, args.monitor,
                                    args.width, args.height)
+            # The arrow is drawn at the size of the SCREEN being captured, and
+            # that screen is often larger than the panel -- on a mirrored
+            # 1920x1080 shown at 1024x600 the pointer would arrive shrunk by
+            # half. Drawn larger by exactly what the picture is about to lose.
+            cursor_scale = args.cursor_size * max(
+                1.0, monitor["width"] / float(args.width))
             # Outer loop: one pass per connection. Unplugging the board, or
             # reflashing it, ends the inner loop and comes back here to wait for
             # it rather than ending the program.
@@ -1026,6 +1105,12 @@ def main():
 
                         shot = sct.grab(monitor)
                         image = Image.frombytes("RGB", shot.size, shot.rgb)
+                        # Before the rotation and the scaling, so the arrow is
+                        # turned and shrunk with everything else and lands
+                        # where the pointer really is.
+                        if args.cursor:
+                            draw_cursor(image, monitor, cursor_position(),
+                                        cursor_scale)
                         # Rotate before scaling, so a quarter turn is fitted to
                         # the panel's shape rather than to the desktop's.
                         if transpose is not None:
