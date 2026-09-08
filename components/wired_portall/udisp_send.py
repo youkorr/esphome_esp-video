@@ -740,6 +740,12 @@ def main():
         "exit. Windows only",
     )
     parser.add_argument(
+        "--version",
+        action="store_true",
+        help="print this file's own fingerprint and stop, so a copy served "
+        "from a cache can be told from the current one",
+    )
+    parser.add_argument(
         "--list-monitors",
         action="store_true",
         help="print the screens Windows is showing, with their sizes, and "
@@ -774,6 +780,18 @@ def main():
         help="undo --install-startup and exit",
     )
     args = parser.parse_args()
+
+    if args.version:
+        # The file's own fingerprint, not a number somebody has to remember to
+        # bump. GitHub's raw view is behind a cache that will happily serve a
+        # copy from an hour ago -- measured, byte for byte -- and from a chat
+        # window an old file and a broken one look identical.
+        import hashlib
+
+        with open(os.path.abspath(__file__), "rb") as handle:
+            digest = hashlib.sha256(handle.read()).hexdigest()[:12]
+        print(f"udisp_send.py {digest}, {os.path.getsize(os.path.abspath(__file__))} bytes")
+        return 0
 
     if args.uninstall_startup:
         return uninstall_startup()
