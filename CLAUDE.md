@@ -2944,6 +2944,51 @@ It is not an alias. Re-exporting portall's schema from the stub only works when
 portall happens to have been loaded too, and a compatibility path that works by
 accident is worse than a rename that says so plainly.
 
+## portall.exe -- the Windows sender with nothing to install
+
+**The panel now asks for a program by name, so the program has to exist.** The
+waiting screen says `RUN PORTALL.EXE ON YOUR PC`, and the reply to it was
+*"que je dispose pas du logiciel que je pense que tu doit crée"* -- which is
+fair: a screen that names a file nobody has is worse than a screen that says
+nothing.
+
+It is the **same file**, frozen. `components/wired_portall/udisp_send.py` is
+what PyInstaller bundles; there is no second program to keep in step, which is
+the same rule the wire format lives under.
+
+`.github/workflows/portall-exe.yml` builds it on `windows-latest`, because
+**PyInstaller cannot cross-compile** -- a Windows binary has to be built on
+Windows and there is none here. `workflow_dispatch` for a build, a `portall-v*`
+tag for a release with a stable link. The proof step runs `--version` and
+`--help` on the artifact before it is uploaded: a build that produces an exe
+which cannot start is worse than a build that fails.
+
+**Three things in the script had to learn which of the two it is**, and each
+was a fault waiting rather than a tidy-up:
+
+- **`own_path()`.** PyInstaller puts the real program in `sys.executable` and
+  points `__file__` inside a bundle that is unpacked to a temporary directory
+  and **deleted afterwards**. `_install_copy()` copied `__file__`, so a login
+  task installed from the exe would have pointed at a folder that no longer
+  exists -- and it works exactly once, which is the worst way to fail.
+- **The login command line.** A frozen build is registered directly; handing
+  `portall.exe` to `pythonw.exe` is asking Python to run a Windows binary.
+- **`--log-file`, and this is the one that could not be sniffed.** The log
+  exists because a run started at login has nowhere to print, and the test for
+  that was `sys.stdout is None` -- true under `pythonw.exe`, and **false for
+  portall.exe**. The exe is built with a console so somebody who double-clicks
+  it sees it working, and the login script then starts it with that console
+  HIDDEN (`WScript.Shell.Run …, 0, False`): `sys.stdout` is a perfectly good
+  handle to a window nobody can see, so every line goes nowhere while looking
+  like it went somewhere. The flag is written into the command line at install
+  time, so the login run says which it is rather than guessing.
+
+Verified here by simulating PyInstaller -- `sys.frozen = True` and
+`sys.executable` pointed at a stub -- over both modes and all three logging
+cases: a console and no flag redirects nothing, a console with the flag writes
+the file, and no console at all behaves as it always did. **The exe itself is
+not built or run here**, and the workflow has never been executed.
+
 ## Repository conventions
 
 - Work on branch `claude/esphome-pr-outdated-mdq36w`, then merge into `main`
