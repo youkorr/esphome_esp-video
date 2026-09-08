@@ -588,10 +588,6 @@ def install_startup(args):
     parts = [
         interpreter,
         copied,
-        "--width",
-        str(args.width),
-        "--height",
-        str(args.height),
         "--monitor",
         str(args.monitor),
         "--fps",
@@ -603,10 +599,21 @@ def install_startup(args):
     ]
     # The transport the run was told to use, so a login task keeps it. Without
     # this a network sender came back at the next login looking for USB.
-    if args.host:
-        parts += ["--host", args.host, "--port", str(args.port)]
+    if args.discover:
+        # Written as --discover rather than as the address that was found.
+        # A panel's address comes from DHCP and will change; its NAME will
+        # not, and the shape of the panel is in its ESPHome configuration
+        # rather than in this file. Freezing either here is how a login task
+        # comes back one day pointed at a washing machine.
+        parts += ["--discover"]
+        if args.panel:
+            parts += ["--panel", args.panel]
+    elif args.host:
+        parts += ["--host", args.host, "--port", str(args.port),
+                  "--width", str(args.width), "--height", str(args.height)]
     else:
-        parts += ["--vid", hex(args.vid), "--pid", hex(args.pid)]
+        parts += ["--vid", hex(args.vid), "--pid", hex(args.pid),
+                  "--width", str(args.width), "--height", str(args.height)]
     # Quote every part for the shell, then double the quotes again because the
     # whole command is about to become a VBScript string literal.
     command = " ".join(f'"{part}"' for part in parts).replace('"', '""')
