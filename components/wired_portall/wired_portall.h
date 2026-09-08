@@ -59,6 +59,10 @@ class WiredPortall : public Component
   void setup() override;
   void loop() override;
   void dump_config() override;
+  /// Says on the panel itself that nothing is feeding it, and what to run.
+  /// Drawn straight to the glass rather than through the frame path: there is
+  /// no frame, which is the whole reason this exists.
+  void draw_waiting_screen_();
   // After the display, whose panel this draws into.
   float get_setup_priority() const override { return setup_priority::LATE; }
 
