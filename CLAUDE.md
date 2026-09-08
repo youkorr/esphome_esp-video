@@ -3114,6 +3114,50 @@ Sources: Espressif esp_h264 component docs; Microsoft "Indirect Display Driver
 Model Overview"; espressif/esp-iot-solution `usb_extend_screen/windows_driver`;
 VirtualDrivers/Virtual-Display-Driver.
 
+## --setup said Done without checking anything, and that is our own rule broken
+
+**Reported straight back: *"il se comporte comme un miroir et si tu quittes
+portall.exe rien ne fonctionne, il n'est pas reconnu par windows"* -- from a
+run that had just printed "Done. Restart Windows once."** The message was
+written to be encouraging and it was not checked against anything at all.
+`setup_windows` installed, configured, registered, and then announced success
+whatever had happened. That is the silent no-op this file records half a dozen
+times, written fresh.
+
+**And the report contains its own diagnosis, which is the useful part.** A
+virtual monitor belongs to the DRIVER, not to this program: with the driver
+installed, Windows keeps that screen in Display settings whether or not
+portall.exe is running. So "Windows does not recognise it" cannot mean the
+program was closed -- it means **the driver is not installed**, and the setup
+that said it was finished had not managed it.
+
+Two faults, and the first is why it could go unnoticed:
+
+- **`Get-PnpDevice -Class Display` was too narrow.** These drivers enumerate
+  under more than one class depending on which one and which version, so a
+  class filter is a way to answer "nothing installed" about a driver sitting
+  right there -- and then the setup skips the install it was there to do. The
+  query has no class filter now, matches Espressif's driver as well as the
+  Virtual Display Driver, and returns each device's **Status**: present and in
+  Error is a different problem from absent, and the two used to be the same
+  empty string.
+- **Nothing verified.** `--setup` now ends by asking Windows what it actually
+  has and prints that instead of "Done", and **exits 1** when the driver is
+  still missing.
+
+**`--check` is the same question on its own, needing no administrator**,
+because "it behaves like a mirror" has three causes that look identical from
+the glass: no driver, a driver at the wrong size, and a driver Windows has
+disabled. Each needs a different next step. It prints the driver and its
+status, where the settings file is, every screen Windows shows, the size the
+panel advertises, and whether any screen matches it.
+
+Exercised over both states with the driver query and the monitor list stubbed:
+their reported three screens with no driver gives NONE INSTALLED and "no screen
+is 1024x600"; a fourth screen at the panel's size gives "monitor 3 is exactly
+the panel's size, so this is a second desktop rather than a copy". **Still
+nothing Windows-side verified** -- no winget, no driver, no administrator here.
+
 ## Repository conventions
 
 - Work on branch `claude/esphome-pr-outdated-mdq36w`, then merge into `main`
