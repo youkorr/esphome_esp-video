@@ -3340,6 +3340,52 @@ installed" with the device list empty: it prints what winget said, prints and
 opens the page, and raises rather than continuing. **Not verified on Windows**;
 what is verified is that a lying exit code no longer gets past.
 
+## It works end to end -- and the remaining ask is a dependency, not a bug
+
+**Reported after installing the driver by hand: *"il apparait dans le
+gestionnaire de peripheriques et ecran est bien ecran secondaire"*.** So the
+whole chain is proven on real hardware: the board's YAML, the mDNS
+advertisement, `portall.exe` finding the panel by itself, the virtual display
+at 1024x600, and Windows extending onto it. A panel is a second Windows desktop
+over Wi-Fi.
+
+**And the objection that came with it is factually right**, which is why it is
+recorded rather than argued with: *"je ne veux pas d'installation tiers qui
+n'est plus a jour depuis 2025"*. Checked rather than assumed -- the Virtual
+Display Driver's latest release is **23 July 2025**. For a Windows *driver*,
+fourteen months without one is a real risk and not a preference: Windows
+updates move underneath it and nobody is watching.
+
+**Why a driver is needed at all is settled and sourced** (see the section
+above): Windows creates a desktop only for a display adapter, and a program
+cannot be one. So the dependency cannot be removed by writing better Python.
+There are exactly three ways out, and they differ in what they cost:
+
+| | third party | maintained | cost |
+|---|---|---|---|
+| **Espressif's signed IDD, over USB** | Espressif's own, in their SDK | yes | a cable. `yaml/ws-usb-screen.yaml`, which validates |
+| **Parsec's VDD** | a live commercial product's driver | yes | still somebody else's |
+| **our own IDD speaking udisp** | **none** | ours | **an EV certificate or a SignPath sponsorship**, plus a Windows driver |
+
+The third is what the user is asking for and the blocker is **not code**. The
+starting point exists and is open -- `chuanjinpang/win10_idd_xfz1986_usb_
+graphic_driver_display`, which is what Espressif's own driver is built from, so
+adapting its transport from a USB pipe to a TCP socket is a bounded change.
+What stops it is signing: unsigned means Windows test-signing mode, which is a
+far bigger ask of a household than any of the above.
+
+**And the route to signing is known, because it is the one VDD itself took.**
+SignPath's foundation programme signs open-source projects for free, and its
+own project list carries both the Virtual Display Driver and ParsecVDisplay. So
+this is an application and a wait, not a purchase -- but it is a project-level
+step, and **nothing about a Windows driver can be built or tested in this
+container**: no WDK, no Windows, no certificate. The honest position is that
+the board side and the sender are done, and this last piece is paperwork
+followed by C++ that only a Windows machine can prove.
+
+Sources: VirtualDrivers/Virtual-Display-Driver releases; signpath.org project
+list; espressif/esp-iot-solution `usb_extend_screen/windows_driver`.
+
 ## Repository conventions
 
 - Work on branch `claude/esphome-pr-outdated-mdq36w`, then merge into `main`
