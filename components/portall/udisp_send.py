@@ -15,8 +15,7 @@ you want; --uninstall-startup takes it back out.
 
 Requirements:
 
-    pip install mss pillow            # over the network (--host)
-    pip install pyusb mss pillow libusb-package    # over a cable
+    pip install pyusb mss pillow libusb-package
 
 libusb-package is what supplies the libusb library pyusb needs. On Linux and
 macOS the system one is used if it is already installed, so it is optional
@@ -523,8 +522,7 @@ def main():
         from PIL import Image
     except ImportError as err:
         raise SystemExit(
-            f"{err}. Install the dependencies: pip install mss pillow"
-            + ("" if args.host else " pyusb")
+            f"{err}. Install the dependencies: pip install pyusb mss pillow"
         ) from err
 
     # Pillow's ROTATE_n turn counter-clockwise, and moved into an enum in 9.1
@@ -539,14 +537,8 @@ def main():
         270: transposes.ROTATE_90,
     }[args.rotate]
 
-    # NOT imported for a panel fed over the network. pyusb is what talks to a
-    # board on a cable, and a Windows machine sending over Wi-Fi has no reason
-    # to install it -- it used to die here with "No module named 'usb'" on a
-    # path that never touches USB, which is the first thing anybody trying the
-    # network sender runs into.
-    if not args.host:
-        import usb.core  # noqa: F401 - imported for its side effect on Windows
-        import usb.util  # noqa: F401
+    import usb.core
+    import usb.util
 
     interval = 1.0 / args.fps if args.fps > 0 else 0.0
     frame_id = 0
@@ -566,14 +558,9 @@ def main():
                     device, endpoint = None, connect_tcp(args.host, args.port)
                 else:
                     device, endpoint = wait_for_endpoint(args.vid, args.pid)
-                # Say where it is really going. Over the network the USB
-                # identifiers are not just useless, they are misleading: the
-                # line named a device that is not in this at all.
-                where = (f"{args.host}:{args.port}" if args.host
-                         else f"{args.vid:04x}:{args.pid:04x}")
                 print(
                     f"Sending {args.width}x{args.height} at up to {args.fps:g} fps to "
-                    f"{where}"
+                    f"{args.vid:04x}:{args.pid:04x}"
                     + (f", rotated {args.rotate} degrees" if args.rotate else "")
                 )
 
