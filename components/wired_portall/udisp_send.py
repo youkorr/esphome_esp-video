@@ -18,6 +18,10 @@ Requirements:
     pip install mss pillow numpy zeroconf    # over the network
     pip install pyusb mss pillow numpy libusb-package   # over a cable
 
+On Windows there is a script beside this one, windows/setup.ps1, that does
+the whole of the PC side in one line -- the dependencies, this file, and the
+login task -- so that none of the below has to be typed either.
+
 Over the network, nothing has to be typed at all: the board advertises its
 address and the shape of its panel from its own ESPHome configuration, so
 
