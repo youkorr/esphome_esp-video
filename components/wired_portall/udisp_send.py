@@ -409,10 +409,24 @@ def pick_monitor(monitors, wanted, panel_w, panel_h):
             print(f"Capturing monitor {index}, which is {panel_w}x{panel_h} "
                   f"-- the panel's own size")
             return monitor
-    print(f"No monitor is {panel_w}x{panel_h}, so the primary one is being "
-          f"sent and scaled. A virtual display set to the panel's size would "
-          f"be picked up by itself.")
+    # Say what there WAS, not only what there was not. Without the list this
+    # was a dead end from the other side of a chat window: a virtual display
+    # that exists but is the wrong size, one Windows has not been told to
+    # extend onto, and one that is simply not there all read the same.
+    print(f"No monitor is {panel_w}x{panel_h}. What Windows is showing:")
+    describe_monitors(monitors)
+    print("Set the virtual display to exactly "
+          f"{panel_w}x{panel_h} and it will be picked up by itself. "
+          "Sending the primary one, scaled, meanwhile.")
     return monitors[1]
+
+
+def describe_monitors(monitors):
+    """Every screen, as Windows reports it. monitors[0] is all of them joined."""
+    for index, monitor in enumerate(monitors):
+        where = "all of them joined" if index == 0 else f"at {monitor['left']},{monitor['top']}"
+        print(f"    {index}: {monitor['width']}x{monitor['height']}, {where}"
+              + ("   <- primary" if index == 1 else ""))
 
 
 SERVICE_TYPE = "_portall._tcp.local."
@@ -726,6 +740,13 @@ def main():
         "exit. Windows only",
     )
     parser.add_argument(
+        "--list-monitors",
+        action="store_true",
+        help="print the screens Windows is showing, with their sizes, and "
+        "stop. This is what to run when a virtual display has been created "
+        "and the panel is showing the wrong one",
+    )
+    parser.add_argument(
         "--usb",
         action="store_true",
         help="send over the cable instead of the network. This copy is for a "
@@ -756,6 +777,20 @@ def main():
 
     if args.uninstall_startup:
         return uninstall_startup()
+
+    if args.list_monitors:
+        try:
+            import mss
+        except ImportError as err:
+            raise SystemExit(f"{err}. pip install mss") from err
+        screenshotter = getattr(mss, "MSS", None) or mss.mss
+        with screenshotter() as sct:
+            print("The screens Windows is showing:")
+            describe_monitors(sct.monitors)
+        print("\nA virtual display made for a panel should be exactly the "
+              "panel's size, and Windows has to be set to Extend onto it "
+              "rather than Duplicate.")
+        return 0
 
     # Run with nothing at all and it finds the panel by itself. The address,
     # the size and the rotation are in the board's own ESPHome configuration,
