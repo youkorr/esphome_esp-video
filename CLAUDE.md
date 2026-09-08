@@ -3158,6 +3158,44 @@ is 1024x600"; a fourth screen at the panel's size gives "monitor 3 is exactly
 the panel's size, so this is a second desktop rather than a copy". **Still
 nothing Windows-side verified** -- no winget, no driver, no administrator here.
 
+## The message everybody reads never named the command that fixes it
+
+**Three reports of the panel still being a mirror, each one pasted from a run
+whose own output was on the screen above it.** The message described the
+problem correctly and named the CLASS of answer -- "install a virtual display
+driver (VDD Control)" -- and never once said `--setup`, which does the whole
+thing. `--setup` was mentioned in exactly one place: inside `--check`, which
+somebody has to already know about to run.
+
+So the fix existed for three releases and the one page anybody actually reads
+did not point at it. That is worse than not having built it: it looks like
+being told to go and research something.
+
+The message now prints the command, set apart, with what it will do. And the
+asking-for-administrator step is gone: **`--setup` elevates itself**, through
+`ShellExecuteW` with the `runas` verb, so a double-click reaches the same place
+as a hand-opened administrator terminal. "Right-click the Start menu, choose
+Terminal (Administrator), then type this" was reported three times as simply
+not happening -- which is fair, because somebody who downloaded one file
+expects to run that file.
+
+`--pause` goes with it, and it is in a `finally`: the elevated console closes
+the instant the work ends, and the runs worth reading are exactly the ones that
+failed, so a `SystemExit` carrying the explanation must keep the window open
+too.
+
+**The general shape, which this file has now recorded in three costumes:** a
+capability that exists but is not reachable from where the reader is standing
+has not been delivered. The keyboard that worked while invisible, the add-on
+option that never reached `command_for()`, and now a command nobody was told
+about.
+
+Neither the elevation nor the driver install is verified here -- there is no
+Windows, no winget and no administrator in this container. What is checked is
+that the message prints the command against their exact three-monitor layout,
+that `--setup` still refuses cleanly off Windows, and that `--pause` reaches
+the help.
+
 ## Repository conventions
 
 - Work on branch `claude/esphome-pr-outdated-mdq36w`, then merge into `main`

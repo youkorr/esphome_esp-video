@@ -491,11 +491,20 @@ def pick_monitor(monitors, wanted, panel_w, panel_h):
     print()
     print("So the panel is showing a COPY of your main screen, and it will go on")
     print("showing a copy. portall does not make screens -- Windows does, and it")
-    print("only makes one when there is a display adapter behind it. For a screen")
-    print("you can drag a window onto, install a virtual display driver (the one")
-    print("usually used for this is the Virtual Display Driver, VDD Control) and")
-    print(f"set it to exactly {panel_w}x{panel_h}. It is then found by itself,")
-    print("which is what auto matches on, and nothing here has to be told.")
+    print("only makes one when there is a display adapter behind it.")
+    print()
+    # Name the command. This message described the problem and the CLASS of
+    # solution for two releases while --setup, which does the whole thing,
+    # was never mentioned in the one place anybody reads. Reported three times
+    # as the panel still being a mirror, each time from a run showing this.
+    print("    THIS IS THE COMMAND THAT FIXES IT, run it once:")
+    print()
+    print("        portall.exe --setup")
+    print()
+    print("It asks Windows for the administrator window itself, installs the")
+    print(f"driver, sets the new screen to {panel_w}x{panel_h}, and starts with")
+    print("Windows from then on. Afterwards this panel is a desktop you can drag")
+    print("a window onto, and it stays one.")
     print()
     big = f"{monitors[1]['width']}x{monitors[1]['height']}"
     print(f"It costs frames as well, not only the second desktop: all of {big}")
@@ -1166,6 +1175,58 @@ def set_panel_resolution(path, width, height, hz=60):
     return changed
 
 
+def am_admin():
+    """Whether this is already the administrator window the driver install needs."""
+    try:
+        import ctypes
+
+        return bool(ctypes.windll.shell32.IsUserAnAdmin())
+    except Exception:                             # noqa: BLE001 - answered, not raised
+        return False
+
+
+def relaunch_as_admin():
+    """Ask Windows for the elevated window rather than asking a person for one.
+
+    Installing a driver needs administrator rights, and "open an administrator
+    PowerShell, then type this" is a step that was reported three times as
+    simply not happening -- which is fair, because somebody who downloaded one
+    file expects to run that file. ShellExecute with the runas verb puts the
+    ordinary consent prompt up instead, so a double-click reaches the same
+    place.
+
+    --pause goes with it because the new console closes the moment the work
+    ends, and a window that vanishes takes its error message with it.
+
+    Returns True when a second, elevated copy has been started.
+    """
+    try:
+        import ctypes
+    except ImportError:
+        return False
+
+    me = own_path()
+    if frozen():
+        program, arguments = me, "--setup --pause"
+    else:
+        program, arguments = sys.executable, f'"{me}" --setup --pause'
+    print("This needs administrator rights to install a driver.")
+    print("Windows will ask; the work happens in the window that opens.")
+    try:
+        # Above 32 is success, per ShellExecute's own convention.
+        started = ctypes.windll.shell32.ShellExecuteW(
+            None, "runas", program, arguments, None, 1)
+    except Exception as err:                      # noqa: BLE001 - reported
+        print(f"Could not ask for it ({err}).")
+        return False
+    if int(started) <= 32:
+        print("That was refused or cancelled, so nothing has been changed.")
+        print("Right-click the Start menu, choose Terminal (Administrator),")
+        print("and run portall.exe --setup there instead.")
+        return False
+    return True
+
+
 def setup_windows(args):
     """The whole PC side in one command, and never again.
 
@@ -1180,6 +1241,9 @@ def setup_windows(args):
             "--setup installs a Windows display driver, so it only means "
             "something on Windows."
         )
+
+    if not am_admin():
+        return 0 if relaunch_as_admin() else 1
 
     print("Looking for the panel, to take its size from what it advertises")
     panels = discover()
@@ -1368,6 +1432,13 @@ def main():
         help="undo --install-startup and exit",
     )
     parser.add_argument(
+        "--pause",
+        action="store_true",
+        help="wait for Enter before finishing. --setup puts this on the "
+        "elevated window it opens, because a console that closes the instant "
+        "the work ends takes its error message with it",
+    )
+    parser.add_argument(
         "--check",
         action="store_true",
         help="say where the PC side stands -- whether a virtual display driver "
@@ -1411,7 +1482,17 @@ def main():
         return check_windows(args)
 
     if args.setup:
-        return setup_windows(args)
+        try:
+            return setup_windows(args)
+        finally:
+            # In a finally, so a SystemExit keeps the window open too: the
+            # elevated console closes on exit, and the runs worth reading are
+            # exactly the ones that failed.
+            if args.pause:
+                try:
+                    input("\nPress Enter to close this window.")
+                except (EOFError, KeyboardInterrupt):
+                    pass
 
     if args.uninstall_startup:
         return uninstall_startup()
