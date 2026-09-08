@@ -3304,6 +3304,42 @@ and no `Enable-PnpDevice` here, and whether the Status really reads Error
 rather than Unknown for a switched-off VDD is the assumption the next run
 settles.
 
+## The driver was never installed, and every round since was work on nothing
+
+**Settled by looking in the right place: *"il n'y a que deux moniteurs, sur le
+gestionnaire de peripheriques il n'y a pas virtual display"*.** Device Manager
+is the ground truth and it says the driver does not exist. So `winget` failed,
+and `--setup` went on to set a resolution, ask for Extend and install a login
+task **for a driver that was never there** -- three rounds of increasingly
+careful work on the steps after the one that had not happened.
+
+Everything this file recorded in between was true and beside the point: the
+duplicate-detection, the enable-when-disabled, the projection mode. Each was a
+real gap and none of them was the fault.
+
+**The lesson is the one already written here twice, in its third costume: ask
+the world, not the step.** `winget` returning 0 is winget's opinion; the
+device list is Windows'. `setup_windows` now re-reads the device list after the
+install and treats *reported success with no device* exactly as failure --
+which is what happened, and what nothing checked.
+
+And on that failure it **opens the releases page** rather than describing it.
+winget is not on every Windows, its source can be missing or stale, and it
+needs agreements accepted -- so the automated install is the step here most
+likely to fail on somebody else's machine, and it is the one this project can
+least afford to be casual about. The manual install is an ordinary download.
+Naming it in a sentence was the same mistake as naming `--setup` in a sentence,
+which this file already records.
+
+It also **stops**, rather than carrying on: nothing downstream can work without
+the driver, so configuring it is work nobody will benefit from and a success
+message nobody should believe.
+
+Exercised on the case that cost the round -- winget reporting "Successfully
+installed" with the device list empty: it prints what winget said, prints and
+opens the page, and raises rather than continuing. **Not verified on Windows**;
+what is verified is that a lying exit code no longer gets past.
+
 ## Repository conventions
 
 - Work on branch `claude/esphome-pr-outdated-mdq36w`, then merge into `main`

@@ -1396,6 +1396,37 @@ def offer_setup(args, monitor):
     return True
 
 
+VDD_RELEASES = "https://github.com/VirtualDrivers/Virtual-Display-Driver/releases"
+
+
+def _offer_driver_page():
+    """Open the page the driver is downloaded from, rather than describing it.
+
+    winget is not on every Windows, its package source can be missing or
+    stale, and it needs agreements accepted -- so the automated install is the
+    step here most likely to fail on somebody else's machine, and it did. The
+    manual one is an ordinary download somebody has done a hundred times, so
+    the useful thing is to put it in front of them rather than name it.
+    """
+    print()
+    print("  Install it by hand instead -- it is an ordinary installer:")
+    print()
+    print(f"      {VDD_RELEASES}")
+    print()
+    print("  Take the latest release's setup .exe, run it, and let Windows")
+    print("  install the driver. It should then appear in Device Manager as")
+    print("  a Virtual Display Driver. Run portall.exe --setup again after")
+    print("  that and it will do the resolution, the extend and the startup.")
+    try:
+        import webbrowser
+
+        if webbrowser.open(VDD_RELEASES):
+            print()
+            print("  (that page has been opened in your browser)")
+    except Exception:                             # noqa: BLE001 - a convenience
+        pass
+
+
 def setup_windows(args):
     """The whole PC side in one command, and never again.
 
@@ -1437,18 +1468,27 @@ def setup_windows(args):
         fine, trouble = enable_virtual_display()
         print("  done" if fine else f"  could not: {trouble}")
     else:
-        print(f"Virtual display driver: not installed, asking winget for it")
+        print("Virtual display driver: not installed, asking winget for it")
         code, out = _run([
             "winget", "install", "--id", VDD_WINGET_ID, "-e",
             "--accept-package-agreements", "--accept-source-agreements",
         ])
-        if code != 0:
+        # Ask Windows, not winget. A package manager that reports success and
+        # a Device Manager with no such device is exactly what was reported --
+        # "il n'y a pas virtual display" -- after a setup that had gone on to
+        # configure a resolution, a projection mode and a login task for a
+        # driver that was never there. Every later step was work on nothing.
+        _present, _working, _what = virtual_display_state()
+        if code != 0 or not _present:
+            print()
+            print("  winget could not install it. It said:")
+            for line in (out.strip() or "nothing at all").splitlines()[:12]:
+                print(f"    {line}")
+            _offer_driver_page()
             raise SystemExit(
-                f"winget could not install it:\n{out.strip()}\n\n"
-                "This step needs an administrator window, and winget itself on "
-                "older builds of Windows. The driver can also be installed by "
-                "hand from the Virtual Display Driver releases page; run this "
-                "again afterwards and it will do the rest."
+                "Nothing else here can work until that driver exists, so this "
+                "is stopping rather than configuring a driver that is not "
+                "there. Install it, then run this again."
             )
         print("  installed")
 
