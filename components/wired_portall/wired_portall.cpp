@@ -7,7 +7,10 @@
 #include "esp_timer.h"
 
 #include <cmath>
+#include <algorithm>
+#include <cstdio>
 #include <cstring>
+#include <vector>
 
 extern "C" {
 #include "sdkconfig.h"
@@ -798,6 +801,9 @@ void WiredPortall::loop() {
   const uint32_t patience = this->port_ != 0 ? UNFED_INFO_MS : UNCLAIMED_WARNING_MS;
   if (!fed && !this->logged_unclaimed_ && millis() - this->started_ms_ > patience) {
     this->logged_unclaimed_ = true;
+    // On the glass as well as in the log. Somebody looking at a dark panel is
+    // not looking at a log.
+    this->draw_waiting_screen_();
     if (this->port_ != 0) {
       ESP_LOGI(TAG,
                "Nothing is feeding this panel yet: no sender has connected on port %u, and no USB host has claimed "
@@ -811,6 +817,191 @@ void WiredPortall::loop() {
                (unsigned) CONFIG_USB_DISPLAY_VID, (unsigned) CONFIG_USB_DISPLAY_PID);
     }
   }
+}
+
+// A 5x7 font, one byte per column, bit 0 at the top. Small enough to
+// carry, which is the point: a panel must be able to say this with no
+// font configured in the YAML, or the message is one more thing to set
+// up before it can tell you what to set up.
+//
+// Generated from a table that was rendered and read before being used --
+// a glyph table nobody looks at is a table with a broken letter in it.
+struct Glyph {
+  char ch;
+  uint8_t cols[5];
+};
+
+static const Glyph FONT[] = {
+    {' ', {0x00, 0x00, 0x00, 0x00, 0x00}},
+    {'!', {0x00, 0x00, 0x5F, 0x00, 0x00}},
+    {'\'', {0x00, 0x05, 0x03, 0x00, 0x00}},
+    {'(', {0x00, 0x1C, 0x22, 0x41, 0x00}},
+    {')', {0x00, 0x41, 0x22, 0x1C, 0x00}},
+    {',', {0x00, 0x80, 0x60, 0x00, 0x00}},
+    {'-', {0x08, 0x08, 0x08, 0x08, 0x08}},
+    {'.', {0x00, 0x60, 0x60, 0x00, 0x00}},
+    {'/', {0x20, 0x10, 0x08, 0x04, 0x02}},
+    {'0', {0x3E, 0x51, 0x49, 0x45, 0x3E}},
+    {'1', {0x00, 0x42, 0x7F, 0x40, 0x00}},
+    {'2', {0x42, 0x61, 0x51, 0x49, 0x46}},
+    {'3', {0x21, 0x41, 0x45, 0x4B, 0x31}},
+    {'4', {0x18, 0x14, 0x12, 0x7F, 0x10}},
+    {'5', {0x27, 0x45, 0x45, 0x45, 0x39}},
+    {'6', {0x3C, 0x4A, 0x49, 0x49, 0x30}},
+    {'7', {0x01, 0x71, 0x09, 0x05, 0x03}},
+    {'8', {0x36, 0x49, 0x49, 0x49, 0x36}},
+    {'9', {0x06, 0x49, 0x49, 0x29, 0x1E}},
+    {':', {0x00, 0x36, 0x36, 0x00, 0x00}},
+    {'=', {0x14, 0x14, 0x14, 0x14, 0x14}},
+    {'?', {0x02, 0x01, 0x51, 0x09, 0x06}},
+    {'A', {0x7E, 0x11, 0x11, 0x11, 0x7E}},
+    {'B', {0x7F, 0x49, 0x49, 0x49, 0x36}},
+    {'C', {0x3E, 0x41, 0x41, 0x41, 0x22}},
+    {'D', {0x7F, 0x41, 0x41, 0x22, 0x1C}},
+    {'E', {0x7F, 0x49, 0x49, 0x49, 0x41}},
+    {'F', {0x7F, 0x09, 0x09, 0x09, 0x01}},
+    {'G', {0x3E, 0x41, 0x49, 0x49, 0x7A}},
+    {'H', {0x7F, 0x08, 0x08, 0x08, 0x7F}},
+    {'I', {0x00, 0x41, 0x7F, 0x41, 0x00}},
+    {'J', {0x20, 0x40, 0x41, 0x3F, 0x01}},
+    {'K', {0x7F, 0x08, 0x14, 0x22, 0x41}},
+    {'L', {0x7F, 0x40, 0x40, 0x40, 0x40}},
+    {'M', {0x7F, 0x02, 0x0C, 0x02, 0x7F}},
+    {'N', {0x7F, 0x04, 0x08, 0x10, 0x7F}},
+    {'O', {0x3E, 0x41, 0x41, 0x41, 0x3E}},
+    {'P', {0x7F, 0x09, 0x09, 0x09, 0x06}},
+    {'Q', {0x3E, 0x41, 0x51, 0x21, 0x5E}},
+    {'R', {0x7F, 0x09, 0x19, 0x29, 0x46}},
+    {'S', {0x46, 0x49, 0x49, 0x49, 0x31}},
+    {'T', {0x01, 0x01, 0x7F, 0x01, 0x01}},
+    {'U', {0x3F, 0x40, 0x40, 0x40, 0x3F}},
+    {'V', {0x1F, 0x20, 0x40, 0x20, 0x1F}},
+    {'W', {0x7F, 0x20, 0x18, 0x20, 0x7F}},
+    {'X', {0x63, 0x14, 0x08, 0x14, 0x63}},
+    {'Y', {0x03, 0x04, 0x78, 0x04, 0x03}},
+    {'Z', {0x61, 0x51, 0x49, 0x45, 0x43}},
+    {'_', {0x40, 0x40, 0x40, 0x40, 0x40}},
+};
+
+
+static const Glyph *glyph_for(char ch) {
+  if (ch >= 'a' && ch <= 'z')
+    ch = (char) (ch - 'a' + 'A');
+  for (const Glyph &g : FONT) {
+    if (g.ch == ch)
+      return &g;
+  }
+  return nullptr;
+}
+
+void WiredPortall::draw_waiting_screen_() {
+  // What a panel shows when nothing is feeding it: what it is, and what to do
+  // about it. Before this, a board that was flashed correctly and simply had
+  // no sender yet showed whatever was on the glass -- which is nothing, and
+  // is indistinguishable from a board that did not boot.
+  //
+  // Deliberately says nothing that this component does not know for itself.
+  // The address would be the obvious thing to print and it is not here: the
+  // one ESPHome helper this ever called for such a line was renamed between
+  // releases and broke a user's build, and the sender finds the panel over
+  // mDNS anyway, so an address on the glass would be decoration bought at the
+  // price of a build that fails on a version this cannot test.
+  if (this->display_ == nullptr || this->width_ == 0 || this->height_ == 0)
+    return;
+
+  char geometry[48];
+  snprintf(geometry, sizeof(geometry), "%ux%u   PORT %u", (unsigned) this->width_,
+           (unsigned) this->height_, (unsigned) this->port_);
+  const char *lines[] = {
+      "PORTALL",
+      "WAITING FOR A COMPUTER",
+      "",
+      geometry,
+      "",
+      "RUN PORTALL.EXE ON YOUR PC",
+      "IT FINDS THIS PANEL BY ITSELF",
+  };
+  const size_t count = sizeof(lines) / sizeof(lines[0]);
+
+  // Big enough to read across a room, and worked out from the panel rather
+  // than fixed: the same message has to sit on a 1024x600 and on a 800x1280.
+  const int scale = this->width_ >= 800 ? 3 : 2;
+  const int cw = 6 * scale;   // five columns and the gap
+  const int lh = 11 * scale;  // seven rows and the leading
+
+  // Every lit pixel, in the panel's own coordinates, worked out once. The
+  // rotation is applied here because draw_pixels_at goes straight to the
+  // glass: the accelerator only turns frames that arrive over the wire, so
+  // text drawn without this would be upside down on a panel mounted that way.
+  std::vector<uint32_t> lit;
+  const int block_h = (int) count * lh;
+  int top = ((int) this->height_ - block_h) / 2;
+  if (top < 0)
+    top = 0;
+  for (size_t row = 0; row < count; row++) {
+    const int len = (int) strlen(lines[row]);
+    int left = ((int) this->width_ - len * cw) / 2;
+    if (left < 0)
+      left = 0;
+    for (int i = 0; i < len; i++) {
+      const Glyph *g = glyph_for(lines[row][i]);
+      if (g == nullptr)
+        continue;
+      for (int col = 0; col < 5; col++) {
+        for (int bit = 0; bit < 7; bit++) {
+          if (!((g->cols[col] >> bit) & 1))
+            continue;
+          for (int dy = 0; dy < scale; dy++) {
+            for (int dx = 0; dx < scale; dx++) {
+              int x = left + i * cw + col * scale + dx;
+              int y = top + (int) row * lh + bit * scale + dy;
+              int px = x, py = y;
+              switch (this->rotation_) {
+                case 90:
+                  px = (int) this->width_ - 1 - y;
+                  py = x;
+                  break;
+                case 180:
+                  px = (int) this->width_ - 1 - x;
+                  py = (int) this->height_ - 1 - y;
+                  break;
+                case 270:
+                  px = y;
+                  py = (int) this->height_ - 1 - x;
+                  break;
+                default:
+                  break;
+              }
+              if (px < 0 || py < 0 || px >= (int) this->width_ || py >= (int) this->height_)
+                continue;
+              lit.push_back((uint32_t) py * this->width_ + (uint32_t) px);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // A strip at a time, so this needs no buffer of its own worth speaking of.
+  // Full-panel would be another megabyte on a board whose PSRAM is already
+  // spoken for by the decoder and the frame buffers.
+  const int band = 32;
+  std::vector<uint16_t> strip((size_t) this->width_ * band);
+  const uint16_t ground = 0x0000;
+  const uint16_t ink = 0xFFFF;
+  for (int y0 = 0; y0 < (int) this->height_; y0 += band) {
+    const int rows = std::min(band, (int) this->height_ - y0);
+    std::fill(strip.begin(), strip.begin() + (size_t) this->width_ * rows, ground);
+    const uint32_t first = (uint32_t) y0 * this->width_;
+    const uint32_t last = first + (uint32_t) rows * this->width_;
+    for (uint32_t at : lit) {
+      if (at >= first && at < last)
+        strip[at - first] = ink;
+    }
+    this->display_->draw_pixels_at(0, y0, this->width_, rows, (const uint8_t *) strip.data(),
+                                   display::COLOR_ORDER_RGB, display::COLOR_BITNESS_565, false, 0, 0, 0);
+  }
+  ESP_LOGI(TAG, "Nothing is feeding this panel, so it is saying so on its own screen.");
 }
 
 void WiredPortall::dump_config() {
