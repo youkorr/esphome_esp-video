@@ -1,5 +1,25 @@
 # Changelog
 
+## 4.8.0
+
+- **Reolink and Immich are drawn at the right size now**, reported as too
+  small beside the other logos. Two different causes.
+
+  **Immich carried a transparent margin**: 25% of its picture was nothing at
+  all, so 33 px of its 43 were drawn where a simple-icons glyph fills all 43.
+  That margin is cropped off before it is embedded, and it measures 42x42
+  against Jellyfin's 43x42 -- the same.
+
+  **Reolink is a badge**, a white R on its own blue rounded square, and the
+  square is not the mark. Drawn at the size a bare glyph wants, the letter
+  inside it was 23 px against a glyph's 43. A badge brings its own ground, so
+  it now takes the whole icon square the way an app icon does everywhere
+  else, and the R reads at 39.
+
+  Which of the two a picture is comes from its own alpha rather than a
+  judgement: 95% opaque is a badge, 57% is a glyph with the background cut
+  away.
+
 ## 4.7.0
 
 - **Immich draws its five colours again.** Reported from a panel as white
