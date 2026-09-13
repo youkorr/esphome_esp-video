@@ -3386,6 +3386,64 @@ followed by C++ that only a Windows machine can prove.
 Sources: VirtualDrivers/Virtual-Display-Driver releases; signpath.org project
 list; espressif/esp-iot-solution `usb_extend_screen/windows_driver`.
 
+## An error message with no error in it, and the byte that emptied it
+
+**Reported as "regarde" with a traceback, and the traceback is ours.** From
+`--setup` on their machine:
+
+    Exception in thread Thread-8 (_readerthread):
+      File "...\encodings\cp1252.py", line 23, in decode
+    UnicodeDecodeError: 'charmap' codec can't decode byte 0x90 in position 19
+      could not: ;
+
+`_run()` read command output with `subprocess.run(text=True)`. **subprocess
+decodes inside a reader THREAD on Windows**, so an undecodable byte does not
+raise where the call is: the thread dies, the traceback goes to stderr, and the
+output comes back an **empty string with the exit code intact**. So a command
+that failed for a perfectly stated reason reported a failure with no reason in
+it -- `could not: ;` is `"; ".join()` over two empty strings.
+
+**And the encoding gap is not cp1252 versus utf-8, it is ANSI versus OEM.**
+`text=True` decodes with the locale encoding, which on a French Windows is
+cp1252; PowerShell 5.1 writes with the **console output codepage**, which on
+the same machine is **850**, where `0x90` is `É`. Two different codepages on
+one machine, and nothing in the code knew there were two.
+
+`_run` captures bytes and `_decode()` tries **utf-8 first** -- it has to be
+first, because a single-byte codepage decodes *any* byte sequence, so putting
+one ahead of utf-8 means PowerShell 7's real utf-8 output can never win --
+then the console output codepage from `GetConsoleOutputCP`, then the OEM and
+ANSI pages, and `errors="replace"` last so one byte can never empty a
+diagnostic again. Verified both ways: cp850 French text comes back with its
+accents, and utf-8 text is not read as cp850.
+
+Every failure path in that area also stopped being allowed to say nothing:
+`exit code N` where a command printed nothing at all, and DisplaySwitch --
+which says nothing whatever when it refuses -- reports its code.
+
+**The same traceback said something else, and it is the more useful half.**
+Two devices were in a non-OK state on a machine whose driver, installed by
+hand, works. `Get-PnpDevice` returns **phantoms** -- the leftovers of the
+earlier failed installs, Status `Unknown`, present nowhere. `Enable-PnpDevice`
+on one fails by definition, which is what those two empty reasons were, and
+`virtual_display_state()` was counting them as a driver that was merely
+switched off. That is the same fault this file already records twice in this
+area, in a third costume: **the shape of "installed" without any of the
+substance.**
+
+`_display_devices()` asks for `Present` and hands back dicts; a phantom no
+longer makes `present` true, is never handed to `Enable-PnpDevice`, and is
+**printed** under `NONE INSTALLED` rather than hidden -- because a leftover is
+exactly what makes an earlier install look as though it took. An older
+PowerShell with no such property is read as present, so a missing column can
+never turn a real driver into a ghost.
+
+Exercised over six states with the device query stubbed: their own two
+leftovers and nothing real, a driver working, one switched off, one working
+with a leftover beside it, nothing at all, and a PowerShell with no `Present`
+column. **Nothing Windows-side is verified** -- no PowerShell and no driver
+here; what is verified is that no console byte can empty a message again.
+
 ## Repository conventions
 
 - Work on branch `claude/esphome-pr-outdated-mdq36w`, then merge into `main`

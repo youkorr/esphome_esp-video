@@ -507,6 +507,10 @@ def pick_monitor(monitors, wanted, panel_w, panel_h):
         print("Virtual display driver:")
         if not present:
             print("    NONE INSTALLED")
+            # A leftover is worth showing here rather than hidden: it is what
+            # makes an earlier install look as though it took.
+            for line in what.splitlines():
+                print(f"    {line}")
         else:
             for line in what.splitlines():
                 print(f"    {line}")
@@ -580,7 +584,9 @@ def extend_displays():
     passes every check here, and shows a copy.
     """
     code, out = _run(["DisplaySwitch.exe", "/extend"])
-    return code == 0, out.strip()
+    # DisplaySwitch says nothing at all when it refuses, so the exit code is
+    # the only thing there is to report and an empty reason is no reason.
+    return code == 0, out.strip() or f"DisplaySwitch exit code {code}"
 
 
 def describe_monitors(monitors, panels=()):
@@ -1036,20 +1042,84 @@ VDD_SETTINGS_PATHS = (
 VDD_WINGET_ID = "VirtualDrivers.Virtual-Display-Driver"
 
 
+def _console_codecs():
+    """The encodings a Windows command's output might actually be in, in order.
+
+    utf-8 first, and it has to be first: a single-byte codepage decodes ANY
+    byte sequence, so putting one ahead of utf-8 means utf-8 never wins and
+    PowerShell 7's real utf-8 output comes back as mojibake. Accented text in
+    a codepage is almost never valid utf-8, so the fall-through is reliable.
+    """
+    yield "utf-8"
+    try:
+        import ctypes
+
+        # What the CHILD writes with, which is not the locale encoding: on a
+        # French Windows the console output codepage is 850 while
+        # locale.getpreferredencoding() says cp1252. That gap is the whole bug
+        # this exists for.
+        for name in ("GetConsoleOutputCP", "GetOEMCP", "GetACP"):
+            try:
+                page = int(getattr(ctypes.windll.kernel32, name)())
+            except Exception:                     # noqa: BLE001 - best effort
+                continue
+            if page:
+                yield f"cp{page}"
+    except Exception:                             # noqa: BLE001 - not Windows
+        pass
+    try:
+        import locale
+
+        got = locale.getpreferredencoding(False)
+        if got:
+            yield got
+    except Exception:                             # noqa: BLE001 - best effort
+        pass
+    yield "cp1252"
+
+
+def _decode(raw):
+    """Bytes from a Windows command into text, never raising.
+
+    Read the output as BYTES and decode here rather than passing text=True to
+    subprocess, and that is not a tidy-up. subprocess decodes inside a reader
+    THREAD on Windows: an undecodable byte kills that thread with a
+    UnicodeDecodeError printed to stderr, and the output then comes back as an
+    empty string with the exit code intact -- so a failing command reports a
+    failure with no reason in it. Reported from a French Windows as
+    "could not: ;", from a run where Enable-PnpDevice had said something
+    perfectly clear in cp850 and byte 0x90 (E-acute there, undefined in
+    cp1252) threw it away.
+    """
+    if not raw:
+        return ""
+    tried = set()
+    for codec in _console_codecs():
+        if codec in tried:                        # the ANSI and OEM pages match on most machines
+            continue
+        tried.add(codec)
+        try:
+            return raw.decode(codec)
+        except (UnicodeDecodeError, LookupError):
+            continue
+    # Never leave a diagnostic empty because of one byte.
+    return raw.decode("utf-8", "replace")
+
+
 def _run(command, check=False):
     """Run something and hand back (code, output). Never raises on a bad exit."""
     import subprocess
 
     try:
-        done = subprocess.run(command, capture_output=True, text=True,
-                              timeout=600)
+        done = subprocess.run(command, capture_output=True, timeout=600)
     except FileNotFoundError:
         return 127, f"{command[0]} is not on this machine"
     except Exception as err:                      # noqa: BLE001 - reported, not raised
         return 1, str(err)
-    out = (done.stdout or "") + (done.stderr or "")
+    out = _decode(done.stdout) + _decode(done.stderr)
     if check and done.returncode != 0:
-        raise SystemExit(out.strip() or f"{command[0]} failed")
+        raise SystemExit(out.strip() or
+                         f"{command[0]} failed, exit code {done.returncode}")
     return done.returncode, out
 
 
@@ -1061,25 +1131,44 @@ DRIVER_NAMES = "Virtual Display|IddSample|Idd Device|usb_graphic|xfz1986"
 
 
 def _display_devices():
-    """Raw lines from Windows about any indirect display driver it has.
-
-    Status|Class|FriendlyName|InstanceId, one per device.
+    """What Windows has, as dicts: status, class, name, id, present.
 
     NOT restricted to -Class Display, which the first version was: these
     enumerate under more than one class depending on the driver and the
     version, so a class filter is a way to answer "nothing installed" about a
     driver sitting right there. Asked of Windows rather than of the filesystem,
     because a folder left behind by an uninstall would answer yes.
+
+    `Present` is asked for because Get-PnpDevice also returns PHANTOMS -- the
+    leftovers of an earlier install, which report Status Unknown, make no
+    monitor, and cannot be enabled. Treating one as a driver that is merely
+    switched off is how a setup comes to spend its effort on
+    Enable-PnpDevice for a device that is not there.
     """
     code, out = _run([
         "powershell", "-NoProfile", "-Command",
         "Get-PnpDevice -ErrorAction SilentlyContinue "
         f"| Where-Object {{ $_.FriendlyName -match '{DRIVER_NAMES}' }} "
         "| ForEach-Object { \"$($_.Status)|$($_.Class)|$($_.FriendlyName)"
-        "|$($_.InstanceId)\" }",
+        "|$($_.InstanceId)|$($_.Present)\" }",
     ])
-    lines = [l for l in out.splitlines() if l.strip()] if code == 0 else []
-    return lines
+    found = []
+    for line in (out.splitlines() if code == 0 else []):
+        parts = line.split("|")
+        if len(parts) < 4 or not line.strip():
+            continue
+        found.append({
+            "status": parts[0].strip(),
+            "class": parts[1].strip(),
+            "name": parts[2].strip(),
+            "id": parts[3].strip(),
+            # An older PowerShell that does not carry the property leaves this
+            # empty, and an empty answer must not turn a real driver into a
+            # phantom -- so anything that is not an explicit False counts.
+            "present": parts[4].strip().lower() != "false"
+                       if len(parts) > 4 else True,
+        })
+    return found
 
 
 def virtual_display_state():
@@ -1090,23 +1179,41 @@ def virtual_display_state():
     creates no monitor at all, and is what a panel showing a mirror looks like
     after a setup that reported success -- because the setup saw "present",
     skipped the install it did not need, and never did the enable it did.
+
+    A phantom does not count as present, for the same reason: it is the shape
+    of "installed" without any of the substance.
     """
-    lines = _display_devices()
-    working = any(l.split("|")[0].strip().upper() == "OK" for l in lines)
+    devices = _display_devices()
+    real = [d for d in devices if d["present"]]
+    working = any(d["status"].upper() == "OK" for d in real)
     said = "\n".join(
-        "  ".join(part for part in l.split("|")[:3]) for l in lines)
-    return bool(lines), working, said
+        f"  {d['status']}  {d['class']}  {d['name']}"
+        + ("" if d["present"] else "  (not present -- a leftover)")
+        for d in devices)
+    return bool(real), working, said
 
 
 def enable_virtual_display():
     """Turn on a driver that is installed and switched off. Needs administrator.
 
-    Every device that is not already OK, by instance id rather than by name --
-    a name is what a person reads and an id is what Windows acts on.
+    Every device that is present and not already OK, by instance id rather
+    than by name -- a name is what a person reads and an id is what Windows
+    acts on. Phantoms are skipped and said out loud instead: Enable-PnpDevice
+    on one fails, which is a failure that says nothing about the driver
+    somebody is actually asking about.
     """
-    ids = [l.split("|")[3] for l in _display_devices()
-           if len(l.split("|")) > 3 and l.split("|")[0].strip().upper() != "OK"]
+    devices = _display_devices()
+    ids = [d["id"] for d in devices
+           if d["present"] and d["status"].upper() != "OK"]
+    ghosts = [d["name"] for d in devices if not d["present"]]
     if not ids:
+        if ghosts:
+            names = sorted(set(ghosts))
+            return True, ("nothing to turn on: "
+                          + ", ".join(names)
+                          + (" are leftovers" if len(names) > 1
+                             else " is a leftover")
+                          + " of an earlier install, not a driver Windows has")
         return True, "nothing was switched off"
     trouble = []
     for one in ids:
@@ -1115,8 +1222,13 @@ def enable_virtual_display():
             f"Enable-PnpDevice -InstanceId '{one}' -Confirm:$false",
         ])
         if code != 0:
-            trouble.append(out.strip())
-    return not trouble, "; ".join(trouble)
+            # Never an empty entry: a command that fails silently still has an
+            # exit code, and "could not: ;" is an error message with no error
+            # in it.
+            trouble.append(out.strip() or f"exit code {code}")
+    if trouble:
+        return False, "; ".join(trouble)
+    return True, f"{len(ids)} of them turned on"
 
 
 def virtual_display_present():
@@ -1164,6 +1276,8 @@ def check_windows(args):
             print("    off makes no monitor. --setup turns it on.")
     else:
         print("    NONE INSTALLED.")
+        for line in what.splitlines():
+            print(f"    {line}")
         print("    This is why the panel is a copy of the main screen and why")
         print("    Windows forgets it: the second desktop is the DRIVER's, not")
         print("    this program's. Run --setup in an administrator window.")
