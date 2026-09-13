@@ -1,5 +1,18 @@
 # Changelog
 
+## 3.3.4
+
+- **The log claimed a successful hold had been abandoned.** A hold that has
+  gone home leaves its clock in place -- only the "already spent" flag is
+  set -- so the finger lifting half a second later printed *the hold is
+  abandoned* about a gesture that had just worked. A diagnostic that accuses
+  a working gesture of failing is worse than no diagnostic at all, and this
+  one was a day old.
+- **And the success now says so where it happens**, with the thing nobody can
+  know from the glass: `hold complete after 3.00s -- going home. Keeping the
+  finger down past this point changes nothing`. A panel measured 3.94s of
+  finger for a 3s hold, because there is no way to feel the moment it fires.
+
 ## 3.3.3
 
 - **Every line in this log now carries the time it happened at.** The

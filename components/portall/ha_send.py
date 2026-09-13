@@ -3155,6 +3155,11 @@ class Injector:
             return False
         if now - self._corner_at >= self._hold:
             self.held_for = now - self._corner_at
+            if self.verbose:
+                print(f"[{time.strftime('%H:%M:%S')}] corner: hold complete "
+                      f"after {self.held_for:.2f}s -- going home. Keeping the "
+                      f"finger down past this point changes nothing",
+                      flush=True)
         if now - self._corner_at < self._hold:
             return False
         # Spent. The finger is still down and will go on reporting; every one
@@ -3258,7 +3263,7 @@ class Injector:
 
     def _reset(self):
         self._wheel = [0, 0]
-        if self.verbose and self._corner_at is not None:
+        if self.verbose and self._corner_at is not None and not self._went_home:
             print(f"[{time.strftime('%H:%M:%S')}] corner: the finger lifted "
                   f"after {time.monotonic() - self._corner_at:.2f}s of "
                   f"{self._hold:g}s -- the hold is abandoned", flush=True)
