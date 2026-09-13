@@ -18,8 +18,11 @@ profile page.
 Run the calibration once per panel, from anywhere, before setting this up --
 it prints the `touch_rotate` and mirror values to use, and no two panels agree:
 
-    python ha_send.py --calibrate --host ip esp32P4 --port 5000 \
-        --width 1024 --height 600 --rotate 180
+    python ha_send.py --calibrate --host 192.168.1.11 --port 5000 --width 1024 --height 600 --rotate 180
+
+One line, and a real address rather than a placeholder: PowerShell does not
+take a backslash as a continuation, and a chevron pasted as it stands is an
+error somebody has to work out for themselves.
 
 ## Moving from 2.x: Home Assistant is a link now
 
