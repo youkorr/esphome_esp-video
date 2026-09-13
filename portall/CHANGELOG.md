@@ -1,5 +1,28 @@
 # Changelog
 
+## 3.5.0
+
+- **A press in the corner no longer reaches the page.** This is what the
+  "coming home takes five seconds" reports were actually made of, and it took
+  a timestamped log to see: there was never one slow gesture, there were
+  *two* gestures. A first attempt lasting 0.13s was too short to go home, so
+  it was delivered as an ordinary press -- and the corner covers Home
+  Assistant's sidebar button, which opened and repainted the whole screen
+  (410 KiB/s in the window after it). A second, proper hold then followed.
+  First finger to picture on the wire: 4.67s, of which the gesture itself was
+  3.4s.
+
+  The corner belongs to the way back now. A press that lands in it is never
+  passed on, however short.
+
+- **And a swallowed press lights the mark again**, rather than doing nothing
+  and saying nothing -- which is what made somebody try again, and trying
+  again is where the seconds went.
+
+- Only a press that would have been a *tap* is swallowed: a drag out of the
+  corner is a scroll and is untouched, a sideways swipe still goes home, and
+  a press anywhere else is unaffected. Checked over all six.
+
 ## 3.4.1
 
 - **The return is now timed all the way to the socket.** `offer()` hands a

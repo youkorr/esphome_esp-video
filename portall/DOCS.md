@@ -240,10 +240,12 @@ pressed and what is seen cannot drift apart. On a 1280x800 page, 14% is a
 179x112 corner and 25% is 320x200 -- worth raising on a panel across a room,
 or on one mounted where a corner is awkward to reach.
 
-`home_hold` is how long the finger must stay there. Short of it the tap is
-delivered to the page as normal, so the corner stays usable for whatever is
-under it -- which is why it is a hold rather than a tap, and why a corner that
-merely gets brushed does nothing. Lower it to 0.3 once the household knows the
+`home_hold` is how long the finger must stay there. **A press that lands in
+the corner is never passed to the page**, however short: a failed attempt used
+to be delivered as an ordinary press, and on a Home Assistant dashboard the
+corner covers the sidebar button, so every miss opened the sidebar. Short of
+the hold, nothing happens at all and the mark lights up again to say the
+gesture is there. A drag out of the corner still scrolls normally. Lower it to 0.3 once the household knows the
 gesture; raise it on a panel by a doorway. The sideways swipe is unaffected by
 either setting.
 
