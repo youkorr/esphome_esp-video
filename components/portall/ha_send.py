@@ -4119,6 +4119,9 @@ def main():
         # now the log only ever offered its parts separately.
         home_held = None
         home_at = None
+        # Set when the board asks for the way back itself rather than a finger
+        # asking for it on the glass.
+        asked_home = False
         capture = Screencast(page, page_w, page_h, args.capture_quality)
         if args.freeze_animations:
             capture.freeze_animations()
@@ -4419,6 +4422,15 @@ def main():
                         if kind == "touch":
                             reports.append(body)
                             continue
+                        if kind == "home":
+                            # portall.home on the board. Until now the way back
+                            # could only ever be a finger, because only the
+                            # sender knew the gesture; this lets a button, an
+                            # automation, a presence sensor or a voice command
+                            # ask for it, none of which has to aim at a corner
+                            # or hold still.
+                            asked_home = True
+                            continue
                         # The panel went dark or came back. Rendering for a
                         # screen nobody can see costs the server, the network
                         # and the board alike, so stop at the source: the
@@ -4518,13 +4530,18 @@ def main():
                         # the board and nothing here can shorten it.
                         rest = writer.wrote_at - home_at
                         total = (home_held or 0.0) + rest
-                        print(
-                            f"Home: {total:.1f}s from the finger landing to "
-                            f"the picture leaving for the panel"
-                            + (f" (hold {home_held:.1f}s as asked, then "
-                               f"{rest:.1f}s)" if home_held is not None
-                               else f" (swiped, then {rest:.1f}s)")
-                        )
+                        # "from the finger landing" is only true when a
+                        # finger was involved. portall.home has no gesture in
+                        # front of it at all, which is the whole point of it,
+                        # so the sentence has to say what it is measuring.
+                        if home_held is not None:
+                            print(f"Home: {total:.1f}s from the finger landing "
+                                  f"to the picture leaving for the panel "
+                                  f"(hold {home_held:.1f}s as asked, then "
+                                  f"{rest:.1f}s)")
+                        else:
+                            print(f"Home: {rest:.1f}s from the request to the "
+                                  f"picture leaving for the panel")
                         home_written = None
                     # A finger held in the corner asks to go back to the page
                     # this panel was pointed at -- its launcher, whatever that
@@ -4545,14 +4562,19 @@ def main():
                             hint.set(0.0)
                         else:
                             hint.set(None)
-                    if injector is not None and injector.tick(now):
+                    # tick() first and always, so a swipe already decided in
+                    # handle() is collected rather than left to fire on a later
+                    # turn behind the board's own request.
+                    gestured = injector is not None and injector.tick(now)
+                    if gestured or asked_home:
                         # Timed in three pieces, because "coming home is slow"
                         # has three separate causes and they need separate
                         # answers: the hold is the gesture, the open is the
                         # navigation plus the settle written for a page that
                         # paints in stages, and the wait for a picture is the
                         # panel. A single total tells you none of them.
-                        home_held = injector.held_for
+                        home_held = injector.held_for if gestured else None
+                        asked_home = False
                         home_at = time.monotonic()
                         if not open_page(page, args):
                             print("Warning: home would not open")
@@ -4561,7 +4583,8 @@ def main():
                         print(
                             f"Home: back to {args.url} -- "
                             + (f"held {home_held:.1f}s, " if home_held is not None
-                               else "swiped, ")
+                               else ("asked by the board, " if not gestured
+                                     else "swiped, "))
                             + f"opened in {opened - home_at:.1f}s"
                         )
                         if keyboard is not None:
