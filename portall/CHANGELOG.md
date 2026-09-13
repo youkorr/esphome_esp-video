@@ -1,5 +1,30 @@
 # Changelog
 
+## 3.6.0
+
+- **The way back is no longer only a finger: `portall.home`.** Until now the
+  gesture lived entirely in the sender, which is what made it work at all -- a
+  panel has no Back button and a site playing full screen swallows whatever
+  the page is given, so the corner has to be decided by arithmetic before the
+  page sees the contact. The cost of that was that only a finger could ever
+  ask.
+
+  The board can ask now, so anything in its YAML can: a physical button, a
+  Home Assistant automation, a presence sensor releasing, a voice command.
+  It sits beside `portall.sleep` and `portall.wake`, which already go the same
+  way, and like them it only TELLS the sender -- nothing on the board changes.
+
+  ```yaml
+  button:
+    - platform: template
+      name: "Retour a l'accueil"
+      on_press:
+        - portall.home: udisp
+  ```
+
+  Needs the component from this repository's `main` on the panel as well as
+  this add-on: the board is what sends the new message.
+
 ## 3.5.1
 
 - **The return now reports one figure, which is what a stopwatch gives.**

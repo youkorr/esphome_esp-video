@@ -196,8 +196,15 @@ def parse_messages(buffer):
       sleeping panel is showing nothing to nobody, so there is no sense
       rendering or sending for it.
 
-    Returns ("touch", contacts) and ("awake", bool) pairs, and whatever tail is
-    still short of a whole message so the caller can hand it back next time.
+      b"H", then a reserved byte: the board asking to go back to this panel's
+      own page. It is the portall.home action, so a button, an automation or a
+      presence sensor can do what until now only a finger on the corner could.
+      Two bytes like b"S" rather than one, because two is the shortest thing
+      this parser can recognise at all.
+
+    Returns ("touch", contacts), ("awake", bool) and ("home", True) pairs, and
+    whatever tail is still short of a whole message so the caller can hand it
+    back next time.
     """
     messages = []
     at = 0
@@ -207,6 +214,10 @@ def parse_messages(buffer):
         kind = buffer[at]
         if kind == ord("S"):
             messages.append(("awake", bool(buffer[at + 1])))
+            at += 2
+            continue
+        if kind == ord("H"):
+            messages.append(("home", True))
             at += 2
             continue
         if kind != ord("T"):
