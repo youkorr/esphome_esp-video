@@ -88,8 +88,11 @@ add-on to know which way a controller reports contacts: a GT911 on one board
 mirrors both axes, the same part on another swaps them, a GSL3680 mirrors one.
 It draws three targets, asks for a tap on each and prints the values to paste:
 
-    python ha_send.py --calibrate --host <the panel's address> --port 5000 \
-        --width 800 --height 1280
+    python ha_send.py --calibrate --host 192.168.1.11 --port 5000 --width 800 --height 1280
+
+One line: PowerShell does not take a backslash as a continuation. Put the
+panel's own address and its own size in, and paste what it prints into that
+panel's `touch:` block.
 
 Everything else -- the options one by one, the launcher, the on-screen
 keyboard, sound, the gestures and what it all costs -- is on the
