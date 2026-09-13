@@ -1,5 +1,5 @@
 name: Portall
-version: "3.2.1"
+version: "3.3.0"
 # Home Assistant identifies an add-on by its slug, so this one moving from
 # usb_display_panel to portall makes the Supervisor see a NEW add-on: options
 # are not carried over and /data starts empty, which means the browser
@@ -205,6 +205,11 @@ options:
       home_assistant: true
       touch_mirror_x: false
       touch_mirror_y: false
+      # How big the corner that brings the panel back here is, as a percentage
+      # of each axis, and how long a finger must be held in it. Short of the
+      # hold the tap reaches the page as usual, so the corner stays usable.
+      home_corner: 14
+      home_hold: 1.0
 schema:
   port: port?
   fps: float?
@@ -264,6 +269,8 @@ schema:
       fps: float?
       quality: int(1,95)?
       keyboard: list(off|qwerty|azerty)?
+      home_corner: int(2,40)?
+      home_hold: float(0.1,5.0)?
       blank_after: float?
       keep_profile: bool?
       locale: str?

@@ -499,6 +499,8 @@ def command_for(panel):
         "urgent_fps",
         "urgent_window",
         "keyboard",
+        "home_corner",
+        "home_hold",
         "blank_after",
         "rect_cost",
         "browser",
@@ -517,6 +519,8 @@ def command_for(panel):
     # the way a shell would, not on whitespace. The flag people actually need
     # here has spaces inside it (--host-resolver-rules="MAP * 1.1.1.1"), and
     # splitting on whitespace tore it into three flags that mean nothing.
+    if panel.get("on_launcher"):
+        argv.append("--not-home-assistant")
     for flag in shlex.split(str(panel.get("browser_args") or "")):
         argv += ["--browser-arg", flag]
     # A quality per link, which is easier to reason about than one per panel:
@@ -684,6 +688,12 @@ def main():
                         f"to. Give the dashboard's link a token, or a tile "
                         f"opening it will ask to log in.")
             panel["url"] = where
+            # Not a form field: the supervisor never sees this, it is what the
+            # rewrite above already knows. A page of links does not paint in
+            # stages, and the sender otherwise spends three seconds waiting
+            # for a staging it will never see -- every time the corner brings
+            # the panel home.
+            panel["on_launcher"] = True
 
     # Every panel gets the same list: the links are the house's, not one
     # screen's, and a panel that never opens a given page is unaffected by a

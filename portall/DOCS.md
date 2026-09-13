@@ -156,6 +156,8 @@ Assistant dashboard to appear; without one it does neither.
 | `fps` | Upper bound on how often a change is acted on. 25 by default; the one setting that decides whether video looks like video. See below |
 | `quality` | JPEG quality, 1..95 |
 | `keyboard` | The on-screen keyboard's layout, or `off`. See below |
+| `home_corner` | How big the corner that brings the panel home is, as a percentage of each axis. 14 by default. See below |
+| `home_hold` | How long a finger must be held in that corner, in seconds. 1.0 by default. See below |
 | `blank_after` | Seconds dark before a sleeping panel's page is let go of, 300 by default. **Per panel only** -- it is not the same thing as the timer that turns your backlight off, see below |
 | `keep_profile` | Keep the browser signed in between restarts. See below |
 | `import_profile` | A browser profile signed in by hand elsewhere, to start this panel from. **Per panel only** -- it does not belong to a house. See below |
@@ -213,6 +215,44 @@ panels:
     width: 800
     height: 1280
 ```
+
+### Coming back
+
+A panel has no Back button, no address bar and no keyboard, and a site playing
+full screen swallows whatever the page is given. So the way home is decided in
+the sender, before the page sees anything: **hold the top-left corner**, or
+**swipe sideways out of it**. A faint mark is drawn there when a page arrives
+and fills while a finger is held, so the gesture can be found by somebody who
+was never told about it.
+
+Two settings, on the panel:
+
+```yaml
+panels:
+  - name: salon
+    home_corner: 14      # percent of each axis -- 2 to 40
+    home_hold: 1.0       # seconds -- 0.1 to 5
+```
+
+`home_corner` moves the mark and the tested rectangle **together**, so what is
+pressed and what is seen cannot drift apart. On a 1280x800 page, 14% is a
+179x112 corner and 25% is 320x200 -- worth raising on a panel across a room,
+or on one mounted where a corner is awkward to reach.
+
+`home_hold` is how long the finger must stay there. Short of it the tap is
+delivered to the page as normal, so the corner stays usable for whatever is
+under it -- which is why it is a hold rather than a tap, and why a corner that
+merely gets brushed does nothing. Lower it to 0.3 once the household knows the
+gesture; raise it on a panel by a doorway. The sideways swipe is unaffected by
+either setting.
+
+**How long coming home actually takes.** The hold is only part of it. A panel
+that starts on the launcher used to pay a further **three seconds** on every
+trip home: that wait exists because Home Assistant paints in stages -- shell,
+then cards, then their data -- and the first picture is the one every later
+difference is measured against. A page of links has no such staging, and since
+3.3.0 the add-on says so outright, so the wait is 800 ms. With `home_hold: 0.4`
+that is a little over a second instead of four and a half.
 
 **`quality` on a link is the cheapest saving here.** A film wants far fewer
 bytes than a dashboard and does not show the difference, so it is said on the
