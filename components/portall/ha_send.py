@@ -972,6 +972,17 @@ def present_browser(session, page, keyboard_wanted, wanted_agent):
     return agent
 
 
+def stamp():
+    """HH:MM:SS.mmm from ONE reading of the clock.
+
+    Two readings disagree at a second boundary, and a log read for tenths is
+    exactly where that shows: a real one carried 19:27:30.9 followed by
+    19:27:30.0 for a later line.
+    """
+    now = time.time()
+    return time.strftime("%H:%M:%S", time.localtime(now)) + f".{int(now % 1 * 1000):03d}"
+
+
 def origin_of(url):
     """Scheme and host, which is what a browser scopes storage to."""
     from urllib.parse import urlsplit
@@ -1727,6 +1738,11 @@ class PanelWriter:
         # Still worth counting even though the loop no longer pays it: it is
         # the measure of whether the panel is the limit.
         self.blocked = 0.0
+        # When the last picture offered finished going down the socket.
+        # offer() returns at once -- a thread does the writing -- so
+        # 'sent' and 'written' are different moments, and only the second
+        # one is when the panel could possibly have it.
+        self.wrote_at = None
         # When the write in progress began, or None between writes. Without
         # this the whole of a long write is credited to the window in which it
         # FINISHES: a panel that took twenty-seven seconds to accept a picture
@@ -1777,6 +1793,7 @@ class PanelWriter:
                     self.blocked += time.monotonic() - self._writing_since
                     self._writing_since = None
                 self._slot = None
+                self.wrote_at = time.monotonic()
                 self._wake.notify_all()
 
     def _drain_audio(self):
@@ -1819,6 +1836,7 @@ class PanelWriter:
     def offer(self, blobs):
         """Hand over a whole picture. Only call this after ``ready()``."""
         with self._wake:
+            self.wrote_at = None
             if self._error is not None:
                 raise self._error
             self._slot = blobs
@@ -3034,7 +3052,7 @@ class Injector:
                     # panes that scroll on their own -- but do not press yet.
                     self._page.mouse.move(x, y)
                 if self.verbose:
-                    print(f"[{time.strftime('%H:%M:%S')}] contact at "
+                    print(f"[{stamp()}] contact at "
                           f"({point[0]:.0f},{point[1]:.0f}) on the panel -> "
                           f"({x:.0f},{y:.0f}) on the page", flush=True)
                 self._start = self._last = (x, y)
@@ -3050,7 +3068,7 @@ class Injector:
                 self._from_corner = in_corner
                 self._went_home = False
                 if self.verbose:
-                    print(f"[{time.strftime('%H:%M:%S')}] corner: landed at "
+                    print(f"[{stamp()}] corner: landed at "
                           f"({x:.0f},{y:.0f}), "
                           + (f"inside {self._corner[0]:.0f}x{self._corner[1]:.0f} "
                              f"-- holding for {self._hold:g}s"
@@ -3096,7 +3114,7 @@ class Injector:
                 x <= self._corner[0] and y <= self._corner[1]
             ):
                 if self.verbose:
-                    print(f"[{time.strftime('%H:%M:%S')}] corner: left at "
+                    print(f"[{stamp()}] corner: left at "
                           f"({x:.0f},{y:.0f}) after "
                           f"{time.monotonic() - self._corner_at:.2f}s of "
                           f"{self._hold:g}s -- the hold is lost and does not "
@@ -3156,7 +3174,7 @@ class Injector:
         if now - self._corner_at >= self._hold:
             self.held_for = now - self._corner_at
             if self.verbose:
-                print(f"[{time.strftime('%H:%M:%S')}] corner: hold complete "
+                print(f"[{stamp()}] corner: hold complete "
                       f"after {self.held_for:.2f}s -- going home. Keeping the "
                       f"finger down past this point changes nothing",
                       flush=True)
@@ -3264,7 +3282,7 @@ class Injector:
     def _reset(self):
         self._wheel = [0, 0]
         if self.verbose and self._corner_at is not None and not self._went_home:
-            print(f"[{time.strftime('%H:%M:%S')}] corner: the finger lifted "
+            print(f"[{stamp()}] corner: the finger lifted "
                   f"after {time.monotonic() - self._corner_at:.2f}s of "
                   f"{self._hold:g}s -- the hold is abandoned", flush=True)
         self._corner_at = None
@@ -4068,6 +4086,10 @@ def main():
         # Set when the corner has just brought the panel home, cleared by the
         # first picture that goes out afterwards.
         home_pending = None
+        # Set when that picture has been handed to the writer, cleared when the
+        # writer says it has gone. Everything up to here is this machine; past
+        # here is the wire and the board.
+        home_written = None
         capture = Screencast(page, page_w, page_h, args.capture_quality)
         if args.freeze_animations:
             capture.freeze_animations()
@@ -4347,6 +4369,7 @@ def main():
                             print(f"Home: first picture of the new page "
                                   f"{time.monotonic() - home_pending:.1f}s "
                                   f"after it opened")
+                            home_written = home_pending
                             home_pending = None
                         if rectangles:
                             if pictures:
@@ -4409,15 +4432,15 @@ def main():
                         # lands means the board and the network are fine and the
                         # wait is the page reacting, and one that appears late
                         # means the report itself was late.
-                        stamp = time.strftime("%H:%M:%S") + f".{int(time.time() % 1 * 1000):03d}"
+                        marked = stamp()
                         for contacts in reports:
                             if contacts:
                                 joined = ", ".join(
                                     f"#{i} at {x},{y}" for i, x, y in contacts
                                 )
-                                print(f"[{stamp}] touch {joined}")
+                                print(f"[{marked}] touch {joined}")
                             else:
-                                print(f"[{stamp}] touch released")
+                                print(f"[{marked}] touch released")
                     if injector is not None and reports:
                         if injector.handle(reports) and keyboard is not None:
                             # Focus only ever moves because something was
@@ -4451,6 +4474,12 @@ def main():
 
                     loops += 1
                     now = time.monotonic()
+                    if home_written is not None and writer.wrote_at is not None:
+                        print(f"Home: that picture finished going down the "
+                              f"socket {writer.wrote_at - home_written:.1f}s "
+                              f"after the page opened. Anything later than "
+                              f"this is the board, not this machine")
+                        home_written = None
                     # A finger held in the corner asks to go back to the page
                     # this panel was pointed at -- its launcher, whatever that
                     # is. Nothing else can offer that: there is no Back button

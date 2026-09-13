@@ -66,7 +66,8 @@ def say(text):
     # happened relative to each other, and the supervisor's own view does not
     # stamp an add-on's output. To the tenth, which is the resolution anything
     # a finger does is argued at.
-    stamp = time.strftime("%H:%M:%S") + f".{int(time.time() % 1 * 10)}"
+    now = time.time()
+    stamp = time.strftime("%H:%M:%S", time.localtime(now)) + f".{int(now % 1 * 10)}"
     with _print_lock:
         print(f"{stamp} {text}", flush=True)
 

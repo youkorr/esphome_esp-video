@@ -1,5 +1,21 @@
 # Changelog
 
+## 3.4.1
+
+- **The return is now timed all the way to the socket.** `offer()` hands a
+  picture to a thread and returns at once, so `first picture 0.0s` meant
+  *given to the writer*, not *gone*. A panel's log showed 3.4s from finger to
+  that line while the screen was reported as taking over five, and the gap
+  had to be either the writing or the board -- with no way to tell which. The
+  log now says when the picture finished going down the socket, and says
+  outright that anything later than that is the board rather than the
+  machine rendering.
+- **One reading of the clock per timestamp.** `strftime` and `time()` were
+  read separately, so at a second boundary they disagreed -- a real log
+  carried `19:27:30.9` followed by `19:27:30.0` on a *later* line. The corner
+  lines carry milliseconds now too, since that is the resolution they are
+  read at.
+
 ## 3.4.0
 
 - **Coming home sent the page you were leaving, first.** Reported as three
