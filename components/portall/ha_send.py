@@ -3049,6 +3049,14 @@ class Injector:
                 self._corner_at = time.monotonic() if in_corner else None
                 self._from_corner = in_corner
                 self._went_home = False
+                if self.verbose:
+                    print(f"[{time.strftime('%H:%M:%S')}] corner: landed at "
+                          f"({x:.0f},{y:.0f}), "
+                          + (f"inside {self._corner[0]:.0f}x{self._corner[1]:.0f} "
+                             f"-- holding for {self._hold:g}s"
+                             if in_corner else
+                             f"outside {self._corner[0]:.0f}x{self._corner[1]:.0f} "
+                             f"-- not a hold"), flush=True)
                 continue
             if self._on_keyboard:
                 # Sliding off a key abandons it, the way it does on a phone.
@@ -3087,6 +3095,12 @@ class Injector:
             if self._corner_at is not None and not (
                 x <= self._corner[0] and y <= self._corner[1]
             ):
+                if self.verbose:
+                    print(f"[{time.strftime('%H:%M:%S')}] corner: left at "
+                          f"({x:.0f},{y:.0f}) after "
+                          f"{time.monotonic() - self._corner_at:.2f}s of "
+                          f"{self._hold:g}s -- the hold is lost and does not "
+                          f"restart until the finger lifts", flush=True)
                 self._corner_at = None
             if not self._scrolling and (
                 abs(x - self._start[0]) + abs(y - self._start[1]) >= DRAG_THRESHOLD
@@ -3244,6 +3258,10 @@ class Injector:
 
     def _reset(self):
         self._wheel = [0, 0]
+        if self.verbose and self._corner_at is not None:
+            print(f"[{time.strftime('%H:%M:%S')}] corner: the finger lifted "
+                  f"after {time.monotonic() - self._corner_at:.2f}s of "
+                  f"{self._hold:g}s -- the hold is abandoned", flush=True)
         self._corner_at = None
         self._from_corner = False
         self._went_home = False

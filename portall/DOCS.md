@@ -164,6 +164,7 @@ Assistant dashboard to appear; without one it does neither.
 | `user_agent` | What the browser says it is. Empty is right for nearly everything -- it is here for YouTube's television interface. **Per panel or per link only**, because a panel told to say it is a television says it to Home Assistant too. See below |
 | `locale` | The language pages are asked for -- `fr-FR`, `de-DE`, `en-GB`. Not cosmetic: without it the browser sends no `Accept-Language` at all and every site serves its own default |
 | `stats` | Print what is being sent every five seconds |
+| `show_touches` | Print every contact, where it lands on the page, and what the corner gesture makes of it. Noisy -- for diagnosing a panel that does not react as expected |
 | `show_media` | While a video plays, print its playhead and how many seconds are buffered ahead of it. Off by default -- turn it on to diagnose a video that stops |
 
 That is the whole form, on purpose. `ha_send.py` has a dozen more settings --

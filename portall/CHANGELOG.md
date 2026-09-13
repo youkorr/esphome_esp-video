@@ -1,5 +1,25 @@
 # Changelog
 
+## 3.3.3
+
+- **Every line in this log now carries the time it happened at.** The
+  supervisor does not stamp an add-on's output, so three lines in a row could
+  be a second or a minute apart -- which is the entire question whenever
+  something is "too slow".
+- **`show_touches` is now a setting**, and the corner gesture says what it
+  makes of each contact. A hold can be lost three ways and all three used to
+  be the same silence: the finger drifts out of the corner, the finger lifts
+  early, or it never landed in the corner at all. Each says so now, with how
+  far the hold had got:
+
+  ```
+  17:06:37.4 [salon] corner: landed at (0,0), inside 179x112 -- holding for 3s
+  17:06:38.6 [salon] corner: left at (0,199) after 1.20s of 3s -- the hold is
+                     lost and does not restart until the finger lifts
+  ```
+
+  Noisy by design and off by default -- turn it on only while diagnosing.
+
 ## 3.3.2
 
 - **Coming home now costs what you set it to, and no more.** With

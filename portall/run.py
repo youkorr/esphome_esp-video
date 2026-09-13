@@ -62,8 +62,13 @@ MAX_RESTART_DELAY_S = 120
 
 
 def say(text):
+    # Stamped, because the whole of a timing question is WHEN two lines
+    # happened relative to each other, and the supervisor's own view does not
+    # stamp an add-on's output. To the tenth, which is the resolution anything
+    # a finger does is argued at.
+    stamp = time.strftime("%H:%M:%S") + f".{int(time.time() % 1 * 10)}"
     with _print_lock:
-        print(text, flush=True)
+        print(f"{stamp} {text}", flush=True)
 
 
 # Settings a panel may leave out and inherit from the top of the file. The
@@ -91,6 +96,7 @@ SHARED_KEYS = (
     "freeze_animations",
     "stats",
     "show_media",
+    "show_touches",
 )
 
 
@@ -544,6 +550,7 @@ def command_for(panel):
         "freeze_animations",
         "stats",
         "show_media",
+        "show_touches",
     ):
         # Accept the string forms a hand-written JSON file may carry.
         value = panel.get(key)

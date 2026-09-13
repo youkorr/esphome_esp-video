@@ -1,5 +1,5 @@
 name: Portall
-version: "3.3.2"
+version: "3.3.3"
 # Home Assistant identifies an add-on by its slug, so this one moving from
 # usb_display_panel to portall makes the Supervisor see a NEW add-on: options
 # are not carried over and /data starts empty, which means the browser
@@ -189,6 +189,9 @@ options:
   # while the buffer stayed full (the site), or frames the browser itself
   # threw away (the machine).
   show_media: false
+  # Every contact, and what the corner gesture made of it. For diagnosing a
+  # panel that does not react the way you expect it to -- noisy, so off.
+  show_touches: false
   panels:
     - name: salon
       host: ip_esp32P4
@@ -253,6 +256,7 @@ schema:
       user_agent: str?
   stats: bool?
   show_media: bool?
+  show_touches: bool?
   panels:
     - name: str
       host: str
@@ -278,3 +282,4 @@ schema:
       import_profile: str?
       stats: bool?
       show_media: bool?
+      show_touches: bool?
