@@ -508,6 +508,7 @@ def command_for(panel):
         "keyboard",
         "home_corner",
         "home_hold",
+        "home_taps",
         "blank_after",
         "rect_cost",
         "browser",

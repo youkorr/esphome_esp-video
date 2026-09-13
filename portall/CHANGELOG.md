@@ -1,5 +1,25 @@
 # Changelog
 
+## 3.7.0
+
+- **Two taps in the corner bring the panel home.** About 300 ms against one to
+  three seconds of holding perfectly still, and it is the same corner with the
+  same mark, so there is nothing new to find. `home_taps: 2` by default; `1`
+  makes a single tap do it and `0` leaves only the hold and the sideways swipe.
+
+  It is 3.5.0 that made this possible: once a press in the corner stopped
+  reaching the page, the corner was free to count presses. Before that, every
+  tap of a double tap would have pressed whatever sits underneath -- on a Home
+  Assistant dashboard, the sidebar button.
+
+  Driven against a stub browser on a panel's own geometry over nine cases: two
+  taps 0.2s apart go home and 0.9s apart do not; one tap does not; a tap
+  elsewhere between two corner taps resets the count; an ordinary double tap
+  away from the corner still clicks the page twice; the hold and the swipe are
+  untouched; and `1` and `0` behave as they say.
+- The startup line and the return line name which of the four ways asked --
+  `held 1.0s`, `tapped`, `swiped`, or `asked by the board`.
+
 ## 3.6.0
 
 - **The way back is no longer only a finger: `portall.home`.** Until now the
