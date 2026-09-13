@@ -18,6 +18,9 @@ the version in config.yaml matches the Dockerfile's ARG BUNDLE.
     python3 tools/checkaddon.py portall/config.yaml
 """
 import ast
+import json
+import os
+import tempfile
 import pathlib
 import re
 import subprocess
@@ -225,31 +228,116 @@ def check_reaches_sender(folder):
 
     # The ones that are the add-on's own business rather than the sender's.
     ITS_OWN = {
-        "links", "panels", "token",
+        "name", "token",
         # Not a flag of its own: it decides whether there is a --profile at
         # all, and what directory it names.
         "keep_profile",
-        # Every launcher_* setting is the PAGE's, built here and served from
-        # 127.0.0.1. None of them is a flag on a sender, so this list is one
-        # rule rather than a roll call that has to be kept in step.
+        # A folder copied into that profile once, by this file, before any
+        # sender starts.
+        "import_profile",
+        # A switch that WITHHOLDS the links' tokens rather than adding a flag.
+        "home_assistant",
     }
-    panel = {"host": "1.2.3.4", "width": 800, "height": 1280,
-             "rotate": "0", "touch_rotate": "0"}
+
+    def leaves(spec, path=()):
+        """Every setting in the schema, as (path, spec), groups walked into.
+
+        Lists too, and that is not a detail: an add-on schema spells a list of
+        objects as a one-element list, so panels: and links: are lists rather
+        than dicts. Walking only dicts examined eight of this form's
+        twenty-seven settings and passed -- with a panel's whole advanced:
+        group, the newest and least proven part of it, never looked at once.
+        """
+        if isinstance(spec, str):
+            yield path, spec
+        elif isinstance(spec, dict):
+            for name, inner in spec.items():
+                yield from leaves(inner, path + (name,))
+        elif isinstance(spec, list) and spec:
+            yield from leaves(spec[0], path)
+
+    def nest(path, value):
+        out = value
+        for step in reversed(path):
+            out = {step: out}
+        return out
+
+    def probe_for(spec):
+        if spec.startswith("bool"):
+            return True
+        if spec.startswith(("int", "float", "port")):
+            return 7
+        if spec.startswith("list("):
+            return spec[spec.index("(") + 1:spec.rindex(")")].split("|")[0]
+        return "probe"
+
+    def emitted(options):
+        """The command line the add-on really builds, through its own loader.
+
+        Through a file and load_panels() rather than command_for() alone,
+        because since 4.0.0 the form is grouped and regroup() sits between the
+        two. Checking the far end only would have gone on passing while the
+        group in the middle dropped everything -- which is the shape of every
+        fault this check exists for.
+        """
+        handle, path = tempfile.mkstemp(suffix=".json")
+        os.close(handle)
+        pathlib.Path(path).write_text(json.dumps(options))
+        previous = os.environ.get("UDISP_CONFIG")
+        os.environ["UDISP_CONFIG"] = path
+        try:
+            run._config = {}
+            panels = run.load_panels()
+            return run.command_for(panels[0]) if panels else []
+        finally:
+            os.unlink(path)
+            if previous is None:
+                os.environ.pop("UDISP_CONFIG", None)
+            else:
+                os.environ["UDISP_CONFIG"] = previous
+
+    def flat_name(path):
+        """The name the sender knows a grouped setting by.
+
+        Read out of run.py's own tables rather than restated, because a group
+        that renames -- touch.mirror_x is touch_mirror_x on the command line --
+        would otherwise be checked against a flag that never existed, and the
+        check would report a fault in working code.
+        """
+        plan = run._PANEL_GROUPED if path[0] == "panels" else run._GROUPED
+        for step in path[1:]:
+            if not isinstance(plan, dict) or step not in plan:
+                return path[-1]
+            plan = plan[step]
+        return plan if isinstance(plan, str) else path[-1]
+
+    panel = {"name": "probe", "host": "1.2.3.4", "url": "http://x/",
+             "width": 800, "height": 1280, "rotate": "0",
+             "touch": {"rotate": "0"}}
     faults = []
-    for key, spec in schema.items():
-        if key in ITS_OWN or key.startswith("launcher_"):
+    for path, spec in leaves(schema):
+        # The launcher's appearance is the PAGE's, built here and served from
+        # 127.0.0.1; no sender ever sees it. links: and a panel's identity are
+        # this file's business too.
+        if path[0] in ("launcher", "links") or path[-1] in ITS_OWN:
             continue
-        if not isinstance(spec, str):
-            continue
-        flag = "--" + key.replace("_", "-")
-        # A value a form could really carry, of roughly the right kind.
-        probe = True if spec.startswith("bool") else "7" if spec.startswith(
-            ("int", "float", "port")) else "probe"
-        argv = run.command_for({**panel, key: probe})
-        if flag not in argv:
+        flag = "--" + flat_name(path).replace("_", "-")
+        value = probe_for(spec)
+        if path[0] == "panels":
+            # The leaf lives inside a panel, under touch: or advanced: or at
+            # its own level. Its path here starts panels -> <group?> -> key.
+            # Everything after "panels" is the shape inside one panel, group
+            # and all -- so it is nested rather than flattened, which is what
+            # puts advanced: through regroup() the way a real form does.
+            where = {**panel}
+            where.update(nest(path[1:], value))
+            options = {"panels": [where]}
+        else:
+            options = {"panels": [panel], **nest(path, value)}
+        if flag not in emitted(options):
             faults.append(
-                f"{key} is in the form but command_for() never emits {flag}, "
-                f"so setting it does nothing"
+                f"{'.'.join(path)} is in the form but the add-on never emits "
+                f"{flag}, so setting it does nothing"
             )
     if faults:
         print(f"  ECHEC  {folder}/run.py")

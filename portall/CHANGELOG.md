@@ -1,5 +1,46 @@
 # Changelog
 
+## 4.0.0
+
+**Read the migration below before updating.**
+
+- **The form is grouped.** Thirty settings sat at the root, nineteen of them
+  describing the launcher's appearance, and `panels:` -- the one thing that has
+  to be filled in for anything to appear -- was the last of them. They are
+  behind five headings now: **panels**, **links**, **launcher**, **defaults**,
+  **debug**. A panel goes from twenty-three fields to six, with the three
+  calibration values together under `touch:` and everything that has a default
+  under `advanced:`.
+
+  **Nothing was removed and nothing changed its meaning.** Proved rather than
+  asserted: the grouped defaults, put back flat, are the old defaults key for
+  key with no value changed; the sender's command line is identical; and the
+  launcher page rendered from each is byte for byte the same 8030 bytes.
+
+  One function does the ungrouping, so the regroup cost that function rather
+  than every reader of every setting -- `launcher.py` and `ha_send.py` are
+  untouched.
+
+- **Migration, and it is manual for a reason.** The Supervisor drops a key the
+  schema no longer knows *before* `run.py` ever sees it, so no code inside the
+  add-on can carry a 3.x configuration across. Open the add-on's options, use
+  the three-dot **Edit in YAML**, copy the lot, and run it through
+  `tools/convert4.py` in this repository -- or paste it where you got this
+  add-on from and ask. The converter also names the settings that are gone
+  rather than dropping them in silence.
+
+- **`home_corner` and `home_hold` are gone**, as of 3.7.1. The corner is 14% of
+  each axis and the hold is one second; two taps in that corner need neither.
+
+- **And the check that catches this class of fault was itself broken by the
+  change.** `checkaddon.py` walked only dictionaries, so with `panels:` spelled
+  as a list it examined eight of twenty-seven settings and passed -- a panel's
+  whole `advanced:` group, the newest part of the form, never looked at once.
+  It walks lists now, resolves a renamed flag out of `run.py`'s own table, and
+  runs each probe through the real loader rather than through `command_for()`
+  alone, so the group in the middle is exercised too. Both faults were
+  reproduced against it before it was believed.
+
 ## 3.8.0
 
 - **A `debug:` group, to find out whether this form can be grouped at all.**

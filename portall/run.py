@@ -387,6 +387,84 @@ def start_pulseaudio():
 _config = {}
 
 
+# The form is grouped; nothing below it is, and nothing below it needs to be.
+# One table says where each grouped key used to live, and one function puts it
+# back there -- so regrouping the form cost this function rather than every
+# reader of every setting. The names on the right are what the rest of this
+# file, launcher.py and ha_send.py all still speak.
+_GROUPED = {
+    "launcher": {
+        "theme": "launcher_theme",
+        "columns": "launcher_columns",
+        "align": "launcher_align",
+        "clock": {"show": "launcher_clock", "size": "launcher_clock_size",
+                  "color": "launcher_clock_color"},
+        "date": {"size": "launcher_date_size", "color": "launcher_date_color"},
+        "weather": {"entity": "launcher_weather",
+                    "size": "launcher_weather_size"},
+        "background": {"source": "launcher_background",
+                       "motion": "launcher_background_motion",
+                       "blur": "launcher_background_blur",
+                       "dim": "launcher_background_dim"},
+        # enabled rather than on: an `on` key reads as the boolean true in
+        # YAML 1.1, so the key would vanish from the form it names.
+        "slideshow": {"enabled": "launcher_slideshow",
+                      "urls": "launcher_slideshow_urls",
+                      "seconds": "launcher_slideshow_seconds",
+                      "fade": "launcher_slideshow_fade",
+                      "rescan": "launcher_slideshow_rescan"},
+    },
+    # These two carry the same names on both sides: they are grouped for the
+    # eye, not renamed.
+    "defaults": {k: k for k in ("port", "fps", "quality", "keyboard",
+                                "keep_profile", "locale")},
+    "debug": {k: k for k in ("stats", "show_media", "show_touches")},
+}
+# A panel's own two groups. Everything in advanced: keeps its own name, so it
+# needs no table -- only touch: renames.
+_PANEL_GROUPED = {
+    "touch": {"rotate": "touch_rotate", "mirror_x": "touch_mirror_x",
+              "mirror_y": "touch_mirror_y"},
+}
+
+
+def _spread(source, plan, into):
+    """Copy one group's values out to the flat names, recursing on subgroups."""
+    if not isinstance(source, dict):
+        return
+    for name, target in plan.items():
+        value = source.get(name)
+        if isinstance(target, dict):
+            _spread(value, target, into)
+        elif value is not None:
+            # Plain assignment rather than setdefault: the flat keys are gone
+            # from the schema in 4.0.0, so nothing can already hold one unless
+            # somebody wrote it by hand -- and then the group they also wrote
+            # is the more deliberate of the two.
+            into[name if target is None else target] = value
+
+
+def regroup(config):
+    """Turn the grouped form into the flat keys everything else reads.
+
+    A hand-written options file in the old flat shape passes through untouched,
+    which is what keeps panels.example.json and UDISP_CONFIG working.
+    """
+    for group, plan in _GROUPED.items():
+        _spread(config.get(group), plan, config)
+    for panel in config.get("panels") or []:
+        if not isinstance(panel, dict):
+            continue
+        for group, plan in _PANEL_GROUPED.items():
+            _spread(panel.pop(group, None), plan, panel)
+        advanced = panel.pop("advanced", None)
+        if isinstance(advanced, dict):
+            for key, value in advanced.items():
+                if value is not None:
+                    panel[key] = value
+    return config
+
+
 def load_panels():
     """Every panel to serve, as dictionaries of ha_send.py's options."""
     global _config
@@ -394,27 +472,7 @@ def load_panels():
         if path and os.path.exists(path):
             with open(path) as handle:
                 config = json.load(handle)
-            _config = config
-            # The diagnostics, grouped. This is the pilot for the wider
-            # regroup of this form: a plain nested dict, alongside the flat
-            # keys rather than instead of them, so a Supervisor that will not
-            # fold one costs nothing at all.
-            #
-            # Either turns it on, which is the only rule that cannot regress
-            # anybody. Neither "the group wins" nor "the flat key wins" works
-            # while both exist: an add-on's options always carry every key with
-            # its default, so a group of three falses would silently undo a
-            # flat `stats: true`, and setdefault the other way round means the
-            # group can never win at all -- which is the silent no-op this
-            # repository keeps recording, and it was written that way first.
-            #
-            # An OR is right here only because all three are flags. It is not a
-            # rule to carry over to the settings that hold a value.
-            group = config.get("debug")
-            if isinstance(group, dict):
-                for key in ("stats", "show_media", "show_touches"):
-                    if config.get(key) or group.get(key):
-                        config[key] = True
+            _config = regroup(config)
             panels = config.get("panels")
             if panels:
                 shared = {
