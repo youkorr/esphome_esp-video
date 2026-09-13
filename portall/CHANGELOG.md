@@ -1,5 +1,25 @@
 # Changelog
 
+## 3.4.0
+
+- **Coming home sent the page you were leaving, first.** Reported as three
+  seconds of hold taking more than five to arrive, and the log could not show
+  it because the log was measuring the wrong picture.
+
+  At a navigation the sender clears what it diffs against, which makes the
+  next turn want to send whether or not the browser has painted anything new
+  -- and the last decoded frame is still the page being left. So the panel
+  received a full redraw of the dashboard, 130 KiB of it, and only then the
+  launcher, once Chromium had painted and encoded the new page. From the
+  glass that is a return that drags; from the log it read `first picture
+  0.0s`, which was true and about the wrong picture.
+
+  The frame in hand is now dropped along with the comparison. Nothing is sent
+  until the new page has actually painted, and the timing line says `first
+  picture of the new page`, which is the figure that was wanted all along.
+- **Waking a parked panel had the same fault**, in the same shape: it woke on
+  the page it had before it slept and changed to the real one a moment later.
+
 ## 3.3.4
 
 - **The log claimed a successful hold had been abandoned.** A hold that has

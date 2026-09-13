@@ -4344,8 +4344,9 @@ def main():
                                      x // TILE : (x + w) // TILE] += 1
 
                         if home_pending is not None:
-                            print(f"Home: first picture {time.monotonic() - home_pending:.1f}s "
-                                  f"after the page opened")
+                            print(f"Home: first picture of the new page "
+                                  f"{time.monotonic() - home_pending:.1f}s "
+                                  f"after it opened")
                             home_pending = None
                         if rectangles:
                             if pictures:
@@ -4389,8 +4390,13 @@ def main():
                                         capture.freeze_animations()
                                 capture.resume()
                                 # It has been showing nothing; whatever it had
-                                # is no longer what should be there.
+                                # is no longer what should be there -- and must
+                                # not be sent either, or the panel wakes on the
+                                # page it had before it slept and changes to
+                                # the real one a moment later.
                                 previous = None
+                                pending = None
+                                image = None
                                 if injector is not None:
                                     injector.release()
                             else:
@@ -4495,9 +4501,16 @@ def main():
                         if args.freeze_animations:
                             capture.freeze_animations()
                         # A different page entirely; nothing of the old one is
-                        # worth diffing against.
+                        # worth diffing against -- nor worth SENDING, which is
+                        # the part that was missing. previous=None makes the
+                        # next turn want to send whether or not a new frame has
+                        # arrived, and `image` still holds the page just left,
+                        # so the first thing the panel received after coming
+                        # home was a full redraw of the page it was leaving.
+                        # The one it asked for came later, behind it.
                         previous = None
                         pending = None
+                        image = None
                         # Not request(discard=True): see Screencast.restart.
                         # The page has just changed under us and a still page
                         # will not paint again, so the picture has to be asked
