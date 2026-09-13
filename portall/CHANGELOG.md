@@ -1,5 +1,22 @@
 # Changelog
 
+## 4.7.0
+
+- **Immich draws its five colours again.** Reported from a panel as white
+  instead of coloured, and 4.5.0 is what did it: the mark came from
+  simple-icons, whose tracings are a single colour, and that blue measured
+  **2.46:1** against a dark card -- below the 3:1 the new contrast rule asks
+  for, so it was drawn in the theme's ink.
+
+  The rule is right and 2.46:1 really is too faint. What was wrong is asking a
+  five-colour logo to be one colour at all, so `immich` is now carried as Home
+  Assistant's own icon for that integration, like `reolink`. Measured on the
+  rendered page, both themes: red, orange, green, blue and pink, five distinct
+  colours, identical on dark and light.
+
+  If another logo comes out flat and its real one is not, say so -- anything
+  Home Assistant has an integration for can have the same treatment.
+
 ## 4.6.0
 
 - **`reolink` draws the real Reolink logo.** simple-icons, where the other 50

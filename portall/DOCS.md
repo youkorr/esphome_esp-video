@@ -365,13 +365,23 @@ and is not bright.
 Prime Video is the exception on that list: it is not in the collection these
 come from, so `prime-video` gives a television.
 
-**A brand with no tracing can still have its real logo.** simple-icons carries
-3460 marks and Reolink is not one of them -- nor Hikvision, Dahua or Tapo. But
-Home Assistant keeps a square icon for every integration it supports, in its
-own `home-assistant/brands` repository, and `reolink` now draws that one:
-carried here as a picture rather than fetched, like everything else on this
-page. It is not recoloured against the theme, because it brings its own
-background and has nothing to be rescued from.
+**Two brands are carried as pictures instead**, from Home Assistant's own
+`home-assistant/brands` repository -- which keeps a square icon for every
+integration it supports. They are not recoloured against the theme, because
+they are already in the brand's real colours, which is the whole point:
+
+- **`reolink`**, because simple-icons has no Reolink at all -- nor Hikvision,
+  Dahua or Tapo, checked against all 3460 marks it carries.
+- **`immich`**, because its real mark is **five colours** and a simple-icons
+  tracing can only be one. That single blue measured 2.46:1 against a dark
+  card, failed the contrast rule and was drawn in the ink -- reported from a
+  panel as white instead of coloured. Carrying the real one fixes both halves
+  at once.
+
+Both are carried here rather than fetched, like everything else on this page.
+If a logo you use comes out in the flat theme colour and its real one is not
+flat, say so: anything Home Assistant has an integration for can have the
+same treatment, and it is one line per brand.
 
 The other camera makers have no mark in either collection, so `hikvision`,
 `dahua`, `tapo`, `annke`, `amcrest` and `foscam` give 📹. Ask if you want one
@@ -480,7 +490,7 @@ no drawing at all, and none of these do.
 | opnsense | `opnsense` | zigbee2mqtt | `zigbee2mqtt` `z2m` |
 | paperlessngx | `paperless` `paperlessngx` `paperless-ngx` |  |  |
 
-50 drawn as shapes and 1 carried as a picture, all of them from the add-on itself and never fetched.
+49 drawn as shapes and 2 carried as a picture, all of them from the add-on itself and never fetched.
 
 ### The clock, the date and the weather
 
