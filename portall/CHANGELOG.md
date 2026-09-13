@@ -1,5 +1,27 @@
 # Changelog
 
+## 4.2.0
+
+- **A tap in the top-left corner reaches the page again.** Jellyfin's player
+  puts its Back arrow exactly where the home corner is, and a panel watching a
+  film could not leave it -- every tap there was swallowed. So was anything
+  else a page puts in that corner.
+
+  A single tap is now held back for 450 ms and then delivered where it landed:
+  the cost of a double tap everywhere it exists, since the first of two cannot
+  be acted on until the window for the second has passed. Two taps still go
+  home and the page is told nothing at all.
+
+  A press **longer** than 350 ms in the corner still reaches nothing, and that
+  half stays: it was somebody attempting the hold and letting go early, and
+  delivering it is what used to open Home Assistant's sidebar on every failed
+  attempt. Quick tap through, slow press swallowed.
+
+  Nine cases measured against a panel's own geometry, and the fault reproduced
+  against 4.1.0 first: the quick corner tap pressed the page **0 times** there
+  and once here, a corner tap followed by a tap elsewhere lost one of the two,
+  and the swipe, the diagonal drag and the downward drag are unchanged.
+
 ## 4.1.0
 
 - **The launcher's weather works without a token.** It read Home Assistant
