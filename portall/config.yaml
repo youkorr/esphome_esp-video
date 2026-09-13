@@ -180,8 +180,10 @@ options:
       token: ""
   # The three diagnostics, grouped -- and still present one by one just above
   # or below, because this release is only asking whether the Supervisor folds
-  # a plain dictionary the way it already folds links: and panels:. Fill in
-  # either; the group wins.
+  # a plain dictionary the way it already folds links: and panels:. Tick
+  # either and the diagnostic turns on: neither side can win outright
+  # while both exist, since an add-on's options always carry every key
+  # with its default.
   debug:
     stats: false
     show_media: false
