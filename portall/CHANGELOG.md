@@ -1,5 +1,19 @@
 # Changelog
 
+## 3.7.1
+
+- **`home_corner` and `home_hold` come off the form.** They were added because
+  a three-second hold in a small corner was barely reachable, and they were the
+  right answer to that. Two taps need neither: a corner is far easier to hit
+  twice than to stand still in, so the default 14% and 1s are simply right and
+  nobody has to read past two settings to find that out.
+
+  The behaviours stay exactly where they were -- the hold still works at one
+  second, the corner is still 14% of each axis. Only the knobs are gone, and
+  the Supervisor drops a key it no longer knows with a warning rather than a
+  failure. A panel carrying `home_corner: 25` goes back to 14, which is 179x112
+  page pixels and ample for a tap.
+
 ## 3.7.0
 
 - **Two taps in the corner bring the panel home.** About 300 ms against one to
