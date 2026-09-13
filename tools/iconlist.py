@@ -54,8 +54,8 @@ def main():
     # fault as a documented name that does not work.
     entries = [(slug, words.split()) for slug, words, _hex, _d
                in launcher.logos.LOGO_LIST]
-    entries += [(slug, words.split()) for slug, words, _mime, _data
-                in launcher.logos.PICTURE_LIST]
+    entries += [(entry[0], entry[1].split())
+                for entry in launcher.logos.PICTURE_LIST]
     entries.sort()
     half = (len(entries) + 1) // 2
     for row in range(half):
