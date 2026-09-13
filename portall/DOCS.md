@@ -1080,26 +1080,35 @@ Raspberry Pi or any other arm64 box it falls back to the distribution's
 Chromium and there is no Widevine to be had. The `Browser: running ...` line
 at startup says which one you got.
 
-**And Netflix cannot be signed into either, for a different reason.** Its
-sign-in page carries, in its own words at the bottom: *"Cette page est
-protegee par Google reCAPTCHA pour nous assurer que vous n'etes pas un
-robot."* Reported from a panel pointed at `https://www.netflix.com/fr/` --
-which is the right address, nothing wrong with it -- the page answered *"Un
-probleme est survenu. Veuillez reessayer dans quelques minutes"* with the
-email field **still empty**. Nothing had been typed, so it is not the
-password, not the keyboard and not the DRM: reCAPTCHA scores the browser
-silently when the page loads, and a driven one scores badly.
+**A sign-in that fails was blamed on reCAPTCHA here, and that was wrong.**
+Reported from a panel pointed at `https://www.netflix.com/fr/`: *"Un probleme
+est survenu. Veuillez reessayer dans quelques minutes"*, with the email field
+**still empty** and Netflix's own note at the bottom of the page saying it is
+protected by Google reCAPTCHA. The obvious reading was that the check scores a
+driven browser badly, and this page said so for several releases.
 
-That is Google's anti-robot check, the same wall as the Google sign-in and by
-the same supplier, and defeating a CAPTCHA is not something this project will
-do.
+The obvious reading was not the cause. That panel had a **`user_agent` on the
+link** -- the string of Netflix's *Android app* -- while being Chrome on Linux
+x86_64, at a desktop size, sending no `Sec-CH-UA` at all because the string
+carries no `Chrome/` token. No real client produces that combination, and a
+check does not have to think you are a robot to refuse a set of headers that
+describes nothing that exists.
 
-So there are **two** walls for Netflix, and the order matters:
+**Take the user agent off and a reCAPTCHA-protected sign-in goes through** --
+confirmed on Spotify, whose sign-in carries the same check. So the rule is the
+plain one: give a site the honest browser. Chrome with Widevine, H.264 and AAC
+is the strongest client a panel can present, and disguising it can only
+introduce contradictions, because everything else in the stack stays Chrome.
 
-1. **Widevine**, for playing. Look at the log line above before anything else
-   -- with no Widevine, signing in would buy nothing at all.
-2. **reCAPTCHA**, for signing in. Only `import_profile` gets past it, by not
-   trying: the check is on the signing IN, and afterwards it is a cookie.
+Set `user_agent:` on a link only where a site serves a *different interface*
+to a different device and that is what you want -- YouTube's television mode
+is the one case in this document.
+
+So there is **one** wall left for Netflix rather than two, and it is the one
+that was always in front:
+
+**Widevine**, for playing. Look at the log line above before anything else --
+with no Widevine, signing in buys nothing at all.
 
 Even with both solved, a browser gets Widevine **L3**, which Netflix limits to
 standard definition -- and full motion at a panel's own resolution is the
