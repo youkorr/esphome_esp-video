@@ -1,5 +1,18 @@
 # Changelog
 
+## 3.3.2
+
+- **Coming home now costs what you set it to, and no more.** With
+  `home_hold: 3` a panel measured 3.0 s of hold, 0.8 s of opening and 0.0 s
+  to the first picture -- and that last figure is what settles it: the
+  picture was ready the moment the wait ended, so most of the 0.8 s was
+  allowance for a page that had already arrived. The launcher is served from
+  localhost by the add-on itself, so its settle is **300 ms** now. A panel
+  showing Home Assistant keeps its three seconds, and an ordinary site keeps
+  its 800 ms; they paint in stages and this one does not.
+- One function decides that wait and the startup line reads from it, so what
+  the log says and what the sender does cannot drift apart.
+
 ## 3.3.1
 
 - **Coming home is now timed out loud, in its three separate pieces.**
