@@ -6,21 +6,77 @@ JPEG rectangles, and the panel's touches are replayed back into it. One
 instance serves as many panels as you list; each gets its own browser, its own
 process and its own prefix in the log, and is restarted on its own if it fails.
 
+## This add-on is one half. The panel is the other
+
+The board is not running Home Assistant and is not running a browser -- that
+is the whole idea, and it is why a panel stays fast on hardware that could
+never render a dashboard itself. What the board runs is the **`portall`
+ESPHome component**, which listens on a TCP port, decodes the rectangles in
+the **ESP32-P4's hardware JPEG decoder**, turns them with the **PPA** if the
+panel is not mounted upright, and sends contacts back up the same socket.
+
+So the panel needs firmware before this add-on has anything to talk to. In its
+ESPHome YAML:
+
+```yaml
+external_components:
+  - source:
+      type: git
+      url: https://github.com/youkorr/esphome_esp-video
+      ref: main
+    components: [portall]
+
+portall:
+  display_id: main_screen     # your display: component
+  touchscreen_id: my_touch    # your touchscreen: component
+  port: 5000                  # what the add-on connects to
+  width: 800                  # the panel's own size
+  height: 1280
+  rotation: 0
+```
+
+`port:` is what makes it a network panel: without it the component is
+USB-only and this add-on cannot reach it.
+
+Complete, working firmware for three boards is in the `yaml/` folder of the
+repository, and each is the whole file rather than a fragment:
+
+| board | file | size |
+|---|---|---|
+| Guition 10" | `GUITION_ PORTAL.yaml` | 800x1280 |
+| M5Stack Tab5 | `tab5-portall-screen.yaml` | 720x1280 |
+| Waveshare ESP32-P4-WIFI6-Touch-LCD-7B | `ws-usb-screen.yaml` | 1024x600 |
+
+## How the two halves meet
+
+Flash the board, note the address it takes, then list it here -- the `host:`
+is that address and `width:`/`height:` must match the `portall:` block exactly.
+Nothing else has to agree.
+
+**Calibrate once per panel**, before anything else. There is no way for the
+add-on to know which way a controller reports contacts: a GT911 on one board
+mirrors both axes, the same part on another swaps them, a GSL3680 mirrors one.
+It draws three targets, asks for a tap on each and prints the values to paste:
+
+    python ha_send.py --calibrate --host <the panel's address> --port 5000 \
+        --width 800 --height 1280
+
 Everything else -- the options one by one, the launcher, the on-screen
 keyboard, sound, the gestures and what it all costs -- is on the
 **Documentation** tab at the top of this page.
 
-**YouTube works, in television mode.** Point a launcher link at
-`https://www.youtube.com/tv`, give that link a smart-television `user_agent`
-and `quality: 20`, and sign in with a code typed on your phone -- no password
-on the panel. Your phone then acts as the remote: browse there and send the
-video to the panel. It is the only arrangement that works, and the
-Documentation tab has the exact link to copy under **YouTube: television mode,
-and the phone as its remote**.
+## YouTube works, in television mode
 
-**Coming from the old ESP32-P4 Panel add-on?** Its slug was
-`usb_display_panel` and this one is `portall`, so Home Assistant sees a new
-add-on rather than an update: your options do not come across by themselves.
-The Documentation tab opens with **Moving from the old add-on** and the four
-steps, of which the first is to copy the old add-on's options with **Edit in
-YAML** before uninstalling anything.
+Point a launcher link at `https://www.youtube.com/tv`, give that link a
+smart-television `user_agent` and `quality: 20`, and sign in with a code typed
+on your phone -- no password on the panel. Your phone then acts as the remote:
+browse there and send the video to the panel. It is the only arrangement that
+works, and the Documentation tab has the exact link to copy under **YouTube:
+television mode, and the phone as its remote**.
+
+## Coming from the old ESP32-P4 Panel add-on?
+
+Its slug was `usb_display_panel` and this one is `portall`, so Home Assistant
+sees a new add-on rather than an update and your options do not come across by
+themselves. **Copy them with Edit in YAML before uninstalling anything** -- the
+Documentation tab has the four steps under **Moving from the old add-on**.
