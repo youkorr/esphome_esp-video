@@ -1,5 +1,25 @@
 # Changelog
 
+## 3.3.1
+
+- **Coming home is now timed out loud, in its three separate pieces.**
+  Reported as more than seven seconds with `home_hold: 3`, and three rounds
+  of this were spent guessing because nothing in the log could say where the
+  time went. The gesture side is accurate -- measured, a 3.0 s hold fires at
+  3.02 s -- so the rest is elsewhere, and now it says so:
+
+  ```
+  Home: corner 14% (179x112 of the page), hold 3s, settle 800ms
+  Home: back to http://127.0.0.1:8099/ -- held 3.1s, opened in 0.9s
+  Home: first picture 0.3s after the page opened
+  ```
+
+  The hold is the gesture, the open is the navigation plus the settle, and
+  the picture is the panel. A single total tells you none of the three.
+- The startup line also names the corner and the hold **actually in force**,
+  so a setting that never reached the sender stops looking like a setting
+  that reached it and did something unexpected.
+
 ## 3.3.0
 
 - **The corner that brings a panel home is now yours to size and to time.**
