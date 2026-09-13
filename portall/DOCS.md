@@ -190,7 +190,7 @@ Assistant dashboard to appear; without one it does neither.
 | `fps` | Upper bound on how often a change is acted on. 25 by default; the one setting that decides whether video looks like video. See below |
 | `quality` | JPEG quality, 1..95 |
 | `keyboard` | The on-screen keyboard's layout, or `off`. See below |
-| `home_taps` | How many quick taps in the top-left corner bring the panel home. 2 by default, 1 for a single tap, 0 for none. See below |
+| `home_taps` | How many quick taps in the top-left corner bring the panel home. **0 by default** -- the way home is the hold or the sideways swipe, and a tap in that corner reaches the page normally. 2 makes a tap there arrive 450 ms late, 1 stops it arriving at all. See below |
 | `blank_after` | Seconds dark before a sleeping panel's page is let go of, 300 by default. **Per panel only** -- it is not the same thing as the timer that turns your backlight off, see below |
 | `keep_profile` | Keep the browser signed in between restarts. See below |
 | `import_profile` | A browser profile signed in by hand elsewhere, to start this panel from. **Per panel only** -- it does not belong to a house. See below |
@@ -274,42 +274,46 @@ Two settings, on the panel:
 ```yaml
 panels:
   - name: salon
-    home_taps: 2         # quick taps in that corner -- 0 to 4
+    home_taps: 0         # quick taps in that corner -- 0 to 4, 0 by default
 ```
 
-**`home_taps` is the quick way, and it is the one to reach for.** Two taps in
-the corner, about 300 ms, against one to three seconds of standing still. It
-only became possible once a press in the corner stopped reaching the page at
-all -- before that, counting taps would have meant pressing whatever sits under
-the corner once per attempt, which on a Home Assistant dashboard is the sidebar
-button. Set it to `1` and a single tap goes home -- and nothing under that
-corner can be reached at all, so keep 2 on a panel that opens Jellyfin. Set it
-to `0` and only the hold and the sideways swipe remain. The three ways coexist
--- none of them replaces another.
+**`home_taps` is off by default, and that is a decision rather than an
+oversight.** Two taps in the corner is quicker to do than a second of standing
+still -- and counting them costs the corner, because the first of two taps
+cannot be acted on until the window for the second has passed. So with taps on,
+a tap there is either **450 ms late** (`2`) or **never delivered** (`1`).
+
+That is fine on a dashboard and wrong on a page with its own control in that
+corner. Jellyfin's player puts its **Back arrow** exactly there, and a panel
+watching a film could not leave it. A household should not have to know any of
+this, so the gesture that leaves the corner alone is the one that ships: hold
+it for a second, or swipe sideways out of it.
+
+Turn `home_taps` up to `2` on a panel that only ever shows a dashboard and
+whose household prefers it. The three ways coexist -- none replaces another --
+and the startup line says which you have and what it costs:
+
+```
+Home: corner 14% (179x112 of the page), hold 1s, taps off so a tap there
+reaches the page, settle 300ms
+```
 
 The corner is 14% of each axis -- on a 1280x800 page, 179x112 -- and the mark
 drawn on screen is the same rectangle the sender tests, so what is pressed and
 what is seen cannot drift apart.
 
-**A single tap in that corner still reaches the page, 450 ms late.** That
-delay is what a double tap costs everywhere it exists: the first of two taps
-cannot be acted on until the window for the second has passed, or it could not
-be the first of two. If a second tap arrives the panel goes home and the page
-is never told anything; if none does, the tap is delivered where it landed.
+**A quick tap in that corner reaches the page**, at the default, with no
+delay at all -- so whatever a page puts there stays usable.
 
-This matters because a page may have something of its own under that corner.
-Jellyfin's player puts its **Back arrow** exactly there, and a panel watching a
-film could not leave it: every tap was swallowed. Reported from a panel, and
-the photograph showed the corner's own mark drawn over the arrow.
-
-**A press LONGER than 350 ms in the corner still reaches nothing**, and that
-half is deliberate. It was somebody attempting the hold and letting go early,
-and delivering it is what used to open Home Assistant's sidebar -- the corner
-covers that button, so every failed attempt pressed it. The mark lights up
+**A press LONGER than 350 ms does not**, and that half is deliberate. It was
+somebody attempting the hold and letting go early, and delivering it is what
+used to open Home Assistant's sidebar -- the corner covers that button, so
+every failed attempt pressed it and repainted the screen. The mark lights up
 instead, to say the gesture is there.
 
-So the corner is a tap-through for a quick tap and a dead zone for a slow one.
-A drag out of it scrolls normally, and the sideways swipe is unaffected.
+So the corner is an ordinary part of the page for a quick tap and a dead zone
+for a slow one. A drag out of it scrolls normally, and the sideways swipe is
+unaffected.
 
 **How long coming home actually takes.** The hold is only part of it. A panel
 that starts on the launcher used to pay a further **three seconds** on every

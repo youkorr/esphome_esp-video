@@ -242,7 +242,14 @@ HOME_HOLD_S = 1.0
 # It only became possible once a press in the corner stopped reaching the page
 # at all: before that, counting taps would have meant pressing whatever was
 # under the corner once per attempt.
-HOME_TAPS = 2
+# 0 by default, which is how this behaved before taps existed. Two taps is a
+# quicker way to ask and it costs the corner: the first of two cannot be acted
+# on until the window for the second has passed, so every tap there is either
+# late or swallowed -- and a page may have its own control under that corner.
+# Jellyfin's player puts its Back arrow exactly there, and a panel watching a
+# film could not leave it. A household should not have to know that, so the
+# gesture that leaves the corner alone is the one that ships.
+HOME_TAPS = 0
 # From one tap's LIFT to the next one's LANDING. The usual figure for a double
 # tap; short enough that two deliberate presses a second apart are two separate
 # presses, long enough for a thumb crossing a ten-inch panel.
@@ -3351,31 +3358,52 @@ class Injector:
                         print(f"[{stamp()}] corner: {self._taps_needed} taps "
                               f"-- going home", flush=True)
                 else:
-                    # The mark comes back, because a press that does nothing
-                    # and says nothing is what makes somebody try again.
-                    self.missed_home = True
-                    # And the tap itself is held back rather than thrown away,
-                    # for as long as a second one could still arrive. A page
-                    # may have something of its own under that corner --
-                    # Jellyfin's player puts its Back arrow exactly there, and
-                    # a panel watching a film could not leave it. Only a press
-                    # SHORT enough to be a tap: a longer one was somebody
-                    # attempting the hold and letting go early, and delivering
-                    # that is what used to open Home Assistant's sidebar on
-                    # every failed attempt.
+                    # A press SHORT enough to be a tap reaches the page. A
+                    # longer one does not: that was somebody attempting the
+                    # hold and letting go early, and delivering it is what used
+                    # to open Home Assistant's sidebar on every failed attempt
+                    # -- measured, 410 KiB/s of repaint after a 0.13s try.
+                    #
+                    # WHEN it reaches the page is the whole question, and the
+                    # answer is decided by how many taps are being counted:
+                    #
+                    #   0 or 1  nothing can follow this tap, so it goes NOW.
+                    #           With 0 the gesture is the hold and the swipe,
+                    #           and the corner is an ordinary part of the page
+                    #           again -- which is how this behaved before taps
+                    #           existed, and what a page with its own control
+                    #           under that corner needs. Jellyfin's player puts
+                    #           its Back arrow exactly there.
+                    #   2 or more  it might be the first of two, so it has to
+                    #           wait out the window before it can be acted on.
+                    #           That delay is what a double tap costs wherever
+                    #           one exists, and it is why 2 is not the default.
                     held = now - self._down_at
-                    if held <= HOME_TAP_MAX_S:
+                    if held > HOME_TAP_MAX_S:
+                        # A hold let go early. The mark comes back, because a
+                        # press that does nothing and says nothing is what
+                        # makes somebody try again -- and trying again is what
+                        # the seconds were being spent on.
+                        self.missed_home = True
+                        reached = "-- too long to be a tap, so it reaches nothing"
+                    elif self._taps_needed >= 2:
                         self._pending = (self._last[0], self._last[1],
                                          now + HOME_TAP_WINDOW_S)
+                        reached = (f"-- to the page in {HOME_TAP_WINDOW_S:g}s "
+                                   "unless a second tap follows")
+                        self.missed_home = True
+                    else:
+                        if self.verbose:
+                            self._say_target(*self._last)
+                        self._page.mouse.move(*self._last)
+                        self._page.mouse.down()
+                        self._page.mouse.up()
+                        clicked = True
+                        reached = "-- straight to the page"
                     if self.verbose:
                         print(f"[{stamp()}] corner: tap {self._taps} of "
                               f"{self._taps_needed or '-'} after {held:.2f}s "
-                              + ("-- showing the mark, and the tap goes to the "
-                                 f"page in {HOME_TAP_WINDOW_S:g}s unless "
-                                 "another follows"
-                                 if self._pending is not None else
-                                 "-- too long to be a tap, so it reaches "
-                                 "nothing"), flush=True)
+                              + reached, flush=True)
             else:
                 if self.verbose:
                     self._say_target(*self._last)
@@ -3520,10 +3548,11 @@ def main():
         "--home-taps",
         type=int,
         default=HOME_TAPS,
-        help="how many quick taps in that corner bring the panel home. Two by "
-        "default; 1 makes a single tap do it, 0 turns taps off and leaves only "
-        "the hold and the sideways swipe. A press in the corner never reaches "
-        "the page either way",
+        help="how many quick taps in that corner bring the panel home. 0 by "
+        "default, leaving the hold and the sideways swipe, and a tap in the "
+        "corner then reaches the page as usual. 2 is quicker to do and costs "
+        "the corner: a tap there arrives a window late, and with 1 it never "
+        "arrives at all",
     )
     parser.add_argument(
         "--not-home-assistant",
@@ -4248,8 +4277,17 @@ def main():
                 f"Home: corner {args.home_corner}% "
                 f"({corner_fraction * page_w:.0f}x{corner_fraction * page_h:.0f} "
                 f"of the page), hold {args.home_hold:g}s, "
-                f"{args.home_taps} taps, "
-                f"settle {settle_ms()}ms"
+                # Said in words, because the number alone cannot say what it
+                # costs: with taps counted, a tap in that corner is either late
+                # or swallowed, and that is the thing somebody needs to know
+                # when a page has its own control there.
+                + (f"taps off so a tap there reaches the page, "
+                   if args.home_taps < 1 else
+                   f"1 tap, so nothing under the corner is reachable, "
+                   if args.home_taps == 1 else
+                   f"{args.home_taps} taps, so a tap there arrives "
+                   f"{HOME_TAP_WINDOW_S:g}s late, ")
+                + f"settle {settle_ms()}ms"
             )
         hint_until = time.monotonic() + HOME_HINT_SECONDS
         # Set when the corner has just brought the panel home, cleared by the
