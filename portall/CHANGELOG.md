@@ -1,5 +1,25 @@
 # Changelog
 
+## 3.3.0
+
+- **The corner that brings a panel home is now yours to size and to time.**
+  `home_corner` is how big it is, as a percentage of each axis (14 by
+  default, so a 179x112 corner on a 1280x800 page); `home_hold` is how long a
+  finger must stay in it (1.0 s by default). Both are per panel. The mark
+  drawn in the corner follows `home_corner`, so what is pressed and what is
+  seen cannot drift apart, and short of the hold the tap still reaches the
+  page -- the corner stays usable for whatever is under it.
+- **And coming home stopped costing three seconds it had no use for.**
+  Reported as three to five seconds to get back to the launcher. Only one of
+  those was the hold. The rest was the settle written for Home Assistant,
+  which paints in stages -- shell, then cards, then their data -- and which a
+  panel on the launcher was paying too: with no token there was no dashboard
+  address to compare against, so the page stayed *unknown* rather than
+  *not Home Assistant*, and unknown takes the long wait. The add-on knows
+  perfectly well when it has pointed a panel at its own launcher, and says so
+  now. Measured: **3000 ms before, 800 ms after**, with a panel showing a real
+  dashboard untouched at 3000.
+
 ## 3.2.1
 
 - **A video wallpaper that will not play now says so.** Reported as an .mp4

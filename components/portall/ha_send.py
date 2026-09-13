@@ -1083,6 +1083,15 @@ def open_page(page, args):
     # A token pointed somewhere else is a panel saying outright that this page
     # is not that dashboard -- it starts on a launcher, and the token is for
     # the tile. There is nothing here to wait thirty seconds for.
+    # A panel started on the launcher is told so outright, because nothing
+    # else here can work it out. The test below needs a token to compare
+    # addresses with, and a launcher panel usually has none -- the tokens live
+    # on the links now -- so is_home_assistant stays UNKNOWN, and unknown takes
+    # the three-second settle written for Home Assistant's staged paint. On a
+    # page of links that is three seconds of a stopped panel, paid again every
+    # time the corner brings it home.
+    if getattr(args, "not_home_assistant", False):
+        open_page.is_home_assistant = False
     elsewhere = bool(args.token_url) and origin_of(args.token_url) != origin_of(args.url)
     if elsewhere:
         # Known, not merely unasked: this page is not that dashboard. It also
@@ -2195,10 +2204,14 @@ class HomeHint:
     rectangle on the wire for as long as the panel is awake.
     """
 
-    def __init__(self, page, page_w, page_h):
+    def __init__(self, page, page_w, page_h, fraction=HOME_CORNER_FRACTION):
         self._page = page
-        self._w = max(1.0, page_w * HOME_CORNER_FRACTION)
-        self._h = max(1.0, page_h * HOME_CORNER_FRACTION)
+        # The same fraction the sender tests, handed in rather than read from
+        # the constant: a panel may ask for a larger corner, and the mark and
+        # the hit test must move together or the mark becomes a promise the
+        # gesture does not keep.
+        self._w = max(1.0, page_w * fraction)
+        self._h = max(1.0, page_h * fraction)
         # What the page was last told, so a hold costs ten round trips rather
         # than one per turn of the loop.
         self._at = None
@@ -2907,10 +2920,15 @@ class Injector:
     landed.
     """
 
-    def __init__(self, page, touch_map, keyboard=None, page_w=0, page_h=0):
+    def __init__(self, page, touch_map, keyboard=None, page_w=0, page_h=0,
+                 corner=HOME_CORNER_FRACTION, hold=HOME_HOLD_S):
         self._page = page
-        self._corner = (page_w * HOME_CORNER_FRACTION,
-                        page_h * HOME_CORNER_FRACTION)
+        self._corner = (page_w * corner, page_h * corner)
+        # How long a finger must stay in the corner. A panel mounted where it
+        # gets brushed wants longer; one somebody has been told about wants
+        # shorter, and a second is a long time to stand still in front of a
+        # screen that is doing nothing visible yet.
+        self._hold = max(0.05, hold)
         self._map = touch_map
         self._keyboard = keyboard
         # Where the finger landed, and where it was last seen. None between
@@ -3064,7 +3082,7 @@ class Injector:
         """
         if self._corner_at is None or self._went_home:
             return None
-        return min(1.0, (now - self._corner_at) / HOME_HOLD_S)
+        return min(1.0, (now - self._corner_at) / self._hold)
 
     def tick(self, now):
         """True once, when the corner has been asked to take the panel home.
@@ -3085,7 +3103,7 @@ class Injector:
             return True
         if self._corner_at is None or self._went_home:
             return False
-        if now - self._corner_at < HOME_HOLD_S:
+        if now - self._corner_at < self._hold:
             return False
         # Spent. The finger is still down and will go on reporting; every one
         # of those reports is now ignored, and the lift at the end is not a
@@ -3243,6 +3261,30 @@ def main():
         "not mounted the right way up. Touches are turned back the other way, "
         "so the two stay in agreement. Leave at 0 if the component's rotation: "
         "option is already doing this",
+    )
+    parser.add_argument(
+        "--home-corner",
+        type=int,
+        default=int(round(HOME_CORNER_FRACTION * 100)),
+        help="how big the top-left corner that brings the panel home is, as a "
+        "percentage of each axis. The mark drawn there follows it, so what is "
+        "pressed and what is seen cannot drift apart",
+    )
+    parser.add_argument(
+        "--home-hold",
+        type=float,
+        default=HOME_HOLD_S,
+        help="how long a finger must be held in that corner, in seconds. "
+        "Short of it the tap is delivered to the page as usual, so the corner "
+        "stays usable. The sideways swipe out of the corner is unaffected",
+    )
+    parser.add_argument(
+        "--not-home-assistant",
+        action="store_true",
+        help="this page is a page of links rather than a dashboard, so do not "
+        "wait for it to paint in stages. Set by the add-on for a panel that "
+        "starts on the launcher; there is nothing to gain by passing it to a "
+        "panel showing Home Assistant",
     )
     parser.add_argument(
         "--calibrate",
@@ -3932,9 +3974,11 @@ def main():
             keyboard_holder["kb"] = keyboard
             # A page can arrive with a field already focused.
             keyboard.request_sync(0.5)
+        corner_fraction = min(0.40, max(0.02, args.home_corner / 100.0))
         injector = (
             None if args.no_touch
-            else Injector(page, touch_map, keyboard, page_w, page_h)
+            else Injector(page, touch_map, keyboard, page_w, page_h,
+                          corner_fraction, args.home_hold)
         )
         if injector is not None:
             injector.verbose = args.show_touches
@@ -3950,7 +3994,8 @@ def main():
         quality_url = None
         # The panel's own limits, to return to when a page asks for nothing.
         base_interval, base_urgent = interval, urgent_interval
-        hint = None if args.no_touch else HomeHint(page, page_w, page_h)
+        hint = (None if args.no_touch
+                else HomeHint(page, page_w, page_h, corner_fraction))
         hint_until = time.monotonic() + HOME_HINT_SECONDS
         capture = Screencast(page, page_w, page_h, args.capture_quality)
         if args.freeze_animations:
