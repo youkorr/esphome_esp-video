@@ -453,16 +453,16 @@ no drawing at all, and none of these do.
 
 | service | les noms qui y mènent | service | les noms qui y mènent |
 |---|---|---|---|
-| adguard | `adguard` `adguardhome` | paperlessngx | `paperless` `paperlessngx` `paperless-ngx` |
-| audiobookshelf | `audiobookshelf` `abs` | pfsense | `pfsense` |
-| bitwarden | `bitwarden` | philipshue | `hue` `philipshue` `philips-hue` |
-| calibreweb | `calibre` `calibreweb` `calibre-web` | pihole | `pihole` `pi-hole` |
-| docker | `docker` | plex | `plex` |
-| duplicati | `duplicati` | portainer | `portainer` |
-| eclipsemosquitto | `mosquitto` `broker` | proxmox | `proxmox` `pve` |
-| emby | `emby` | qbittorrent | `qbittorrent` `qbit` |
-| esphome | `esphome` | radarr | `radarr` |
-| frigate | `frigate` | raspberrypi | `raspberrypi` `raspberry-pi` `pi` |
+| adguard | `adguard` `adguardhome` | pfsense | `pfsense` |
+| audiobookshelf | `audiobookshelf` `abs` | philipshue | `hue` `philipshue` `philips-hue` |
+| bitwarden | `bitwarden` | pihole | `pihole` `pi-hole` |
+| calibreweb | `calibre` `calibreweb` `calibre-web` | plex | `plex` |
+| docker | `docker` | portainer | `portainer` |
+| duplicati | `duplicati` | proxmox | `proxmox` `pve` |
+| eclipsemosquitto | `mosquitto` `broker` | qbittorrent | `qbittorrent` `qbit` |
+| emby | `emby` | radarr | `radarr` |
+| esphome | `esphome` | raspberrypi | `raspberrypi` `raspberry-pi` `pi` |
+| frigate | `frigate` | reolink | `reolink` |
 | gitea | `gitea` `forgejo` | sonarr | `sonarr` |
 | github | `github` | sonos | `sonos` |
 | grafana | `grafana` | spotify | `spotify` |
@@ -478,8 +478,9 @@ no drawing at all, and none of these do.
 | openmediavault | `openmediavault` `omv` | wireguard | `wireguard` |
 | openwrt | `openwrt` | youtube | `youtube` `yt` |
 | opnsense | `opnsense` | zigbee2mqtt | `zigbee2mqtt` `z2m` |
+| paperlessngx | `paperless` `paperlessngx` `paperless-ngx` |  |  |
 
-50 service logos, drawn from the add-on itself and never fetched.
+50 drawn as shapes and 1 carried as a picture, all of them from the add-on itself and never fetched.
 
 ### The clock, the date and the weather
 
