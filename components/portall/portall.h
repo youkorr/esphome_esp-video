@@ -175,7 +175,6 @@ class Portall : public Component
   /// command, none of which need a finger on the glass at all.
   ///
   /// Like set_awake this only TELLS the sender. Nothing on the board changes.
-  void go_home();
 
  protected:
   /// One frame in flight: a compressed frame being filled by USB, or a full one
@@ -311,7 +310,6 @@ class Portall : public Component
      on catching it the same millisecond. It stays set while no sender is
      connected, so a panel asked to go home before one arrives goes home when
      it does. */
-  volatile bool home_pending_{false};
 
   Frame *frames_{nullptr};
   QueueHandle_t empty_queue_{nullptr};
@@ -450,17 +448,6 @@ template<typename... Ts> class SleepAction final : public Action<Ts...>, public 
 template<typename... Ts> class WakeAction final : public Action<Ts...>, public Parented<Portall> {
  public:
   void play(const Ts &...) override { this->parent_->set_awake(true); }
-};
-
-/// portall.home -- put the panel back on its own page from the YAML.
-///
-/// `void play(const Ts &...) override` and not `Ts...` by value: the base
-/// declares `virtual void play(const Ts &...x) = 0`, so taking them by value
-/// compiles perfectly as a NON-override and silently does nothing. That has
-/// happened here before and no YAML check can see it.
-template<typename... Ts> class HomeAction final : public Action<Ts...>, public Parented<Portall> {
- public:
-  void play(const Ts &...) override { this->parent_->go_home(); }
 };
 
 #ifdef USE_SPEAKER

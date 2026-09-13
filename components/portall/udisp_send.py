@@ -197,7 +197,12 @@ def parse_messages(buffer):
       rendering or sending for it.
 
       b"H", then a reserved byte: the board asking to go back to this panel's
-      own page. It is the portall.home action, so a button, an automation or a
+      own page. The board no longer sends it -- the portall.home action that
+      did was removed, because the corner gesture is how a panel comes home
+      and nobody was calling it from YAML. This half stays deliberately: a
+      board is flashed by hand and this sender is fetched when the add-on's
+      image is built, so the two are not updated together, and the tolerant
+      end is the one to keep. It was the portall.home action, so a button,
       presence sensor can do what until now only a finger on the corner could.
       Two bytes like b"S" rather than one, because two is the shortest thing
       this parser can recognise at all.
