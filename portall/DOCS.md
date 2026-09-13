@@ -363,9 +363,20 @@ the two part company exactly at YouTube, whose pure red is vivid on a dark card
 and is not bright.
 
 Prime Video is the exception on that list: it is not in the collection these
-come from, so `prime-video` gives a television. Camera makers are the same --
-checked against all 3460 marks the collection carries, there is no Reolink,
-Hikvision, Dahua or Tapo in it, so those names give 📹.
+come from, so `prime-video` gives a television.
+
+**A brand with no tracing can still have its real logo.** simple-icons carries
+3460 marks and Reolink is not one of them -- nor Hikvision, Dahua or Tapo. But
+Home Assistant keeps a square icon for every integration it supports, in its
+own `home-assistant/brands` repository, and `reolink` now draws that one:
+carried here as a picture rather than fetched, like everything else on this
+page. It is not recoloured against the theme, because it brings its own
+background and has nothing to be rescued from.
+
+The other camera makers have no mark in either collection, so `hikvision`,
+`dahua`, `tapo`, `annke`, `amcrest` and `foscam` give 📹. Ask if you want one
+of them drawn properly -- if Home Assistant has an integration for it, it has
+an icon.
 
 Nothing is downloaded for any of this. Every icon is a character the browser
 already has, and each one was checked against U+FFFF in the browser this add-on
@@ -414,7 +425,7 @@ no drawing at all, and none of these do.
 | 🔒 | `serrure` `verrou` `lock` `locked` `security` | ✈️ | `avion` `plane` `flight` `airport` `vol` |
 | 🔑 | `cle` `key` `keys` | 🚌 | `bus` `autobus` `transport` |
 | 📷 | `camera` `photo` `picture` | ✉️ | `courrier` `mail` `email` `lettre` `inbox` |
-| 📹 | `camescope` `frigate` `cctv` `video-camera` `videosurveillance` `reolink` `hikvision` `dahua` `tapo` `annke` `amcrest` `foscam` | 💬 | `message` `messages` `chat` `discussion` |
+| 📹 | `camescope` `frigate` `cctv` `video-camera` `videosurveillance` `hikvision` `dahua` `tapo` `annke` `amcrest` `foscam` | 💬 | `message` `messages` `chat` `discussion` |
 | 🔔 | `sonnette` `notification` `doorbell` `bell` `alert` | 💶 | `argent` `depenses` `money` `budget` `expenses` `cash` |
 | 🚶 | `mouvement` `presence` `motion` `presence-detection` | 🏦 | `banque` `bank` `comptes` `accounts` |
 | 🧯 | `gaz` `extincteur` `gas` `extinguisher` | ⚕️ | `sante` `health` `medical` `medecin` `doctor` |
