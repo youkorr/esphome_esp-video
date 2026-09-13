@@ -197,11 +197,10 @@ def page_agent_from(config):
 class Weather:
     """The house's own weather, read by the ADD-ON and never by the page.
 
-    run.py already has the token and the address of Home Assistant; the
-    launcher page has neither, and giving it either would put a long-lived
-    token into the storage of every site a panel visits -- a leak this project
-    has already had to close once. So the reading is fetched here, in the
-    background, and served to the page from 127.0.0.1.
+    The page must not read it: an add-on's credential in a page's storage is
+    on every site a panel visits, which is a leak this project has already had
+    to close once. So the reading is fetched here, in the background, and
+    served to the page from 127.0.0.1.
 
     An accessory must never cost the picture: every failure leaves the last
     reading in place, or none at all, and says so once rather than each time.
@@ -209,11 +208,42 @@ class Weather:
 
     EVERY_S = 600
 
+    # An add-on is handed its own credential by the Supervisor and can reach
+    # Home Assistant's REST API through it, with nothing configured: the
+    # Supervisor proxies /core/api/... to Core and checks the bearer token
+    # against the add-on that was given it. Confirmed in the Supervisor's own
+    # source rather than remembered -- ENV_TOKEN = "SUPERVISOR_TOKEN" in
+    # docker/const.py, the route GET /core/api/{path} in api/__init__.py, and
+    # api/proxy.py refusing it unless access_homeassistant_api, which is the
+    # `homeassistant_api: true` this add-on's config.yaml now declares.
+    #
+    # This is what the weather should always have used. Reading it through the
+    # house's LONG-LIVED token meant the reading depended on where somebody
+    # had put that token -- and after 3.0.0 moved tokens onto the links, a
+    # household that filled in the panel's token instead got no weather and a
+    # message naming the wrong half. The Supervisor route has no such
+    # question: there is nothing to fill in and nothing to get wrong.
+    SUPERVISOR = "http://supervisor/core"
+
     def __init__(self, url, token, entity):
-        # The ORIGIN, not the address as it stands. The shared `url:` is
-        # nearly always a dashboard -- http://homeassistant:8123/lovelace/0 --
-        # and the first version of this appended /api/states/... straight to
-        # it, asking for
+        self.entity = str(entity or "").strip()
+        self.state = None
+        self._said = False
+
+        supervisor = os.environ.get("SUPERVISOR_TOKEN")
+        if supervisor:
+            self.url, self.token, self.own = self.SUPERVISOR, supervisor, True
+            return
+
+        # Not under the Supervisor: a hand run, or docker-compose. Then the
+        # house's own address and token are all there is, and they come from
+        # the link that names the dashboard.
+        self.own = False
+
+        # The ORIGIN, not the address as it stands. That `url:` is nearly
+        # always a dashboard -- http://homeassistant:8123/lovelace/0 -- and
+        # the first version of this appended /api/states/... straight to it,
+        # asking for
         #   http://homeassistant:8123/lovelace/0/api/states/weather.home
         # which is a 404 every time. Reported as the weather simply not
         # appearing while the clock beside it worked.
@@ -223,9 +253,6 @@ class Weather:
         self.url = (f"{split.scheme}://{split.netloc}"
                     if split.scheme and split.netloc else "")
         self.token = str(token or "")
-        self.entity = str(entity or "").strip()
-        self.state = None
-        self._said = False
 
     def wanted(self):
         return bool(self.entity and self.url and self.token)
@@ -236,14 +263,15 @@ class Weather:
         Silence is right when nobody asked for weather. It is wrong when
         somebody did and it never appears: that is the shape of fault this
         project keeps having to find twice.
+
+        Under the Supervisor this can only ever be None, which is the point of
+        the route above: there is no setting left to get wrong.
         """
-        if not self.entity:
+        if not self.entity or self.wanted():
             return None
-        if not self.url:
-            return "there is no url: to read it from"
-        if not self.token:
-            return "there is no token: to read it with"
-        return None
+        return ("this is not running as a Home Assistant add-on, so it has no "
+                "credential of its own, and no link carries both a Home "
+                "Assistant address and a token: to read it with")
 
     def read(self):
         import urllib.error

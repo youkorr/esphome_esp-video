@@ -183,7 +183,7 @@ Assistant dashboard to appear; without one it does neither.
 | `name` | What this panel is called in the log |
 | `host`, `port` | The panel's address, and its `port:` |
 | `url` | The page to render. A Home Assistant dashboard, or any other site. From inside an add-on a Home Assistant address is `http://homeassistant:8123/...` -- see below |
-| `token` | A long-lived access token, for a panel that shows a dashboard **directly** rather than reaching one through a link. Leave it empty otherwise -- the Home Assistant link carries its own |
+| `token` | An **override**, for the rare panel that opens a *different* Home Assistant from the rest of the house, or that shows a dashboard directly rather than reaching one through a link. Leave it empty otherwise: the Home Assistant link carries the token every panel uses, because a token belongs to an address and a link is the only thing here that names one. The launcher's weather needs neither |
 | `width`, `height` | Must match the component's |
 | `rotate` | Turns the picture, for a panel not mounted upright |
 | `touch_rotate`, `touch_mirror_x`, `touch_mirror_y` | From `--calibrate` |
@@ -481,12 +481,22 @@ sent to the panel every second for as long as it is awake -- the same reason
 nothing on this page animates. On the minute it is one small rectangle a
 minute, and a sleeping panel sends nothing whatever.
 
-The weather is read **by the add-on**, which already has your token and Home
-Assistant's address, and served to the page from `127.0.0.1`. The page never
-reaches Home Assistant and never carries the token -- putting one into the
-storage of every site a panel visits is a leak this project has already had to
-close once. It is refreshed every ten minutes; if it cannot be read, the
-launcher simply shows no weather and says so once in the log.
+The weather is read **by the add-on** and served to the page from `127.0.0.1`.
+The page never reaches Home Assistant -- putting a credential into the storage
+of every site a panel visits is a leak this project has already had to close
+once. It is refreshed every ten minutes; if it cannot be read, the launcher
+simply shows no weather and says so once in the log.
+
+**It needs no token and no address from you.** The Supervisor gives every
+add-on a credential of its own and proxies `/core/api/...` to Home Assistant
+with it, which is what `homeassistant_api: true` in this add-on's `config.yaml`
+asks for. So an entity name is the whole setting.
+
+Before 4.1.0 this read through the house's long-lived token, and that made it
+depend on *where* you had put one: the token moved onto the links in 3.0.0, so
+filling in a panel's `token:` instead -- the nearer of the two fields, and not
+a mistake -- left the weather with no address to read from and a log line
+naming the wrong half. Nothing to fill in is the fix.
 
 **A panel in portrait is fine, and it was measured rather than assumed.** The
 page is fluid: the tiles reflow, the bar wraps, and the weather stays at the
