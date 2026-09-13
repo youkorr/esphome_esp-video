@@ -47,6 +47,39 @@ repository, and each is the whole file rather than a fragment:
 | M5Stack Tab5 | `tab5-portall-screen.yaml` | 720x1280 |
 | Waveshare ESP32-P4-WIFI6-Touch-LCD-7B | `ws-usb-screen.yaml` | 1024x600 |
 
+## What the board keeps doing
+
+`portall` is an **addition** to the panel's ESPHome configuration, not a
+replacement for it. Nothing else in that YAML stops working -- its speaker,
+microphone, wake word, sensors and `media_player:` are all untouched, and the
+panel remains an ordinary ESPHome device to the rest of Home Assistant.
+
+- **Sound.** Whatever the page plays reaches the panel's own speaker, over the
+  same socket as the picture -- `speaker_id:` in the `portall:` block. This is
+  not particular to one board: it is an ESPHome `speaker:`, so it works on any
+  ESP32-P4 panel that has one, and it has been used on several.
+
+  Point `speaker_id:` at a **mixer input of its own** rather than straight at
+  the I2S output, the way the examples do: a Home Assistant announcement then
+  lands *over* the page instead of fighting it for the bus, and stopping one
+  does not stop the other. A resampler in between is not optional -- the page
+  arrives at 48 kHz because that is what a browser produces, and a mixer given
+  two rates refuses the stream outright.
+
+  Volume is `number: - platform: portall`, and `portall.set_volume` is there
+  for a slider that should be remembered across restarts.
+- **Touch.** Contacts go back up the same socket and are replayed into the
+  browser, so a tap presses what is under the finger and a drag scrolls.
+- **Standby.** The backlight and the timer stay the board's own business, in
+  its YAML -- the Guition example has a *Veille de l'écran* slider and a
+  `screen_timeout` script. Call **`portall.sleep`** beside turning the
+  backlight off and the add-on stops rendering and transmitting for a screen
+  nobody can see; **`portall.wake`** starts it again. Without that call the
+  server keeps drawing a dashboard into the dark.
+- **`portall.home`** brings a panel back to its own page from anywhere -- a
+  button, an automation, a presence sensor or a voice command, none of which
+  has to aim at a corner.
+
 ## How the two halves meet
 
 Flash the board, note the address it takes, then list it here -- the `host:`
