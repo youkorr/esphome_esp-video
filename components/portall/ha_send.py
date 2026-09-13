@@ -238,6 +238,15 @@ BROWSER_ARGS = [
 # that second the tap is delivered normally, so the corner stays usable.
 HOME_CORNER_FRACTION = 0.14
 HOME_HOLD_S = 1.0
+# Two taps in the corner, which is the other way to ask and the quicker one.
+# It only became possible once a press in the corner stopped reaching the page
+# at all: before that, counting taps would have meant pressing whatever was
+# under the corner once per attempt.
+HOME_TAPS = 2
+# From one tap's LIFT to the next one's LANDING. The usual figure for a double
+# tap; short enough that two deliberate presses a second apart are two separate
+# presses, long enough for a thumb crossing a ten-inch panel.
+HOME_TAP_WINDOW_S = 0.45
 # Or swipe sideways from that same corner, which is the gesture somebody
 # actually suggested after living with the hold -- and it is the better one to
 # find by accident, because a finger that lands and drags is what a person does
@@ -970,6 +979,15 @@ def present_browser(session, page, keyboard_wanted, wanted_agent):
     print(f"Browser: saying it is {agent}")
     print("Browser: and its brands are " + (brands or "not set, which is a tell"))
     return agent
+
+
+# What asked for the way back, in words, so one line says which of the four it
+# was instead of leaving a reader to work it out from what is missing.
+HOW = {
+    "taps": "tapped, ",
+    "swipe": "swiped, ",
+    "board": "asked by the board, ",
+}
 
 
 def stamp():
@@ -2969,7 +2987,8 @@ class Injector:
     """
 
     def __init__(self, page, touch_map, keyboard=None, page_w=0, page_h=0,
-                 corner=HOME_CORNER_FRACTION, hold=HOME_HOLD_S):
+                 corner=HOME_CORNER_FRACTION, hold=HOME_HOLD_S,
+                 taps=HOME_TAPS):
         self._page = page
         self._corner = (page_w * corner, page_h * corner)
         # How long a finger must stay in the corner. A panel mounted where it
@@ -3003,6 +3022,17 @@ class Injector:
         # A press landed in the corner, was too short to go home, and was
         # therefore swallowed. The loop reads it to show the mark again.
         self.missed_home = False
+        # Taps in the corner: how many are being asked for, how many have been
+        # counted so far, and when the last one lifted. These live OUTSIDE the
+        # per-gesture state that _reset() clears, because counting taps is
+        # precisely a thing that spans several gestures.
+        self._taps_needed = max(0, int(taps))
+        self._taps = 0
+        self._tap_at = 0.0
+        # How the way home was asked for, so the log can say which of the three
+        # it was rather than leaving it to be guessed.
+        self._home_by = None
+        self.fired_by = None
         # How long the gesture that just fired actually took, measured rather
         # than assumed: "it takes longer than I set" has three possible causes
         # and only the clock can say which. None for a swipe, which has no
@@ -3069,6 +3099,10 @@ class Injector:
                 in_corner = x <= self._corner[0] and y <= self._corner[1]
                 self._corner_at = time.monotonic() if in_corner else None
                 self._from_corner = in_corner
+                if not in_corner:
+                    # Two taps in the corner with a press somewhere else in
+                    # between are two separate presses, not a double tap.
+                    self._taps = 0
                 self._went_home = False
                 if self.verbose:
                     print(f"[{stamp()}] corner: landed at "
@@ -3100,6 +3134,7 @@ class Injector:
                     # screen later it satisfies a test it failed at the start.
                     if abs(dx) > abs(dy) * HOME_SWIPE_STRAIGHTNESS:
                         self._home = True
+                        self._home_by = "swipe"
                         self._went_home = True
                         self._scrolling = False
                         self._wheel = [0, 0]
@@ -3171,11 +3206,14 @@ class Injector:
         if self._home:
             self._home = False
             self.held_for = None
+            self.fired_by = self._home_by or "swipe"
+            self._home_by = None
             return True
         if self._corner_at is None or self._went_home:
             return False
         if now - self._corner_at >= self._hold:
             self.held_for = now - self._corner_at
+            self.fired_by = "hold"
             if self.verbose:
                 print(f"[{stamp()}] corner: hold complete "
                       f"after {self.held_for:.2f}s -- going home. Keeping the "
@@ -3234,14 +3272,33 @@ class Injector:
             # a press that would otherwise have been a tap is swallowed. A
             # drag out of the corner is a scroll and is none of this.
             if self._from_corner:
-                # The mark comes back instead, because a press that does
-                # nothing and says nothing is what makes somebody try again --
-                # and trying again is what the seconds were being spent on.
-                self.missed_home = True
-                if self.verbose:
-                    print(f"[{stamp()}] corner: that press was too short to "
-                          f"go home, and the corner does not pass presses to "
-                          f"the page -- showing the mark instead", flush=True)
+                now = time.monotonic()
+                # Counted from the previous tap's LIFT, which is this same
+                # moment one gesture ago, so the window is the gap between two
+                # presses rather than the length of either.
+                if now - self._tap_at <= HOME_TAP_WINDOW_S:
+                    self._taps += 1
+                else:
+                    self._taps = 1
+                self._tap_at = now
+                if self._taps_needed and self._taps >= self._taps_needed:
+                    self._taps = 0
+                    self._home = True
+                    self._home_by = "taps"
+                    if self.verbose:
+                        print(f"[{stamp()}] corner: {self._taps_needed} taps "
+                              f"-- going home", flush=True)
+                else:
+                    # The mark comes back instead, because a press that does
+                    # nothing and says nothing is what makes somebody try
+                    # again -- and trying again is what the seconds were being
+                    # spent on. With taps asked for it is also the only thing
+                    # that says the first one counted.
+                    self.missed_home = True
+                    if self.verbose:
+                        print(f"[{stamp()}] corner: tap {self._taps} of "
+                              f"{self._taps_needed or '-'} -- showing the mark",
+                              flush=True)
             else:
                 if self.verbose:
                     self._say_target(*self._last)
@@ -3379,6 +3436,15 @@ def main():
         help="how long a finger must be held in that corner, in seconds. "
         "Short of it the tap is delivered to the page as usual, so the corner "
         "stays usable. The sideways swipe out of the corner is unaffected",
+    )
+    parser.add_argument(
+        "--home-taps",
+        type=int,
+        default=HOME_TAPS,
+        help="how many quick taps in that corner bring the panel home. Two by "
+        "default; 1 makes a single tap do it, 0 turns taps off and leaves only "
+        "the hold and the sideways swipe. A press in the corner never reaches "
+        "the page either way",
     )
     parser.add_argument(
         "--not-home-assistant",
@@ -4080,7 +4146,7 @@ def main():
         injector = (
             None if args.no_touch
             else Injector(page, touch_map, keyboard, page_w, page_h,
-                          corner_fraction, args.home_hold)
+                          corner_fraction, args.home_hold, args.home_taps)
         )
         if injector is not None:
             injector.verbose = args.show_touches
@@ -4103,6 +4169,7 @@ def main():
                 f"Home: corner {args.home_corner}% "
                 f"({corner_fraction * page_w:.0f}x{corner_fraction * page_h:.0f} "
                 f"of the page), hold {args.home_hold:g}s, "
+                f"{args.home_taps} taps, "
                 f"settle {settle_ms()}ms"
             )
         hint_until = time.monotonic() + HOME_HINT_SECONDS
@@ -4583,8 +4650,8 @@ def main():
                         print(
                             f"Home: back to {args.url} -- "
                             + (f"held {home_held:.1f}s, " if home_held is not None
-                               else ("asked by the board, " if not gestured
-                                     else "swiped, "))
+                               else HOW.get(injector.fired_by if gestured
+                                            else "board", "asked, "))
                             + f"opened in {opened - home_at:.1f}s"
                         )
                         if keyboard is not None:
