@@ -169,7 +169,7 @@ ICON_NAMES = (
      # embed and a name is the honest answer. The same call the collection's
      # missing Prime Video already got: saying something is better than an
      # empty square.
-     "reolink hikvision dahua tapo annke amcrest foscam"),
+     "hikvision dahua tapo annke amcrest foscam"),
     ("\U0001F514", "sonnette notification doorbell bell alert"),
     ("\U0001F6B6", "mouvement presence motion presence-detection"),
     ("\U0001F9EF", "gaz extincteur gas extinguisher"),
@@ -336,6 +336,29 @@ def logo_svg(value, dark):
     colour, path = entry
     return (f'<svg class="logo" viewBox="0 0 24 24" aria-hidden="true" '
             f'fill="{_readable(colour, dark)}"><path d="{path}"/></svg>')
+
+
+def logo_img(value):
+    """The carried bitmap for a brand with no drawing, or None.
+
+    A data: URI rather than an address, for the reason every picture on this
+    page follows: nothing is fetched, because a panel is the one screen where
+    nobody can find out why an image did not load.
+
+    Not recoloured, unlike the paths above -- these carry their own ground, so
+    there is nothing to rescue them from.
+    """
+    entry = logos.PICTURES.get(str(value or "").strip().lower())
+    if entry is None:
+        return None
+    mime, data = entry
+    return (f'<img class="logo" alt="" aria-hidden="true" '
+            f'src="data:{mime};base64,{data}">')
+
+
+def logo_markup(value, dark):
+    """Whichever kind of logo this name has, drawn or carried, or None."""
+    return logo_svg(value, dark) or logo_img(value)
 
 
 def icon_for(value):
@@ -935,7 +958,7 @@ def render(links, title="", subtitle="", theme="dark",
         tiles = "".join(
             TILE % {
                 "url": html.escape(str(entry.get("url", "")), quote=True),
-                "icon": (logo_svg(entry.get("icon"), dark)
+                "icon": (logo_markup(entry.get("icon"), dark)
                          or html.escape(icon_for(entry.get("icon")))),
                 # Two characters still read at the full size -- "HA" is a
                 # perfectly good icon. Beyond that it is a word, and a word
@@ -944,7 +967,7 @@ def render(links, title="", subtitle="", theme="dark",
                 # list is one glyph however long the name is.
                 "icon_long": (
                     ""
-                    if logo_svg(entry.get("icon"), dark) is not None
+                    if logo_markup(entry.get("icon"), dark) is not None
                     else " long"
                     if len(icon_for(entry.get("icon")).rstrip("\uFE0F")) > 2
                     else ""

@@ -1,5 +1,21 @@
 # Changelog
 
+## 4.6.0
+
+- **`reolink` draws the real Reolink logo.** simple-icons, where the other 50
+  marks come from, carries 3460 brands and Reolink is not one of them -- so
+  there was no public-domain tracing to embed and the name gave a camera emoji.
+
+  Home Assistant keeps a square icon for every integration it supports, in its
+  own `home-assistant/brands` repository, and that is the right source for an
+  add-on: same project, same nominative use, and the icon a household already
+  sees beside that integration. It is carried here rather than fetched, like
+  every other picture on the launcher, and it is not recoloured -- it brings
+  its own blue ground.
+
+  Measured on the rendered page, both themes: the image loads at 256x256,
+  draws at 43x43 on the tile, and reads Reolink's blue.
+
 ## 4.5.0
 
 - **The YouTube logo was a white badge on a dark panel.** Its red is `#FF0000`,

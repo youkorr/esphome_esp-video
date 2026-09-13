@@ -131,3 +131,135 @@ for _slug, _words, _hex, _d in LOGO_LIST:
         if _word in LOGOS and LOGOS[_word] != (_hex, _d):
             raise ValueError(f"the logo name {_word!r} is used twice")
         LOGOS[_word] = (_hex, _d)
+
+
+# Brands simple-icons has no tracing for, carried as the square icon Home
+# Assistant itself shows for that integration -- from home-assistant/brands,
+# fetched once and embedded here rather than fetched at run time, which is the
+# rule every picture on this page lives under: a panel is the one screen where
+# nobody can find out why an image did not load.
+#
+# These are bitmaps rather than paths, so they are NOT recoloured against the
+# theme. They do not need to be: each carries its own ground, which is the same
+# call this add-on's own logo.png made for a store that has both themes.
+#
+# Trademark notice, in home-assistant/brands' own words: all product names,
+# trademarks and registered trademarks are property of their respective owners,
+# used for identification purposes only, and their use does not imply
+# endorsement. The same nominative use as the marks above.
+PICTURE_LIST = (
+    ("reolink", "reolink", "image/png",
+    "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"),
+)
+
+# name -> (mime, base64). Same flattening and the same loud failure on a
+# name used twice.
+PICTURES = {}
+for _slug, _words, _mime, _data in PICTURE_LIST:
+    for _word in _words.split():
+        if _word in PICTURES:
+            raise ValueError(f"the picture name {_word!r} is used twice")
+        if _word in LOGOS:
+            raise ValueError(f"{_word!r} is already a drawn logo")
+        PICTURES[_word] = (_mime, _data)
