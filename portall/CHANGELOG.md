@@ -1,5 +1,29 @@
 # Changelog
 
+## 4.1.0
+
+- **The launcher's weather works without a token.** It read Home Assistant
+  through the house's long-lived token, so it depended on *where* that token
+  had been put -- and 3.0.0 moved tokens onto the links, so filling in a
+  panel's `token:` instead left the weather with no address to read from. An
+  add-on does not need any of that: the Supervisor gives it a credential of its
+  own and proxies `/core/api/...` to Home Assistant with it. `entity:` is now
+  the whole setting, and nothing else about your configuration matters to it.
+
+  This needs `homeassistant_api: true`, which is new in this version -- so the
+  weather starts working on the update and not before.
+
+- **The failure line could not tell the truth.** With no token on a link it
+  said "there is no url: to read it from" while a url sat right there. It can
+  only appear at all outside a Home Assistant add-on now, where it names both
+  halves at once.
+
+- **The form says which of the two tokens to fill in.** The link's is the one
+  that matters -- a token belongs to an address, and a link is the only thing
+  here that names one. A panel's `token:` is an override, for the rare panel
+  that opens a *different* Home Assistant, and both the form and the
+  documentation now say so where somebody filling one in will read it.
+
 ## 4.0.0
 
 **Read the migration below before updating.**

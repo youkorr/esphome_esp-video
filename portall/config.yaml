@@ -1,5 +1,5 @@
 name: Portall
-version: "4.0.0"
+version: "4.1.0"
 # Home Assistant identifies an add-on by its slug, so this one moving from
 # usb_display_panel to portall makes the Supervisor see a NEW add-on: options
 # are not carried over and /data starts empty, which means the browser
@@ -21,6 +21,11 @@ arch:
   - amd64
   - aarch64
 startup: application
+# The weather on the launcher is read through the Supervisor, which hands every
+# add-on its own credential for exactly this. Without this line that route is
+# refused, and the alternative is the household's long-lived token -- which is
+# how the weather came to depend on which of two places somebody had put one.
+homeassistant_api: true
 # So a wallpaper can be a file somebody dropped in the obvious places, read
 # only: this add-on has no business writing to any of them.
 map:
@@ -68,6 +73,15 @@ options:
       # resolve in here.
       url: http://homeassistant:8123/lovelace/0
       icon: home-assistant
+      # A long-lived access token, from your Home Assistant profile page. This
+      # is THE one to fill in: a token belongs to an address, and a link is the
+      # only thing here that names one, so this is the token every panel uses
+      # to open the dashboard already logged in.
+      #
+      # A panel also offers a token: of its own, under advanced:, and it is not
+      # a second copy of this one -- it is an override, for the rare panel that
+      # opens a DIFFERENT Home Assistant from the rest of the house. Leave it
+      # empty unless that is what you mean.
       token: ""
   # The page of links this add-on builds, for a panel whose url is
   # "launcher". Appearance only -- what the tiles open is links: above.
@@ -119,9 +133,10 @@ options:
       # A Home Assistant weather entity -- weather.forecast_home, weather.chez_moi
       # -- shown beside the clock. Empty for none.
       #
-      # The reading is fetched by THIS ADD-ON, which already has the token and the
-      # address, and served to the page from 127.0.0.1. The page itself never
-      # reaches Home Assistant and never carries the token.
+      # The reading is fetched by THIS ADD-ON, through the credential the
+      # Supervisor gives it, and served to the page from 127.0.0.1. It needs no
+      # token: and no url: from you, and it does not care where you put the
+      # dashboard's token -- the page itself never reaches Home Assistant.
       entity: ""
       # The weather has no colour of its own: it is an emoji, which a browser
       # draws in its own colours whatever this said.
