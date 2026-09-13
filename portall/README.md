@@ -77,35 +77,9 @@ panel remains an ordinary ESPHome device to the rest of Home Assistant.
   nobody can see; **`portall.wake`** starts it again. Without that call the
   server keeps drawing a dashboard into the dark.
 
-## How the two halves meet
+## Signing in works
 
-Flash the board, note the address it takes, then list it here -- the `host:`
-is that address and `width:`/`height:` must match the `portall:` block exactly.
-Nothing else has to agree.
-
-**Calibrate once per panel**, before anything else. There is no way for the
-add-on to know which way a controller reports contacts: a GT911 on one board
-mirrors both axes, the same part on another swaps them, a GSL3680 mirrors one.
-It draws three targets, asks for a tap on each and prints the values to paste:
-
-    python ha_send.py --calibrate --host 192.168.1.11 --port 5000 --width 800 --height 1280
-
-One line: PowerShell does not take a backslash as a continuation. Put the
-panel's own address and its own size in, and paste what it prints into that
-panel's `touch:` block.
-
-Everything else -- the options one by one, the launcher, the on-screen
-keyboard, sound, the gestures and what it all costs -- is on the
-**Documentation** tab at the top of this page.
-
-## YouTube works, in television mode
-
-Point a launcher link at `https://www.youtube.com/tv`, give that link a
-smart-television `user_agent` and `quality: 20`, and sign in with a code typed
-on your phone -- no password on the panel. Your phone then acts as the remote:
-browse there and send the video to the panel. It is the only arrangement that
-works, and the Documentation tab has the exact link to copy under **YouTube:
-television mode, and the phone as its remote**.
+Google's reCAPTCHA does not block a panel. Sites sign in normally.
 
 ## Coming from the old ESP32-P4 Panel add-on?
 
