@@ -1,5 +1,30 @@
 # Changelog
 
+## 4.3.0
+
+- **The corner behaves as it did before the double tap, and that is now the
+  default.** `home_taps` ships as `0`: the way home is holding the top-left
+  corner for a second or swiping sideways out of it, and a quick tap there
+  goes **straight to the page**, with no delay at all.
+
+  4.2.0 delivered it 450 ms late instead, which is what counting two taps
+  costs anywhere -- the first of two cannot be acted on until the window for
+  the second has passed. The delay is not a bug that can be fixed; it is what
+  the gesture is. So the gesture that leaves the corner alone is the one that
+  ships, and a household never has to learn why the Back arrow on a film felt
+  slow.
+
+  `home_taps: 2` is still there for a panel that only shows a dashboard, and
+  the startup line now says what it costs rather than printing a number:
+  `taps off so a tap there reaches the page` against `2 taps, so a tap there
+  arrives 0.45s late`.
+
+- A press **longer** than 350 ms in the corner still reaches nothing. That was
+  somebody attempting the hold and letting go early, and delivering it is what
+  used to open Home Assistant's sidebar on every failed attempt.
+
+  Nine cases measured at both settings.
+
 ## 4.2.0
 
 - **A tap in the top-left corner reaches the page again.** Jellyfin's player
