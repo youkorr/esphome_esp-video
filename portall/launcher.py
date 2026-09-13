@@ -163,7 +163,13 @@ ICON_NAMES = (
     ("\U0001F512", "serrure verrou lock locked security"),
     ("\U0001F511", "cle key keys"),
     ("\U0001F4F7", "camera photo picture"),
-    ("\U0001F4F9", "camescope frigate cctv video-camera videosurveillance"),
+    ("\U0001F4F9", "camescope frigate cctv video-camera videosurveillance "
+     # Camera makers simple-icons does not carry -- checked against its 3460
+     # marks, none of these is in it, so there is no public-domain tracing to
+     # embed and a name is the honest answer. The same call the collection's
+     # missing Prime Video already got: saying something is better than an
+     # empty square.
+     "reolink hikvision dahua tapo annke amcrest foscam"),
     ("\U0001F514", "sonnette notification doorbell bell alert"),
     ("\U0001F6B6", "mouvement presence motion presence-detection"),
     ("\U0001F9EF", "gaz extincteur gas extinguisher"),
@@ -258,21 +264,63 @@ for _glyph, _words in ICON_NAMES:
             raise ValueError(f"the icon name {_word!r} is used twice")
         ICONS[_word] = _glyph
 
-def _readable(hex_colour, dark):
-    """The brand colour, unless it would disappear against the panel.
+# The tile a logo is drawn on, which is what it has to be legible against.
+# Kept beside the rule rather than passed in: these are the same two values
+# `card_fallback` uses, and two places to change one colour is one place too
+# many.
+# LOGO_ rather than TILE/INK: this file already has a TILE, three hundred
+# lines further down and holding the tile's markup. Defined after this one it
+# simply replaced it, and indexing a STRING with True then returned a single
+# character -- every logo raised. Nothing about it is visible from reading the
+# diff, and a module-level name diff cannot see it either, because the name is
+# present both before and after.
+LOGO_TILE = {True: "#161b26", False: "#ffffff"}
+LOGO_INK = {True: "#e8ecf4", False: "#161b26"}
+# WCAG's own figure for a non-text graphic that has to be made out. Below it a
+# mark is a smudge the shape of a logo.
+MIN_CONTRAST = 3.0
 
-    GitHub is very nearly black and Sonos is black outright; on a dark tile
-    they are a hole rather than a logo, and the same is true of a white mark on
-    a light theme. Relative luminance decides it, and the theme's own ink is
-    what they fall back to -- a recognisable shape in the wrong colour beats a
-    correct colour nobody can see.
+
+def _luminance(hex_colour):
+    """Relative luminance, WCAG's definition -- which needs the gamma undone.
+
+    The first version of this weighted the sRGB values as they stand. That is
+    not a luminance and it is wrong in the direction that matters: a dark
+    colour looks brighter than it is, so the marks most at risk of vanishing
+    scored best.
     """
-    r, g, b = (int(hex_colour[i:i + 2], 16) / 255 for i in (1, 3, 5))
-    luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b
-    if dark and luminance < 0.22:
-        return "#e8ecf4"
-    if not dark and luminance > 0.82:
-        return "#161b26"
+    out = []
+    for i in (1, 3, 5):
+        c = int(hex_colour[i:i + 2], 16) / 255
+        out.append(c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4)
+    return 0.2126 * out[0] + 0.7152 * out[1] + 0.0722 * out[2]
+
+
+def _readable(hex_colour, dark):
+    """The brand colour, unless it would disappear against the tile.
+
+    The question is CONTRAST against the tile, not how bright the colour is on
+    its own, and the two part company exactly where this was reported: pure red
+    is vivid and perfectly legible on a dark card, and it is not bright --
+    YouTube's #FF0000 scored 0.213 against a threshold of 0.22 and was replaced
+    by the near-white ink, so a panel in the dark theme drew the YouTube badge
+    as a white rectangle. Measured against the real tile, that red is 4.31:1,
+    which is comfortable. Netflix cleared the old rule by 0.002, which is luck
+    rather than a design.
+
+    The other half had never done anything at all. `luminance > 0.82` catches
+    only a near-white mark and no brand in the collection is one, so on a light
+    theme the rule replaced NOTHING -- while Spotify sat at 1.92:1, Plex at
+    1.97 and Jellyfin at 2.86, all of them washed out on white.
+
+    A recognisable shape in the wrong colour beats a correct colour nobody can
+    see, which is why the fallback is the theme's ink either way.
+    """
+    tile = LOGO_TILE[bool(dark)]
+    lighter = max(_luminance(hex_colour), _luminance(tile))
+    darker = min(_luminance(hex_colour), _luminance(tile))
+    if (lighter + 0.05) / (darker + 0.05) < MIN_CONTRAST:
+        return LOGO_INK[bool(dark)]
     return hex_colour
 
 
