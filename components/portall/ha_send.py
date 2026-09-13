@@ -2952,6 +2952,11 @@ class Injector:
         self._from_corner = False
         self._home = False
         self._went_home = False
+        # How long the gesture that just fired actually took, measured rather
+        # than assumed: "it takes longer than I set" has three possible causes
+        # and only the clock can say which. None for a swipe, which has no
+        # hold to time.
+        self.held_for = None
         # How far sideways out of the corner counts as asking to go home.
         self._swipe = max(40.0, page_w * HOME_SWIPE_FRACTION)
         # --show-touches. Off, this costs nothing at all; on, it is the only
@@ -3100,9 +3105,12 @@ class Injector:
         """
         if self._home:
             self._home = False
+            self.held_for = None
             return True
         if self._corner_at is None or self._went_home:
             return False
+        if now - self._corner_at >= self._hold:
+            self.held_for = now - self._corner_at
         if now - self._corner_at < self._hold:
             return False
         # Spent. The finger is still down and will go on reporting; every one
@@ -3996,7 +4004,17 @@ def main():
         base_interval, base_urgent = interval, urgent_interval
         hint = (None if args.no_touch
                 else HomeHint(page, page_w, page_h, corner_fraction))
+        if injector is not None:
+            print(
+                f"Home: corner {args.home_corner}% "
+                f"({corner_fraction * page_w:.0f}x{corner_fraction * page_h:.0f} "
+                f"of the page), hold {args.home_hold:g}s, "
+                f"settle {'800ms' if open_page.is_home_assistant is False else '3s'}"
+            )
         hint_until = time.monotonic() + HOME_HINT_SECONDS
+        # Set when the corner has just brought the panel home, cleared by the
+        # first picture that goes out afterwards.
+        home_pending = None
         capture = Screencast(page, page_w, page_h, args.capture_quality)
         if args.freeze_animations:
             capture.freeze_animations()
@@ -4272,6 +4290,10 @@ def main():
                                 heat[y // TILE : (y + h) // TILE,
                                      x // TILE : (x + w) // TILE] += 1
 
+                        if home_pending is not None:
+                            print(f"Home: first picture {time.monotonic() - home_pending:.1f}s "
+                                  f"after the page opened")
+                            home_pending = None
                         if rectangles:
                             if pictures:
                                 worst_gap = max(worst_gap, started - last_sent)
@@ -4390,9 +4412,24 @@ def main():
                         else:
                             hint.set(None)
                     if injector is not None and injector.tick(now):
-                        print(f"Home: back to {args.url}")
+                        # Timed in three pieces, because "coming home is slow"
+                        # has three separate causes and they need separate
+                        # answers: the hold is the gesture, the open is the
+                        # navigation plus the settle written for a page that
+                        # paints in stages, and the wait for a picture is the
+                        # panel. A single total tells you none of them.
+                        held = injector.held_for
+                        home_at = time.monotonic()
                         if not open_page(page, args):
                             print("Warning: home would not open")
+                        opened = time.monotonic()
+                        home_pending = opened
+                        print(
+                            f"Home: back to {args.url} -- "
+                            + (f"held {held:.1f}s, " if held is not None
+                               else "swiped, ")
+                            + f"opened in {opened - home_at:.1f}s"
+                        )
                         if keyboard is not None:
                             keyboard.forget()
                             keyboard.request_sync(0.5)
