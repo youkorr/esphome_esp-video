@@ -4113,6 +4113,12 @@ def main():
         # writer says it has gone. Everything up to here is this machine; past
         # here is the wire and the board.
         home_written = None
+        # The gesture's own pieces, kept so the end can report ONE figure: the
+        # time from the finger landing to the picture leaving for the panel.
+        # That is the number somebody with a stopwatch is measuring, and until
+        # now the log only ever offered its parts separately.
+        home_held = None
+        home_at = None
         capture = Screencast(page, page_w, page_h, args.capture_quality)
         if args.freeze_animations:
             capture.freeze_animations()
@@ -4506,10 +4512,19 @@ def main():
                     loops += 1
                     now = time.monotonic()
                     if home_written is not None and writer.wrote_at is not None:
-                        print(f"Home: that picture finished going down the "
-                              f"socket {writer.wrote_at - home_written:.1f}s "
-                              f"after the page opened. Anything later than "
-                              f"this is the board, not this machine")
+                        # One figure, because one figure is what a stopwatch
+                        # gives. Everything in it happened on this machine; if
+                        # the glass takes longer than this, the difference is
+                        # the board and nothing here can shorten it.
+                        rest = writer.wrote_at - home_at
+                        total = (home_held or 0.0) + rest
+                        print(
+                            f"Home: {total:.1f}s from the finger landing to "
+                            f"the picture leaving for the panel"
+                            + (f" (hold {home_held:.1f}s as asked, then "
+                               f"{rest:.1f}s)" if home_held is not None
+                               else f" (swiped, then {rest:.1f}s)")
+                        )
                         home_written = None
                     # A finger held in the corner asks to go back to the page
                     # this panel was pointed at -- its launcher, whatever that
@@ -4537,7 +4552,7 @@ def main():
                         # navigation plus the settle written for a page that
                         # paints in stages, and the wait for a picture is the
                         # panel. A single total tells you none of them.
-                        held = injector.held_for
+                        home_held = injector.held_for
                         home_at = time.monotonic()
                         if not open_page(page, args):
                             print("Warning: home would not open")
@@ -4545,7 +4560,7 @@ def main():
                         home_pending = opened
                         print(
                             f"Home: back to {args.url} -- "
-                            + (f"held {held:.1f}s, " if held is not None
+                            + (f"held {home_held:.1f}s, " if home_held is not None
                                else "swiped, ")
                             + f"opened in {opened - home_at:.1f}s"
                         )

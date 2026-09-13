@@ -1,5 +1,23 @@
 # Changelog
 
+## 3.5.1
+
+- **The return now reports one figure, which is what a stopwatch gives.**
+  The log offered its parts -- hold, opening, picture, socket -- and never
+  their sum, so comparing it with what somebody counts on the glass took
+  arithmetic. It now ends with `Home: 1.4s from the finger landing to the
+  picture leaving for the panel (hold 1.0s as asked, then 0.4s)`.
+
+  Everything in that figure happens on the machine doing the rendering. If
+  the screen takes longer, the difference is the board, and no setting here
+  shortens it.
+
+  Simulated across the gesture at 0.5, 1, 2 and 3 seconds and at loop rates
+  from 110 Hz down to 10 Hz, with and without a finger that shifts while it
+  holds: the trigger lands within 11 ms of what was asked in every case, so
+  `home_hold: 1` and `home_hold: 3` differ by exactly the two seconds
+  between them.
+
 ## 3.5.0
 
 - **A press in the corner no longer reaches the page.** This is what the
