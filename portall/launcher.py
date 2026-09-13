@@ -351,9 +351,9 @@ def logo_img(value):
     entry = logos.PICTURES.get(str(value or "").strip().lower())
     if entry is None:
         return None
-    mime, data = entry
-    return (f'<img class="logo" alt="" aria-hidden="true" '
-            f'src="data:{mime};base64,{data}">')
+    mime, data, badge = entry
+    return (f'<img class="logo{" badge" if badge else ""}" alt="" '
+            f'aria-hidden="true" src="data:{mime};base64,{data}">')
 
 
 def logo_markup(value, dark):
@@ -473,6 +473,18 @@ PAGE = """<!doctype html>
  /* A logo is a shape rather than a character, so it is sized as a fraction of
     the square it sits in rather than by a font size. */
  .icon .logo { width: 58%%; height: 58%%; display: block; }
+ /* A carried picture keeps its aspect ratio inside whatever square it gets;
+    the transparent margin is cropped off before it is embedded, so at 58%% it
+    has the same ink as a path and needs nothing more. Immich was reported as
+    too small purely because that margin was still on it -- 33 px of drawn ink
+    against a glyph's 43. */
+ .icon img.logo { object-fit: contain; }
+ /* A BADGE brings its own rounded ground, so it IS the icon: it takes the
+    whole square rather than sitting inside the tinted one, the way an app
+    icon does everywhere else. At 58%% Reolink's blue square was the right
+    size and the white R inside it only 23 px, which is what "the logo is
+    small" meant -- the square is not the mark, the letter is. */
+ .icon img.logo.badge { width: 100%%; height: 100%%; border-radius: 28%%; }
  /* Blocks, not spans. They are written as spans because an <a> may not
     contain a <div>, and a span left inline puts the description on the same
     line as the name with nothing between them. */
