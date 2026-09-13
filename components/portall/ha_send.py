@@ -3000,6 +3000,9 @@ class Injector:
         self._from_corner = False
         self._home = False
         self._went_home = False
+        # A press landed in the corner, was too short to go home, and was
+        # therefore swallowed. The loop reads it to show the mark again.
+        self.missed_home = False
         # How long the gesture that just fired actually took, measured rather
         # than assumed: "it takes longer than I set" has three possible causes
         # and only the clock can say which. None for a swipe, which has no
@@ -3220,12 +3223,32 @@ class Injector:
             else:
                 self._keyboard.highlight(None)
         elif self._start is not None and not self._scrolling and not self._went_home:
-            if self.verbose:
-                self._say_target(*self._last)
-            self._page.mouse.move(*self._last)
-            self._page.mouse.down()
-            self._page.mouse.up()
-            clicked = True
+            # A gesture that began in the corner never reaches the page, even
+            # when it was too short to go home. Measured on a panel: a 0.13s
+            # attempt was delivered as an ordinary press and landed on Home
+            # Assistant's sidebar button, which opened and repainted the whole
+            # screen -- 410 KiB/s in the window after it. The corner covers
+            # that button, so EVERY failed attempt pressed something.
+            #
+            # Asked here rather than around the whole branch on purpose: only
+            # a press that would otherwise have been a tap is swallowed. A
+            # drag out of the corner is a scroll and is none of this.
+            if self._from_corner:
+                # The mark comes back instead, because a press that does
+                # nothing and says nothing is what makes somebody try again --
+                # and trying again is what the seconds were being spent on.
+                self.missed_home = True
+                if self.verbose:
+                    print(f"[{stamp()}] corner: that press was too short to "
+                          f"go home, and the corner does not pass presses to "
+                          f"the page -- showing the mark instead", flush=True)
+            else:
+                if self.verbose:
+                    self._say_target(*self._last)
+                self._page.mouse.move(*self._last)
+                self._page.mouse.down()
+                self._page.mouse.up()
+                clicked = True
         self._reset()
         return clicked
 
@@ -4442,7 +4465,15 @@ def main():
                             else:
                                 print(f"[{marked}] touch released")
                     if injector is not None and reports:
-                        if injector.handle(reports) and keyboard is not None:
+                        clicked_page = injector.handle(reports)
+                        if injector.missed_home:
+                            # Somebody reached for the corner and let go too
+                            # soon. Showing the mark again is the only answer
+                            # that teaches the gesture rather than leaving a
+                            # press that did nothing and said nothing.
+                            injector.missed_home = False
+                            hint_until = time.monotonic() + HOME_HINT_SECONDS
+                        if clicked_page and keyboard is not None:
                             # Focus only ever moves because something was
                             # tapped, so this is the only moment it is worth
                             # asking about -- and twice, because Home
