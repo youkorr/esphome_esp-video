@@ -47,8 +47,16 @@ def main():
     print()
     print("| service | les noms qui y mènent | service | les noms qui y mènent |")
     print("|---|---|---|---|")
+    # Both kinds of logo, in one table. A brand carried as a PICTURE is a
+    # logo to the person filling in the form -- the difference is only that
+    # simple-icons has no tracing for it -- so leaving it out of this table
+    # meant a name that worked and could not be found, which is the same
+    # fault as a documented name that does not work.
     entries = [(slug, words.split()) for slug, words, _hex, _d
-               in sorted(launcher.logos.LOGO_LIST)]
+               in launcher.logos.LOGO_LIST]
+    entries += [(slug, words.split()) for slug, words, _mime, _data
+                in launcher.logos.PICTURE_LIST]
+    entries.sort()
     half = (len(entries) + 1) // 2
     for row in range(half):
         cells = []
@@ -61,8 +69,9 @@ def main():
                 cells.append(" | ")
         print("| " + " | ".join(cells) + " |")
     print()
-    print(f"{len(launcher.logos.LOGO_LIST)} service logos, drawn from the "
-          f"add-on itself and never fetched.")
+    print(f"{len(launcher.logos.LOGO_LIST)} drawn as shapes and "
+          f"{len(launcher.logos.PICTURE_LIST)} carried as a picture, all of "
+          f"them from the add-on itself and never fetched.")
     return 0
 
 
