@@ -354,12 +354,18 @@ square.
 `truenas`, `docker`, `portainer`, `grafana`, `nextcloud` and forty more. They
 are drawn from the add-on itself as inline shapes, in the brand's own colour,
 and never fetched: Homepage pulls those from an icon repository, and a panel is
-the one screen where nobody can find out why a picture did not load. A logo
-whose colour would disappear against the panel -- GitHub is nearly black, Sonos
-is black -- is drawn in the theme's ink instead.
+the one screen where nobody can find out why a picture did not load. A logo whose
+colour would not stand out against the tile it sits on is drawn in the theme's
+ink instead -- GitHub is nearly black and Sonos is black outright, so on a dark
+card they would be a hole. The test is the **contrast** against that tile, at
+WCAG's 3:1 for a non-text graphic, and not how bright the colour is on its own:
+the two part company exactly at YouTube, whose pure red is vivid on a dark card
+and is not bright.
 
 Prime Video is the exception on that list: it is not in the collection these
-come from, so `prime-video` gives a television.
+come from, so `prime-video` gives a television. Camera makers are the same --
+checked against all 3460 marks the collection carries, there is no Reolink,
+Hikvision, Dahua or Tapo in it, so those names give 📹.
 
 Nothing is downloaded for any of this. Every icon is a character the browser
 already has, and each one was checked against U+FFFF in the browser this add-on
@@ -408,7 +414,7 @@ no drawing at all, and none of these do.
 | 🔒 | `serrure` `verrou` `lock` `locked` `security` | ✈️ | `avion` `plane` `flight` `airport` `vol` |
 | 🔑 | `cle` `key` `keys` | 🚌 | `bus` `autobus` `transport` |
 | 📷 | `camera` `photo` `picture` | ✉️ | `courrier` `mail` `email` `lettre` `inbox` |
-| 📹 | `camescope` `frigate` `cctv` `video-camera` `videosurveillance` | 💬 | `message` `messages` `chat` `discussion` |
+| 📹 | `camescope` `frigate` `cctv` `video-camera` `videosurveillance` `reolink` `hikvision` `dahua` `tapo` `annke` `amcrest` `foscam` | 💬 | `message` `messages` `chat` `discussion` |
 | 🔔 | `sonnette` `notification` `doorbell` `bell` `alert` | 💶 | `argent` `depenses` `money` `budget` `expenses` `cash` |
 | 🚶 | `mouvement` `presence` `motion` `presence-detection` | 🏦 | `banque` `bank` `comptes` `accounts` |
 | 🧯 | `gaz` `extincteur` `gas` `extinguisher` | ⚕️ | `sante` `health` `medical` `medecin` `doctor` |

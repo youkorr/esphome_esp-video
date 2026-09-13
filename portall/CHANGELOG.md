@@ -1,5 +1,35 @@
 # Changelog
 
+## 4.5.0
+
+- **The YouTube logo was a white badge on a dark panel.** Its red is `#FF0000`,
+  whose relative luminance is 0.213 against a threshold of 0.22 -- so the rule
+  meant to rescue near-black marks swapped it for the near-white ink, and the
+  play badge came out white. Netflix cleared the same threshold by 0.002, which
+  was luck rather than a design.
+
+  The measure was wrong: what decides whether a mark can be made out is its
+  **contrast against the tile**, not how bright it is on its own, and those two
+  part company exactly at a saturated red. Against the real dark card, that red
+  is **4.31:1** -- comfortable. The rule is now WCAG's 3:1 for a non-text
+  graphic, computed with the gamma properly undone.
+
+- **And the light-theme half of that rule had never done anything at all.** It
+  fired only above 0.82, which is near-white, and no brand in the collection is
+  near-white -- so on a light theme it replaced **nothing of fifty**, while
+  Spotify sat at 1.92:1, Plex at 1.97 and Jellyfin at 2.86, all washed out.
+  Sixteen marks are legible there now.
+
+  Measured on the rendered page, both themes: YouTube `rgb(255,0,0)` on dark
+  where it was `rgb(232,236,244)`, GitHub still the ink, Spotify and Jellyfin
+  keeping their colours on dark and taking the ink on light.
+
+- **`reolink` gives a camera** rather than nothing, along with `hikvision`,
+  `dahua`, `tapo`, `annke`, `amcrest` and `foscam`. None of them is in
+  simple-icons -- checked against all 3460 marks it carries -- so there is no
+  public-domain tracing to embed, and a name is the honest answer. The same
+  call Prime Video already had.
+
 ## 4.4.0
 
 **`home_taps` is gone.** It was added two releases ago, and counting taps
