@@ -66,6 +66,33 @@ panel with `home_assistant: false` is given none of the links' tokens at all.
 The log says `Every panel needs a host and a url of its own` and names them if
 step 3 was missed.
 
+## Moving from 3.x: the form is grouped now
+
+Thirty settings sat at the root of this form, nineteen of them describing the
+launcher's appearance, and `panels:` -- the one thing that has to be filled in
+-- was the last of them. They are behind five headings now: **panels**,
+**links**, **launcher**, **defaults** and **debug**. Nothing was removed and
+nothing changed its meaning; every setting is where it always was, under the
+heading it belongs to.
+
+**Your configuration does not carry across by itself, and no code inside the
+add-on could make it.** The Supervisor drops a key the schema no longer knows
+*before* `run.py` ever sees it, which is the same wall 3.0.0 hit. So:
+
+1. In the add-on's options, open the three-dot menu and choose **Edit in
+   YAML**. Copy everything.
+2. Run it through the converter, which is in this repository:
+   `python3 tools/convert4.py < old.yaml > new.yaml`. It also names the two
+   settings that are gone rather than dropping them in silence.
+3. Paste the result back into Edit in YAML and save.
+
+If you would rather not run anything, paste the old block wherever you got
+this add-on from and ask -- the conversion is mechanical.
+
+**What is gone:** `home_corner` and `home_hold`. They existed to make a
+three-second hold in a small corner reachable; two taps in that corner need
+neither, and the defaults -- 14% of each axis, one second -- are simply right.
+
 ## Moving from the old add-on
 
 This used to be called **ESP32-P4 Panel**, with the slug `usb_display_panel` --
@@ -120,6 +147,13 @@ The first build downloads a browser, so give it several minutes and about
 See the header of `esp32p4-panel.service` for the six commands.
 
 ## Options
+
+The form has five headings: **panels**, **links**, **launcher**, **defaults**
+and **debug**. A panel's own settings sit under `panels:`, with the three
+calibration values together under `touch:` and everything that has a default
+under `advanced:`. The tables below name each setting; the heading it lives
+under is in the example beside it.
+
 
 Everything except a panel's own name, address, size, calibration and `url` can
 be set once at the top and every panel inherits it; a panel that sets one for
@@ -181,20 +215,30 @@ The add-on builds the home page itself, from a list you fill in. Put `launcher`
 in a panel's `url:` and it starts there:
 
 ```yaml
-launcher_theme: dark          # dark or light
-launcher_background: http://homeassistant:8123/local/wall.jpg
-launcher_background_blur: md  # off, sm, md, xl
-launcher_background_dim: 40   # 0..100
-launcher_background_motion: false   # let a GIF or an MP4 actually move
-launcher_columns: 0           # 0 lets the panel decide
-launcher_clock: true          # the time and the date above the links
-launcher_weather: weather.forecast_home   # empty for none
-launcher_clock_size: medium   # small, medium, large, huge
-launcher_clock_color: theme   # a palette name, or theme for the theme's colour
-launcher_date_size: medium    # the same four
-launcher_date_color: theme    # the same palette names
-launcher_weather_size: medium # the same four
-launcher_align: left          # left, center, right
+launcher:
+  theme: dark                 # dark or light
+  columns: 0                  # 0 lets the panel decide
+  align: left                 # left, center, right
+  clock:
+    show: true                # the time and the date above the links
+    size: medium              # small, medium, large, huge
+    color: theme              # a palette name, or theme for the theme's colour
+  date:
+    size: medium              # the same four
+    color: theme              # the same palette names
+  weather:
+    entity: weather.forecast_home   # empty for none
+    size: medium
+  background:
+    source: http://homeassistant:8123/local/wall.jpg
+    motion: false             # let a GIF or an MP4 actually move
+    blur: md                  # off, sm, md, xl
+    dim: 40                   # 0..100
+  slideshow:
+    enabled: false
+    seconds: 30
+    fade: 1
+    rescan: 60
 links:
   - name: Home Assistant
     url: http://homeassistant:8123/lovelace/0
@@ -419,8 +463,11 @@ no drawing at all, and none of these do.
 Above the links, as on Homepage:
 
 ```yaml
-launcher_clock: true
-launcher_weather: weather.forecast_home
+launcher:
+  clock:
+    show: true
+  weather:
+    entity: weather.forecast_home
 ```
 
 The date sits **under** the time and carries the year.
@@ -450,7 +497,7 @@ moved under the clock.
 
 ### The wallpaper, and the digital photograph frame
 
-`launcher_background` takes any of four things:
+`launcher.background.source` takes any of four things:
 
 | | |
 |---|---|
@@ -459,17 +506,20 @@ moved under the clock.
 | a file | under `/config`, `/share` or `/media`, served by the add-on |
 | **a folder** | under the same three -- a digital photograph frame |
 
-A folder shows its first picture. Turn `launcher_slideshow` on and it cycles:
+A folder shows its first picture. Turn `launcher.slideshow.enabled` on and it cycles:
 
 ```yaml
-launcher_background: /media/photos          # the folder
-launcher_slideshow: true
-launcher_slideshow_seconds: 30              # how long each picture is shown
-launcher_slideshow_fade: 1                  # how long one fades into the next
-launcher_slideshow_rescan: 60               # minutes between re-reading it
+launcher:
+  background:
+    source: /media/photos                   # the folder
+  slideshow:
+    enabled: true
+    seconds: 30                             # how long each picture is shown
+    fade: 1                                 # how long one fades into the next
+    rescan: 60                              # minutes between re-reading it
 ```
 
-`launcher_slideshow_rescan` is what makes a photograph dropped into the folder
+`launcher.slideshow.rescan` is what makes a photograph dropped into the folder
 appear without restarting the add-on. Only pictures are used -- `.jpg`,
 `.jpeg`, `.png`, `.webp`, `.gif`, `.avif`, `.bmp` -- so a stray text file in
 the folder is ignored rather than drawn as a broken square.
@@ -478,9 +528,9 @@ the folder is ignored rather than drawn as a broken square.
 
 There is nothing to install for this: **Home Assistant's own Media panel
 uploads them.** Media > My media > **Upload**, choose the files, and they land
-in `/media`, which this add-on already reads. Point `launcher_background` at
+in `/media`, which this add-on already reads. Point `launcher.background.source` at
 that folder and they are the frame's pictures. Drop more in later and
-`launcher_slideshow_rescan` picks them up on its own.
+`launcher.slideshow.rescan` picks them up on its own.
 
 #### Photographs that are already on a server
 
@@ -488,10 +538,14 @@ A NAS, an Immich, anything serving a folder over HTTP -- give the addresses
 instead of a folder:
 
 ```yaml
-launcher_slideshow_urls:
-  - http://192.168.1.3:8080/eTBckVxL/1326045.jpeg
-  - http://192.168.1.3:8080/eTBckVxL/1326046.jpeg
-launcher_slideshow: true
+launcher:
+  slideshow:
+    urls:
+      - http://192.168.1.3:8080/eTBckVxL/1326045.jpeg
+      - http://192.168.1.3:8080/eTBckVxL/1326046.jpeg
+    launcher:
+  slideshow:
+    enabled: true
 ```
 
 The panel's own browser fetches them, exactly as it fetches any wallpaper
@@ -505,18 +559,18 @@ A panel sends only what changed, so a still page sends nothing at all. A
 picture that changes is a **whole panel** on the wire: about 130 KiB at
 800x1280 and quality 80. So
 
-- `launcher_slideshow_fade: 0` is a hard cut and costs **one** whole panel;
+- `launcher.slideshow.fade: 0` is a hard cut and costs **one** whole panel;
 - a **1 second** fade costs about `fps` of them -- twenty-five at the default;
 - a **2 second** fade costs about fifty, which is six megabytes a picture.
 
-`launcher_slideshow_seconds` is what averages that down. Thirty seconds with a
+`launcher.slideshow.seconds` is what averages that down. Thirty seconds with a
 one-second fade is roughly 110 KiB/s; the same fade every five seconds is six
 times that. If a panel starts stuttering while the pictures change, the fade
 is the setting to lower, not the delay.
 
 ### A GIF or a video as the wallpaper
 
-`launcher_background_motion` decides whether it is allowed to move, and it is
+`launcher.background.motion` decides whether it is allowed to move, and it is
 **off** by default. Off, an MP4 shows its first frame and a GIF is frozen on
 its own first frame -- the picture is there, and it costs the panel nothing.
 
@@ -551,8 +605,8 @@ so it can. The log says when it does, and says so once if it could not -- in
 which case the GIF simply keeps moving. A video needs none of this: pausing
 one asks the browser for nothing.
 
-The slideshow list is pictures. A `.mp4` in `launcher_slideshow_urls` is not
-loaded -- put it in `launcher_background` on its own.
+The slideshow list is pictures. A `.mp4` in `launcher.slideshow.urls` is not
+loaded -- put it in `launcher.background.source` on its own.
 
 ### Changing how it looks
 
@@ -560,12 +614,16 @@ Each part of the bar has its own setting, and every one of them is a list you
 pick from:
 
 ```yaml
-launcher_clock_size: huge      # small, medium, large, huge
-launcher_clock_color: sky      # a palette name, or theme
-launcher_date_size: large      # the same four
-launcher_date_color: slate     # the same palette names
-launcher_weather_size: small   # the same four
-launcher_align: center         # left, center, right
+launcher:
+  align: center                # left, center, right
+  clock:
+    size: huge                 # small, medium, large, huge
+    color: sky                 # a palette name, or theme
+  date:
+    size: large                # the same four
+    color: slate               # the same palette names
+  weather:
+    size: small                # the same four
 ```
 
 This is Homepage's shape rather than its words: a fixed list for each thing

@@ -1,5 +1,5 @@
 name: Portall
-version: "3.8.0"
+version: "4.0.0"
 # Home Assistant identifies an add-on by its slug, so this one moving from
 # usb_display_panel to portall makes the Supervisor see a NEW add-on: options
 # are not carried over and /data starts empty, which means the browser
@@ -30,145 +30,36 @@ map:
 boot: auto
 init: false
 options:
-  # Set once here and every panel inherits it. A panel may still override any
-  # of these for itself.
-  #
-  # Home Assistant's own address and token are NOT here any more: they are a
-  # link, under links: below, with a token: of its own. That is where they
-  # belong -- a token belongs to an address, and this list already had one per
-  # link. See "Moving from 2.x" in the documentation.
-  port: 5000
-  # The upper bound on how often a change is acted on, and the one setting that
-  # decides whether video looks like video.
-  #
-  # It was 10, on the reasoning that a touch lifts it to thirty for two seconds
-  # anyway. That is true and it is beside the point for anything you WATCH:
-  # nobody touches the panel while a film plays, so the window closes and the
-  # picture falls back to this number. Measured on a page moving continuously
-  # with no finger on it: 9.5 pictures a second at 10, 17.8 at 20, 25.3 at 30.
-  #
-  # A still dashboard costs nothing whatever this is set to -- what is not
-  # changing is not sent. It only bites when something moves, so the cost is
-  # a camera tile or a video, which is exactly where the smoothness is wanted.
-  # Lower it to 10 or 4 if the machine running this has other work to do, or if
-  # a panel of yours only ever shows a dashboard.
-  fps: 25
-  quality: 80
-  # The on-screen keyboard, drawn by the browser whenever a text field takes
-  # focus -- the dashboard's search, Assist, the search box of an ordinary
-  # site. A panel has no keys, so without it those are dead ends. It takes no
-  # room when nothing is waiting for text. Set it to the layout you want the
-  # letters in, or off to leave it out.
-  keyboard: qwerty
-  # Keep the browser's profile between restarts, one directory per panel under
-  # the add-on's own storage. Without it every restart is a first visit: a site
-  # signed into is signed out again, and a consent banner comes back. With it,
-  # sign in once from the panel's keyboard and it stays signed in.
-  keep_profile: true
-  # The language the pages are asked for, as a BCP 47 tag -- fr-FR, de-DE,
-  # en-GB. It is not cosmetic: left to itself the browser sends no
-  # Accept-Language header AT ALL, so every site serves its own default
-  # language whatever the household speaks, and it reports a language tag no
-  # real browser produces.
-  locale: en-US
-  # The page a panel comes home to, built by this add-on from the list below.
-  # Put "launcher" in a panel's url and it starts here; hold the top-left
-  # corner for a second from anywhere and it comes back here.
-  #
-  # icon is a name from the list in the documentation, or one character you
-  # type yourself. Nothing is fetched from the internet, so an icon pack that
-  # failed to load could never leave holes where the labels should be.
-  #
-  # quality is optional and per link, which is the point of having it here: a
-  # film wants far fewer bytes than a dashboard and does not show the
-  # difference. Measured on full motion at 800x1280, quality 60 costs
-  # 1123 KiB/s and quality 40 costs 930. It applies while that page is open
-  # and goes back to the panel's own quality everywhere else.
-  # dark or light.
-  launcher_theme: dark
-  # A wallpaper is any of four things:
-  #   nothing         -- the plain colour
-  #   an address      -- Home Assistant serves /config/www at /local, so
-  #                      http://homeassistant:8123/local/wall.jpg is the easy
-  #                      one
-  #   a file          -- under /config, /share or /media, served from here
-  #   a FOLDER        -- under the same three: a digital photograph frame.
-  #                      The first picture is shown; turn launcher_slideshow
-  #                      on to cycle through them.
-  # Anything else leaves the plain colour, and the log says which it was.
-  launcher_background: ""
-  # Let a GIF or an MP4 wallpaper actually move.
-  #
-  # Off by default, and not out of caution: a picture that changes is a WHOLE
-  # PANEL on the wire, so a video wallpaper is the panel's entire bandwidth
-  # for as long as it is awake -- against a still page, which sends nothing at
-  # all. Off, a video shows its first frame and a GIF is frozen on its own, so
-  # the picture is still there and costs nothing.
-  launcher_background_motion: false
-  # off, sm, md or xl. A blurred photograph is a background; a sharp one
-  # competes with the links in front of it.
-  launcher_background_blur: md
-  # How far to darken it, 0 to 100. Nearly every photograph is too bright to
-  # read white text over, and this is what makes one usable.
-  launcher_background_dim: 40
-  # How many links across. 0 lets the panel decide, which is what a launcher
-  # shown on three shapes of screen wants.
-  launcher_columns: 0
-  # The time and the date, above the links. Formatted by the browser, so they
-  # follow `locale:` -- a French panel writes "lundi 2 septembre" without this
-  # add-on knowing any French.
-  #
-  # Deliberately without seconds: a digit that changes every second is a
-  # rectangle sent to the panel every second for as long as it is awake. On
-  # the minute it is one small rectangle a minute, and a sleeping panel sends
-  # nothing at all.
-  launcher_clock: true
-  # A Home Assistant weather entity -- weather.forecast_home, weather.chez_moi
-  # -- shown beside the clock. Empty for none.
-  #
-  # The reading is fetched by THIS ADD-ON, which already has the token and the
-  # address, and served to the page from 127.0.0.1. The page itself never
-  # reaches Home Assistant and never carries the token.
-  launcher_weather: ""
-  # The bar above the links: how big each part of it is, what colour the clock
-  # and the date are, and where the whole bar sits.
-  #
-  # The sizes are small, medium, large or huge -- named rather than a number of
-  # pixels because "large" is a decision and "72px" is an experiment, and each
-  # is still a range so it adapts between a 1024x600 panel and a 800x1280 one.
-  launcher_clock_size: medium
-  # A Tailwind palette name, the same list as launcher_color. "theme" leaves
-  # it the text colour of whichever theme is on.
-  launcher_clock_color: theme
-  launcher_date_size: medium
-  launcher_date_color: theme
-  # The weather has no colour of its own: it is an emoji, which a browser
-  # draws in its own colours whatever this said.
-  launcher_weather_size: medium
-  # Where the bar sits: left, center or right.
-  launcher_align: left
-  # The digital photograph frame: cycle through the pictures. Off shows the
-  # first one and nothing more.
-  launcher_slideshow: false
-  # Where those pictures are, when they are NOT on this machine: one address
-  # per entry, http:// or https://. A photo server, a NAS, anything serving a
-  # folder over HTTP -- the panel's own browser fetches them, so whatever
-  # serves them has to be reachable from here.
-  #
-  # Leave it empty to use the FOLDER given as launcher_background instead,
-  # which is the route for pictures you upload: Home Assistant's Media panel
-  # (Media > My media > Upload) writes into /media, and this add-on reads it.
-  launcher_slideshow_urls: []
-  # How long each picture is shown, in seconds.
-  launcher_slideshow_seconds: 30
-  # How long one picture takes to fade into the next, in seconds. THIS is the
-  # expensive setting, not the slideshow: a fade is one whole panel per frame
-  # for as long as it lasts, so at 25 fps two seconds is about fifty of them.
-  # 0 is a hard cut and costs exactly one.
-  launcher_slideshow_fade: 1
-  # How often the folder is looked at again, in minutes, so a photograph
-  # dropped in appears without restarting the add-on.
-  launcher_slideshow_rescan: 60
+  # The panels first, because they are the one thing that must be filled in
+  # for anything at all to appear. Everything under them has a working
+  # default.
+  panels:
+    - name: salon
+      host: ip_esp32P4
+      # launcher for the page of links this add-on builds, or an address of
+      # this panel's own.
+      url: launcher
+      width: 1024
+      height: 600
+      rotate: "180"
+      # All three come out of one command -- ha_send.py --calibrate -- so
+      # they belong together rather than scattered among the rest.
+      touch:
+        rotate: "180"
+        mirror_x: false
+        mirror_y: false
+      # Exceptions. Everything here has a default, or is inherited from
+      # defaults: below, and most panels never open this at all.
+      advanced:
+        # false for a panel showing something that is not Home Assistant --
+        # a train board, a weather site, a page you built yourself. Without
+        # it such a panel inherits the tokens the links carry and is treated
+        # as a dashboard.
+        home_assistant: true
+        # Two quick taps in the top-left corner bring the panel back to its
+        # own url. 1 makes a single tap do it, 0 leaves only the hold and
+        # the sideways swipe.
+        home_taps: 2
   links:
     - name: Home Assistant
       # From inside an add-on this is the name Home Assistant answers to. Use
@@ -178,125 +69,246 @@ options:
       url: http://homeassistant:8123/lovelace/0
       icon: home-assistant
       token: ""
-  # The three diagnostics, grouped -- and still present one by one just above
-  # or below, because this release is only asking whether the Supervisor folds
-  # a plain dictionary the way it already folds links: and panels:. Tick
-  # either and the diagnostic turns on: neither side can win outright
-  # while both exist, since an add-on's options always carry every key
-  # with its default.
+  # The page of links this add-on builds, for a panel whose url is
+  # "launcher". Appearance only -- what the tiles open is links: above.
+  launcher:
+    # The page a panel comes home to, built by this add-on from the list below.
+    # Put "launcher" in a panel's url and it starts here; hold the top-left
+    # corner for a second from anywhere and it comes back here.
+    #
+    # icon is a name from the list in the documentation, or one character you
+    # type yourself. Nothing is fetched from the internet, so an icon pack that
+    # failed to load could never leave holes where the labels should be.
+    #
+    # quality is optional and per link, which is the point of having it here: a
+    # film wants far fewer bytes than a dashboard and does not show the
+    # difference. Measured on full motion at 800x1280, quality 60 costs
+    # 1123 KiB/s and quality 40 costs 930. It applies while that page is open
+    # and goes back to the panel's own quality everywhere else.
+    # dark or light.
+    theme: dark
+    # How many links across. 0 lets the panel decide, which is what a launcher
+    # shown on three shapes of screen wants.
+    columns: 0
+    # Where the bar sits: left, center or right.
+    align: left
+    clock:
+      # The time and the date, above the links. Formatted by the browser, so they
+      # follow `locale:` -- a French panel writes "lundi 2 septembre" without this
+      # add-on knowing any French.
+      #
+      # Deliberately without seconds: a digit that changes every second is a
+      # rectangle sent to the panel every second for as long as it is awake. On
+      # the minute it is one small rectangle a minute, and a sleeping panel sends
+      # nothing at all.
+      show: true
+      # The bar above the links: how big each part of it is, what colour the clock
+      # and the date are, and where the whole bar sits.
+      #
+      # The sizes are small, medium, large or huge -- named rather than a number of
+      # pixels because "large" is a decision and "72px" is an experiment, and each
+      # is still a range so it adapts between a 1024x600 panel and a 800x1280 one.
+      size: medium
+      # A Tailwind palette name, the same list as launcher_color. "theme" leaves
+      # it the text colour of whichever theme is on.
+      color: theme
+    date:
+      size: medium
+      color: theme
+    weather:
+      # A Home Assistant weather entity -- weather.forecast_home, weather.chez_moi
+      # -- shown beside the clock. Empty for none.
+      #
+      # The reading is fetched by THIS ADD-ON, which already has the token and the
+      # address, and served to the page from 127.0.0.1. The page itself never
+      # reaches Home Assistant and never carries the token.
+      entity: ""
+      # The weather has no colour of its own: it is an emoji, which a browser
+      # draws in its own colours whatever this said.
+      size: medium
+    background:
+      # A wallpaper is any of four things:
+      #   nothing         -- the plain colour
+      #   an address      -- Home Assistant serves /config/www at /local, so
+      #                      http://homeassistant:8123/local/wall.jpg is the easy
+      #                      one
+      #   a file          -- under /config, /share or /media, served from here
+      #   a FOLDER        -- under the same three: a digital photograph frame.
+      #                      The first picture is shown; turn launcher_slideshow
+      #                      on to cycle through them.
+      # Anything else leaves the plain colour, and the log says which it was.
+      source: ""
+      # Let a GIF or an MP4 wallpaper actually move.
+      #
+      # Off by default, and not out of caution: a picture that changes is a WHOLE
+      # PANEL on the wire, so a video wallpaper is the panel's entire bandwidth
+      # for as long as it is awake -- against a still page, which sends nothing at
+      # all. Off, a video shows its first frame and a GIF is frozen on its own, so
+      # the picture is still there and costs nothing.
+      motion: false
+      # off, sm, md or xl. A blurred photograph is a background; a sharp one
+      # competes with the links in front of it.
+      blur: md
+      # How far to darken it, 0 to 100. Nearly every photograph is too bright to
+      # read white text over, and this is what makes one usable.
+      dim: 40
+    # enabled rather than on: in YAML 1.1 an `on` key reads as the
+    # boolean true, which would make the key itself disappear.
+    slideshow:
+      # The digital photograph frame: cycle through the pictures. Off shows the
+      # first one and nothing more.
+      enabled: false
+      # Where those pictures are, when they are NOT on this machine: one address
+      # per entry, http:// or https://. A photo server, a NAS, anything serving a
+      # folder over HTTP -- the panel's own browser fetches them, so whatever
+      # serves them has to be reachable from here.
+      #
+      # Leave it empty to use the FOLDER given as launcher_background instead,
+      # which is the route for pictures you upload: Home Assistant's Media panel
+      # (Media > My media > Upload) writes into /media, and this add-on reads it.
+      urls: []
+      # How long each picture is shown, in seconds.
+      seconds: 30
+      # How long one picture takes to fade into the next, in seconds. THIS is the
+      # expensive setting, not the slideshow: a fade is one whole panel per frame
+      # for as long as it lasts, so at 25 fps two seconds is about fifty of them.
+      # 0 is a hard cut and costs exactly one.
+      fade: 1
+      # How often the folder is looked at again, in minutes, so a photograph
+      # dropped in appears without restarting the add-on.
+      rescan: 60
+  # What every panel inherits unless its own advanced: says otherwise.
+  defaults:
+    # Set once here and every panel inherits it. A panel may still override any
+    # of these for itself.
+    #
+    # Home Assistant's own address and token are NOT here any more: they are a
+    # link, under links: below, with a token: of its own. That is where they
+    # belong -- a token belongs to an address, and this list already had one per
+    # link. See "Moving from 2.x" in the documentation.
+    port: 5000
+    # The upper bound on how often a change is acted on, and the one setting that
+    # decides whether video looks like video.
+    #
+    # It was 10, on the reasoning that a touch lifts it to thirty for two seconds
+    # anyway. That is true and it is beside the point for anything you WATCH:
+    # nobody touches the panel while a film plays, so the window closes and the
+    # picture falls back to this number. Measured on a page moving continuously
+    # with no finger on it: 9.5 pictures a second at 10, 17.8 at 20, 25.3 at 30.
+    #
+    # A still dashboard costs nothing whatever this is set to -- what is not
+    # changing is not sent. It only bites when something moves, so the cost is
+    # a camera tile or a video, which is exactly where the smoothness is wanted.
+    # Lower it to 10 or 4 if the machine running this has other work to do, or if
+    # a panel of yours only ever shows a dashboard.
+    fps: 25
+    quality: 80
+    # The on-screen keyboard, drawn by the browser whenever a text field takes
+    # focus -- the dashboard's search, Assist, the search box of an ordinary
+    # site. A panel has no keys, so without it those are dead ends. It takes no
+    # room when nothing is waiting for text. Set it to the layout you want the
+    # letters in, or off to leave it out.
+    keyboard: qwerty
+    # Keep the browser's profile between restarts, one directory per panel under
+    # the add-on's own storage. Without it every restart is a first visit: a site
+    # signed into is signed out again, and a consent banner comes back. With it,
+    # sign in once from the panel's keyboard and it stays signed in.
+    keep_profile: true
+    # The language the pages are asked for, as a BCP 47 tag -- fr-FR, de-DE,
+    # en-GB. It is not cosmetic: left to itself the browser sends no
+    # Accept-Language header AT ALL, so every site serves its own default
+    # language whatever the household speaks, and it reports a language tag no
+    # real browser produces.
+    locale: en-US
+  # All off. Turn one on only while something is already wrong: each
+  # writes to the add-on's log and nothing else.
   debug:
-    stats: false
+    stats: true
+    # A diagnostic, off by default: while a video plays it prints the playhead
+    # and how many seconds are buffered IN FRONT of it, every two seconds. The
+    # ordinary media lines only appear when something has already gone wrong,
+    # which is exactly the wrong moment -- "the video stopped" is always a
+    # question about the seconds BEFORE it stopped, when the log is silent.
+    # Turn it on, reproduce the stall once, and the log says which of the three
+    # it was: a buffer that never filled (the fetch), a playhead that stopped
+    # while the buffer stayed full (the site), or frames the browser itself
+    # threw away (the machine).
     show_media: false
+    # Every contact, and what the corner gesture made of it. For diagnosing a
+    # panel that does not react the way you expect it to -- noisy, so off.
     show_touches: false
-  stats: true
-  # A diagnostic, off by default: while a video plays it prints the playhead
-  # and how many seconds are buffered IN FRONT of it, every two seconds. The
-  # ordinary media lines only appear when something has already gone wrong,
-  # which is exactly the wrong moment -- "the video stopped" is always a
-  # question about the seconds BEFORE it stopped, when the log is silent.
-  # Turn it on, reproduce the stall once, and the log says which of the three
-  # it was: a buffer that never filled (the fetch), a playhead that stopped
-  # while the buffer stayed full (the site), or frames the browser itself
-  # threw away (the machine).
-  show_media: false
-  # Every contact, and what the corner gesture made of it. For diagnosing a
-  # panel that does not react the way you expect it to -- noisy, so off.
-  show_touches: false
-  panels:
-    - name: salon
-      host: ip_esp32P4
-      width: 1024
-      height: 600
-      rotate: "180"
-      touch_rotate: "180"
-      # false for a panel showing something that is not Home Assistant -- a
-      # train board, a weather site, a page you built yourself. The token is
-      # shared across panels, so without this such a panel would inherit the
-      # house's token and be treated as a dashboard. Nothing else changes:
-      # the page is rendered, cut into rectangles and sent the same way, and
-      # touches are replayed into it the same way.
-      home_assistant: true
-      touch_mirror_x: false
-      touch_mirror_y: false
-      # How big the corner that brings the panel back here is, as a percentage
-      # of each axis, and how long a finger must be held in it. Short of the
-      # hold the tap reaches the page as usual, so the corner stays usable.
-      # Two quick taps in the top-left corner bring the panel back here. 1
-      # makes a single tap do it, 0 leaves only the hold and the sideways
-      # swipe. The corner's size and the hold's length are no longer settings:
-      # they existed to make a three-second hold reachable, and two taps need
-      # neither.
-      home_taps: 2
 schema:
-  port: port?
-  fps: float?
-  quality: int(1,95)?
-  keyboard: list(off|qwerty|azerty)?
-  keep_profile: bool?
-  locale: str?
-  launcher_theme: list(dark|light)?
-  launcher_background: str?
-  launcher_background_blur: list(off|sm|md|xl)?
-  launcher_background_dim: int(0,100)?
-  launcher_columns: int(0,6)?
-  launcher_clock: bool?
-  launcher_weather: str?
-  launcher_clock_size: list(small|medium|large|huge)?
-  launcher_clock_color: list(theme|slate|gray|zinc|neutral|stone|red|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose|white|black)?
-  launcher_date_size: list(small|medium|large|huge)?
-  launcher_date_color: list(theme|slate|gray|zinc|neutral|stone|red|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose|white|black)?
-  launcher_weather_size: list(small|medium|large|huge)?
-  launcher_align: list(left|center|right)?
-  launcher_background_motion: bool?
-  launcher_slideshow: bool?
-  launcher_slideshow_urls:
-    - str?
-  launcher_slideshow_seconds: int(5,3600)?
-  launcher_slideshow_fade: int(0,10)?
-  launcher_slideshow_rescan: int(1,1440)?
+  panels:
+    - name: str
+      host: str
+      url: str
+      width: int(16,4096)
+      height: int(16,4096)
+      rotate: list(0|90|180|270)
+      touch:
+        rotate: list(0|90|180|270)
+        mirror_x: bool?
+        mirror_y: bool?
+      advanced:
+        port: port?
+        token: password?
+        home_assistant: bool?
+        home_taps: int(0,4)?
+        fps: float?
+        quality: int(1,95)?
+        keyboard: list(off|qwerty|azerty)?
+        blank_after: float?
+        keep_profile: bool?
+        locale: str?
+        user_agent: str?
+        import_profile: str?
+        stats: bool?
+        show_media: bool?
+        show_touches: bool?
   links:
     - name: str
       url: str
       icon: str?
       group: str?
       description: str?
-      # Only the Home Assistant link needs one, and it is what gets a browser
-      # with no keyboard past the login screen. It is written into the storage
-      # of THIS address and of nowhere else, so no other link a panel opens
-      # ever sees it.
       token: password?
       quality: int(1,95)?
       fps: float?
       user_agent: str?
+  launcher:
+    theme: list(dark|light)?
+    columns: int(0,6)?
+    align: list(left|center|right)?
+    clock:
+      show: bool?
+      size: list(small|medium|large|huge)?
+      color: list(theme|slate|gray|zinc|neutral|stone|red|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose|white|black)?
+    date:
+      size: list(small|medium|large|huge)?
+      color: list(theme|slate|gray|zinc|neutral|stone|red|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose|white|black)?
+    weather:
+      entity: str?
+      size: list(small|medium|large|huge)?
+    background:
+      source: str?
+      motion: bool?
+      blur: list(off|sm|md|xl)?
+      dim: int(0,100)?
+    slideshow:
+      enabled: bool?
+      urls:
+        - str?
+      seconds: int(5,3600)?
+      fade: int(0,10)?
+      rescan: int(1,1440)?
+  defaults:
+    port: port?
+    fps: float?
+    quality: int(1,95)?
+    keyboard: list(off|qwerty|azerty)?
+    keep_profile: bool?
+    locale: str?
   debug:
     stats: bool?
     show_media: bool?
     show_touches: bool?
-  stats: bool?
-  show_media: bool?
-  show_touches: bool?
-  panels:
-    - name: str
-      host: str
-      port: port?
-      url: str?
-      token: password?
-      width: int(16,4096)
-      height: int(16,4096)
-      rotate: list(0|90|180|270)
-      touch_rotate: list(0|90|180|270)
-      home_assistant: bool?
-      touch_mirror_x: bool?
-      touch_mirror_y: bool?
-      fps: float?
-      quality: int(1,95)?
-      keyboard: list(off|qwerty|azerty)?
-      home_taps: int(0,4)?
-      blank_after: float?
-      keep_profile: bool?
-      locale: str?
-      user_agent: str?
-      import_profile: str?
-      stats: bool?
-      show_media: bool?
-      show_touches: bool?
