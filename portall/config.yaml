@@ -1,5 +1,5 @@
 name: Portall
-version: "4.3.0"
+version: "4.4.0"
 # Home Assistant identifies an add-on by its slug, so this one moving from
 # usb_display_panel to portall makes the Supervisor see a NEW add-on: options
 # are not carried over and /data starts empty, which means the browser
@@ -61,18 +61,6 @@ options:
         # it such a panel inherits the tokens the links carry and is treated
         # as a dashboard.
         home_assistant: true
-        # Quick taps in the top-left corner to bring the panel back to its own
-        # url. 0 by default: the way home is then holding that corner for a
-        # second, or swiping sideways out of it, and a tap there reaches the
-        # page normally.
-        #
-        # 2 is quicker to do and it costs the corner. The first of two taps
-        # cannot be acted on until the window for the second has passed, so a
-        # tap there arrives 450 ms late -- and a page may have its own control
-        # under that corner. Jellyfin's player puts its Back arrow exactly
-        # there. 1 makes a single tap go home and nothing under the corner can
-        # be reached at all.
-        home_taps: 0
   links:
     - name: Home Assistant
       # From inside an add-on this is the name Home Assistant answers to. Use
@@ -276,7 +264,6 @@ schema:
         port: port?
         token: password?
         home_assistant: bool?
-        home_taps: int(0,4)?
         fps: float?
         quality: int(1,95)?
         keyboard: list(off|qwerty|azerty)?

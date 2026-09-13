@@ -51,10 +51,18 @@ FLAT_TO_GROUP = {
 PANEL_PLAIN = ("name", "host", "url", "width", "height", "rotate")
 PANEL_TOUCH = {"touch_rotate": "rotate", "touch_mirror_x": "mirror_x",
                "touch_mirror_y": "mirror_y"}
-# Gone in 4.0.0: the corner's size and the hold's length stopped being settings
-# when two taps replaced a three-second hold. Named rather than dropped in
-# silence, because a setting that disappears without a word reads as a bug.
-RETIRED = ("home_corner", "home_hold")
+# Settings that no longer exist, each with the reason in its own words --
+# named rather than dropped in silence, because a setting that disappears
+# without one reads as a bug.
+RETIRED = {
+    "home_corner": "the corner is 14% of each axis and is no longer a setting",
+    "home_hold": "the hold is one second and is no longer a setting",
+    "home_taps": ("counting taps cost the corner -- the first of two cannot be "
+                  "acted on until the window for the second has passed, so a "
+                  "tap there was either late or swallowed, and a page may have "
+                  "its own control under it. The way home is the hold and the "
+                  "sideways swipe"),
+}
 
 
 def put(into, path, value):
@@ -76,9 +84,7 @@ def convert(old):
                 if on:
                     put(new, ("debug", name), True)
         elif key in RETIRED:
-            said.append(f"{key} is gone in 4.0.0 -- the corner is 14% of each "
-                        f"axis and the hold is one second, and two taps in it "
-                        f"need neither")
+            said.append(f"{key} no longer exists -- {RETIRED[key]}")
         elif key in FLAT_TO_GROUP:
             put(new, FLAT_TO_GROUP[key], value)
         else:
@@ -102,11 +108,9 @@ def panel(old, said):
             # really fires and the one in convert() never does. Dropping them
             # here without a word is exactly what RETIRED exists to prevent: a
             # setting that vanishes silently reads as the converter losing it.
-            said.append(f"{key} is gone in 4.0.0, so it has been dropped from "
+            said.append(f"{key} no longer exists, so it has been dropped from "
                         f"the panel {old.get('name', 'without a name')!r} -- "
-                        f"the corner is 14% of each axis and the hold one "
-                        f"second, and the two taps that replaced them need "
-                        f"neither")
+                        f"{RETIRED[key]}")
         else:
             advanced[key] = value
     if touch:
