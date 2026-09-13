@@ -247,6 +247,13 @@ HOME_TAPS = 2
 # tap; short enough that two deliberate presses a second apart are two separate
 # presses, long enough for a thumb crossing a ten-inch panel.
 HOME_TAP_WINDOW_S = 0.45
+# Longer than this in the corner was not a tap, so it is not held back to be
+# delivered late: it was somebody attempting the HOLD and letting go early, and
+# that is the one press that must never reach the page -- the corner covers
+# Home Assistant's sidebar button, so every failed attempt used to open it.
+# A tap shorter than this is a tap, and a page may well have something of its
+# own under that corner: Jellyfin's player puts its Back arrow exactly there.
+HOME_TAP_MAX_S = 0.35
 # Or swipe sideways from that same corner, which is the gesture somebody
 # actually suggested after living with the hold -- and it is the better one to
 # find by accident, because a finger that lands and drags is what a person does
@@ -3046,6 +3053,16 @@ class Injector:
         # The gesture began on the keyboard, and which key it is still on.
         self._on_keyboard = False
         self._key = None
+        # When the finger landed, so a tap can be told from an abandoned hold.
+        self._down_at = 0.0
+        # A single corner tap waiting to see whether a second one follows:
+        # (x, y, when it may be delivered). This is what a double tap costs
+        # everywhere it exists -- the first of the two cannot be acted on until
+        # the window has passed, or it could not be the first of two.
+        self._pending = None
+        # Set when a deferred tap was delivered, so the loop looks at focus the
+        # same way it does for an ordinary one.
+        self.tapped_page = False
 
     def handle(self, reports):
         """Replay the contacts. True if any of them reached the page."""
@@ -3088,7 +3105,17 @@ class Injector:
                     print(f"[{stamp()}] contact at "
                           f"({point[0]:.0f},{point[1]:.0f}) on the panel -> "
                           f"({x:.0f},{y:.0f}) on the page", flush=True)
+                # A tap still waiting on the double-tap window, and the finger
+                # is down again: if this second press is in the corner it may
+                # complete the gesture, so the first must not be delivered yet.
+                # Anywhere else it cannot, and the waiting tap goes now rather
+                # than after the press that followed it -- out of order is
+                # worse than late.
+                in_corner_now = x <= self._corner[0] and y <= self._corner[1]
+                if self._pending is not None and not in_corner_now:
+                    self._deliver_pending()
                 self._start = self._last = (x, y)
+                self._down_at = time.monotonic()
                 self._scrolling = False
                 self.began = True
                 # Two questions, and they need two pieces of state. The hold
@@ -3096,8 +3123,8 @@ class Injector:
                 # is cleared the moment it leaves. The swipe asks where the
                 # finger CAME FROM, and a swipe leaves the corner immediately
                 # by definition -- so it cannot be asked of the same flag.
-                in_corner = x <= self._corner[0] and y <= self._corner[1]
-                self._corner_at = time.monotonic() if in_corner else None
+                in_corner = in_corner_now
+                self._corner_at = self._down_at if in_corner else None
                 self._from_corner = in_corner
                 if not in_corner:
                     # Two taps in the corner with a press somewhere else in
@@ -3138,6 +3165,7 @@ class Injector:
                         self._went_home = True
                         self._scrolling = False
                         self._wheel = [0, 0]
+                        self._pending = None
                         self._last = (x, y)
                         continue
                     self._from_corner = False
@@ -3203,6 +3231,12 @@ class Injector:
         before it, which is what stops a resting finger from saying the same
         thing fifty times a second.
         """
+        # A tap whose window has run out, and no finger down to complete it.
+        # Asked here because this is the only thing the loop calls every turn:
+        # a tap held back needs a clock, and the contacts have stopped coming.
+        if (self._pending is not None and self._start is None
+                and now >= self._pending[2]):
+            self._deliver_pending()
         if self._home:
             self._home = False
             self.held_for = None
@@ -3229,6 +3263,9 @@ class Injector:
         self._went_home = True
         self._scrolling = False
         self._wheel = [0, 0]
+        # The panel is leaving. A tap still waiting from an earlier attempt
+        # would land on whatever the new page happens to put there.
+        self._pending = None
         return True
 
     def _flush_wheel(self, force=False):
@@ -3242,6 +3279,26 @@ class Injector:
         dx, dy = self._wheel
         self._wheel = [0, 0]
         self._page.mouse.wheel(dx, dy)
+
+    def _deliver_pending(self):
+        """Send the corner tap that was waiting, if there is one.
+
+        The same three calls _finish() makes for an ordinary tap, because from
+        the page's side there is no difference: it is one press, late.
+        """
+        if self._pending is None:
+            return False
+        x, y, _ = self._pending
+        self._pending = None
+        if self.verbose:
+            print(f"[{stamp()}] corner: no second tap -- the first one goes "
+                  f"to the page at ({x:.0f},{y:.0f})", flush=True)
+            self._say_target(x, y)
+        self._page.mouse.move(x, y)
+        self._page.mouse.down()
+        self._page.mouse.up()
+        self.tapped_page = True
+        return True
 
     def _finish(self):
         """The finger left. A gesture that never travelled was a tap.
@@ -3283,22 +3340,42 @@ class Injector:
                 self._tap_at = now
                 if self._taps_needed and self._taps >= self._taps_needed:
                     self._taps = 0
+                    # The taps that led here are spent, and the first of them
+                    # is still waiting to be delivered. It must not be: the
+                    # panel is leaving this page, and pressing something on the
+                    # way out is the fault the corner exists to avoid.
+                    self._pending = None
                     self._home = True
                     self._home_by = "taps"
                     if self.verbose:
                         print(f"[{stamp()}] corner: {self._taps_needed} taps "
                               f"-- going home", flush=True)
                 else:
-                    # The mark comes back instead, because a press that does
-                    # nothing and says nothing is what makes somebody try
-                    # again -- and trying again is what the seconds were being
-                    # spent on. With taps asked for it is also the only thing
-                    # that says the first one counted.
+                    # The mark comes back, because a press that does nothing
+                    # and says nothing is what makes somebody try again.
                     self.missed_home = True
+                    # And the tap itself is held back rather than thrown away,
+                    # for as long as a second one could still arrive. A page
+                    # may have something of its own under that corner --
+                    # Jellyfin's player puts its Back arrow exactly there, and
+                    # a panel watching a film could not leave it. Only a press
+                    # SHORT enough to be a tap: a longer one was somebody
+                    # attempting the hold and letting go early, and delivering
+                    # that is what used to open Home Assistant's sidebar on
+                    # every failed attempt.
+                    held = now - self._down_at
+                    if held <= HOME_TAP_MAX_S:
+                        self._pending = (self._last[0], self._last[1],
+                                         now + HOME_TAP_WINDOW_S)
                     if self.verbose:
                         print(f"[{stamp()}] corner: tap {self._taps} of "
-                              f"{self._taps_needed or '-'} -- showing the mark",
-                              flush=True)
+                              f"{self._taps_needed or '-'} after {held:.2f}s "
+                              + ("-- showing the mark, and the tap goes to the "
+                                 f"page in {HOME_TAP_WINDOW_S:g}s unless "
+                                 "another follows"
+                                 if self._pending is not None else
+                                 "-- too long to be a tap, so it reaches "
+                                 "nothing"), flush=True)
             else:
                 if self.verbose:
                     self._say_target(*self._last)
@@ -3339,9 +3416,11 @@ class Injector:
 
     def release(self):
         # A lost connection is not a tap: drop the gesture rather than clicking
-        # wherever the finger happened to be.
+        # wherever the finger happened to be. A corner tap still waiting on its
+        # window goes with it, for the same reason.
         if self._on_keyboard and self._keyboard is not None:
             self._keyboard.highlight(None)
+        self._pending = None
         self._reset()
 
     def _undecided(self):
@@ -4633,6 +4712,16 @@ def main():
                     # handle() is collected rather than left to fire on a later
                     # turn behind the board's own request.
                     gestured = injector is not None and injector.tick(now)
+                    if injector is not None and injector.tapped_page:
+                        # A corner tap that waited out the double-tap window
+                        # and then went to the page. It moves focus exactly as
+                        # an ordinary tap does, so the keyboard has to be asked
+                        # the same question -- it simply arrives on a later
+                        # turn of the loop than handle() did.
+                        injector.tapped_page = False
+                        if keyboard is not None:
+                            keyboard.request_sync(0.0)
+                            keyboard.request_sync(0.45)
                     if gestured or asked_home:
                         # Timed in three pieces, because "coming home is slow"
                         # has three separate causes and they need separate

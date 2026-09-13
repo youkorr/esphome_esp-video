@@ -282,23 +282,34 @@ the corner, about 300 ms, against one to three seconds of standing still. It
 only became possible once a press in the corner stopped reaching the page at
 all -- before that, counting taps would have meant pressing whatever sits under
 the corner once per attempt, which on a Home Assistant dashboard is the sidebar
-button. Set it to `1` and a single tap goes home; set it to `0` and only the
-hold and the sideways swipe remain. The three ways coexist -- none of them
-replaces another.
+button. Set it to `1` and a single tap goes home -- and nothing under that
+corner can be reached at all, so keep 2 on a panel that opens Jellyfin. Set it
+to `0` and only the hold and the sideways swipe remain. The three ways coexist
+-- none of them replaces another.
 
-`home_corner` moves the mark and the tested rectangle **together**, so what is
-pressed and what is seen cannot drift apart. On a 1280x800 page, 14% is a
-179x112 corner and 25% is 320x200 -- worth raising on a panel across a room,
-or on one mounted where a corner is awkward to reach.
+The corner is 14% of each axis -- on a 1280x800 page, 179x112 -- and the mark
+drawn on screen is the same rectangle the sender tests, so what is pressed and
+what is seen cannot drift apart.
 
-`home_hold` is how long the finger must stay there. **A press that lands in
-the corner is never passed to the page**, however short: a failed attempt used
-to be delivered as an ordinary press, and on a Home Assistant dashboard the
-corner covers the sidebar button, so every miss opened the sidebar. Short of
-the hold, nothing happens at all and the mark lights up again to say the
-gesture is there. A drag out of the corner still scrolls normally. Lower it to 0.3 once the household knows the
-gesture; raise it on a panel by a doorway. The sideways swipe is unaffected by
-either setting.
+**A single tap in that corner still reaches the page, 450 ms late.** That
+delay is what a double tap costs everywhere it exists: the first of two taps
+cannot be acted on until the window for the second has passed, or it could not
+be the first of two. If a second tap arrives the panel goes home and the page
+is never told anything; if none does, the tap is delivered where it landed.
+
+This matters because a page may have something of its own under that corner.
+Jellyfin's player puts its **Back arrow** exactly there, and a panel watching a
+film could not leave it: every tap was swallowed. Reported from a panel, and
+the photograph showed the corner's own mark drawn over the arrow.
+
+**A press LONGER than 350 ms in the corner still reaches nothing**, and that
+half is deliberate. It was somebody attempting the hold and letting go early,
+and delivering it is what used to open Home Assistant's sidebar -- the corner
+covers that button, so every failed attempt pressed it. The mark lights up
+instead, to say the gesture is there.
+
+So the corner is a tap-through for a quick tap and a dead zone for a slow one.
+A drag out of it scrolls normally, and the sideways swipe is unaffected.
 
 **How long coming home actually takes.** The hold is only part of it. A panel
 that starts on the launcher used to pay a further **three seconds** on every
