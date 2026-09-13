@@ -76,9 +76,6 @@ panel remains an ordinary ESPHome device to the rest of Home Assistant.
   backlight off and the add-on stops rendering and transmitting for a screen
   nobody can see; **`portall.wake`** starts it again. Without that call the
   server keeps drawing a dashboard into the dark.
-- **`portall.home`** brings a panel back to its own page from anywhere -- a
-  button, an automation, a presence sensor or a voice command, none of which
-  has to aim at a corner.
 
 ## How the two halves meet
 

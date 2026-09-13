@@ -84,26 +84,19 @@ void Portall::set_awake(bool awake) {
   }
 }
 
-void Portall::go_home() {
-  this->home_pending_ = true;
-  ESP_LOGD(TAG, "Asking the sender to go back to this panel's own page");
-}
-
 void Portall::send_queued_messages_(int client) {
-  /* Two bytes, the same shape as 'S', because one definition of the wire
+  /* Two bytes, the same shape as 'T', because one definition of the wire
      format is worth more than a tidier message per kind of thing on it -- the
      sender's parser needs at least two to recognise anything. The second is
-     reserved and sent as zero.
+     the state itself.
 
-     Before the touches below rather than after: a panel being taken home has
-     nothing to gain from the contacts that are still queued behind it, and
-     the queue can hold eight. */
-  if (this->home_pending_) {
-    this->home_pending_ = false;
-    const uint8_t message[2] = {'H', 0};
-    if (::send(client, message, sizeof(message), MSG_DONTWAIT) < 0)
-      this->home_pending_ = true;
-  }
+     There was an 'H' here too, for a portall.home action that put the panel
+     back on its own page from the YAML. It is gone: the corner gesture is how
+     a panel comes home, nobody was calling the action, and a message type
+     nothing sends is a thing to keep in step for no one. The SENDER still
+     understands 'H', deliberately -- a board flashed before this and a sender
+     fetched after it are not updated together, so the tolerant half is the
+     one to keep. */
   if (this->status_pending_) {
     this->status_pending_ = false;
     const uint8_t message[2] = {'S', (uint8_t) (this->asleep_ ? 0 : 1)};

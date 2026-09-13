@@ -1,5 +1,26 @@
 # Changelog
 
+## 4.9.0
+
+- **`portall.home` is removed.** It was added so the way back could be
+  something other than a finger, and nobody was calling it: the corner gesture
+  is how a panel comes home. A message type nothing sends is a thing to keep
+  in step for no one.
+
+  Gone from the component, the header and the wire. **The sender still
+  understands the message**, deliberately -- a board is flashed by hand and the
+  sender is fetched when the add-on's image is built, so the two are never
+  updated together and the tolerant end is the one to keep.
+
+- **`portall.sleep` and `portall.wake` stay, and the pair is the point.** They
+  are the only thing on the board that reaches the SENDER: nothing else calls
+  `set_awake`, no touch wakes it, and ESPHome cannot do it natively because
+  the sender is a process on the Home Assistant server rather than anything on
+  the panel. Turning the backlight off without `portall.sleep` leaves the
+  server rendering and transmitting a dashboard into the dark; `portall.wake`
+  is what starts it again. Using neither is a perfectly good choice -- it just
+  costs that traffic.
+
 ## 4.8.0
 
 - **Reolink and Immich are drawn at the right size now**, reported as too

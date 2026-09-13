@@ -59,13 +59,6 @@ Portall = portall_ns.class_("Portall", cg.Component)
 SleepAction = portall_ns.class_("SleepAction", automation.Action)
 WakeAction = portall_ns.class_("WakeAction", automation.Action)
 
-# And the way back, which until now only a gesture on the glass could ask for.
-# A panel has no Back button, so the sender decides it by arithmetic on the
-# contact -- but that means it can only ever be a finger. This lets anything in
-# the YAML ask instead: a physical button, an automation, a presence sensor, a
-# voice command.
-HomeAction = portall_ns.class_("HomeAction", automation.Action)
-
 _AWAKE_ACTION_SCHEMA = automation.maybe_simple_id(
     {cv.Required(CONF_ID): cv.use_id(Portall)}
 )
@@ -79,9 +72,6 @@ _AWAKE_ACTION_SCHEMA = automation.maybe_simple_id(
 )
 @automation.register_action(
     "portall.wake", WakeAction, _AWAKE_ACTION_SCHEMA, synchronous=True
-)
-@automation.register_action(
-    "portall.home", HomeAction, _AWAKE_ACTION_SCHEMA, synchronous=True
 )
 async def portall_awake_to_code(config, action_id, template_arg, args):
     var = cg.new_Pvariable(action_id, template_arg)
