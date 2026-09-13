@@ -1,29 +1,34 @@
 # Changelog
 
+## 4.4.0
+
+**`home_taps` is gone.** It was added two releases ago, and counting taps
+costs the corner in a way no setting can undo: the first of two taps cannot
+be acted on until the window for the second has passed, so a tap there is
+either late or swallowed. A page may have its own control under that corner
+-- Jellyfin's player puts its Back arrow exactly on it -- so the way home is
+the hold and the sideways swipe again, as it was before.
+
+If you had set it, the Supervisor drops the key and says so once. Nothing
+else to do.
+
+- **A quick tap in the top-left corner reaches the page**, with no delay.
+  Under 350 ms is a tap and goes straight through.
+
+- **A press longer than that still reaches nothing.** It was somebody
+  attempting the hold and letting go early, and delivering it is what used to
+  land on Home Assistant's sidebar button and repaint the whole screen at
+  410 KiB/s. The mark lights up instead.
+
+- The startup line says so rather than printing a number:
+  `hold 1s, a tap under 0.35s reaches the page`.
+
+Seven cases measured on a panel's own geometry.
+
 ## 4.3.0
 
-- **The corner behaves as it did before the double tap, and that is now the
-  default.** `home_taps` ships as `0`: the way home is holding the top-left
-  corner for a second or swiping sideways out of it, and a quick tap there
-  goes **straight to the page**, with no delay at all.
-
-  4.2.0 delivered it 450 ms late instead, which is what counting two taps
-  costs anywhere -- the first of two cannot be acted on until the window for
-  the second has passed. The delay is not a bug that can be fixed; it is what
-  the gesture is. So the gesture that leaves the corner alone is the one that
-  ships, and a household never has to learn why the Back arrow on a film felt
-  slow.
-
-  `home_taps: 2` is still there for a panel that only shows a dashboard, and
-  the startup line now says what it costs rather than printing a number:
-  `taps off so a tap there reaches the page` against `2 taps, so a tap there
-  arrives 0.45s late`.
-
-- A press **longer** than 350 ms in the corner still reaches nothing. That was
-  somebody attempting the hold and letting go early, and delivering it is what
-  used to open Home Assistant's sidebar on every failed attempt.
-
-  Nine cases measured at both settings.
+- `home_taps` defaulted to `0`, so a new install got the hold and the swipe.
+  4.4.0 removes the setting outright, for the reason above.
 
 ## 4.2.0
 

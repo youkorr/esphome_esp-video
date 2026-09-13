@@ -190,7 +190,6 @@ Assistant dashboard to appear; without one it does neither.
 | `fps` | Upper bound on how often a change is acted on. 25 by default; the one setting that decides whether video looks like video. See below |
 | `quality` | JPEG quality, 1..95 |
 | `keyboard` | The on-screen keyboard's layout, or `off`. See below |
-| `home_taps` | How many quick taps in the top-left corner bring the panel home. **0 by default** -- the way home is the hold or the sideways swipe, and a tap in that corner reaches the page normally. 2 makes a tap there arrive 450 ms late, 1 stops it arriving at all. See below |
 | `blank_after` | Seconds dark before a sleeping panel's page is let go of, 300 by default. **Per panel only** -- it is not the same thing as the timer that turns your backlight off, see below |
 | `keep_profile` | Keep the browser signed in between restarts. See below |
 | `import_profile` | A browser profile signed in by hand elsewhere, to start this panel from. **Per panel only** -- it does not belong to a house. See below |
@@ -274,28 +273,20 @@ Two settings, on the panel:
 ```yaml
 panels:
   - name: salon
-    home_taps: 0         # quick taps in that corner -- 0 to 4, 0 by default
 ```
 
-**`home_taps` is off by default, and that is a decision rather than an
-oversight.** Two taps in the corner is quicker to do than a second of standing
-still -- and counting them costs the corner, because the first of two taps
-cannot be acted on until the window for the second has passed. So with taps on,
-a tap there is either **450 ms late** (`2`) or **never delivered** (`1`).
+**There were briefly two quick taps as a third way, and they are gone.**
+Counting taps costs the corner: the first of two cannot be acted on until the
+window for the second has passed, so a tap there was either 450 ms late or
+never delivered. That is fine on a dashboard and wrong on a page with its own
+control in that corner, and no setting makes it not so -- the delay is what the
+gesture is. Two ways home, both of which leave the corner alone.
 
-That is fine on a dashboard and wrong on a page with its own control in that
-corner. Jellyfin's player puts its **Back arrow** exactly there, and a panel
-watching a film could not leave it. A household should not have to know any of
-this, so the gesture that leaves the corner alone is the one that ships: hold
-it for a second, or swipe sideways out of it.
-
-Turn `home_taps` up to `2` on a panel that only ever shows a dashboard and
-whose household prefers it. The three ways coexist -- none replaces another --
-and the startup line says which you have and what it costs:
+The startup line says where the corner is and what it passes through:
 
 ```
-Home: corner 14% (179x112 of the page), hold 1s, taps off so a tap there
-reaches the page, settle 300ms
+Home: corner 14% (179x112 of the page), hold 1s, a tap under 0.35s reaches
+the page, settle 300ms
 ```
 
 The corner is 14% of each axis -- on a 1280x800 page, 179x112 -- and the mark
