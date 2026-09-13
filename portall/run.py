@@ -395,6 +395,26 @@ def load_panels():
             with open(path) as handle:
                 config = json.load(handle)
             _config = config
+            # The diagnostics, grouped. This is the pilot for the wider
+            # regroup of this form: a plain nested dict, alongside the flat
+            # keys rather than instead of them, so a Supervisor that will not
+            # fold one costs nothing at all.
+            #
+            # Either turns it on, which is the only rule that cannot regress
+            # anybody. Neither "the group wins" nor "the flat key wins" works
+            # while both exist: an add-on's options always carry every key with
+            # its default, so a group of three falses would silently undo a
+            # flat `stats: true`, and setdefault the other way round means the
+            # group can never win at all -- which is the silent no-op this
+            # repository keeps recording, and it was written that way first.
+            #
+            # An OR is right here only because all three are flags. It is not a
+            # rule to carry over to the settings that hold a value.
+            group = config.get("debug")
+            if isinstance(group, dict):
+                for key in ("stats", "show_media", "show_touches"):
+                    if config.get(key) or group.get(key):
+                        config[key] = True
             panels = config.get("panels")
             if panels:
                 shared = {

@@ -1,5 +1,25 @@
 # Changelog
 
+## 3.8.0
+
+- **A `debug:` group, to find out whether this form can be grouped at all.**
+  The options are thirty keys deep at the root, nineteen of them describing the
+  launcher's appearance, and `panels:` -- the one thing anybody must fill in --
+  is the last of them. Folding related settings behind one heading is the
+  obvious answer, and `links:` and `panels:` already prove the Supervisor folds
+  a list of objects. Whether it folds a plain dictionary the same way has never
+  been seen here, and moving keys is the one step that cannot be undone.
+
+  So this release moves nothing. `debug:` carries `stats`, `show_media` and
+  `show_touches` **alongside** the three flat keys, which stay exactly where
+  they are. Tick either and the diagnostic turns on; a Supervisor that will not
+  fold the group costs nothing at all.
+
+  What to look at: open the add-on's options and see whether `debug` appears as
+  a heading with three switches under it, or as something unusable. That
+  answers it, and the full regroup -- five headings instead of thirty keys --
+  follows or does not.
+
 ## 3.7.1
 
 - **`home_corner` and `home_hold` come off the form.** They were added because

@@ -1,5 +1,5 @@
 name: Portall
-version: "3.7.1"
+version: "3.8.0"
 # Home Assistant identifies an add-on by its slug, so this one moving from
 # usb_display_panel to portall makes the Supervisor see a NEW add-on: options
 # are not carried over and /data starts empty, which means the browser
@@ -178,6 +178,14 @@ options:
       url: http://homeassistant:8123/lovelace/0
       icon: home-assistant
       token: ""
+  # The three diagnostics, grouped -- and still present one by one just above
+  # or below, because this release is only asking whether the Supervisor folds
+  # a plain dictionary the way it already folds links: and panels:. Fill in
+  # either; the group wins.
+  debug:
+    stats: false
+    show_media: false
+    show_touches: false
   stats: true
   # A diagnostic, off by default: while a video plays it prints the playhead
   # and how many seconds are buffered IN FRONT of it, every two seconds. The
@@ -258,6 +266,10 @@ schema:
       quality: int(1,95)?
       fps: float?
       user_agent: str?
+  debug:
+    stats: bool?
+    show_media: bool?
+    show_touches: bool?
   stats: bool?
   show_media: bool?
   show_touches: bool?
