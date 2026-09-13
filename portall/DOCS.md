@@ -156,9 +156,7 @@ Assistant dashboard to appear; without one it does neither.
 | `fps` | Upper bound on how often a change is acted on. 25 by default; the one setting that decides whether video looks like video. See below |
 | `quality` | JPEG quality, 1..95 |
 | `keyboard` | The on-screen keyboard's layout, or `off`. See below |
-| `home_corner` | How big the corner that brings the panel home is, as a percentage of each axis. 14 by default. See below |
-| `home_hold` | How long a finger must be held in that corner, in seconds. 1.0 by default. See below |
-| `home_taps` | How many quick taps in that corner bring the panel home. 2 by default, 1 for a single tap, 0 for none. See below |
+| `home_taps` | How many quick taps in the top-left corner bring the panel home. 2 by default, 1 for a single tap, 0 for none. See below |
 | `blank_after` | Seconds dark before a sleeping panel's page is let go of, 300 by default. **Per panel only** -- it is not the same thing as the timer that turns your backlight off, see below |
 | `keep_profile` | Keep the browser signed in between restarts. See below |
 | `import_profile` | A browser profile signed in by hand elsewhere, to start this panel from. **Per panel only** -- it does not belong to a house. See below |
@@ -232,8 +230,6 @@ Two settings, on the panel:
 ```yaml
 panels:
   - name: salon
-    home_corner: 14      # percent of each axis -- 2 to 40
-    home_hold: 1.0       # seconds -- 0.1 to 5
     home_taps: 2         # quick taps in that corner -- 0 to 4
 ```
 

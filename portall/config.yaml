@@ -1,5 +1,5 @@
 name: Portall
-version: "3.7.0"
+version: "3.7.1"
 # Home Assistant identifies an add-on by its slug, so this one moving from
 # usb_display_panel to portall makes the Supervisor see a NEW add-on: options
 # are not carried over and /data starts empty, which means the browser
@@ -211,10 +211,11 @@ options:
       # How big the corner that brings the panel back here is, as a percentage
       # of each axis, and how long a finger must be held in it. Short of the
       # hold the tap reaches the page as usual, so the corner stays usable.
-      home_corner: 14
-      home_hold: 1.0
-      # And the quicker way to ask: two quick taps in that same corner. 1 makes
-      # a single tap do it, 0 leaves only the hold and the sideways swipe.
+      # Two quick taps in the top-left corner bring the panel back here. 1
+      # makes a single tap do it, 0 leaves only the hold and the sideways
+      # swipe. The corner's size and the hold's length are no longer settings:
+      # they existed to make a three-second hold reachable, and two taps need
+      # neither.
       home_taps: 2
 schema:
   port: port?
@@ -276,8 +277,6 @@ schema:
       fps: float?
       quality: int(1,95)?
       keyboard: list(off|qwerty|azerty)?
-      home_corner: int(2,40)?
-      home_hold: float(0.1,5.0)?
       home_taps: int(0,4)?
       blank_after: float?
       keep_profile: bool?

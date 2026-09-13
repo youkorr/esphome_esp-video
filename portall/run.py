@@ -506,8 +506,6 @@ def command_for(panel):
         "urgent_fps",
         "urgent_window",
         "keyboard",
-        "home_corner",
-        "home_hold",
         "home_taps",
         "blank_after",
         "rect_cost",
