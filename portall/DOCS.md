@@ -251,8 +251,19 @@ that starts on the launcher used to pay a further **three seconds** on every
 trip home: that wait exists because Home Assistant paints in stages -- shell,
 then cards, then their data -- and the first picture is the one every later
 difference is measured against. A page of links has no such staging, and since
-3.3.0 the add-on says so outright, so the wait is 800 ms. With `home_hold: 0.4`
-that is a little over a second instead of four and a half.
+3.3.0 the add-on says so outright. And since 3.3.1 measured what that wait is
+actually for -- `first picture 0.0s after the page opened`, so the picture was
+ready the moment the wait ended -- the launcher's own settle is **300 ms**.
+
+Coming home is therefore your `home_hold` plus about a third of a second, and
+the log says so in three pieces, so a slow return can be blamed on the right
+one:
+
+```
+Home: corner 25% (320x200 of the page), hold 3s, settle 300ms
+Home: back to http://127.0.0.1:8099/ -- held 3.0s, opened in 0.3s
+Home: first picture 0.0s after the page opened
+```
 
 **`quality` on a link is the cheapest saving here.** A film wants far fewer
 bytes than a dashboard and does not show the difference, so it is said on the

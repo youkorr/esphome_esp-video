@@ -1092,6 +1092,7 @@ def open_page(page, args):
     # time the corner brings it home.
     if getattr(args, "not_home_assistant", False):
         open_page.is_home_assistant = False
+        open_page.is_launcher = True
     elsewhere = bool(args.token_url) and origin_of(args.token_url) != origin_of(args.url)
     if elsewhere:
         # Known, not merely unasked: this page is not that dashboard. It also
@@ -1112,7 +1113,7 @@ def open_page(page, args):
     # difference from, so it is worth letting settle. A page that is not Home
     # Assistant has no such staging, and three seconds of a blocked loop is
     # three seconds of a panel that has stopped.
-    page.wait_for_timeout(3000 if open_page.is_home_assistant is not False else 800)
+    page.wait_for_timeout(settle_ms())
     # Where it actually ENDED UP, when that is not where it was sent. A site
     # may decide the browser is not the sort it serves that address to and
     # redirect: youtube.com/tv does exactly that unless the browser says it is
@@ -1136,6 +1137,35 @@ def open_page(page, args):
 
 # None until the first page has been looked at: unknown, not "no".
 open_page.is_home_assistant = None
+# Told, rather than worked out: only the add-on sets this, and only for a panel
+# it has pointed at its own launcher.
+open_page.is_launcher = False
+
+
+def settle_ms():
+    """How long to let a page settle before the first picture is taken.
+
+    Three answers, because there are three kinds of page and they are not
+    close to each other.
+
+    Home Assistant paints in stages -- shell, then cards, then their data --
+    and the first picture is the one full redraw every later difference is
+    measured from, so it is worth three seconds.
+
+    An ordinary site has no such staging and gets 800 ms.
+
+    The add-on's own launcher gets less again, and this is the one of the
+    three that is measured rather than argued: it is served from localhost by
+    the very process that is waiting for it, and a panel coming home reported
+    `first picture 0.0s after the page opened` -- the picture was ready the
+    moment the wait ended. What is left is a margin for its own layout, not an
+    allowance for a page that might still be arriving. It costs at worst one
+    extra picture: the page after a gesture is a full redraw anyway, and
+    anything that paints after it is a difference like any other.
+    """
+    if open_page.is_home_assistant is not False:
+        return 3000
+    return 300 if open_page.is_launcher else 800
 
 
 def explain_unreachable(url, error):
@@ -4009,7 +4039,7 @@ def main():
                 f"Home: corner {args.home_corner}% "
                 f"({corner_fraction * page_w:.0f}x{corner_fraction * page_h:.0f} "
                 f"of the page), hold {args.home_hold:g}s, "
-                f"settle {'800ms' if open_page.is_home_assistant is False else '3s'}"
+                f"settle {settle_ms()}ms"
             )
         hint_until = time.monotonic() + HOME_HINT_SECONDS
         # Set when the corner has just brought the panel home, cleared by the
