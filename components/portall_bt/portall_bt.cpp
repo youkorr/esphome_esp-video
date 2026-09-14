@@ -209,6 +209,43 @@ static int hci_await(struct usbh_hubport *hport, struct usb_endpoint_descriptor 
   return -1;
 }
 
+// One command and its answer, and NEVER silent about either.
+//
+// The first version logged only when a read succeeded, so a dongle that
+// answered Reset and then stopped produced a log that simply ended, and it
+// cost a round trip to a board to notice. That is the second time in this
+// file that a quiet failure has cost a round trip; there is no third path
+// out of this function that says nothing.
+static int hci_ask(struct usbh_hubport *hport, uint8_t intf,
+                   struct usb_endpoint_descriptor *events, uint16_t opcode, const char *what,
+                   uint32_t patience_ms) {
+  Waited saw;
+
+  const int sent = hci_command(hport, intf, opcode, nullptr, 0);
+  if (sent < 0) {
+    ESP_LOGW(TAG, "  %s (%04x) would not go out (%d)", what, opcode, sent);
+    return -1;
+  }
+
+  const int len = hci_await(hport, events, opcode, patience_ms, &saw);
+  if (len < 0) {
+    ESP_LOGW(TAG,
+             "  %s (%04x): no answer -- %u reads, %u with bytes, last error %d, "
+             "last length %d, last event %02x",
+             what, opcode, (unsigned) saw.reads, (unsigned) saw.events, saw.last_error,
+             saw.last_length, saw.last_code);
+    return -1;
+  }
+
+  if (g_hci_evt[5] != 0x00) {
+    // A controller that answers and refuses is a different animal from one
+    // that says nothing, and the status byte is the whole difference.
+    ESP_LOGW(TAG, "  %s (%04x) answered but refused, status %02x", what, opcode, g_hci_evt[5]);
+    return -1;
+  }
+  return len;
+}
+
 // What the task is handed. The PORT is carried, never the hubport pointer: an
 // unplug frees that structure, and a pointer taken before the unplug would be
 // read after the free. Finding the port again costs nothing and cannot be
@@ -367,61 +404,46 @@ void PortallBT::probe_hci(uint8_t hub_index, uint8_t hub_port, uint8_t intf_inde
              selected);
   }
 
-  int err = hci_command(hport, intf, HCI_RESET, nullptr, 0);
-  if (err < 0) {
-    ESP_LOGE(TAG, "HCI Reset would not go out (%d)", err);
-    this->probing_ = false;
-    return;
-  }
-  ESP_LOGI(TAG, "  HCI Reset went out, waiting for the answer");
-
-  Waited saw;
-  // Three seconds because a controller that has just been given power is
-  // allowed to take its time, and because being wrong here would read as the
-  // dongle being mute when it was only slow.
-  int len = hci_await(hport, events, HCI_RESET, 3000, &saw);
+  int len = hci_ask(hport, intf, events, HCI_RESET, "HCI Reset", 3000);
   if (len < 0) {
-    ESP_LOGE(TAG,
-             "HCI Reset went out and nothing came back: %u reads, %u of them with bytes, "
-             "last error %d, last length %d, last event %02x",
-             (unsigned) saw.reads, (unsigned) saw.events, saw.last_error, saw.last_length,
-             saw.last_code);
     this->probing_ = false;
     return;
   }
-  ESP_LOGI(TAG, "HCI Reset answered, status %02x -- the dongle is talking", g_hci_evt[5]);
+  // num_HCI_Command_Packets is how many commands the controller will accept
+  // before it says otherwise. Printed because a zero there is the one reason a
+  // controller that just answered would ignore everything after, and it would
+  // be invisible from anywhere else.
+  ESP_LOGI(TAG, "HCI Reset answered, status 00, credit %u -- the dongle is talking", g_hci_evt[2]);
+
+  // Linux waits here too, in btbcm_reset(): "100 msec delay for module to
+  // complete reset process". Taken from their code rather than invented.
+  vTaskDelay(pdMS_TO_TICKS(150));
 
   // Everything below is decoration compared with that line, and it is what
   // turns "it answered" into something a person can check against the same
   // dongle on a PC.
-  if (hci_command(hport, intf, HCI_READ_LOCAL_VERSION, nullptr, 0) >= 0) {
-    len = hci_await(hport, events, HCI_READ_LOCAL_VERSION, 2000, &saw);
-    if (len >= 14) {
-      const uint16_t manufacturer = (uint16_t) (g_hci_evt[10] | (g_hci_evt[11] << 8));
-      ESP_LOGI(TAG, "  HCI version %u, LMP version %u, manufacturer %u", g_hci_evt[6],
-               g_hci_evt[9], manufacturer);
-    }
+  len = hci_ask(hport, intf, events, HCI_READ_LOCAL_VERSION, "Read Local Version", 1500);
+  if (len >= 14) {
+    const uint16_t manufacturer = (uint16_t) (g_hci_evt[10] | (g_hci_evt[11] << 8));
+    ESP_LOGI(TAG, "  HCI version %u, LMP version %u, manufacturer %u", g_hci_evt[6], g_hci_evt[9],
+             manufacturer);
   }
 
-  if (hci_command(hport, intf, HCI_READ_BD_ADDR, nullptr, 0) >= 0) {
-    len = hci_await(hport, events, HCI_READ_BD_ADDR, 2000, &saw);
-    if (len >= 12) {
-      // Little-endian on the wire, printed the way everybody writes it.
-      ESP_LOGI(TAG, "  address %02X:%02X:%02X:%02X:%02X:%02X", g_hci_evt[11], g_hci_evt[10],
-               g_hci_evt[9], g_hci_evt[8], g_hci_evt[7], g_hci_evt[6]);
-    }
+  len = hci_ask(hport, intf, events, HCI_READ_BD_ADDR, "Read BD Address", 1500);
+  if (len >= 12) {
+    // Little-endian on the wire, printed the way everybody writes it.
+    ESP_LOGI(TAG, "  address %02X:%02X:%02X:%02X:%02X:%02X", g_hci_evt[11], g_hci_evt[10],
+             g_hci_evt[9], g_hci_evt[8], g_hci_evt[7], g_hci_evt[6]);
   }
 
-  if (hci_command(hport, intf, HCI_READ_LOCAL_NAME, nullptr, 0) >= 0) {
-    len = hci_await(hport, events, HCI_READ_LOCAL_NAME, 2000, &saw);
-    if (len > 6) {
-      // The field is 248 bytes padded with NULs, and a controller with no name
-      // set sends 248 of them -- which is a valid answer and not worth a line.
-      g_hci_evt[sizeof(g_hci_evt) - 1] = 0;
-      const char *name = (const char *) &g_hci_evt[6];
-      if (name[0] != 0) {
-        ESP_LOGI(TAG, "  name \"%s\"", name);
-      }
+  len = hci_ask(hport, intf, events, HCI_READ_LOCAL_NAME, "Read Local Name", 1500);
+  if (len > 6) {
+    // The field is 248 bytes padded with NULs, and a controller with no name
+    // set sends 248 of them -- which is a valid answer and not worth a line.
+    g_hci_evt[sizeof(g_hci_evt) - 1] = 0;
+    const char *name = (const char *) &g_hci_evt[6];
+    if (name[0] != 0) {
+      ESP_LOGI(TAG, "  name \"%s\"", name);
     }
   }
 
