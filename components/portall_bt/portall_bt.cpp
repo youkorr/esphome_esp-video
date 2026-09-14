@@ -124,6 +124,14 @@ static constexpr uint16_t HCI_READ_BD_ADDR = 0x1009;
 
 static constexpr uint8_t HCI_EVENT_COMMAND_COMPLETE = 0x0E;
 
+// How long to leave the dongle alone after it enumerates, how many times to
+// ask it to reset, and how long between tries. See probe_hci for why these
+// exist at all -- the same dongle and the same firmware answered on one run
+// and said nothing on the next.
+static constexpr uint32_t RESET_SETTLE_MS = 300;
+static constexpr uint8_t RESET_ATTEMPTS = 5;
+static constexpr uint32_t RESET_RETRY_MS = 400;
+
 // DMA reads and writes these, so they go where CherryUSB puts its own.
 static USB_NOCACHE_RAM_SECTION USB_MEM_ALIGNX uint8_t g_hci_cmd[64];
 static USB_NOCACHE_RAM_SECTION USB_MEM_ALIGNX uint8_t g_hci_evt[260];
@@ -229,10 +237,15 @@ static int hci_ask(struct usbh_hubport *hport, uint8_t intf,
 
   const int len = hci_await(hport, events, opcode, patience_ms, &saw);
   if (len < 0) {
+    // `sent` is in here because "the command went out" was an inference from
+    // a non-negative return, and an inference is what this file keeps having
+    // to correct. -10 in `last error` is USB_ERR_NAK, which is the endpoint
+    // saying it has nothing -- a controller that never answered rather than a
+    // transfer that failed.
     ESP_LOGW(TAG,
-             "  %s (%04x): no answer -- %u reads, %u with bytes, last error %d, "
-             "last length %d, last event %02x",
-             what, opcode, (unsigned) saw.reads, (unsigned) saw.events, saw.last_error,
+             "  %s (%04x): no answer -- control said %d, then %u reads, %u with bytes, "
+             "last error %d, last length %d, last event %02x",
+             what, opcode, sent, (unsigned) saw.reads, (unsigned) saw.events, saw.last_error,
              saw.last_length, saw.last_code);
     return -1;
   }
@@ -399,13 +412,34 @@ void PortallBT::probe_hci(uint8_t hub_index, uint8_t hub_port, uint8_t intf_inde
   // be told which one is wanted, and a vendor-class one that refuses costs a
   // log line rather than the probe.
   const int selected = usbh_set_interface(hport, intf, 0);
-  if (selected < 0) {
-    ESP_LOGW(TAG, "  selecting altsetting 0 on interface %u was refused (%d), carrying on", intf,
-             selected);
-  }
+  ESP_LOGI(TAG, "  selecting altsetting 0 on interface %u returned %d", intf, selected);
 
-  int len = hci_ask(hport, intf, events, HCI_RESET, "HCI Reset", 3000);
+  // A dongle that has just been given power and enumerated is entitled to a
+  // moment before it is asked anything. Measured rather than assumed to be
+  // needed: on two runs of the same firmware, the same dongle answered the
+  // first Reset once and NAKed 273 reads the next time, which is what an
+  // intermittent readiness looks like from here.
+  vTaskDelay(pdMS_TO_TICKS(RESET_SETTLE_MS));
+
+  // And the reset is RETRIED, for the same reason. One attempt turns a
+  // controller that was not ready yet into a dongle that does not work, and
+  // the two are not the same thing at all. Each attempt says so, so an
+  // intermittent fault stays visible instead of being papered over.
+  int len = -1;
+  for (uint8_t attempt = 1; attempt <= RESET_ATTEMPTS; attempt++) {
+    len = hci_ask(hport, intf, events, HCI_RESET, "HCI Reset", 1500);
+    if (len >= 0) {
+      if (attempt > 1) {
+        ESP_LOGI(TAG, "  it answered on attempt %u of %u", attempt, RESET_ATTEMPTS);
+      }
+      break;
+    }
+    if (attempt < RESET_ATTEMPTS) {
+      vTaskDelay(pdMS_TO_TICKS(RESET_RETRY_MS));
+    }
+  }
   if (len < 0) {
+    ESP_LOGE(TAG, "the dongle did not answer HCI Reset in %u attempts", RESET_ATTEMPTS);
     this->probing_ = false;
     return;
   }
