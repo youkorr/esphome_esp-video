@@ -3906,6 +3906,71 @@ nothing else, gives a parameter length of 4 where the parser wants more, and
 that assert is exactly what that would look like. Not proven; named, so the
 next run can settle it in one line.
 
+### Fifteen frames, every one correct, and the arithmetic names the sixteenth
+
+The named opcodes came back and they are Bluedroid's startup exactly:
+
+    1: 0c03 Reset            6: 1009 Read BD Address   11: 1004 page 1
+    2: 1005 Read Buffer Size 7: 1002 Supported Cmds    12: 200f LE White List
+    3: 0c31 Flow Control     8: 1004 Extended Features 13: 2002 LE Buffer Size
+    4: 0c33 Host Buffer Size 9: 0c56 Simple Pairing    14: 201c LE States
+    5: 1001 Local Version   10: 0c6d LE Host Supported 15: 2003 LE Features
+
+Thirteen answered the way the previous round predicted -- 9 bytes, 7
+parameters, which is what LE Read Buffer Size owes. Fourteen and fifteen the
+same. **The transport is not the fault.**
+
+So the sixteenth is, and `controller.c` narrows it to two commands without a
+board. Everything left in `start_up()` after 0x2003 is one of:
+
+| | gate | parser |
+|---|---|---|
+| `ble_read_resolving_list_size` **0x202A** | `HCI_LE_ENHANCED_PRIVACY_SUPPORTED` | needs 1 byte after |
+| `ble_write_suggested_default_data_length` 0x2024 | `HCI_LE_DATA_LEN_EXT_SUPPORTED` | generic |
+| `ble_read_suggested_default_data_length` **0x2023** | same gate | needs 4 bytes after |
+| `ble_set_event_mask` 0x2001 | none | generic |
+| `set_event_mask` 0x0C01 (Classic) | none | generic |
+
+**Every ungated one is `parse_generic_command_complete`, which needs a
+parameter length of 4 -- the minimum any Command Complete can have. None of
+them can assert.** So the asserting frame is the answer to **0x202A or
+0x2023**, and both are Bluetooth **4.2** commands gated on a bit in the LE
+feature set the dongle itself reported in frame 15.
+
+Which makes the mechanism a contradiction in the dongle rather than in this
+component: it **set a 4.2 feature bit and then refused the 4.2 command that
+bit invites**, answering `Unknown HCI Command` -- status and nothing else, a
+parameter length of 4 where the parser wants 5 or 8. That is a BCM20702A1
+running its ROM with no `.hcd` patch loaded, and Bluedroid is written against
+Espressif's own controller, which never does this. Deduced from their source
+and fifteen measured frames; which of the two it is, is one line away.
+
+**And the diagnostic lost the evidence a SECOND time, by a different
+mechanism.** The sixteenth line arrived as `[I][portall_b` and stopped. The
+boot dump says why -- `Task Log Buffer Size: 768 bytes` -- ESPHome buffers a
+log written from any task but its own loop and the LOOP drains it, so a line
+written from the reader task sits in that ring until the main loop next runs.
+The abort takes whatever is still in it.
+
+So the reader pauses `REPORT_SETTLE_MS` after each reported line, while the
+reporter is still talking: the line reaches the wire before the frame reaches
+Bluedroid. A second and a half spread over a startup, once, on a firmware
+that is a probe -- against never being able to name the frame that crashes.
+Each HCI command has an eight-second timeout, so it is nothing to the host.
+
+**Twice now this diagnostic has been one line short of its own purpose**, for
+two unrelated reasons: a cap set by guessing where the fault was, and a log
+buffer nobody had thought about. The lesson is not either mechanism. It is
+that a diagnostic built to survive a crash has to be checked against the
+crash, and both times it was checked against a working run.
+
+**The user has a Bluetooth 5.0 dongle**, which is the other half of the
+experiment and costs a swap: *"la clef bluetooth et 4.0 et le tplink 5.0"*.
+A 5.x controller answers the 4.2 reads honestly and the contradiction above
+cannot arise. What it brings instead is the Realtek firmware upload this file
+already records -- 30 210 bytes before it is a working controller -- so a ROM
+mode run may report a reduced feature set, which is its own useful reading.
+
 Fixing it found the other half. That file has never passed `esphome config`:
 its `api:` encryption key is an **empty string**, which is the same fault
 CLAUDE.md already records for `ws-usb-screen.yaml` and the Guition pair -- a

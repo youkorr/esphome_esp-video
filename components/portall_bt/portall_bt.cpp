@@ -957,6 +957,23 @@ static uint32_t g_sco_dropped = 0;
 static constexpr uint8_t FRAMES_REPORTED = 64;
 static uint8_t g_frames_said = 0;
 
+// And the line has to REACH THE WIRE before the frame reaches Bluedroid,
+// which is the second way this diagnostic lost the evidence it exists for.
+//
+// ESPHome buffers a log written from any task but its own loop -- the boot
+// dump says so, `Task Log Buffer Size: 768 bytes` -- and the LOOP drains it.
+// These lines are written from the reader task, so they sit in that ring
+// until the main loop next runs; when Bluedroid asserts and the firmware
+// aborts, whatever is still in it is lost. The sixteenth frame, the one the
+// assert is about, arrived as `[I][portall_b` and stopped.
+//
+// So while the reporter is still talking, the reader pauses after each line.
+// It costs a second and a half spread over the whole of Bluedroid's startup,
+// once, on a firmware that is a probe -- against the alternative of never
+// being able to name the frame that crashes. Each command has an eight-second
+// timeout, so twenty milliseconds is nothing to the host.
+static constexpr uint32_t REPORT_SETTLE_MS = 20;
+
 static void say_frame(const char *what, const uint8_t *frame, uint32_t len) {
   if (g_frames_said >= FRAMES_REPORTED) {
     return;
@@ -975,10 +992,12 @@ static void say_frame(const char *what, const uint8_t *frame, uint32_t len) {
     const uint16_t opcode = (uint16_t) (frame[3] | (frame[4] << 8));
     ESP_LOGI(TAG, "  %u: %s %u bytes, complete for opcode %04x, %u parameters",
              (unsigned) g_frames_said, what, (unsigned) len, opcode, frame[1]);
+    vTaskDelay(pdMS_TO_TICKS(REPORT_SETTLE_MS));
     return;
   }
   ESP_LOGI(TAG, "  %u: %s %u bytes, code %02x, %u parameters", (unsigned) g_frames_said, what,
            (unsigned) len, frame[0], len > 1 ? frame[1] : 0);
+  vTaskDelay(pdMS_TO_TICKS(REPORT_SETTLE_MS));
 }
 
 // A declared length this reader cannot hold. It cannot happen -- an event is
