@@ -12,8 +12,13 @@
 extern "C" {
 #include "sdkconfig.h"
 #include "freertos/task.h"
+/* Both of these belong to being a USB DEVICE, and `usb: false` builds a board
+ * that is not one -- see usb_descriptors.h, which keeps the wire format on the
+ * other side of the same guard because the network path needs it. */
+#if CONFIG_USB_DISPLAY_DEVICE
 #include "esp_private/usb_phy.h"
 #include "tusb.h"
+#endif
 #include "usb_descriptors.h"
 }
 
@@ -49,6 +54,7 @@ static constexpr uint32_t FRAME_WAIT_MS = 250;
 // enforces a single instance.
 static Portall *g_portall = nullptr;
 
+#if CONFIG_USB_DISPLAY_DEVICE
 extern "C" void tud_vendor_rx_cb(uint8_t itf, uint8_t const *buffer, uint16_t bufsize) {
   (void) buffer;
   (void) bufsize;
@@ -102,6 +108,7 @@ void tusb_device_task(void *param) {
 }
 
 }  // namespace
+#endif  // CONFIG_USB_DISPLAY_DEVICE
 
 void Portall::setup() {
   if (this->display_ == nullptr) {
@@ -192,6 +199,7 @@ void Portall::setup() {
 #endif
   this->setup_network_();
 
+#if CONFIG_USB_DISPLAY_DEVICE
   // Device mode on the PHY that matches the speed the descriptors were built
   // for. TinyUSB does not set the PHY up itself.
   //
@@ -224,6 +232,7 @@ void Portall::setup() {
   // the endpoint or the host stalls, and a decode that runs late only costs a
   // frame. Core 1 keeps both off the core ESPHome's loop runs on.
   xTaskCreatePinnedToCore(tusb_device_task, "usbd", 4096, nullptr, 5, nullptr, 1);
+#endif  // CONFIG_USB_DISPLAY_DEVICE
   xTaskCreatePinnedToCore(Portall::decode_task, "udisp", 4096, this, 4, nullptr, 1);
 
   const size_t psram_after = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
@@ -579,6 +588,7 @@ void Portall::feed_(const uint8_t *data, size_t len, bool may_wait) {
 }
 
 void Portall::on_vendor_rx(uint8_t itf) {
+#if CONFIG_USB_DISPLAY_DEVICE
   static uint8_t rx_buf[CFG_TUD_VENDOR_EPSIZE];
 
   while (tud_vendor_n_available(itf)) {
@@ -587,6 +597,12 @@ void Portall::on_vendor_rx(uint8_t itf) {
       break;
     this->feed_(rx_buf, (size_t) read);
   }
+#else
+  /* Nothing calls this without TinyUSB -- it is TinyUSB's own callback that
+   * does. The definition stays so the declaration in the header needs no
+   * guard of its own; CFG_TUD_VENDOR_EPSIZE would not be a number here. */
+  (void) itf;
+#endif
 }
 
 // ===========================================================================
@@ -837,11 +853,19 @@ void Portall::dump_config() {
   // Which identifiers the board actually enumerates as, and how many
   // interfaces. Both decide which driver a host binds, and neither could be
   // read back off a log before.
+#if CONFIG_USB_DISPLAY_DEVICE
   ESP_LOGCONFIG(TAG, "  Over USB: %04X:%04X \"%s\" \"%s\", %s, %s", (unsigned) CONFIG_USB_DISPLAY_VID,
                 (unsigned) CONFIG_USB_DISPLAY_PID, CONFIG_USB_DISPLAY_MANUFACTURER, CONFIG_USB_DISPLAY_PRODUCT,
                 CONFIG_USB_DISPLAY_HIGH_SPEED ? "High Speed" : "Full Speed",
                 CFG_TUD_MSC ? "display + sender drive" : "display only");
   ESP_LOGCONFIG(TAG, "    Advertised to a USB host: %s", CONFIG_USB_DISPLAY_VENDOR_STRING);
+#else
+  /* Worth a line rather than a silence, because the socket is still there and
+   * still carrying power: somebody looking for the board on a PC has to be
+   * told it is not a USB device at all, not left to conclude the cable is
+   * faulty. And it names what the peripheral was released FOR. */
+  ESP_LOGCONFIG(TAG, "  Over USB: nothing (usb: false -- the OTG peripheral is free for a USB host)");
+#endif
   ESP_LOGCONFIG(TAG, "  Frame buffers: %u x %u bytes", (unsigned) this->frame_buffer_count_,
                 (unsigned) this->max_frame_bytes_);
   ESP_LOGCONFIG(TAG, "  Decoded buffer: %u bytes (%ux%u, rounded up to whole 16x16 units)",

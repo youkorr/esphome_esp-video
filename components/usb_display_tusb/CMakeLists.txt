@@ -24,6 +24,15 @@ endif()
 idf_component_register(INCLUDE_DIRS "."
                        REQUIRES esp_driver_jpeg ${usb_requires})
 
+# With the device side off there is no espressif__tinyusb in the build to
+# reach for, and asking for its COMPONENT_LIB is a hard CMake error rather than
+# an empty string. This component still registers, because the wire protocol in
+# usb_descriptors.h and these include directories are what the network path is
+# built on.
+if(NOT CONFIG_USB_DISPLAY_DEVICE)
+    return()
+endif()
+
 idf_component_get_property(tusb_lib espressif__tinyusb COMPONENT_LIB)
 target_include_directories(${tusb_lib} PUBLIC "${COMPONENT_DIR}")
 target_sources(${tusb_lib} PUBLIC "${COMPONENT_DIR}/usb_descriptors.c")

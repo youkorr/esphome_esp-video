@@ -20,7 +20,9 @@
 #include <cstring>
 
 extern "C" {
+#if CONFIG_USB_DISPLAY_DEVICE
 #include "tusb.h"
+#endif
 }
 
 #if CFG_TUD_MSC

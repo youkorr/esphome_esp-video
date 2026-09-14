@@ -3,7 +3,14 @@
 #include "esphome/components/number/number.h"
 #include "../portall.h"
 
-#if CFG_TUD_AUDIO
+/* USE_SPEAKER, not CFG_TUD_AUDIO, and the comment below is why: this entity
+ * moves the one volume that every way in shares. Guarding it on the USB audio
+ * class meant a board with no USB at all -- `usb: false`, fed over Wi-Fi --
+ * would have lost its volume control while still playing the page's sound
+ * through the speaker, which is the exact fault a panel already reported once
+ * with a `platform: template` number standing in its place. The condition now
+ * matches where set_audio_volume actually lives. */
+#ifdef USE_SPEAKER
 
 namespace esphome {
 namespace portall {
@@ -46,4 +53,4 @@ class USBVolumeNumber : public number::Number, public Component {
 }  // namespace portall
 }  // namespace esphome
 
-#endif  // CFG_TUD_AUDIO
+#endif  // USE_SPEAKER
