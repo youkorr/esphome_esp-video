@@ -93,8 +93,9 @@ If you would rather not run anything, paste the old block wherever you got
 this add-on from and ask -- the conversion is mechanical.
 
 **What is gone:** `home_corner` and `home_hold`. They existed to make a
-three-second hold in a small corner reachable; two taps in that corner need
-neither, and the defaults -- 14% of each axis, one second -- are simply right.
+three-second hold in a small corner reachable, and the defaults -- 14% of each
+axis, one second -- are simply right. (`home_taps` came and went after them,
+for the reason under the corner below.)
 
 ## Moving from the old add-on
 
@@ -288,8 +289,7 @@ gesture is. Two ways home, both of which leave the corner alone.
 The startup line says where the corner is and what it passes through:
 
 ```
-Home: corner 14% (179x112 of the page), hold 1s, a tap under 0.35s reaches
-the page, settle 300ms
+Home: corner 14% (179x112 of the page), hold 1s, a tap under 0.35s reaches the page, settle 300ms
 ```
 
 The corner is 14% of each axis -- on a 1280x800 page, 179x112 -- and the mark
@@ -318,13 +318,13 @@ difference is measured against. A page of links has no such staging, and since
 actually for -- `first picture 0.0s after the page opened`, so the picture was
 ready the moment the wait ended -- the launcher's own settle is **300 ms**.
 
-Coming home is therefore your `home_hold` plus about a third of a second, and
-the log says so in three pieces, so a slow return can be blamed on the right
-one:
+Coming home is therefore the one-second hold plus about a third of a second,
+and the log says so in three pieces, so a slow return can be blamed on the
+right one:
 
 ```
-Home: corner 25% (320x200 of the page), hold 3s, settle 300ms
-Home: back to http://127.0.0.1:8099/ -- held 3.0s, opened in 0.3s
+Home: corner 14% (179x112 of the page), hold 1s, a tap under 0.35s reaches the page, settle 300ms
+Home: back to http://127.0.0.1:8099/ -- held 1.0s, opened in 0.3s
 Home: first picture 0.0s after the page opened
 ```
 
@@ -1083,35 +1083,20 @@ Raspberry Pi or any other arm64 box it falls back to the distribution's
 Chromium and there is no Widevine to be had. The `Browser: running ...` line
 at startup says which one you got.
 
-**A sign-in that fails was blamed on reCAPTCHA here, and that was wrong.**
-Reported from a panel pointed at `https://www.netflix.com/fr/`: *"Un probleme
-est survenu. Veuillez reessayer dans quelques minutes"*, with the email field
-**still empty** and Netflix's own note at the bottom of the page saying it is
-protected by Google reCAPTCHA. The obvious reading was that the check scores a
-driven browser badly, and this page said so for several releases.
+**Signing in works.** Google's reCAPTCHA does not block a panel -- confirmed
+on Spotify, whose sign-in carries it.
 
-The obvious reading was not the cause. That panel had a **`user_agent` on the
-link** -- the string of Netflix's *Android app* -- while being Chrome on Linux
-x86_64, at a desktop size, sending no `Sec-CH-UA` at all because the string
-carries no `Chrome/` token. No real client produces that combination, and a
-check does not have to think you are a robot to refuse a set of headers that
-describes nothing that exists.
+**Leave `user_agent` alone and it stays that way.** A site then gets the
+honest browser, which is the strongest client a panel can present, and a
+fabricated string invents contradictions because everything else in the stack
+stays Chrome -- a panel claiming to be an Android app while being Chrome on
+x86_64 at a desktop size, sending no `Sec-CH-UA` at all, describes nothing
+that exists. Set `user_agent:` on a link only where a site serves a
+*different interface* to a different device, which is what the television
+mode below is for.
 
-**Take the user agent off and a reCAPTCHA-protected sign-in goes through** --
-confirmed on Spotify, whose sign-in carries the same check. So the rule is the
-plain one: give a site the honest browser. Chrome with Widevine, H.264 and AAC
-is the strongest client a panel can present, and disguising it can only
-introduce contradictions, because everything else in the stack stays Chrome.
-
-Set `user_agent:` on a link only where a site serves a *different interface*
-to a different device and that is what you want -- YouTube's television mode
-is the one case in this document.
-
-So there is **one** wall left for Netflix rather than two, and it is the one
-that was always in front:
-
-**Widevine**, for playing. Look at the log line above before anything else --
-with no Widevine, signing in buys nothing at all.
+So Widevine is the only thing standing between a panel and Netflix, and the
+log line above is what says whether you have it.
 
 Even with both solved, a browser gets Widevine **L3**, which Netflix limits to
 standard definition -- and full motion at a panel's own resolution is the
