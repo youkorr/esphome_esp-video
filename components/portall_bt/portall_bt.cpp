@@ -192,6 +192,7 @@ struct ProbeRequest {
   PortallBT *self;
   uint8_t hub_index;
   uint8_t hub_port;
+  uint8_t intf_index;
 };
 
 // The task's whole existence is that usbh_submit_urb blocks. ESPHome's loop
@@ -199,7 +200,7 @@ struct ProbeRequest {
 // device either.
 static void hci_probe_task(void *arg) {
   ProbeRequest *request = (ProbeRequest *) arg;
-  request->self->probe_hci(request->hub_index, request->hub_port);
+  request->self->probe_hci(request->hub_index, request->hub_port, request->intf_index);
   delete request;
   vTaskDelete(nullptr);
 }
@@ -216,6 +217,12 @@ void PortallBT::report_(uint8_t hub_index, uint8_t hub_port) {
 
   ESP_LOGI(TAG, "device %u on bus 0: %04x:%04x, %s speed", hport->dev_addr,
            hport->device_desc.idVendor, hport->device_desc.idProduct, speed_name(hport->speed));
+  // Printed because it is where a dongle can say what it is without any
+  // interface saying so, and because the first version of this looked only at
+  // the interfaces and therefore could not explain what it had found.
+  ESP_LOGI(TAG, "  device class %02x subclass %02x protocol %02x",
+           hport->device_desc.bDeviceClass, hport->device_desc.bDeviceSubClass,
+           hport->device_desc.bDeviceProtocol);
   if (hport->iManufacturer != nullptr || hport->iProduct != nullptr) {
     ESP_LOGI(TAG, "  %s %s", hport->iManufacturer != nullptr ? hport->iManufacturer : "",
              hport->iProduct != nullptr ? hport->iProduct : "");
@@ -231,24 +238,46 @@ void PortallBT::report_(uint8_t hub_index, uint8_t hub_port) {
     interfaces = CONFIG_USBHOST_MAX_INTERFACES;
   }
 
-  bool bluetooth = false;
+  int hci_interface = -1;
+  bool vendor_class = false;
   for (uint8_t i = 0; i < interfaces; i++) {
     const struct usb_interface_descriptor *desc = &hport->config.intf[i].altsetting[0].intf_desc;
     ESP_LOGI(TAG, "  interface %u: class %02x subclass %02x protocol %02x", i,
              desc->bInterfaceClass, desc->bInterfaceSubClass, desc->bInterfaceProtocol);
-    // E0/01/01 is the Bluetooth primary controller, and it is the exact triple
-    // CherryUSB's own bluetooth_class_info matches on -- so saying it out loud
-    // here turns the next step from a guess into a yes or no.
-    if (desc->bInterfaceClass == 0xE0 && desc->bInterfaceSubClass == 0x01 &&
-        desc->bInterfaceProtocol == 0x01) {
-      bluetooth = true;
+    if (hci_interface >= 0 || desc->bInterfaceSubClass != 0x01 ||
+        desc->bInterfaceProtocol != 0x01) {
+      continue;
+    }
+    // E0/01/01 is the Bluetooth primary controller as the USB class defines
+    // it. FF/01/01 is the same interface wearing a vendor coat, which whole
+    // families of dongles do so that Windows loads the manufacturer's stack
+    // instead of the generic one -- the Broadcom this was measured against is
+    // one of them, reporting ff/01/01 on interfaces 0 and 1 and even ff at the
+    // device level. Linux does not treat that as a different kind of device
+    // either: btusb.c binds it with
+    //
+    //     USB_VENDOR_AND_INTERFACE_INFO(0x0a5c, 0xff, 0x01, 0x01)
+    //
+    // and carries a dozen more vendors on the same line. So the subclass and
+    // the protocol are what say Bluetooth here; the class only says who wrote
+    // the driver they were hoping for.
+    if (desc->bInterfaceClass == 0xE0 || desc->bInterfaceClass == 0xFF) {
+      hci_interface = (int) i;
+      vendor_class = desc->bInterfaceClass == 0xFF;
     }
   }
 
-  if (!bluetooth) {
+  if (hci_interface < 0) {
     return;
   }
-  ESP_LOGI(TAG, "  this is a Bluetooth controller; asking it who it is");
+  if (vendor_class) {
+    ESP_LOGI(TAG,
+             "  interface %d is vendor class but 01/01, which is how Broadcom and friends "
+             "ship an HCI interface; asking it who it is",
+             hci_interface);
+  } else {
+    ESP_LOGI(TAG, "  interface %d is a Bluetooth controller; asking it who it is", hci_interface);
+  }
 
   // One at a time. A second dongle would need a second set of buffers, and
   // there is one socket on the boards this runs on.
@@ -258,7 +287,7 @@ void PortallBT::report_(uint8_t hub_index, uint8_t hub_port) {
   }
   this->probing_ = true;
 
-  auto *request = new ProbeRequest{this, hub_index, hub_port};  // NOLINT
+  auto *request = new ProbeRequest{this, hub_index, hub_port, (uint8_t) hci_interface};  // NOLINT
   if (xTaskCreate(hci_probe_task, "portall_bt", 4096, request, 5, nullptr) != pdPASS) {
     ESP_LOGE(TAG, "  could not start the task that would have asked");
     delete request;
@@ -266,16 +295,18 @@ void PortallBT::report_(uint8_t hub_index, uint8_t hub_port) {
   }
 }
 
-void PortallBT::probe_hci(uint8_t hub_index, uint8_t hub_port) {
+void PortallBT::probe_hci(uint8_t hub_index, uint8_t hub_port, uint8_t intf_index) {
   struct usbh_hubport *hport = usbh_find_hubport(0, hub_index, hub_port);
   if (hport == nullptr || !hport->connected) {
     this->probing_ = false;
     return;
   }
 
-  // Interface 0 is where HCI lives on every dongle -- interface 1 is SCO, the
-  // voice channel, and it is nothing to do with this.
-  struct usbh_interface_altsetting *alt = &hport->config.intf[0].altsetting[0];
+  // The FIRST interface that answered the description is the one, and it is
+  // passed in rather than assumed: the SCO interface carries the same subclass
+  // and protocol, so taking the last match instead of the first would leave
+  // this talking HCI to the voice channel.
+  struct usbh_interface_altsetting *alt = &hport->config.intf[intf_index].altsetting[0];
   const uint8_t intf = alt->intf_desc.bInterfaceNumber;
 
   // Events arrive on the interrupt IN endpoint. Finding it by its attributes

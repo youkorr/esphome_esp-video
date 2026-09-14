@@ -30,7 +30,7 @@ class PortallBT : public Component {
 
   // Runs in a task of its own, because every transfer it makes blocks until
   // the dongle answers and the ESPHome loop may not be stopped for that.
-  void probe_hci(uint8_t hub_index, uint8_t hub_port);
+  void probe_hci(uint8_t hub_index, uint8_t hub_port, uint8_t intf_index);
 
  private:
   void report_(uint8_t hub_index, uint8_t hub_port);
