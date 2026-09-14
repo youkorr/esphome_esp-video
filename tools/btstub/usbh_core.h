@@ -39,6 +39,8 @@ struct usbh_hubport { bool connected; uint8_t port; uint8_t dev_addr; uint8_t sp
 typedef void (*usbh_event_handler_t)(uint8_t busid, uint8_t hub_index, uint8_t hub_port, uint8_t intf, uint8_t event);
 static inline void usbh_int_urb_fill(struct usbh_urb *urb, struct usbh_hubport *hport, struct usb_endpoint_descriptor *ep, uint8_t *buf, uint32_t len, uint32_t timeout, usbh_complete_callback_t complete, void *arg) { urb->hport = hport; urb->ep = ep; urb->setup = nullptr; urb->transfer_buffer = buf; urb->transfer_buffer_length = len; urb->timeout = timeout; urb->complete = complete; urb->arg = arg; }
 int usbh_submit_urb(struct usbh_urb *urb);
+int usbh_set_interface(struct usbh_hubport *hport, uint8_t intf, uint8_t altsetting);
+#define USB_GET_MAXPACKETSIZE(x) ((x) & 0x7ff)
 int usbh_control_transfer(struct usbh_hubport *hport, struct usb_setup_packet *setup, uint8_t *buffer);
 int usbh_initialize(uint8_t busid, uintptr_t reg_base, usbh_event_handler_t handler);
 struct usbh_hubport *usbh_find_hubport(uint8_t busid, uint8_t hub_index, uint8_t hub_port);

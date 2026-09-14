@@ -146,37 +146,62 @@ static int hci_command(struct usbh_hubport *hport, uint8_t intf, uint16_t opcode
   return usbh_control_transfer(hport, setup, g_hci_cmd);
 }
 
+// What the waiting saw, so that a failure can say something. The first version
+// of this reported only "nothing came back", which is the shape of message
+// this repository keeps having to apologise for: it cost a whole round trip
+// to a board to learn what a number would have said on the first run.
+struct Waited {
+  uint32_t reads;    // how many times the endpoint was asked
+  uint32_t events;   // how many of those brought any bytes at all
+  int last_error;    // what usbh_submit_urb said the last time it refused
+  int last_length;   // and how many bytes the last successful read held
+  uint8_t last_code; // the event code of the last thing that arrived
+};
+
+static uint32_t now_ms() { return (uint32_t) (xTaskGetTickCount() * portTICK_PERIOD_MS); }
+
 // Reads events until one of them is the Command Complete for `opcode`, or the
 // patience runs out. A controller answers other things while it settles -- a
 // Broadcom emits vendor events of its own after a reset -- so taking the first
 // event that arrives and calling it the answer would be wrong about half the
 // time.
+//
+// The budget is a REAL CLOCK, and that is a correction rather than a
+// refinement. It used to count attempts and assume each one cost the half
+// second it asked for, which is true only when a read times out: a refusal
+// comes back in microseconds, so sixteen of those spent a three-second
+// allowance instantly and the caller reported silence after no wait at all.
+// Measured on a Tab5 -- the command went out and the failure was logged in the
+// same second.
 static int hci_await(struct usbh_hubport *hport, struct usb_endpoint_descriptor *ep,
-                     uint16_t opcode, uint32_t patience_ms) {
+                     uint16_t opcode, uint32_t patience_ms, Waited *saw) {
   struct usbh_urb urb;
-  // Two budgets rather than one clock, because the two ways of not getting an
-  // answer are different. Silence is spent in half-second reads against the
-  // patience asked for; an event that is simply not the one wanted costs no
-  // time at all and would otherwise let a chatty controller eat the whole
-  // allowance without the caller ever waiting.
-  uint32_t silences = 0;
-  uint32_t others = 0;
-  const uint32_t allowed_silences = patience_ms / 500;
+  const uint32_t started = now_ms();
 
-  while (silences < allowed_silences && others < 16) {
+  *saw = Waited{};
+  while (now_ms() - started < patience_ms) {
     usbh_int_urb_fill(&urb, hport, ep, g_hci_evt, sizeof(g_hci_evt), 500, nullptr, nullptr);
     const int err = usbh_submit_urb(&urb);
+    saw->reads++;
     if (err < 0) {
-      silences++;
-      continue;  // the dongle is allowed to be slow
+      saw->last_error = err;
+      // Only for a refusal, and only 10 ms: a read that really waited has
+      // already spent its time, while a refusal that returns at once would
+      // otherwise spin a core for the whole patience.
+      vTaskDelay(pdMS_TO_TICKS(10));
+      continue;
     }
+    if (urb.actual_length <= 0) {
+      continue;  // an empty read is silence, not an answer to discard
+    }
+    saw->events++;
+    saw->last_length = urb.actual_length;
+    saw->last_code = g_hci_evt[0];
     if (urb.actual_length < 6 || g_hci_evt[0] != HCI_EVENT_COMMAND_COMPLETE) {
-      others++;
       continue;
     }
     const uint16_t answered = (uint16_t) (g_hci_evt[3] | (g_hci_evt[4] << 8));
     if (answered != opcode) {
-      others++;
       continue;
     }
     return (int) urb.actual_length;
@@ -329,6 +354,18 @@ void PortallBT::probe_hci(uint8_t hub_index, uint8_t hub_port, uint8_t intf_inde
     this->probing_ = false;
     return;
   }
+  ESP_LOGI(TAG, "  events on endpoint %02x, packet %u, interval %u", events->bEndpointAddress,
+           (unsigned) USB_GET_MAXPACKETSIZE(events->wMaxPacketSize), events->bInterval);
+
+  // CherryUSB's own driver selects alternate setting 0 before it starts, so
+  // this does too. A device that has alternate settings at all is entitled to
+  // be told which one is wanted, and a vendor-class one that refuses costs a
+  // log line rather than the probe.
+  const int selected = usbh_set_interface(hport, intf, 0);
+  if (selected < 0) {
+    ESP_LOGW(TAG, "  selecting altsetting 0 on interface %u was refused (%d), carrying on", intf,
+             selected);
+  }
 
   int err = hci_command(hport, intf, HCI_RESET, nullptr, 0);
   if (err < 0) {
@@ -336,12 +373,19 @@ void PortallBT::probe_hci(uint8_t hub_index, uint8_t hub_port, uint8_t intf_inde
     this->probing_ = false;
     return;
   }
+  ESP_LOGI(TAG, "  HCI Reset went out, waiting for the answer");
+
+  Waited saw;
   // Three seconds because a controller that has just been given power is
   // allowed to take its time, and because being wrong here would read as the
   // dongle being mute when it was only slow.
-  int len = hci_await(hport, events, HCI_RESET, 3000);
+  int len = hci_await(hport, events, HCI_RESET, 3000, &saw);
   if (len < 0) {
-    ESP_LOGE(TAG, "HCI Reset went out and nothing came back");
+    ESP_LOGE(TAG,
+             "HCI Reset went out and nothing came back: %u reads, %u of them with bytes, "
+             "last error %d, last length %d, last event %02x",
+             (unsigned) saw.reads, (unsigned) saw.events, saw.last_error, saw.last_length,
+             saw.last_code);
     this->probing_ = false;
     return;
   }
@@ -351,7 +395,7 @@ void PortallBT::probe_hci(uint8_t hub_index, uint8_t hub_port, uint8_t intf_inde
   // turns "it answered" into something a person can check against the same
   // dongle on a PC.
   if (hci_command(hport, intf, HCI_READ_LOCAL_VERSION, nullptr, 0) >= 0) {
-    len = hci_await(hport, events, HCI_READ_LOCAL_VERSION, 2000);
+    len = hci_await(hport, events, HCI_READ_LOCAL_VERSION, 2000, &saw);
     if (len >= 14) {
       const uint16_t manufacturer = (uint16_t) (g_hci_evt[10] | (g_hci_evt[11] << 8));
       ESP_LOGI(TAG, "  HCI version %u, LMP version %u, manufacturer %u", g_hci_evt[6],
@@ -360,7 +404,7 @@ void PortallBT::probe_hci(uint8_t hub_index, uint8_t hub_port, uint8_t intf_inde
   }
 
   if (hci_command(hport, intf, HCI_READ_BD_ADDR, nullptr, 0) >= 0) {
-    len = hci_await(hport, events, HCI_READ_BD_ADDR, 2000);
+    len = hci_await(hport, events, HCI_READ_BD_ADDR, 2000, &saw);
     if (len >= 12) {
       // Little-endian on the wire, printed the way everybody writes it.
       ESP_LOGI(TAG, "  address %02X:%02X:%02X:%02X:%02X:%02X", g_hci_evt[11], g_hci_evt[10],
@@ -369,7 +413,7 @@ void PortallBT::probe_hci(uint8_t hub_index, uint8_t hub_port, uint8_t intf_inde
   }
 
   if (hci_command(hport, intf, HCI_READ_LOCAL_NAME, nullptr, 0) >= 0) {
-    len = hci_await(hport, events, HCI_READ_LOCAL_NAME, 2000);
+    len = hci_await(hport, events, HCI_READ_LOCAL_NAME, 2000, &saw);
     if (len > 6) {
       // The field is 248 bytes padded with NULs, and a controller with no name
       // set sends 248 of them -- which is a valid answer and not worth a line.
