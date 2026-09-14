@@ -3643,6 +3643,27 @@ The lesson is the ordinary one and it was nearly paid for again: the link
 error would eventually have named these symbols, and reading Espressif's
 header named them first, correctly, and said what their arguments mean.
 
+**And the build that was meant to answer this said nothing, because the
+option is off by default.** The dongle answered, the inquiry ran, the log was
+the working probe exactly as before -- and not one line of it was about
+Bluedroid, because `yaml/tab5-bt-probe.yaml` carried no `host_stack:` and
+`try_host_stack_()` returns at its first line when the option is `none`. A
+round trip to a board spent proving nothing had broken.
+
+That is the silent no-op again, in the one costume this file had not yet
+recorded: not a check that passed vacuously, but a QUESTION that was never
+asked. The probe firmware now asks it in the repository rather than leaving it
+to whoever builds.
+
+Fixing it found the other half. That file has never passed `esphome config`:
+its `api:` encryption key is an **empty string**, which is the same fault
+CLAUDE.md already records for `ws-usb-screen.yaml` and the Guition pair -- a
+fourth file, and the reason it was never caught is that nobody had run the
+checker on it. It is `!secret api_encryption_key` now, like every other
+example here, and it validates with `host_stack: bluedroid` set.
+`yaml/GUITION_ PORTAL.yaml` has the same empty key and is left alone: it is
+somebody's own configuration rather than an example this repository offers.
+
 **The Realtek needs its firmware.** The TP-Link UB500 answers HCI Reset and
 gives a real address from ROM -- its address matched the user's own Windows
 screenshot exactly -- and that is the false success this file warned about:
