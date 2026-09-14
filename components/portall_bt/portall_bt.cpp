@@ -14,6 +14,13 @@
 // register addresses are never repeated here.
 #include "usbh_core.h"
 
+// Only present when host_stack: bluedroid put CONFIG_BT_ENABLED in the
+// sdkconfig. See __init__.py for why that configuration is possible on a chip
+// with no Bluetooth of its own.
+#ifdef CONFIG_BT_BLUEDROID_ENABLED
+#include "esp_bt_main.h"
+#endif
+
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
@@ -73,6 +80,39 @@ void PortallBT::setup() {
   this->started_ = true;
   ESP_LOGI(TAG, "USB host running on the %s controller; waiting for a device",
            this->high_speed_ ? "high-speed" : "full-speed");
+
+  this->try_host_stack_();
+}
+
+// Half a step on purpose, and the half that can be taken before the glue
+// exists. `esp_bluedroid_init()` builds the stack's own structures and talks to
+// nothing; `esp_bluedroid_enable()` is where a host reaches for a controller,
+// and there is not yet anything for it to reach.
+//
+// What this is really for is the BUILD. Whether Bluedroid compiles and LINKS
+// for an esp32p4 target cannot be read out of a Kconfig -- that file says the
+// configuration is selectable, which is a different claim. A link error here
+// is not a setback: the undefined symbols are the specification for the glue,
+// the host stack naming in the linker's own words exactly what it expects a
+// controller to provide.
+void PortallBT::try_host_stack_() {
+  if (!this->host_stack_) {
+    return;
+  }
+#ifdef CONFIG_BT_BLUEDROID_ENABLED
+  const esp_err_t err = esp_bluedroid_init();
+  if (err != ESP_OK) {
+    ESP_LOGE(TAG, "Bluedroid would not initialise (%d)", (int) err);
+    return;
+  }
+  ESP_LOGI(TAG, "Bluedroid initialised -- it compiles, it links, and it is up to");
+  ESP_LOGI(TAG, "  esp_bluedroid_enable() next, once this component can carry its HCI");
+#else
+  // Belt and braces: the option sets the sdkconfig, so reaching here means the
+  // two disagreed, and a silent nothing is exactly what this file keeps having
+  // to apologise for.
+  ESP_LOGE(TAG, "host_stack: bluedroid was asked for and CONFIG_BT_BLUEDROID_ENABLED is not set");
+#endif
 }
 
 void PortallBT::on_usb_event(uint8_t hub_index, uint8_t hub_port, uint8_t event) {

@@ -104,6 +104,24 @@ behind `#ifndef`, the way the rest of that same file already does for
 everything else -- and then a project sets them from its own build. When that
 lands, the replacement stops matching and the patch retires itself.
 
+`host_stack: bluedroid` IS A PROBE, and it is deliberately only half a step.
+
+It turns on ESP-IDF's own Bluetooth host in the one configuration a chip with
+no controller of its own can have -- Bluedroid, Classic and A2DP, with
+BT_CONTROLLER_DISABLED -- and calls `esp_bluedroid_init()`, which sets the
+stack up without trying to talk to anything. It does NOT call
+`esp_bluedroid_enable()`, because that is where the host reaches for a
+controller and there is not yet anything for it to reach.
+
+The point is the BUILD. Nothing about whether that configuration compiles and
+links for an esp32p4 target can be established from a Kconfig file: the
+Kconfig says it is selectable, which is a different claim. If it links, the
+route is open and the glue is the work. If it does not, the undefined symbols
+ARE the specification for that glue -- the host stack naming, in the linker's
+own words, exactly what a controller is expected to provide.
+
+Leave it at `none` unless you are running that experiment.
+
 THE VERSION IS PINNED, and not out of caution. `usbh_initialize` grew a third
 parameter -- the event handler this component uses -- in 1.6.0; 1.5.x takes
 two. A floating version would stop compiling on an upgrade, with an error
@@ -122,6 +140,11 @@ DEPENDENCIES = ["esp32"]
 
 CONF_CONTROLLER = "controller"
 CONF_INQUIRY_SECONDS = "inquiry_seconds"
+CONF_HOST_STACK = "host_stack"
+
+# "bluedroid" turns ESP-IDF's own Bluetooth host on, in the one configuration a
+# chip with no controller of its own can have. See the module docstring.
+HOST_STACKS = {"none": False, "bluedroid": True}
 
 # True selects the high-speed peripheral. The C++ turns it into CherryUSB's
 # ESP_USB_HS0_BASE / ESP_USB_FS0_BASE rather than repeating those addresses
@@ -147,6 +170,7 @@ CONFIG_SCHEMA = cv.All(
             cv.Optional(
                 CONF_INQUIRY_SECONDS, default="10s"
             ): cv.All(cv.positive_time_period_seconds, cv.Range(max=cv.TimePeriod(seconds=61))),
+            cv.Optional(CONF_HOST_STACK, default="none"): cv.enum(HOST_STACKS, lower=True),
         }
     ).extend(cv.COMPONENT_SCHEMA),
     esp32.only_on_variant(supported=[esp32.VARIANT_ESP32P4]),
@@ -158,6 +182,7 @@ async def to_code(config):
     await cg.register_component(var, config)
     cg.add(var.set_high_speed(config[CONF_CONTROLLER]))
     cg.add(var.set_inquiry_seconds(config[CONF_INQUIRY_SECONDS].total_seconds))
+    cg.add(var.set_host_stack(config[CONF_HOST_STACK]))
 
     # Fetched from Espressif's component registry at build time rather than
     # carried here: ESPHome writes this into src/idf_component.yml and the IDF
@@ -182,3 +207,29 @@ async def to_code(config):
     esp32.add_idf_sdkconfig_option("CONFIG_CHERRYUSB", True)
     esp32.add_idf_sdkconfig_option("CONFIG_CHERRYUSB_HOST", True)
     esp32.add_idf_sdkconfig_option("CONFIG_CHERRYUSB_HOST_DWC2_ESP", True)
+
+    if config[CONF_HOST_STACK]:
+        # Read out of ESP-IDF's own Kconfig rather than assumed, because every
+        # one of these has a dependency and three of them would be refused on
+        # this chip if the controller were not disabled:
+        #
+        #   BT_ENABLED             depends on !APP_NO_BLOBS
+        #   BT_BLUEDROID_ENABLED   no dependency at all
+        #   BT_CONTROLLER_ENABLED  depends on SOC_BT_SUPPORTED  <- not on a P4
+        #   BT_CONTROLLER_DISABLED no dependency
+        #       "recommended for Bluetooth Host only usecases"
+        #   BT_CLASSIC_ENABLED     depends on BT_BLUEDROID_ENABLED &&
+        #       ((BT_CONTROLLER_ENABLED && SOC_BT_CLASSIC_SUPPORTED)
+        #        || BT_CONTROLLER_DISABLED)
+        #   BT_A2DP_ENABLE         depends on BT_CLASSIC_ENABLED
+        #
+        # That `|| BT_CONTROLLER_DISABLED` in BT_CLASSIC_ENABLED is the whole
+        # permission slip: with an external controller, Classic is selectable
+        # whatever the chip itself can do. Espressif wrote that clause for this
+        # case, and it is why A2DP on a P4 is a configuration rather than a
+        # hope.
+        esp32.add_idf_sdkconfig_option("CONFIG_BT_ENABLED", True)
+        esp32.add_idf_sdkconfig_option("CONFIG_BT_BLUEDROID_ENABLED", True)
+        esp32.add_idf_sdkconfig_option("CONFIG_BT_CONTROLLER_DISABLED", True)
+        esp32.add_idf_sdkconfig_option("CONFIG_BT_CLASSIC_ENABLED", True)
+        esp32.add_idf_sdkconfig_option("CONFIG_BT_A2DP_ENABLE", True)
