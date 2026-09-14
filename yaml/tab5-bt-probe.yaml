@@ -1,0 +1,90 @@
+# The smallest firmware that can answer the one question this whole Bluetooth
+# route rests on: does the ESP32-P4 see a USB Bluetooth dongle at all?
+#
+# It is deliberately not a panel. No display, no touchscreen, no portall, no
+# Wi-Fi -- none of that can help the answer and all of it can muddy it. The log
+# comes out of the USB-Serial-JTAG port (the USB-C), which is a different
+# peripheral from the two OTG controllers, so watching the log costs nothing
+# the dongle needs.
+#
+# Flash it, plug a dongle into the Tab5's USB-A socket, and read:
+#
+#     [portall_bt]: USB host running on the high-speed controller; waiting ...
+#     [portall_bt]: device 1 on bus 0: 0a5c:21e8, full speed
+#     [portall_bt]:   interface 0: class e0 subclass 01 protocol 01
+#     [portall_bt]:   this is a Bluetooth controller, and CherryUSB's class
+#                    driver would bind to it
+#
+# Nothing at all after "waiting" means the dongle is not being seen: check that
+# usb_5v_power below really came on -- a host has to supply the 5V, and on this
+# board that is a pin of an IO expander rather than a rail that is always live.
+#
+# The USB-A is on the HIGH-SPEED controller, which is why `controller:` is left
+# at its default. It is also the controller portall puts in device mode, so
+# this firmware and a portall firmware cannot be the same firmware today.
+
+substitutions:
+  name: tab5-bt-probe
+
+esphome:
+  name: ${name}
+  friendly_name: Tab5 BT probe
+
+esp32:
+  board: esp32-p4-evboard
+  cpu_frequency: 360MHz
+  flash_size: 16MB
+  engineering_sample: true
+  framework:
+    type: esp-idf
+    advanced:
+      enable_idf_experimental_features: yes
+
+logger:
+
+psram:
+  mode: hex
+  speed: 200MHz
+
+esp_ldo:
+  - voltage: 2.5V
+    channel: 3
+
+i2c:
+  - id: bsp_bus
+    sda: GPIO31
+    scl: GPIO32
+    frequency: 400kHz
+
+external_components:
+  - source:
+      type: git
+      url: https://github.com/youkorr/esphome_esp-video
+      ref: main
+    components: [portall_bt]
+    refresh: 0s
+
+# The Tab5 switches the USB-A socket's 5V through the second expander rather
+# than wiring it to a permanent rail, so without this the dongle has no power
+# and nothing ever enumerates. ALWAYS_ON because a probe has no reason to ask.
+pi4ioe5v6408:
+  - id: pi4ioe2
+    address: 0x44
+    # 0: O - wifi_power
+    # 3: O - usb_5v_power
+    # 4: O - poweroff pulse
+    # 5: O - quick charge enable (inverted)
+    # 6: I - charging status
+    # 7: O - charge enable
+
+switch:
+  - platform: gpio
+    id: usb_5v_power
+    name: "USB 5V"
+    pin:
+      pi4ioe5v6408: pi4ioe2
+      number: 3
+    restore_mode: ALWAYS_ON
+
+portall_bt:
+  id: dongle
