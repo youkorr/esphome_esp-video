@@ -3726,6 +3726,85 @@ they say what these functions are called and what they take, not that the
 build will accept them. What is NOT tested at all is ACL -- nothing has
 carried a byte of it -- and SCO is not implemented.
 
+### A frame that fills a packet exactly never ends, and Bluedroid stopped on the one that does
+
+The transport carried Bluedroid's first four commands and died on the fifth:
+
+    Bluedroid initialised; handing it the dongle
+    BT_HCI: command_timed_out hci layer timeout waiting for response to a
+            command. opcode: 0x1004
+
+Four commands answered, which is the useful half of the report: the control
+endpoint, the event endpoint, the reassembly and the callback all work. So
+the question is what is special about 0x1004, and the answer is arithmetic.
+
+**`Read Local Extended Features` answers in exactly 16 bytes** -- event code,
+parameter length, num_hci_command_packets, the opcode, then status, page,
+maximum page and eight bytes of features. Sixteen is the interrupt endpoint's
+packet size. The reader ended a frame on a read SHORTER than a packet, so it
+sat waiting for a packet the controller had no reason to send, the next read
+NAKed, and a NAK throws the part-read frame away. For ever.
+
+Of the seven commands Bluedroid sends while it starts, exactly one is a
+multiple of sixteen:
+
+| | event | last packet |
+|---|---|---|
+| 0x0C03 Reset | 6 | 6 |
+| 0x1001 Read Local Version | 13 | 13 |
+| 0x1002 Read Local Supported Commands | 70 | 6 |
+| 0x1003 Read Local Supported Features | 14 | 14 |
+| **0x1004 Read Local Extended Features** | **16** | **0** |
+| 0x1005 Read Buffer Size | 13 | 13 |
+| 0x1009 Read BD Address | 12 | 12 |
+
+and the log stopped on that one. A diagnosis with a number in it, rather than
+a guess.
+
+**The probe never met it, and worked by arithmetic nobody had done.** Its four
+answers are 6, 13, 12 and 254 bytes; not one is a multiple of 16. The
+short-packet rule is how CherryUSB's own driver is written and it is what the
+probe was proved against -- so it was inherited as sound and was merely lucky.
+
+**HCI says how long everything is, so read that instead of counting packets.**
+An event is code, parameter length, then that many bytes; an ACL packet is
+handle, a little-endian length, then that many bytes. `event_length()` and
+`acl_length()` are those two sentences, and both readers and the probe now
+frame on them. It is also what btusb does -- `hci_recv_fragment` reads the
+header rather than watching for short reads -- which is one more place this
+project would have saved a round trip by reading the reference all the way
+through.
+
+**Bulk makes it worse, not better.** The ACL endpoints here are 64 bytes, so
+the old rule would have hung on every payload of 60, 124, 188 and so on --
+which is to say the data path was going to fail the same way the moment
+anything connected.
+
+### And the test now links against the component rather than describing it
+
+`tools/bttest/framing.cpp` `#include`s `portall_bt.cpp` and calls the SHIPPED
+`event_length()` and `acl_length()`, with the blocking read replaced by a
+chopper. A test that restates the arithmetic it is checking proves only that
+it can copy. `tools/checkbt.py` builds and runs it alongside the two syntax
+passes.
+
+It covers Bluedroid's seven startup events, 0x1004 alone, the probe's own four
+with Read Local Name among them, **every** event length from 5 to 255 one
+packet at a time, and ACL payloads either side of 60, 124 and 188. The last
+case is the fault itself, kept rather than remembered: the old short-packet
+rule is run against the 16-byte event and must deliver **nothing**.
+
+**Two faults were in the TEST and neither was in the code**, which is the
+usual shape:
+
+- The chopper ran the frames together and cut packets across their boundary.
+  Each frame is its own USB transfer, so that stream cannot happen -- and it
+  made a correct reader look broken on the very first frame.
+- `Read Local Extended Features` was given ten return parameters instead of
+  eleven, so the event came out 15 bytes and the case that matters was not
+  being tested at all. The test said so itself, because the premise is
+  asserted: "the premise: 0x1004 answers in 15 bytes, not 16".
+
 Fixing it found the other half. That file has never passed `esphome config`:
 its `api:` encryption key is an **empty string**, which is the same fault
 CLAUDE.md already records for `ws-usb-screen.yaml` and the Guition pair -- a
