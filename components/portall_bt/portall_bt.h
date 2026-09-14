@@ -28,9 +28,14 @@ class PortallBT : public Component {
   // that can wait, waits.
   void on_usb_event(uint8_t hub_index, uint8_t hub_port, uint8_t event);
 
+  // Runs in a task of its own, because every transfer it makes blocks until
+  // the dongle answers and the ESPHome loop may not be stopped for that.
+  void probe_hci(uint8_t hub_index, uint8_t hub_port);
+
  private:
   void report_(uint8_t hub_index, uint8_t hub_port);
 
+  bool probing_{false};
   bool high_speed_{true};
   bool started_{false};
 
