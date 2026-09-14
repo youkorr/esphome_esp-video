@@ -143,6 +143,8 @@ CONF_CONTROLLER = "controller"
 CONF_INQUIRY_SECONDS = "inquiry_seconds"
 CONF_HOST_STACK = "host_stack"
 CONF_HID = "hid"
+CONF_AUDIO = "audio"
+CONF_TEST_TONE = "test_tone"
 CONF_DEVICE_NAME = "device_name"
 CONF_PAIR_SECONDS = "pair_seconds"
 CONF_SHOW_REPORTS = "show_reports"
@@ -210,6 +212,19 @@ def _validate_hid(config):
             "stack into the build.",
             path=[CONF_HID],
         )
+    if config[CONF_AUDIO] and not _wants(config, CONF_HOST_STACK):
+        raise cv.Invalid(
+            "audio: true needs a Bluetooth host to attach to. Add "
+            "host_stack: bluedroid, which is what brings ESP-IDF's Classic "
+            "stack into the build.",
+            path=[CONF_AUDIO],
+        )
+    if config[CONF_TEST_TONE] and not config[CONF_AUDIO]:
+        raise cv.Invalid(
+            "test_tone: has nothing to play through. It is the A2DP source's "
+            "stand-in for a real sound, so it needs audio: true.",
+            path=[CONF_TEST_TONE],
+        )
     return config
 
 
@@ -252,6 +267,15 @@ CONFIG_SCHEMA = cv.All(
             # A gamepad, a keyboard, a mouse or a remote -- one feature, not
             # four. See hid.cpp; they differ only in which buttons get pressed.
             cv.Optional(CONF_HID, default=False): cv.boolean,
+            # A2DP source: the panel sends its sound to a Bluetooth speaker,
+            # a car receiver or a pair of headphones. Classic, so the C6 can
+            # never do it and the dongle is the whole point.
+            cv.Optional(CONF_AUDIO, default=False): cv.boolean,
+            # A sine, in hertz, played whenever nothing else has been fed in.
+            # 0 is off. It exists so the link can be proved before there is
+            # anything real to play through it -- tools/playsound.py made the
+            # same choice for the panel's own speaker.
+            cv.Optional(CONF_TEST_TONE, default=0): cv.int_range(min=0, max=20000),
             # What this panel calls itself while pairing. Seen once, on the
             # screen of whatever is being paired with.
             cv.Optional(CONF_DEVICE_NAME, default="portall"): cv.string_strict,
@@ -283,6 +307,8 @@ async def to_code(config):
     cg.add(var.set_inquiry_seconds(config[CONF_INQUIRY_SECONDS].total_seconds))
     cg.add(var.set_host_stack(config[CONF_HOST_STACK]))
     cg.add(var.set_hid_host(config[CONF_HID]))
+    cg.add(var.set_a2dp(config[CONF_AUDIO]))
+    cg.add(var.set_test_tone(config[CONF_TEST_TONE]))
     cg.add(var.set_device_name(config[CONF_DEVICE_NAME]))
     cg.add(var.set_pair_seconds(config[CONF_PAIR_SECONDS].total_seconds))
     cg.add(var.set_show_reports(config[CONF_SHOW_REPORTS]))
@@ -366,7 +392,18 @@ async def to_code(config):
         esp32.add_idf_sdkconfig_option("CONFIG_BT_BLUEDROID_ENABLED", True)
         esp32.add_idf_sdkconfig_option("CONFIG_BT_CONTROLLER_DISABLED", True)
         esp32.add_idf_sdkconfig_option("CONFIG_BT_CLASSIC_ENABLED", True)
-        esp32.add_idf_sdkconfig_option("CONFIG_BT_A2DP_ENABLE", True)
+
+        # A2DP, and with it AVRCP, which Bluedroid couples to the same option.
+        # Asked for rather than always on: it is a profile like any other and
+        # a panel that only wants a gamepad should not carry an audio stack.
+        #
+        # The internal SBC codec is what the default gives, and that is the
+        # one this component uses -- see components/portall_bt/a2dp.cpp. The
+        # alternative, CONFIG_BT_A2DP_USE_EXTERNAL_CODEC, moves the encoding
+        # into the application, and Espressif's own help text says the
+        # internal one "will be removed in the future". When that happens this
+        # needs an SBC encoder; it is not needed today.
+        esp32.add_idf_sdkconfig_option("CONFIG_BT_A2DP_ENABLE", config[CONF_AUDIO])
 
         # And these two are the whole difference between a stack that starts
         # and one that aborts, on BOTH dongles this has been run against.

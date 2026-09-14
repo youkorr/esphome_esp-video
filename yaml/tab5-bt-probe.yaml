@@ -96,12 +96,12 @@ button:
   # ADDRESS, which scans nothing at all -- so remembering the device and
   # keeping the picture are the same piece of work.
   - platform: template
-    name: "Pair an input device"
+    name: "Pair a Bluetooth device"
     on_press:
       - portall_bt.pair: dongle
 
   - platform: template
-    name: "Forget input devices"
+    name: "Forget Bluetooth devices"
     entity_category: config
     on_press:
       - portall_bt.forget: dongle
@@ -134,10 +134,26 @@ portall_bt:
   #
   host_stack: bluedroid
 
+  # The panel sends its sound to a Bluetooth speaker: a car receiver, a pair
+  # of headphones, a garden speaker. A2DP is Bluetooth CLASSIC, which is
+  # exactly what the ESP32-C6 on these panels cannot do, so this is the half
+  # of the dongle that has no alternative.
+  audio: true
+
+  # A sine, played whenever nothing else has been fed in, so the whole chain
+  # can be heard before anything real is plumbed into it. Turn it off once a
+  # real source is connected -- it plays for ever otherwise.
+  test_tone: 440
+
   # A gamepad, a keyboard, a mouse or a remote -- one feature, not four. They
   # are all Classic HID, they all arrive as input reports over ACL, and they
   # differ only in which buttons somebody presses.
-  hid: true
+  #
+  # Off here because the panel this was written against has no such device to
+  # try it with, and a profile nobody can test is flash for nothing. Turn it
+  # on and the same pair button finds one: the class of device is what sorts
+  # a speaker from a gamepad, so one scan serves both.
+  hid: false
 
   # What this panel calls itself while pairing, seen once on the screen of
   # whatever is being paired with.
@@ -147,7 +163,7 @@ portall_bt:
   # these bytes are the only specification a button mapping can be written
   # against -- and there is no way to guess them. Turn it off once the mapping
   # is written: a thumbstick in motion sends a hundred of these a second.
-  show_reports: true
+  show_reports: false
 
   on_hid_report:
     - lambda: |-

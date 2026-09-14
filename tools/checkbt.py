@@ -49,6 +49,22 @@ CONFIGURATIONS = [
         "host_stack: bluedroid, hid: true",
         ["-DCONFIG_BT_BLUEDROID_ENABLED=1", "-DCONFIG_BT_HID_HOST_ENABLED=1"],
     ),
+    # And a fourth, for the A2DP source, which is behind its own symbol again.
+    # Every profile added here has to bring a configuration with it or the
+    # newest file in the component compiles down to nothing and this says
+    # CLEAN -- which is what the second and third passes were both added for.
+    (
+        "host_stack: bluedroid, audio: true",
+        ["-DCONFIG_BT_BLUEDROID_ENABLED=1", "-DCONFIG_BT_A2DP_ENABLE=1"],
+    ),
+    (
+        "everything at once",
+        [
+            "-DCONFIG_BT_BLUEDROID_ENABLED=1",
+            "-DCONFIG_BT_HID_HOST_ENABLED=1",
+            "-DCONFIG_BT_A2DP_ENABLE=1",
+        ],
+    ),
 ]
 
 
@@ -125,6 +141,7 @@ def run_tests() -> bool:
                 # whatever was in the folder would be a different check every
                 # time somebody added a file.
                 str(ROOT / "components" / "portall_bt" / "hid.cpp"),
+                str(ROOT / "components" / "portall_bt" / "a2dp.cpp"),
             ],
             capture_output=True,
             text=True,

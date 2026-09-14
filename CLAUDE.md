@@ -4270,10 +4270,21 @@ which this file already calls the worst place to find one:
   there is none to be had, so `on_hid_report` hands over exactly what arrived.
 - **`BT_HID_ENABLED` is a menuconfig with `BT_HID_HOST_ENABLED` under it**, so
   both have to be set; one alone is a silent nothing.
-- **The stand-ins are copied field for field from v5.5.4**, which is what
-  ESPHome 2026.6.5 pins (`ESP_IDF_FRAMEWORK_VERSION_LOOKUP`, recommended
-  5.5.4). Version matters more than it looks here -- this file already records
-  a helper rename reaching a user as a compile error.
+- **The stand-ins are copied field for field from v5.5.5**, which is what the
+  user actually builds with. The first version of this said 5.5.4 "which is
+  what ESPHome pins" -- true of the 2026.6.5 venv that happened to be
+  installed here for validation, and not of their build at all. They corrected
+  it: ESPHome **2026.8.2 and dev both pin ESP-IDF 5.5.5**
+  (`ESP_IDF_FRAMEWORK_VERSION_LOOKUP`), checked against both tags afterwards.
+  The validation venv is 2026.8.2 now, which needs Python 3.12 and a git
+  install -- PyPI here only carries up to 2026.6.5.
+
+  Nothing in the code moved: `esp_a2dp_api.h` and `esp_hidh_api.h` are
+  byte-identical between the two tags and `esp_gap_bt_api.h` differs only in
+  comments. But the version this repository validates against has to be the
+  version somebody flashes, or the check is measuring the wrong thing -- which
+  is the same lesson as the helper rename that reached a user as a compile
+  error.
 
 `tools/checkbt.py` gained a third configuration, bluedroid + hid, for the
 reason the second exists: the newest code sits behind an `#ifdef` no pass had
@@ -4281,37 +4292,119 @@ opened. It earned it on the first run -- the reconnection clock was behind the
 Bluedroid guard while the public callbacks that touch it are not, which
 compiled two ways out of three.
 
-### A2DP in ESP-IDF 5.5.4 is NOT the API every example uses
+### Two A2DP source APIs, and a header is not one file
 
-Read before writing a line of it, and it is the finding that changes the size
-of that job. In **5.4**:
+This was written here as a finding and it was **wrong**, so the correction
+comes first: *"A2DP in ESP-IDF 5.5.4 is NOT the API every example uses -- the
+pull callback that handed raw PCM is gone from the public header."*
 
-    esp_a2d_source_register_data_callback(esp_a2d_source_data_cb_t)
+It is not gone. `esp_a2dp_api.h` line 12 includes **`esp_a2dp_legacy_api.h`**,
+unconditionally, and that file declares:
 
-a PULL callback handed raw PCM, with Bluedroid doing the SBC encoding. In
-**5.5.4's public header that function does not exist.** What is there is:
+    typedef int32_t (* esp_a2d_source_data_cb_t)(uint8_t *buf, int32_t len);
+    esp_err_t esp_a2d_source_register_data_callback(esp_a2d_source_data_cb_t);
 
-    esp_a2d_source_register_stream_endpoint(uint8_t seid, const esp_a2d_mcc_t *)
-    esp_a2d_audio_buff_t *esp_a2d_audio_buff_alloc(uint16_t size);
-    esp_err_t esp_a2d_source_audio_data_send(esp_a2d_conn_hdl_t, esp_a2d_audio_buff_t *);
+The whole of the mistake was fetching one file with curl, grepping it for
+`source_data`, finding zero, and treating that as proof. Every contradiction
+that followed was real evidence that the conclusion was wrong and was
+explained away instead: Espressif's own example calls the function, their
+implementation file defines it, and `btc_av.h` names the type -- three things
+that cannot all be true of a symbol that does not exist. **A header is not one
+file. Follow what it includes before concluding a symbol is gone.**
 
-a PUSH of **encoded** frames -- their own words, "Send an audio buffer with
-encoded audio data to sink", and the sink side says "undecoded" in the same
-file. So the application owns the codec and owns the clock.
+What settled it was getting the actual tree rather than guessing filenames:
+`git clone --depth 1 --filter=blob:none --no-checkout -b v5.5.5`, then
+`git ls-tree` the API directory. That is cheap -- no blobs -- and it would
+have ended the question in one step instead of a dozen 404s.
 
-Espressif's own `a2dp_source` example at that same tag still calls the 5.4
-function, and the implementation file still defines it while the public header
-no longer declares it. **The header is the specification, not the example** --
-a component can only include what is public.
+**So there are two APIs and a Kconfig option chooses between them:**
 
-What that means for the work: an SBC encoder is needed.
-`espressif/esp_audio_codec` (in `espressif/esp-adf-libs`) has one, standard
-and mSBC, with exactly the parameters A2DP wants -- 44.1 kHz, joint stereo,
-block length 16, 8 subbands, loudness allocation, a bitpool range. Fetched
-from the registry at build time, the way `cherry-embedded/cherryusb` already
-is. Not yet written, and the pacing is the hard half: push means the sender
-owns real time, where the old pull callback was clocked by the stack.
+| | `BT_A2DP_USE_EXTERNAL_CODEC` | who encodes |
+|---|---|---|
+| `esp_a2d_source_register_data_callback` | **n, the default** | Bluedroid, with its own SBC |
+| `esp_a2d_source_audio_data_send` | y | the application |
 
+Espressif's help text for that option says "The internal codec in A2DP will be
+removed in the future, it is recommend to use external codec for new design."
+So the second one is where this is going, and the first is what a default
+build supports today.
+
+**The first is what `components/portall_bt/a2dp.cpp` uses, and the migration
+is blocked on something dull rather than on effort.** Taking the external
+codec means an SBC encoder in this component, and neither candidate can be
+read from here: Bluedroid's own is in a **PRIVATE** include directory
+(`bluedroid_host_priv_include_dirs`, so `src` cannot reach `sbc_encoder.h`
+even though the object is linked in), and `espressif/esp_audio_codec` ships
+its per-codec headers only in the registry package -- `include/encoder/`
+in its git repository has `esp_audio_enc.h` and nothing per codec, and
+components.espressif.com is blocked from here. Writing
+`esp_sbc_enc_config_t` from a README would be the invented-field fault this
+file records one section earlier, except a wrong struct layout is silent
+memory corruption rather than a compile error.
+
+**The format is not a choice and Espressif say so in a comment.** From
+`btc_a2dp_source.c`: *"for now hardcode 44.1 khz 16 bit stereo PCM format"*.
+So the callback hands over 44100 Hz, signed 16-bit little-endian, TWO
+channels interleaved. portall's own page audio is 48 kHz MONO, so feeding
+this from there needs a resample and a channel duplication -- both exist as
+ESPHome speaker components, and that is the next step rather than this one.
+
+**And the deprecated path is the cheaper one in a way that matters: the
+callback is the clock.** Bluedroid asks for exactly the bytes it is about to
+encode, when it is about to encode them, from its own task. Nothing in this
+component has to know what time it is. The external-codec API would make this
+component responsible for real time, and a stutter from getting that wrong is
+the kind nobody can diagnose from a panel. `len == -1` is a FLUSH rather than
+a length -- their documentation says the return value is ignored for it, and
+treating it as a size would read two gigabytes.
+
+## The panel sends its sound to a Bluetooth speaker
+
+`audio: true` on `portall_bt:`, and it is the half of this work the ESP32-C6
+can never do: A2DP is Bluetooth Classic.
+
+**The device it was built against is the one the user owns.** Asked for a
+gamepad to test the HID side, the answer was *"je n'en dispose pas, le seul
+bluetooth que je dispose un bluetooth ugreen pour voiture"* -- a car receiver,
+which is an A2DP **sink**, which is exactly what an A2DP source needs to talk
+to. So the order inverted for a hardware reason rather than an engineering
+one: HID is built and has nothing to try it with, and the speaker path can be
+proved this evening.
+
+**One pair action, two kinds of device, and the class of device sorts them.**
+`ESP_BT_COD_MAJOR_DEV_AV` is a speaker, a headset or a car receiver;
+`ESP_BT_COD_MAJOR_DEV_PERIPHERAL` is a gamepad, a keyboard, a mouse or a
+remote. Taking the first of THOSE rather than the first of anything is what
+stops a pairing run walking off to the neighbour's telephone -- and it means
+the same button serves both profiles, with `Remembered` already carrying a
+slot for each.
+
+**Both profiles ride one reconnection clock**, because both are the same act:
+a connection by address, which runs no inquiry. That was the point of the
+whole design and it did not need a second copy.
+
+**`test_tone:` exists so the chain can be heard before anything real is
+plumbed into it**, which is the choice `tools/playsound.py` already made for
+the panel's own speaker. A sine in frames rather than bytes, with the phase
+carried across calls -- a sine restarted every callback is a click every
+callback.
+
+**A short read is a click, so a shortfall is filled with silence and
+counted.** A2DP is a stream with a clock at the other end: the sink decodes at
+a fixed rate whatever arrives, so returning fewer bytes than asked is a gap
+rather than a pause. `pcm_starved_` counts it and the log says so when the
+stream suspends, because a starved stream that merely sounds wrong is the
+failure nobody can diagnose.
+
+**`CONFIG_BT_A2DP_ENABLE` is now asked for rather than always on.** It was
+being set for every build with a host stack, so a panel that only wanted a
+gamepad carried an audio stack and an AVRCP with it. Same shape as the
+`cv.enum` fault above: a cost nobody chose and nothing reported.
+
+**What is NOT done**: nothing has paired with the UGREEN yet, no C++ here has
+been compiled by a real toolchain, and the sound it can send is a test tone.
+Feeding it from portall -- 48 kHz mono into 44.1 kHz stereo, through
+ESPHome's resampler -- is the next step and is not written.
 
 ## Repository conventions
 

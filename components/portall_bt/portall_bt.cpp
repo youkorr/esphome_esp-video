@@ -1495,10 +1495,24 @@ void PortallBT::dump_config() {
     } else {
       ESP_LOGCONFIG(TAG, "    Nothing paired yet. Run the portall_bt.pair action once.");
     }
+  }
+  if (this->a2dp_) {
+    ESP_LOGCONFIG(TAG, "  Speaker: on, 44100 Hz 16-bit stereo (Bluedroid encodes the SBC)");
+    if (this->remembered_.has_sink) {
+      ESP_LOGCONFIG(TAG, "    Remembered: %02X:%02X:%02X:%02X:%02X:%02X",
+                    this->remembered_.sink[0], this->remembered_.sink[1], this->remembered_.sink[2],
+                    this->remembered_.sink[3], this->remembered_.sink[4], this->remembered_.sink[5]);
+    } else {
+      ESP_LOGCONFIG(TAG, "    Nothing paired yet. Run the portall_bt.pair action once.");
+    }
+    if (this->test_tone_hz_ != 0)
+      ESP_LOGCONFIG(TAG, "    Test tone: %u Hz whenever nothing else is fed in", this->test_tone_hz_);
+  }
+  if (this->hid_host_ || this->a2dp_) {
     // Said here because it is the one surprise in this component's behaviour
     // and somebody reading a boot log is the person it will surprise.
-    ESP_LOGCONFIG(TAG, "    Pairing runs an inquiry, which takes the Wi-Fi down while it lasts.");
-    ESP_LOGCONFIG(TAG, "    Nothing else here ever scans.");
+    ESP_LOGCONFIG(TAG, "  Pairing runs an inquiry, which takes the Wi-Fi down while it lasts.");
+    ESP_LOGCONFIG(TAG, "  Nothing else here ever scans: a remembered device is asked for by address.");
   }
   ESP_LOGCONFIG(TAG, "  The host supplies 5V: on the Tab5 that is the second PI4IOE5V6408,");
   ESP_LOGCONFIG(TAG, "  bit 3 (usb_5v_power), which this component does not touch.");
