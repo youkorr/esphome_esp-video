@@ -22,9 +22,16 @@ page it is showing.
 The component logs the exact command line for the sender at startup, built
 from the configuration here, so the two cannot disagree about the geometry.
 
-This puts the board's single USB OTG controller in device mode, so it cannot be
-a USB host at the same time -- nor a UVC webcam, which needs the same
-controller.
+This puts the board's HIGH-SPEED USB OTG controller in device mode, so that one
+cannot also be a host -- nor a UVC webcam, which needs the same controller.
+
+It used to say "single" here, and on the ESP32-P4 that is wrong: the chip has
+TWO OTG peripherals, one high-speed and one full-speed, and Espressif's own
+datasheet says the pair is what allows several USB peripherals in host mode at
+once. This component takes the high-speed one and does not touch the other, so
+a host-mode use of the full-speed port -- a Bluetooth dongle, say -- is not
+ruled out by anything here. Whether ESP-IDF drives that port as a host on this
+chip is a separate question and is not answered by this file.
 """
 
 import logging
