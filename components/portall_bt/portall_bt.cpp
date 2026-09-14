@@ -122,7 +122,14 @@ static constexpr uint16_t HCI_READ_LOCAL_NAME = 0x0C14;
 static constexpr uint16_t HCI_READ_LOCAL_VERSION = 0x1001;
 static constexpr uint16_t HCI_READ_BD_ADDR = 0x1009;
 
+static constexpr uint16_t HCI_INQUIRY = 0x0401;
+
+static constexpr uint8_t HCI_EVENT_INQUIRY_COMPLETE = 0x01;
+static constexpr uint8_t HCI_EVENT_INQUIRY_RESULT = 0x02;
 static constexpr uint8_t HCI_EVENT_COMMAND_COMPLETE = 0x0E;
+static constexpr uint8_t HCI_EVENT_COMMAND_STATUS = 0x0F;
+static constexpr uint8_t HCI_EVENT_INQUIRY_RESULT_RSSI = 0x22;
+static constexpr uint8_t HCI_EVENT_EXTENDED_INQUIRY_RESULT = 0x2F;
 
 // How long to leave the dongle alone after it enumerates, how many times to
 // ask it to reset, and how long between tries. See probe_hci for why these
@@ -224,22 +231,24 @@ static uint32_t now_ms() { return (uint32_t) (xTaskGetTickCount() * portTICK_PER
 // allowance instantly and the caller reported silence after no wait at all.
 // Measured on a Tab5 -- the command went out and the failure was logged in the
 // same second.
-static int hci_await(struct usbh_hubport *hport, struct usb_endpoint_descriptor *ep,
-                     uint16_t opcode, uint32_t patience_ms, Waited *saw) {
+// Reads ONE complete event into g_hci_evt, whatever it is, or gives up.
+//
+// ONE PACKET PER READ, and the event reassembled from them. Asking for the
+// whole buffer at once works for the short events and fails for the long ones:
+// Read Local Name answers with 255 bytes, which on a 16-byte endpoint is
+// seventeen packets in a single periodic transfer, and that came back -14
+// (timeout) on a Tab5 five times running while Reset, Read Local Version and
+// Read BD Address -- all under 16 bytes -- answered at once.
+//
+// Reading a packet at a time is also what both references do: CherryUSB's own
+// driver fills its urb with `ep_mps` and accumulates until a short packet, and
+// Linux's btusb reads wMaxPacketSize and reassembles in hci_recv_fragment. A
+// short packet ends the event.
+static int hci_next_event(struct usbh_hubport *hport, struct usb_endpoint_descriptor *ep,
+                          uint32_t patience_ms, Waited *saw) {
   struct usbh_urb &urb = g_event_urb;
   const uint32_t started = now_ms();
 
-  // ONE PACKET PER READ, and the event reassembled from them. Asking for the
-  // whole buffer at once works for the short events and fails for the long
-  // ones: Read Local Name answers with 255 bytes, which on a 16-byte endpoint
-  // is seventeen packets in a single periodic transfer, and that came back
-  // -14 (timeout) on a Tab5 five times running while Reset, Read Local
-  // Version and Read BD Address -- all under 16 bytes -- answered at once.
-  //
-  // Reading a packet at a time is also what both references do: CherryUSB's
-  // own driver fills its urb with `ep_mps` and accumulates until a short
-  // packet, and Linux's btusb reads wMaxPacketSize and reassembles in
-  // hci_recv_fragment. A short packet ends the event.
   uint32_t mps = USB_GET_MAXPACKETSIZE(ep->wMaxPacketSize);
   if (mps == 0 || mps > sizeof(g_hci_pkt)) {
     // A Bluetooth interrupt endpoint is 16 bytes and the staging buffer is 64,
@@ -252,7 +261,6 @@ static int hci_await(struct usbh_hubport *hport, struct usb_endpoint_descriptor 
   }
   uint32_t filled = 0;
 
-  *saw = Waited{};
   while (now_ms() - started < patience_ms) {
     usbh_int_urb_fill(&urb, hport, ep, g_hci_pkt, mps, 500, nullptr, nullptr);
     const int err = usbh_submit_urb(&urb);
@@ -286,17 +294,33 @@ static int hci_await(struct usbh_hubport *hport, struct usb_endpoint_descriptor 
     saw->events++;
     saw->last_length = (int) filled;
     saw->last_code = g_hci_evt[0];
-    const uint32_t length = filled;
-    filled = 0;
+    return (int) filled;
+  }
+  return -1;
+}
 
+// Reads until one of them is the Command Complete for `opcode`, or the
+// patience runs out. A controller answers other things while it settles -- a
+// Broadcom emits vendor events of its own after a reset -- so taking the first
+// event that arrives and calling it the answer would be wrong about half the
+// time.
+static int hci_await(struct usbh_hubport *hport, struct usb_endpoint_descriptor *ep,
+                     uint16_t opcode, uint32_t patience_ms, Waited *saw) {
+  const uint32_t started = now_ms();
+
+  *saw = Waited{};
+  while (now_ms() - started < patience_ms) {
+    const int length = hci_next_event(hport, ep, patience_ms - (now_ms() - started), saw);
+    if (length < 0) {
+      return -1;
+    }
     if (length < 6 || g_hci_evt[0] != HCI_EVENT_COMMAND_COMPLETE) {
       continue;
     }
     const uint16_t answered = (uint16_t) (g_hci_evt[3] | (g_hci_evt[4] << 8));
-    if (answered != opcode) {
-      continue;
+    if (answered == opcode) {
+      return length;
     }
-    return (int) length;
   }
   return -1;
 }
@@ -458,6 +482,188 @@ void PortallBT::report_(uint8_t hub_index, uint8_t hub_port) {
   }
 }
 
+// The major device class, out of the 24-bit Class of Device. Worth decoding
+// rather than printing the number, because it is what tells a headset from a
+// telephone at a glance -- and a headset is the reason this whole route
+// exists.
+static const char *device_kind(uint32_t cod) {
+  switch ((cod >> 8) & 0x1F) {
+    case 0x01:
+      return "computer";
+    case 0x02:
+      return "phone";
+    case 0x03:
+      return "network";
+    case 0x04:
+      return "audio/video";
+    case 0x05:
+      return "peripheral";
+    case 0x06:
+      return "imaging";
+    case 0x07:
+      return "wearable";
+    case 0x08:
+      return "toy";
+    case 0x09:
+      return "health";
+    default:
+      return "unclassified";
+  }
+}
+
+// What an inquiry has already reported, so a device seen six times is one
+// line. Addresses rather than a count: a controller repeats a device for as
+// long as it keeps hearing it, and a log that repeats with it cannot be read.
+struct Seen {
+  uint8_t address[8][6];
+  uint8_t count;
+
+  bool add(const uint8_t *addr) {
+    for (uint8_t i = 0; i < this->count; i++) {
+      if (memcmp(this->address[i], addr, 6) == 0) {
+        return false;
+      }
+    }
+    if (this->count < 8) {
+      memcpy(this->address[this->count], addr, 6);
+      this->count++;
+    }
+    return true;
+  }
+};
+
+// One entry of an inquiry result. The three event shapes carry the same
+// fourteen bytes in two different arrangements, and the difference is a single
+// reserved byte:
+//
+//   Inquiry Result (0x02)        addr[0..5] psrm[6] resv[7..8] cod[9..11]  clk[12..13]
+//   ...with RSSI   (0x22)        addr[0..5] psrm[6] resv[7]    cod[8..10]  clk[11..12] rssi[13]
+//   Extended       (0x2F)        as 0x22, then 240 bytes of advertising data
+//
+// So both are fourteen bytes long and the Class of Device is NOT in the same
+// place. Reading it at one offset for both would put the reserved byte in the
+// middle of it and call a headset a toy.
+static constexpr uint8_t INQUIRY_ENTRY = 14;
+
+static void report_found(const uint8_t *entry, bool has_rssi, Seen *seen) {
+  if (!seen->add(entry)) {
+    return;
+  }
+  const uint8_t at = has_rssi ? 8 : 9;
+  const uint32_t cod =
+      (uint32_t) entry[at] | ((uint32_t) entry[at + 1] << 8) | ((uint32_t) entry[at + 2] << 16);
+  if (has_rssi) {
+    ESP_LOGI(TAG, "  found %02X:%02X:%02X:%02X:%02X:%02X  %s  %d dBm", entry[5], entry[4], entry[3],
+             entry[2], entry[1], entry[0], device_kind(cod), (int) (int8_t) entry[13]);
+  } else {
+    ESP_LOGI(TAG, "  found %02X:%02X:%02X:%02X:%02X:%02X  %s", entry[5], entry[4], entry[3],
+             entry[2], entry[1], entry[0], device_kind(cod));
+  }
+}
+
+void PortallBT::inquire_(struct usbh_hubport *hport, uint8_t intf,
+                         struct usb_endpoint_descriptor *events) {
+  if (this->inquiry_seconds_ == 0) {
+    return;
+  }
+
+  // The general inquiry access code, 0x9E8B33, little-endian on the wire. Then
+  // the duration in units of 1.28 seconds, and 0 for "report everything you
+  // hear" rather than a number of devices.
+  uint8_t length = (uint8_t) ((this->inquiry_seconds_ * 100 + 127) / 128);
+  if (length < 1) {
+    length = 1;
+  }
+  if (length > 0x30) {
+    length = 0x30;  // the specification's own ceiling, 61 seconds
+  }
+  const uint8_t params[5] = {0x33, 0x8B, 0x9E, length, 0x00};
+
+  ESP_LOGI(TAG, "listening for Bluetooth devices for about %u seconds",
+           (unsigned) ((length * 128) / 100));
+
+  const int sent = hci_command(hport, intf, HCI_INQUIRY, params, sizeof(params));
+  if (sent < 0) {
+    ESP_LOGW(TAG, "  the inquiry would not go out (%d)", sent);
+    return;
+  }
+
+  // An inquiry answers with Command STATUS, not Command Complete: it is a
+  // command that takes time, so the controller says "started" and the result
+  // arrives later as its own events. Asking hci_ask for it would wait for a
+  // Command Complete that is never coming.
+  Seen seen{};
+  Waited saw{};
+  const uint32_t deadline = (uint32_t) (length * 1280) + 4000;
+  const uint32_t started = now_ms();
+  bool accepted = false;
+  uint8_t found = 0;
+
+  while (now_ms() - started < deadline) {
+    const int len = hci_next_event(hport, events, deadline - (now_ms() - started), &saw);
+    if (len < 6) {
+      if (len < 0) {
+        break;
+      }
+      continue;
+    }
+
+    switch (g_hci_evt[0]) {
+      case HCI_EVENT_COMMAND_STATUS: {
+        const uint16_t about = (uint16_t) (g_hci_evt[4] | (g_hci_evt[5] << 8));
+        if (about == HCI_INQUIRY) {
+          if (g_hci_evt[2] != 0x00) {
+            ESP_LOGW(TAG, "  the controller refused the inquiry, status %02x", g_hci_evt[2]);
+            return;
+          }
+          accepted = true;
+        }
+        break;
+      }
+      case HCI_EVENT_INQUIRY_RESULT:
+      case HCI_EVENT_INQUIRY_RESULT_RSSI: {
+        const bool rssi = g_hci_evt[0] == HCI_EVENT_INQUIRY_RESULT_RSSI;
+        const uint8_t entries = g_hci_evt[2];
+        for (uint8_t i = 0; i < entries; i++) {
+          const uint32_t at = 3u + (uint32_t) i * INQUIRY_ENTRY;
+          if (at + INQUIRY_ENTRY > (uint32_t) len) {
+            break;  // the device's own count, believed no further than the bytes
+          }
+          const uint8_t before = seen.count;
+          report_found(&g_hci_evt[at], rssi, &seen);
+          if (seen.count != before) {
+            found++;
+          }
+        }
+        break;
+      }
+      case HCI_EVENT_EXTENDED_INQUIRY_RESULT: {
+        if (len >= 18) {
+          const uint8_t before = seen.count;
+          report_found(&g_hci_evt[3], true, &seen);
+          if (seen.count != before) {
+            found++;
+          }
+        }
+        break;
+      }
+      case HCI_EVENT_INQUIRY_COMPLETE:
+        ESP_LOGI(TAG, "inquiry finished, status %02x, %u device%s heard", g_hci_evt[2],
+                 (unsigned) found, found == 1 ? "" : "s");
+        return;
+      default:
+        break;
+    }
+  }
+
+  if (!accepted) {
+    ESP_LOGW(TAG, "  the controller never acknowledged the inquiry");
+  } else {
+    ESP_LOGW(TAG, "  the inquiry never finished; %u device%s heard", (unsigned) found,
+             found == 1 ? "" : "s");
+  }
+}
+
 void PortallBT::probe_hci(uint8_t hub_index, uint8_t hub_port, uint8_t intf_index) {
   struct usbh_hubport *hport = usbh_find_hubport(0, hub_index, hub_port);
   if (hport == nullptr || !hport->connected) {
@@ -578,6 +784,11 @@ void PortallBT::probe_hci(uint8_t hub_index, uint8_t hub_port, uint8_t intf_inde
       ESP_LOGI(TAG, "  name \"%s\"", name);
     }
   }
+
+  // And the thing this was all for: put the radio to work. An inquiry is
+  // Bluetooth CLASSIC, which is precisely what the C6 on these panels cannot
+  // do -- so a device heard here is a device no panel could have heard before.
+  this->inquire_(hport, intf, events);
 
   this->probing_ = false;
 }
