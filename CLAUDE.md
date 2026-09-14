@@ -4045,6 +4045,67 @@ them this entire class of failure, eight frames of it. That is a bigger
 change than the evidence demands and it has not been tried; one measured fix
 per round.
 
+### It runs. A Bluetooth Classic HOST on a chip with no Bluetooth radio
+
+Both dongles, first try:
+
+    33: event 14 bytes, complete for opcode 2018, 12 parameters
+    Bluedroid is ENABLED on a USB dongle -- a Classic host on a chip with no radio
+      Bluedroid reports address E8:48:B8:C8:40:00        (TP-Link, 33 frames)
+      Bluedroid reports address 00:02:72:DC:33:59        (Broadcom, 26 frames)
+
+**And the Broadcom's address is the one the probe read in the very first log
+of this whole thread.** Different code path, different task, different buffer,
+different day -- `esp_bt_dev_get_address()` comes out of Bluedroid, which has
+never seen the dongle except through three function pointers. That line was
+put there to be the proof and it is.
+
+Four things in those logs are worth keeping.
+
+**`0x2027` is the diagnosis confirming itself.** On the Broadcom:
+
+    23: event 6 bytes, complete for opcode 2027, 4 parameters
+    W BT_HCI: opcode=0x2027, status= 01: Illegal Command
+
+Four parameters, `Illegal Command` -- *exactly* the shape that aborted the
+firmware on 0x204A. Here it costs a **warning** and the startup carries on,
+because this command's answer goes to `parse_generic_command_complete`, which
+needs no parameters beyond the status. Same controller, same refusal, same
+frame shape; the only difference is which parser Bluedroid hands it to. That
+is the mechanism, demonstrated rather than argued.
+
+**`0x2018` repeating after enable is the stack WORKING**, not merely started:
+LE Rand, status and eight random bytes, which is Bluedroid's security manager
+asking the controller for entropy. Frames 33, 37 and 38 are after the
+`ENABLED` line.
+
+**`0x0C14` came back in 254 bytes**, whole -- Read Local Name, seventeen
+packets on a sixteen-byte endpoint. That is the longest frame this transport
+carries and it is the one the length rule and the NAK rule were both written
+for.
+
+**The two dongles differ exactly where they should.** The TP-Link answered
+0x202A, 0x2024 and 0x2023 -- resolving list size and the data-length pair --
+which the Broadcom was never asked, because those ARE gated on feature bits
+and a 4.0 controller does not set them. The gates work; it was the ungated
+5.0 command that did not.
+
+**One correction to this file.** It says the RTL8761BU "needs its firmware --
+30 210 bytes before it is a working controller". True for full function, and
+too strong as written: in ROM mode, with nothing uploaded, it answered every
+one of Bluedroid's thirty-three startup commands and brought the host up.
+What the firmware buys is what happens after that, which is untested.
+
+**What this is.** `SOC_BT_SUPPORTED` is not defined for the esp32p4 -- the
+chip has no Bluetooth of any kind. It is now running Espressif's dual-mode
+Bluedroid host, with Classic and A2DP compiled in, over a USB dongle it drives
+itself through a CherryUSB host stack that had its Bluetooth driver switched
+off for ESP-IDF. Nine faults between the first enumeration and this line, every
+one of them recorded above, and seven of them cost a trip to a board.
+
+**What is NOT done**: it has not paired with anything, connected to anything
+or carried a byte of ACL. The stack is up; nothing has used it yet.
+
 Fixing it found the other half. That file has never passed `esphome config`:
 its `api:` encryption key is an **empty string**, which is the same fault
 CLAUDE.md already records for `ws-usb-screen.yaml` and the Guition pair -- a
