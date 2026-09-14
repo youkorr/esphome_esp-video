@@ -136,6 +136,26 @@ static constexpr uint32_t RESET_RETRY_MS = 400;
 static USB_NOCACHE_RAM_SECTION USB_MEM_ALIGNX uint8_t g_hci_cmd[64];
 static USB_NOCACHE_RAM_SECTION USB_MEM_ALIGNX uint8_t g_hci_evt[260];
 
+// Every read lands HERE first and is copied out, rather than being read
+// straight into the middle of the accumulation buffer.
+//
+// The obvious version -- point the controller at `g_hci_evt + filled` -- was
+// written, shipped, and killed the firmware on the second packet:
+//
+//     ASSERT FAIL [!((uintptr_t)urb->transfer_buffer % CONFIG_USB_ALIGN_SIZE)]
+//     urb->setup or urb->transfer_buffer is not aligned 64
+//
+// The commit that introduced it claimed "every full packet is a multiple of
+// the packet size, so the offset stays aligned", which was reasoning from an
+// alignment of 4. With the data cache on, this port wants **64**, and this
+// endpoint's packets are 16 -- so the second read was 16 bytes past a
+// 64-byte boundary and the assert took the whole task down with it, watchdog
+// and all. An assumption about someone else's constant, stated as a fact.
+//
+// One staging buffer, aligned by the same macro the rest of them use, a whole
+// cache line wide so an invalidate cannot reach anything else.
+static USB_NOCACHE_RAM_SECTION USB_MEM_ALIGNX uint8_t g_hci_pkt[64];
+
 // ONE urb for the event endpoint, reused for every read, and this is not
 // tidiness -- it is the whole difference between a dongle that answers and one
 // that answers every other time.
@@ -220,15 +240,21 @@ static int hci_await(struct usbh_hubport *hport, struct usb_endpoint_descriptor 
   // own driver fills its urb with `ep_mps` and accumulates until a short
   // packet, and Linux's btusb reads wMaxPacketSize and reassembles in
   // hci_recv_fragment. A short packet ends the event.
-  const uint32_t mps = USB_GET_MAXPACKETSIZE(ep->wMaxPacketSize);
+  uint32_t mps = USB_GET_MAXPACKETSIZE(ep->wMaxPacketSize);
+  if (mps == 0 || mps > sizeof(g_hci_pkt)) {
+    // A Bluetooth interrupt endpoint is 16 bytes and the staging buffer is 64,
+    // so this cannot happen on a dongle -- but a descriptor is the device's
+    // word, and believing it over our own array is how a stack walks off the
+    // end of one.
+    ESP_LOGE(TAG, "endpoint %02x says its packets are %u bytes, which will not fit",
+             ep->bEndpointAddress, (unsigned) mps);
+    return -1;
+  }
   uint32_t filled = 0;
 
   *saw = Waited{};
   while (now_ms() - started < patience_ms) {
-    // g_hci_evt is aligned and every full packet is a multiple of the packet
-    // size, so the offset handed to DMA stays aligned for as long as there is
-    // more to come. The one short packet is the last.
-    usbh_int_urb_fill(&urb, hport, ep, g_hci_evt + filled, mps, 500, nullptr, nullptr);
+    usbh_int_urb_fill(&urb, hport, ep, g_hci_pkt, mps, 500, nullptr, nullptr);
     const int err = usbh_submit_urb(&urb);
     saw->reads++;
     if (err < 0) {
@@ -247,7 +273,12 @@ static int hci_await(struct usbh_hubport *hport, struct usb_endpoint_descriptor 
       continue;  // an empty read is silence, not an answer to discard
     }
 
-    filled += (uint32_t) urb.actual_length;
+    uint32_t take = (uint32_t) urb.actual_length;
+    if (filled + take > sizeof(g_hci_evt)) {
+      take = (uint32_t) sizeof(g_hci_evt) - filled;
+    }
+    memcpy(&g_hci_evt[filled], g_hci_pkt, take);
+    filled += take;
     if ((uint32_t) urb.actual_length == mps && filled + mps <= sizeof(g_hci_evt)) {
       continue;  // a full packet means there is more of this event to come
     }
