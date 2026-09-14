@@ -258,3 +258,40 @@ async def to_code(config):
         esp32.add_idf_sdkconfig_option("CONFIG_BT_CONTROLLER_DISABLED", True)
         esp32.add_idf_sdkconfig_option("CONFIG_BT_CLASSIC_ENABLED", True)
         esp32.add_idf_sdkconfig_option("CONFIG_BT_A2DP_ENABLE", True)
+
+        # And these two are the whole difference between a stack that starts
+        # and one that aborts, on BOTH dongles this has been run against.
+        #
+        # Bluedroid's controller startup carries this, in device/controller.c:
+        #
+        #     #if (BLE_50_FEATURE_SUPPORT == TRUE && BLE_42_FEATURE_SUPPORT == FALSE)
+        #     #if (BLE_50_EXTEND_SYNC_EN == TRUE)
+        #             response = AWAIT_COMMAND(...read_periodic_adv_list_size());
+        #
+        # There is no `if` at run time. `LE Read Periodic Advertiser List Size`
+        # -- opcode 0x204A, a Bluetooth 5.0 command -- is compiled in and sent
+        # whatever the controller says it can do. Espressif can write it that
+        # way because their own controller is built alongside it and always
+        # supports it; with somebody else's controller it is an unconditional
+        # 5.0 demand, and a controller that refuses answers `Unknown HCI
+        # Command` -- a status and nothing else -- while
+        # parse_ble_read_periodic_adv_list_size_response asserts on anything
+        # shorter than five parameters.
+        #
+        # Measured, on two dongles that share nothing but a USB socket:
+        #
+        #   BCM20702A1 (4.0)  frame 16: opcode 204a, 4 parameters -> assert
+        #   RTL8761BU  (5.x)  frame 19: opcode 204a, 4 parameters -> assert
+        #
+        # Turning the 4.2 features ON is what compiles that block out, because
+        # the guard wants 50 AND NOT 42. It also drops 0x203A beside it, which
+        # the 5.x dongle answered and the 4.0 one would not have.
+        #
+        # These are ESPHome's own two lines, written by request_bluetooth() --
+        # which this component deliberately does not call, and the comment
+        # saying why claimed it "writes BLE sdkconfig defaults nobody here
+        # wants". They were exactly what this needed. The reason not to call it
+        # stands (it does not exist in 2026.6.5), so the two lines are written
+        # here instead, on purpose rather than by inheritance.
+        esp32.add_idf_sdkconfig_option("CONFIG_BT_BLE_42_FEATURES_SUPPORTED", True)
+        esp32.add_idf_sdkconfig_option("CONFIG_BT_BLE_50_FEATURES_SUPPORTED", False)
