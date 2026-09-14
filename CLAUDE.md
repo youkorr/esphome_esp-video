@@ -3600,8 +3600,15 @@ leave it out of reach, and the one call that fixes both halves is
 `esp32.include_builtin_idf_component("bt")`. Verified against the generated
 files: before it, no `ESPHOME_PROJECT_BUILTIN_COMPONENTS bt` line exists;
 after it, there is one. Present in 2026.6.5 and 2026.10.0-dev alike, which is
-why it is called rather than the newer `request_bluetooth()` -- that one also
-writes BLE sdkconfig defaults nobody here wants.
+why it is called rather than the newer `request_bluetooth()` -- that one does
+not exist in 2026.6.5.
+
+**The other half of that sentence used to read "-- that one also writes BLE
+sdkconfig defaults nobody here wants", and it was wrong.** Those defaults are
+`CONFIG_BT_BLE_42_FEATURES_SUPPORTED` on and `50` off, and they are exactly
+what this needed: see the 0x204A section below, which cost three rounds. The
+portability reason for not calling it stands; the judgement about its defaults
+did not, and the two lines are written here deliberately now.
 
 **And the glue is NOT VHCI, which is what this was about to be written
 against.** `esp_vhci_host_send_packet` was the assumption, from the ESP32's
@@ -3970,6 +3977,73 @@ A 5.x controller answers the 4.2 reads honestly and the contradiction above
 cannot arise. What it brings instead is the Realtek firmware upload this file
 already records -- 30 210 bytes before it is a working controller -- so a ROM
 mode run may report a reduced feature set, which is its own useful reading.
+
+### It is 0x204A, on BOTH dongles, and the fault is ours after all
+
+The user ran both. The Broadcom 4.0 and the TP-Link 5.x agree exactly where
+it matters:
+
+    BCM20702A1 (4.0)   16: event 6 bytes, complete for opcode 204a, 4 parameters
+    RTL8761BU  (5.x)   19: event 6 bytes, complete for opcode 204a, 4 parameters
+
+Two controllers separated by eight years of the specification, one made by
+Broadcom and one by Realtek, refusing the same command in the same way. That
+is not a dongle being old. **`0x204A` is `LE Read Periodic Advertiser List
+Size`, a Bluetooth 5.0 command**, and four parameters is `Unknown HCI
+Command` -- a status and nothing else -- while
+`parse_ble_read_periodic_adv_list_size_response` asserts on anything shorter
+than five.
+
+And the previous round's theory was wrong in an instructive way. It said a
+gate had passed because the dongle set a 4.2 feature bit. It had not: there
+is **no gate at all**. From `device/controller.c`:
+
+```c
+#if (BLE_50_FEATURE_SUPPORT == TRUE && BLE_42_FEATURE_SUPPORT == FALSE)
+#if (BLE_50_EXTEND_SYNC_EN == TRUE)
+        response = AWAIT_COMMAND(...read_periodic_adv_list_size());
+```
+
+Two `#if`s and no `if`. The command is compiled in and sent whatever the
+controller says it can do -- which Espressif may write, because their own
+controller is built alongside the host and always supports it. Against
+somebody else's controller it is an unconditional 5.0 demand, and the whole
+class of "this controller does not support that" was never considered,
+because with Bluedroid it never arises.
+
+The difference between the two logs says the same thing from the other side:
+the 5.x dongle answered **0x202A** and **0x203A** -- resolving list size and
+maximum advertising data length, both of which the 4.0 one never got asked --
+and then died on the same 0x204A. The extra frames are the gates working
+correctly on a newer controller; 0x204A is the one with no gate.
+
+**The fix is one line, and it is ESPHome's own.**
+`CONFIG_BT_BLE_42_FEATURES_SUPPORTED` on -- the guard wants `50 AND NOT 42`,
+so turning 42 on compiles the whole block out, 0x203A with it. `50` off
+beside it because IDF's documentation says only one of the two should be
+enabled, which is why ESPHome writes them as a pair.
+
+**And this file said not to use them.** The note above on
+`include_builtin_idf_component` explained preferring it over
+`request_bluetooth()` partly because that one "also writes BLE sdkconfig
+defaults nobody here wants". Those defaults are these two lines. The
+portability half of that reasoning was right -- `request_bluetooth()` does not
+exist in 2026.6.5 -- and the judgement half was exactly backwards, at a cost
+of three rounds and three trips to a board.
+
+The shape is one this file already records under **a ceiling nobody asked
+for**: a defensible-sounding argument about somebody else's defaults,
+substituted for finding out what they do. The rule that comes out of it is
+narrower and worth keeping: **when a component of ESPHome's sets a default in
+the area you are working in, read what the default IS before deciding you do
+not want it.**
+
+What is NOT done, and would be the larger answer: this project wants
+Bluetooth CLASSIC from a dongle -- the C6 already does BLE -- so
+`CONFIG_BT_BLE_ENABLED` off would drop every LE command from startup and with
+them this entire class of failure, eight frames of it. That is a bigger
+change than the evidence demands and it has not been tried; one measured fix
+per round.
 
 Fixing it found the other half. That file has never passed `esphome config`:
 its `api:` encryption key is an **empty string**, which is the same fault
