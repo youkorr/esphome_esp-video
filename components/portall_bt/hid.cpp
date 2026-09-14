@@ -62,6 +62,9 @@
 #ifdef CONFIG_BT_HID_HOST_ENABLED
 #include "esp_hidh_api.h"
 #endif
+#ifdef CONFIG_BT_A2DP_ENABLE
+#include "esp_a2dp_api.h"
+#endif
 #endif
 
 namespace esphome {
@@ -131,7 +134,19 @@ static void gap_cb(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *param) {
       // A gamepad, a keyboard, a mouse or a remote all say PERIPHERAL. Taking
       // the first of those rather than the first of ANYTHING is what stops a
       // pairing run walking off to the neighbour's telephone.
-      if (major == ESP_BT_COD_MAJOR_DEV_PERIPHERAL) {
+      // Two kinds of thing are worth pairing with and the class of device is
+      // what tells them apart, so one action serves both. AUDIO/VIDEO is a
+      // speaker, a headset or a car receiver; PERIPHERAL is a gamepad, a
+      // keyboard, a mouse or a remote. Taking the first of THOSE rather than
+      // the first of anything is what stops a pairing run walking off to the
+      // neighbour's telephone.
+      if (major == ESP_BT_COD_MAJOR_DEV_AV && g_bt->wants_speaker()) {
+        ESP_LOGI(TAG, "  that is a speaker -- stopping the scan and pairing with it");
+        esp_bt_gap_cancel_discovery();
+#ifdef CONFIG_BT_A2DP_ENABLE
+        esp_a2d_source_connect(param->disc_res.bda);
+#endif
+      } else if (major == ESP_BT_COD_MAJOR_DEV_PERIPHERAL && g_bt->wants_input()) {
         ESP_LOGI(TAG, "  that is an input device -- stopping the scan and pairing with it");
         esp_bt_gap_cancel_discovery();
 #ifdef CONFIG_BT_HID_HOST_ENABLED
@@ -291,6 +306,8 @@ void PortallBT::start_profiles_() {
     ESP_LOGE(TAG, "hid: true was asked for and CONFIG_BT_HID_HOST_ENABLED is not set");
 #endif
 
+  this->start_a2dp_();
+
   this->profiles_up_ = true;
 #endif
 }
@@ -369,26 +386,36 @@ void PortallBT::drain_reports_() {
 }
 
 void PortallBT::reconnect_tick_() {
+#ifdef CONFIG_BT_BLUEDROID_ENABLED
+  if (!this->profiles_up_)
+    return;
+  const uint32_t at = now_ms_();
+  if ((int32_t) (at - this->reconnect_due_ms_) < 0 || this->reconnect_backoff_ms_ == 0)
+    return;
+
+  // Both profiles ride one clock, because both are the same act: a connection
+  // BY ADDRESS, which runs no inquiry. Whichever of them is away gets asked.
+  this->a2dp_reconnect_();
+  this->hid_reconnect_();
+
+  this->reconnect_backoff_ms_ = this->reconnect_backoff_ms_ * 2 > RECONNECT_MAX_MS
+                                    ? RECONNECT_MAX_MS
+                                    : this->reconnect_backoff_ms_ * 2;
+  this->reconnect_due_ms_ = at + this->reconnect_backoff_ms_;
+#endif
+}
+
+void PortallBT::hid_reconnect_() {
 #if defined(CONFIG_BT_BLUEDROID_ENABLED) && defined(CONFIG_BT_HID_HOST_ENABLED)
   if (!this->hid_host_ || this->hid_open_ || !this->profiles_up_)
     return;
   if (!this->remembered_.has_hid || !addr_set(this->remembered_.hid))
-    return;
-  if (this->reconnect_backoff_ms_ == 0)
-    return;  // on_hid_ready has not run, so there is nothing to connect with
-  const uint32_t now = now_ms_();
-  if ((int32_t) (now - this->reconnect_due_ms_) < 0)
     return;
 
   char text[18];
   say_addr(text, this->remembered_.hid);
   ESP_LOGD(TAG, "asking %s to connect (no scan, by address)", text);
   esp_bt_hid_host_connect(this->remembered_.hid);
-
-  this->reconnect_backoff_ms_ = this->reconnect_backoff_ms_ * 2 > RECONNECT_MAX_MS
-                                    ? RECONNECT_MAX_MS
-                                    : this->reconnect_backoff_ms_ * 2;
-  this->reconnect_due_ms_ = now + this->reconnect_backoff_ms_;
 #endif
 }
 

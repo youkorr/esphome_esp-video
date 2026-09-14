@@ -117,7 +117,15 @@ def check(path, esphome):
     # downloads it while validating, so a sandbox with no route there fails on
     # a file that is perfectly good. Worth telling apart from a real fault,
     # and worth only believing after asking whether the host is reachable.
-    if "Not a valid model name" in both and not github_reachable():
+    # The message changed shape between ESPHome versions -- it used to fail
+    # the name and now it reports the HTTP error -- so both are matched. A
+    # check that quietly stopped recognising its own blind spot reports a
+    # perfectly good file as broken, which is worse than not having the
+    # special case at all.
+    unreachable_model = "Not a valid model name" in both or (
+        "micro_wake_word" in both and "Could not download" in both
+    )
+    if unreachable_model and not github_reachable():
         print(f"  ?      {path}")
         print("         micro_wake_word downloads its model from github.com, "
               "unreachable from here, so the rest of the file went unchecked")

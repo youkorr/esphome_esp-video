@@ -64,6 +64,23 @@ class PortallBT : public Component {
   void set_inquiry_seconds(uint16_t seconds) { this->inquiry_seconds_ = seconds; }
   void set_host_stack(bool wanted) { this->host_stack_ = wanted; }
   void set_hid_host(bool wanted) { this->hid_host_ = wanted; }
+  void set_a2dp(bool wanted) { this->a2dp_ = wanted; }
+  void set_test_tone(uint16_t hz) { this->test_tone_hz_ = hz; }
+
+  /* A2DP source, defined in a2dp.cpp.
+   *
+   * fill_pcm runs on BLUEDROID's own A2DP task and is the clock for the whole
+   * path: it is called when the encoder is about to want bytes, for exactly
+   * the number it wants. 44100 Hz, signed 16-bit little-endian, TWO channels
+   * interleaved -- not a preference, a hardcoded constant in
+   * btc_a2dp_source.c with a comment saying as much. */
+  uint32_t fill_pcm(uint8_t *buf, uint32_t len);
+  /// Hand PCM to the speaker, in that same format. Safe from any task.
+  void feed_audio(const uint8_t *data, uint32_t len);
+  void on_a2dp_ready();
+  void on_a2dp_open(const uint8_t *addr);
+  void on_a2dp_closed(bool abnormal);
+  void on_a2dp_audio(bool started);
   void set_device_name(const char *name) { this->device_name_ = name; }
   void set_pair_seconds(uint16_t seconds) { this->pair_seconds_ = seconds; }
   void set_show_reports(bool wanted) { this->show_reports_ = wanted; }
@@ -93,6 +110,12 @@ class PortallBT : public Component {
   /// it is an action somebody invokes and never a loop, never on boot: once
   /// paired, everything below reconnects by ADDRESS, which needs no inquiry at
   /// all. Remembering the device and not killing the Wi-Fi are the same thing.
+  /// Whether this panel is looking for a speaker / an input device at all.
+  /// Read by the pairing callback, which has one scan and two kinds of
+  /// device to sort it into.
+  bool wants_speaker() const { return this->a2dp_; }
+  bool wants_input() const { return this->hid_host_; }
+
   void pair();
   /// Forget every bonded device, both stores. The way back from a gamepad
   /// somebody has given away.
@@ -119,6 +142,13 @@ class PortallBT : public Component {
   void remember_hid_(const uint8_t *addr);
   void load_remembered_();
 
+  void hid_reconnect_();
+
+  // Defined in a2dp.cpp.
+  void start_a2dp_();
+  void remember_sink_(const uint8_t *addr);
+  void a2dp_reconnect_();
+
   // Attaches the transport, initialises Bluedroid and enables it, in that
   // order -- which is Espressif's, not a preference: the HCI driver has to be
   // attached before esp_bluedroid_init(). Called from the probe's task once a
@@ -133,6 +163,16 @@ class PortallBT : public Component {
   const char *device_name_{"portall"};
   bool host_stack_{false};
   bool hid_host_{false};
+  bool a2dp_{false};
+  bool a2dp_up_{false};
+  bool a2dp_open_{false};
+  bool a2dp_playing_{false};
+  // 0 is off. A tone exists so the path can be proved before there is
+  // anything real to play through it -- tools/playsound.py made the same
+  // choice for the panel's own speaker, for the same reason.
+  uint16_t test_tone_hz_{0};
+  uint32_t pcm_starved_{0};
+  uint32_t pcm_dropped_{0};
   bool profiles_up_{false};
   // When the next reconnection attempt is due, and how long to wait after the
   // one after that. A device that is switched off must not be asked for
