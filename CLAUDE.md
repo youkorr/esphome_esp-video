@@ -3655,6 +3655,77 @@ recorded: not a check that passed vacuously, but a QUESTION that was never
 asked. The probe firmware now asks it in the repository rather than leaving it
 to whoever builds.
 
+**And with the question asked, the answer came back on the first run:**
+
+    Bluedroid initialised -- it compiles, it links, and it is up to
+      esp_bluedroid_enable() next, once this component can carry its HCI
+
+So **Bluedroid compiles, links and initialises on an ESP32-P4** with
+`BT_CONTROLLER_DISABLED`. Selectable was a Kconfig reading; this is the chip.
+
+### The transport, which is the glue
+
+`hci_drv_send` / `hci_drv_check_send_available` /
+`hci_drv_register_host_callback`, attached with
+`esp_bluedroid_attach_hci_driver()`, plus two reader tasks. The mapping is the
+one H4 already implies: a command goes out as a class request on the CONTROL
+endpoint, ACL on the bulk pair, events come back on the interrupt IN, and SCO
+is isochronous and is not carried -- which costs a headset's microphone, not
+its music, since A2DP is ACL.
+
+Five things had to be decided rather than typed, and four of them are
+shapes this file already records:
+
+- **The order is Espressif's, not a preference.** Attach the transport, THEN
+  `esp_bluedroid_init()`, THEN `enable()` -- their header says the driver is
+  attached "before initialization". So `setup()` no longer initialises
+  anything: there is no dongle yet to attach, and init came first there. The
+  whole sequence moved to `start_host_stack_()`, after the probe.
+- **The readers start BEFORE `enable()`.** The first thing enable does is send
+  an HCI Reset and wait for its Command Complete; with nothing reading the
+  endpoint that wait can only time out.
+- **The event reader REUSES `g_event_urb`**, the probe's own. CherryUSB keeps
+  the DATA0/DATA1 toggle in the urb, so a fresh one would restart at DATA0
+  against a device that has been alternating since the reset -- the "one, miss,
+  one, miss" fault above, which cost a round trip to find the first time.
+- **ACL needs a task of its own.** Both endpoints block and one reader cannot
+  wait on two; btusb submits both at once for the same reason.
+- **`check_send_available()` is unconditionally true, and that is a statement
+  about `send()`** -- it does not return until the transfer is done, so nothing
+  is ever outstanding. It also means `notify_host_send_available()` is never
+  called from inside `send()`, which keeps this off the path back into
+  Bluedroid's own task.
+
+The alignment rule from the probe is restated where it bites: the buffers
+handed to the CONTROLLER are `USB_NOCACHE_RAM_SECTION USB_MEM_ALIGNX`, and the
+two frames assembled by `memcpy` are ordinary memory. Confusing those is the
+64-byte assert that took the whole firmware down once.
+
+**The proof is one line and costs nothing:** after enable, the address is read
+from `esp_bt_dev_get_address()` -- out of Bluedroid, which has never seen the
+dongle except through those three function pointers -- and printed beside the
+one the probe read for itself. Same dongle, different code path, different
+buffer, different task. If they match, the transport is carrying real answers
+rather than plausible ones.
+
+### The C++ check was passing on code it had never read
+
+`tools/checkbt.py` compiled the file once, with no `CONFIG_BT_BLUEDROID_ENABLED`
+-- so every line of the host stack sits behind an `#ifdef` the only C++ check
+in this repository never opened. It is the newest code, it calls the least
+familiar API, and no user had ever built it. It compiles **both** ways now,
+with stand-ins for `esp_bluedroid_hci.h`, `esp_bt_main.h`, `esp_bt_device.h`
+and `esp_err.h` beside the CherryUSB one.
+
+Reproduced against a broken copy before the check was believed: a misspelt
+`esp_bluedroid_attach_hci_driver` passes the first configuration and fails the
+second, naming the line.
+
+**Still not compiled by a real toolchain**, and the stand-ins are the risk:
+they say what these functions are called and what they take, not that the
+build will accept them. What is NOT tested at all is ACL -- nothing has
+carried a byte of it -- and SCO is not implemented.
+
 Fixing it found the other half. That file has never passed `esphome config`:
 its `api:` encryption key is an **empty string**, which is the same fault
 CLAUDE.md already records for `ws-usb-screen.yaml` and the Guition pair -- a

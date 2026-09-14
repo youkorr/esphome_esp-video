@@ -43,8 +43,18 @@ class PortallBT : public Component {
 
   void try_host_stack_();
 
+  // Attaches the transport, initialises Bluedroid and enables it, in that
+  // order -- which is Espressif's, not a preference: the HCI driver has to be
+  // attached before esp_bluedroid_init(). Called from the probe's task once a
+  // controller has answered, because before that there is nothing to attach.
+  void start_host_stack_(struct usbh_hubport *hport, uint8_t intf,
+                         struct usb_endpoint_descriptor *events,
+                         struct usb_endpoint_descriptor *acl_in,
+                         struct usb_endpoint_descriptor *acl_out);
+
   uint16_t inquiry_seconds_{10};
   bool host_stack_{false};
+  bool stack_up_{false};
   bool probing_{false};
   bool high_speed_{true};
   bool started_{false};
