@@ -234,6 +234,28 @@ static USB_NOCACHE_RAM_SECTION USB_MEM_ALIGNX uint8_t g_hci_pkt[64];
 // own structure for exactly this reason; this one had been stack-allocated.
 static struct usbh_urb g_event_urb;
 
+// A NAK IS SILENCE, NOT A LOST FRAME, and treating the two alike is what
+// desynchronises this stream.
+//
+// An interrupt IN endpoint with nothing to report NAKs; the probe measured
+// that coming back in about eleven milliseconds, hundreds of times, which is
+// the ordinary state of a controller that is not talking. The first version
+// of both readers did `filled = 0` on every error, NAKs included -- and that
+// does not merely drop the event being read. The packets of that event that
+// have NOT arrived yet arrive afterwards and are assembled as a FRESH frame,
+// whose second byte is somebody's payload rather than a length. Bluedroid
+// then reads a parameter_length out of it and refuses:
+//
+//     assert failed: read_command_complete_header hci_packet_parser.c
+//     (parameter_length >= (parameter_bytes_we_read_here + minimum_bytes_after))
+//
+// One dropped packet therefore breaks the stream for good rather than for one
+// frame. So only a DEVICE error clears what has been read; a refusal or a
+// timeout is waited through.
+static bool read_failed_for_good(int err) {
+  return err == -USB_ERR_NODEV || err == -USB_ERR_NOTCONN || err == -USB_ERR_SHUTDOWN;
+}
+
 // HOW LONG A PACKET IS, asked of the packet itself rather than guessed from a
 // short read. This is the fault that stopped Bluedroid on its fifth command.
 //
@@ -355,10 +377,12 @@ static int hci_next_event(struct usbh_hubport *hport, struct usb_endpoint_descri
     saw->reads++;
     if (err < 0) {
       saw->last_error = err;
-      filled = 0;  // half an event is not an event
-      if (err == -USB_ERR_NODEV || err == -USB_ERR_NOTCONN || err == -USB_ERR_SHUTDOWN) {
+      if (read_failed_for_good(err)) {
         return -1;  // it was unplugged; there is nothing to be patient about
       }
+      // What has been read is KEPT. See read_failed_for_good() above for what
+      // clearing it here costs -- and note that the probe got away with it
+      // only because nothing else was running to interrupt a long event.
       // Only for a refusal, and only 10 ms: a read that really waited has
       // already spent its time, while a refusal that returns at once would
       // otherwise spin a core for the whole patience.
@@ -914,6 +938,41 @@ static struct usbh_urb g_acl_out_urb;
 static uint32_t g_tx_errors = 0;
 static uint32_t g_sco_dropped = 0;
 
+// The first few frames handed up, said out loud. Bluedroid's startup is a
+// dozen commands and it refuses the first malformed answer with an assert
+// that names its own parser and nothing about what it was given -- so a fault
+// in this transport arrives as a board that reboots and a line about
+// somebody else's file. Reporting the boring frames is what this project has
+// twice had to learn: the evidence is in what went right up to the failure.
+// Twelve of them, then silence for ever.
+static constexpr uint8_t FRAMES_REPORTED = 12;
+static uint8_t g_frames_said = 0;
+
+static void say_frame(const char *what, const uint8_t *frame, uint32_t len) {
+  if (g_frames_said >= FRAMES_REPORTED) {
+    return;
+  }
+  g_frames_said++;
+  // For an event: code then parameter length. For ACL: the handle. Both are
+  // the two bytes that decide how it is read.
+  ESP_LOGI(TAG, "  %s %u bytes, first four %02x %02x %02x %02x", what, (unsigned) len, frame[0],
+           len > 1 ? frame[1] : 0, len > 2 ? frame[2] : 0, len > 3 ? frame[3] : 0);
+}
+
+// A declared length this reader cannot hold. It cannot happen -- an event is
+// at most 257 bytes and ACL is bounded by the buffer size this host tells the
+// controller -- but a reader that silently keeps reading past its own array is
+// how one becomes the other, so it says so and starts again rather than
+// carrying on with a frame it cannot finish.
+static bool too_long(const char *what, uint32_t want, uint32_t room) {
+  if (want <= room) {
+    return false;
+  }
+  ESP_LOGE(TAG, "a %s frame says it is %u bytes and there is room for %u; resynchronising", what,
+           (unsigned) want, (unsigned) room);
+  return true;
+}
+
 static bool link_gone(int err) {
   return err == -USB_ERR_NODEV || err == -USB_ERR_NOTCONN || err == -USB_ERR_SHUTDOWN;
 }
@@ -1031,7 +1090,7 @@ static void hci_event_task(void *arg) {
       if (link_gone(err)) {
         break;
       }
-      filled = 0;  // half an event is not an event
+      // Silence, not a lost frame: what has been read is kept.
       vTaskDelay(pdMS_TO_TICKS(5));
       continue;
     }
@@ -1047,10 +1106,15 @@ static void hci_event_task(void *arg) {
     filled += take;
 
     const uint32_t want = event_length(&g_rx_evt_frame[1], filled);
+    if (want != 0 && too_long("event", want, (uint32_t) sizeof(g_rx_evt_frame) - 1)) {
+      filled = 0;
+      continue;
+    }
     if (want == 0 || filled < want) {
       continue;  // the header has not arrived yet, or the event has not
     }
 
+    say_frame("event", &g_rx_evt_frame[1], want);
     g_rx_evt_frame[0] = H4_EVENT;
     if (g_host_cb != nullptr && g_host_cb->notify_host_recv != nullptr) {
       g_host_cb->notify_host_recv(g_rx_evt_frame, (uint16_t) (want + 1));
@@ -1085,7 +1149,6 @@ static void hci_acl_task(void *arg) {
       if (link_gone(err)) {
         break;
       }
-      filled = 0;
       vTaskDelay(pdMS_TO_TICKS(5));
       continue;
     }
@@ -1104,10 +1167,15 @@ static void hci_acl_task(void *arg) {
     // than better: 64 bytes on this dongle, so every ACL payload of 60, 124,
     // 188 ... would have hung on the short packet that never came.
     const uint32_t want = acl_length(&g_rx_acl_frame[1], filled);
+    if (want != 0 && too_long("ACL", want, (uint32_t) sizeof(g_rx_acl_frame) - 1)) {
+      filled = 0;
+      continue;
+    }
     if (want == 0 || filled < want) {
       continue;
     }
 
+    say_frame("ACL", &g_rx_acl_frame[1], want);
     g_rx_acl_frame[0] = H4_ACL;
     if (g_host_cb != nullptr && g_host_cb->notify_host_recv != nullptr) {
       g_host_cb->notify_host_recv(g_rx_acl_frame, (uint16_t) (want + 1));
