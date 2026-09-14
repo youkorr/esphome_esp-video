@@ -56,8 +56,8 @@ board it is on. Turn it on from the YAML before anything can enumerate:
         id: usb_5v_power
         restore_mode: ALWAYS_ON
 
-CHERRYUSB COMES FROM A FORK, and one number is the whole reason. Its ESP port
-fixes how many alternate settings an interface may have at two:
+CHERRYUSB IS PATCHED AT BUILD TIME, and one number is the whole reason. Its
+ESP port fixes how many alternate settings an interface may have at two:
 
     osal/idf/usb_config.h:  #define CONFIG_USBHOST_MAX_INTF_ALTSETTINGS 2
 
@@ -76,10 +76,16 @@ Note what came BEFORE those two lines: the device descriptor was read. So the
 host works, the full-speed dongle attaches to the high-speed PHY, and the only
 thing in the way is an array four entries too short.
 
-It cannot be reached from here. It is not a Kconfig option, and it is a bare
-#define with no #ifndef around it -- on the pinned version and on master alike
--- so neither sdkconfig nor a -D can override it. The fork raises that one
-number and changes nothing else.
+It cannot be reached from a configuration. It is not a Kconfig option, and it
+is a bare #define with no #ifndef around it -- on the pinned version and on
+master alike -- so neither sdkconfig nor a -D can override it. The first
+answer here was a fork of CherryUSB, and it was the wrong one: a second
+repository to keep in step, and a build that fails for anybody who has not
+made it. `components/cherryusb_patch/` is a tiny ESP-IDF component that
+compiles nothing and edits that one line in the copy the component manager
+downloaded INTO THE BUILD DIRECTORY, loudly, before any compiler reads it.
+Everything stays in this repository and there is nothing for anybody to
+create.
 
 It also explains something that had looked like a policy: CherryUSB switches
 its Bluetooth class driver off for ESP-IDF. At two alternate settings that
@@ -87,12 +93,16 @@ driver could never have bound to any dongle, because none of them enumerate.
 
 The fix worth having is upstream and is four lines -- putting these constants
 behind `#ifndef`, the way the rest of that same file already does for
-everything else -- and then a project sets them from its own build. Until
-that exists, this points at a fork.
+everything else -- and then a project sets them from its own build. When that
+lands, the replacement stops matching and the patch retires itself.
 
-THE FORK MUST BE OF 1.6.0 OR NEWER. `usbh_initialize` grew a third parameter
--- the event handler this component uses -- in 1.6.0; 1.5.x takes two.
+THE VERSION IS PINNED, and not out of caution. `usbh_initialize` grew a third
+parameter -- the event handler this component uses -- in 1.6.0; 1.5.x takes
+two. A floating version would stop compiling on an upgrade, with an error
+that says nothing about why.
 """
+
+import os
 
 import esphome.codegen as cg
 from esphome.components import esp32
@@ -109,10 +119,8 @@ CONF_CONTROLLER = "controller"
 # here, so there is one definition of which register block is which.
 CONTROLLERS = {"high_speed": True, "full_speed": False}
 
-# See the module docstring for why this is a fork rather than the registry's
-# own `cherry-embedded/cherryusb`, and what the one changed line is.
-CHERRYUSB_REPO = "https://github.com/youkorr/CherryUSB"
-CHERRYUSB_REF = "esp-altsettings"
+# See the module docstring: 1.6.0 changed usbh_initialize's signature.
+CHERRYUSB_VERSION = "1.6.1"
 
 portall_bt_ns = cg.esphome_ns.namespace("portall_bt")
 PortallBT = portall_bt_ns.class_("PortallBT", cg.Component)
@@ -135,13 +143,20 @@ async def to_code(config):
     await cg.register_component(var, config)
     cg.add(var.set_high_speed(config[CONF_CONTROLLER]))
 
-    # Fetched at build time rather than carried here: ESPHome writes this into
-    # src/idf_component.yml and the IDF component manager clones it. Nothing
-    # for the user to install. The plain name rather than the registry's
-    # `cherry-embedded/cherryusb` because this is a git source, and the
-    # namespaced form belongs to the registry.
+    # Fetched from Espressif's component registry at build time rather than
+    # carried here: ESPHome writes this into src/idf_component.yml and the IDF
+    # component manager downloads it. Nothing for the user to install.
+    esp32.add_idf_component(name="cherry-embedded/cherryusb", ref=CHERRYUSB_VERSION)
+
+    # And a component that compiles nothing, whose whole job is to raise one
+    # constant in what was just downloaded. See the docstring, and
+    # components/cherryusb_patch/patch.cmake, which says it at length in the
+    # one place somebody debugging this would look.
     esp32.add_idf_component(
-        name="cherryusb", repo=CHERRYUSB_REPO, ref=CHERRYUSB_REF
+        name="cherryusb_patch",
+        path=os.path.join(
+            os.path.dirname(os.path.dirname(__file__)), "cherryusb_patch"
+        ),
     )
 
     # CherryUSB's own CMakeLists force-enables every host class driver it
