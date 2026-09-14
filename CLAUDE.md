@@ -3386,6 +3386,155 @@ followed by C++ that only a Windows machine can prove.
 Sources: VirtualDrivers/Virtual-Display-Driver releases; signpath.org project
 list; espressif/esp-iot-solution `usb_extend_screen/windows_driver`.
 
+## An ESP32-P4 drives a USB Bluetooth dongle, and it is measured
+
+**The C6 is BLE only -- no Classic, so no A2DP and no Classic HID -- and that
+was written here as the end of the matter.** It is not. A dongle carries its
+own controller, the P4 has a spare USB controller to host it on, and the whole
+chain now works on an M5Stack Tab5 with a Broadcom BCM20702A1 in the USB-A
+socket:
+
+    HCI Reset answered, status 00, credit 1 -- the dongle is talking
+      HCI version 6, LMP version 6, manufacturer 15
+      address 00:02:72:DC:33:59
+      name "BCM20702A"
+
+LMP version 6 is Bluetooth 4.0, so BR/EDR -- **Classic**. Manufacturer 15 is
+Broadcom in the SIG's own list. The address is the controller's real one, not
+the `20:70:02:A0:00:00` an unconfigured BCM20702A1 reports. And the name is a
+255-byte event reassembled from sixteen 16-byte packets, which is the proof
+that the long path works and not only the short one.
+
+`components/portall_bt/` is the firmware, `yaml/tab5-bt-probe.yaml` the
+configuration, and `tools/checkbt.py` compiles the component with a plain g++
+against stand-in headers -- which is the only C++ check this repository has
+ever had and it caught real faults on its first day.
+
+**The correction to make first, because this file said otherwise.** It said
+portall takes "the board's single USB OTG controller". The P4 has **two**, one
+high-speed and one full-speed, and Espressif's datasheet says the pair is what
+allows several USB peripherals in host mode at once. What is true is narrower:
+portall takes the HIGH-SPEED one in device mode, and on the Tab5 the USB-A
+host socket is on that same controller -- so the dongle and portall cannot
+share a Tab5 today. The probe is therefore a firmware of its own with no
+`portall:` block, and the follow-up is an option that lets a Wi-Fi-fed panel
+skip TinyUSB entirely, which is worth having anyway.
+
+### The seven faults, in the order they were found
+
+Each one cost a round trip to a board, and every one of them is a shape this
+file already records under another name.
+
+**CherryUSB's Bluetooth class driver is switched off for ESP-IDF, and the
+reason is a constant.** `# set(CONFIG_CHERRYUSB_HOST_BLUETOOTH 1)` is commented
+out in its CMakeLists and its Kconfig carries `depends on !IDF_CMAKE`. Then
+`osal/idf/usb_config.h` fixes `CONFIG_USBHOST_MAX_INTF_ALTSETTINGS` at **2** --
+and a dongle's SCO interface has **six** alternate settings, so the parser
+abandons the whole configuration descriptor and nothing enumerates. That
+driver could never have bound to anything. `components/cherryusb_patch/` is an
+IDF component that compiles nothing and edits that line in the BUILD
+directory: every component's CMakeLists runs during CMake's configure step,
+after the manager has downloaded its dependencies and before anything is
+compiled. The first answer was a fork, and it was wrong -- a second repository
+to keep in step and a build that failed for everybody who had not made it,
+which is exactly what happened when the pointer was pushed before the fork
+existed.
+
+**A dongle's HCI interface is often NOT class 0xE0.** This Broadcom says
+`ff/01/01` on interfaces 0 and 1 and `ff` at the device level too, so whole
+families ship a vendor coat to make Windows load the manufacturer's stack.
+Linux does not treat it as different: btusb.c binds it with
+`USB_VENDOR_AND_INTERFACE_INFO(0x0a5c, 0xff, 0x01, 0x01)` and a dozen more
+vendors on the same line. **The subclass and the protocol say Bluetooth; the
+class says which driver the manufacturer was hoping for.** The TP-Link UB500
+(`2357:0604`) is the textbook opposite -- `e0/01/01` everywhere, two
+interfaces -- so both paths are proven on real hardware.
+
+**A budget counted in attempts is not a clock.** The first wait assumed each
+read cost the half second it asked for, which is true only when a read times
+out: a refusal returns in microseconds, so sixteen of them spent a
+three-second allowance instantly and the failure reported silence after no
+wait at all. The panel's own log showed the command going out and the failure
+being logged in the same second.
+
+**And it reported nothing else, twice.** "Nothing came back" is the same
+sentence whether the endpoint refused, answered empty, or answered something
+else. Then the follow-up reads logged only their successes, so a dongle that
+answered one command and not the next produced a log that stopped
+mid-sentence. There is one path for a command now and it cannot be quiet:
+`hci_ask()` reports the send, the wait with its numbers, and a status byte
+that refuses.
+
+**The data toggle lives in the URB, not in the endpoint.** This is the one
+worth remembering. `usb_hc_dwc2.c` starts a transfer with `urb->data_toggle ==
+0 ? HC_PID_DATA0 : HC_PID_DATA1` and writes the new toggle back into the same
+field. A urb declared on the stack therefore begins every read at DATA0 while
+the device alternates, so every second packet arrives with the wrong PID and
+is discarded -- `HCI Reset` answered, `Read Local Version` NAKed 137 times,
+`Read BD Address` answered, `Read Local Name` timed out. **One, miss, one,
+miss**, and the same pattern appeared on a second dongle from a different
+manufacturer, which is what settled that it was ours. Every class driver in
+CherryUSB keeps its urbs in its own structure for exactly this reason. It also
+explains the run before it that looked "intermittent": whether the FIRST read
+matched depended on where the dongle's toggle happened to be.
+
+**A long event has to be read a packet at a time.** `Read Local Name` answers
+with 255 bytes, seventeen packets on a 16-byte endpoint, and asking for all of
+it in one periodic transfer timed out five times running while every answer
+under 16 bytes arrived at once. CherryUSB's own driver fills its urb with
+`ep_mps` and accumulates until a short packet; Linux's btusb reads
+`wMaxPacketSize` and reassembles in `hci_recv_fragment`.
+
+**And the fix for that killed the firmware, on a sentence in its own commit
+message.** It said "every full packet is a multiple of the packet size, so the
+offset handed to DMA stays aligned" -- reasoning from an alignment of 4. With
+the data cache on this port wants **64**, the packets are 16, and the second
+read pointed 16 bytes past a boundary:
+
+    ASSERT FAIL [!((uintptr_t)urb->transfer_buffer % CONFIG_USB_ALIGN_SIZE)]
+    urb->setup or urb->transfer_buffer is not aligned 64
+    task_wdt: CPU 1: portall_bt -- Aborting.
+
+The task stopped inside the assert and the watchdog took the whole firmware.
+An assumption about somebody else's constant, written as a statement of fact,
+in a comment that read as though it had been checked -- and the value was one
+grep away. Every read lands in a staging buffer of its own now, a whole cache
+line wide, and is copied out afterwards.
+
+### Reading the log, because two numbers look like errors and are not
+
+`usbh_control_transfer` returns the bytes transferred, **setup packet
+included**. So `selecting altsetting 0 ... returned 8` is a SET_INTERFACE with
+no data stage succeeding, and `control said 11` is 8 + a three-byte HCI
+command succeeding. The error codes are in `common/usb_errno.h` and are
+NEGATIVE: -3 NODEV (somebody pulled the dongle out), -10 NAK (the endpoint has
+nothing to give, which is a controller that never answered rather than a
+transfer that failed), -14 TIMEOUT.
+
+### What is NOT done
+
+**No host stack.** This speaks the transport and asks four questions; it does
+not pair, scan, or carry audio. NimBLE is BLE only, so **A2DP needs Bluedroid**
+-- the only Classic stack in ESP-IDF -- and whether it builds for a P4 target
+against a controller that is not the C6 is the open question. esp-hosted's own
+design says the host may run NimBLE *or* Bluedroid, and the P4 shipped
+NimBLE-only because the C6 has no Classic to talk to; a dongle removes that
+reason but proves nothing about the build.
+
+**The Realtek needs its firmware.** The TP-Link UB500 answers HCI Reset and
+gives a real address from ROM -- its address matched the user's own Windows
+screenshot exactly -- and that is the false success this file warned about:
+Linux uploads **30 210 bytes** (`rtl8761bu_fw.bin` + `_config.bin`) before it
+is a working controller. A loader is a vendor-command loop and a 30 KB blob,
+identified and not written. The Broadcom needs none of it -- its `.hcd` is a
+patch, and `btbcm_initialize` logs "Patch file not found" and `return 0`.
+
+**And the upstream fix is four lines.** Putting those constants behind
+`#ifndef`, the way the rest of `osal/idf/usb_config.h` already does for
+everything else, would retire `cherryusb_patch` entirely. The file carries
+**Espressif's own copyright** and lives in `cherry-embedded/CherryUSB`. Not
+reported yet.
+
 ## Repository conventions
 
 - Work on branch `claude/esphome-pr-outdated-mdq36w`, then merge into `main`
