@@ -136,6 +136,29 @@ static constexpr uint32_t RESET_RETRY_MS = 400;
 static USB_NOCACHE_RAM_SECTION USB_MEM_ALIGNX uint8_t g_hci_cmd[64];
 static USB_NOCACHE_RAM_SECTION USB_MEM_ALIGNX uint8_t g_hci_evt[260];
 
+// ONE urb for the event endpoint, reused for every read, and this is not
+// tidiness -- it is the whole difference between a dongle that answers and one
+// that answers every other time.
+//
+// CherryUSB keeps an interrupt endpoint's DATA0/DATA1 toggle in the URB:
+// usb_hc_dwc2.c starts a transfer with `urb->data_toggle == 0 ? HC_PID_DATA0 :
+// HC_PID_DATA1` and writes the new toggle back into the same field when the
+// transfer completes. A urb declared on the stack therefore begins every read
+// at DATA0, while the device dutifully alternates -- so every second packet
+// arrives with the wrong PID, is discarded by the host, and the read ends in a
+// NAK or a timeout.
+//
+// Measured on a Tab5, and the pattern is unmistakable once it is named:
+//
+//     HCI Reset answered, status 00           <- toggle happened to match
+//     Read Local Version: no answer, 137 reads, last error -10 (NAK)
+//     address 00:02:72:DC:33:59               <- matched again
+//     Read Local Name: no answer, last error -14 (timeout)
+//
+// One, miss, one, miss. Every class driver in CherryUSB keeps its urbs in its
+// own structure for exactly this reason; this one had been stack-allocated.
+static struct usbh_urb g_event_urb;
+
 static int hci_command(struct usbh_hubport *hport, uint8_t intf, uint16_t opcode,
                        const uint8_t *params, uint8_t len) {
   struct usb_setup_packet *setup = hport->setup;
@@ -183,7 +206,7 @@ static uint32_t now_ms() { return (uint32_t) (xTaskGetTickCount() * portTICK_PER
 // same second.
 static int hci_await(struct usbh_hubport *hport, struct usb_endpoint_descriptor *ep,
                      uint16_t opcode, uint32_t patience_ms, Waited *saw) {
-  struct usbh_urb urb;
+  struct usbh_urb &urb = g_event_urb;
   const uint32_t started = now_ms();
 
   *saw = Waited{};
@@ -193,6 +216,9 @@ static int hci_await(struct usbh_hubport *hport, struct usb_endpoint_descriptor 
     saw->reads++;
     if (err < 0) {
       saw->last_error = err;
+      if (err == -USB_ERR_NODEV || err == -USB_ERR_NOTCONN || err == -USB_ERR_SHUTDOWN) {
+        return -1;  // it was unplugged; there is nothing to be patient about
+      }
       // Only for a refusal, and only 10 ms: a read that really waited has
       // already spent its time, while a refusal that returns at once would
       // otherwise spin a core for the whole patience.
@@ -231,7 +257,11 @@ static int hci_ask(struct usbh_hubport *hport, uint8_t intf,
 
   const int sent = hci_command(hport, intf, opcode, nullptr, 0);
   if (sent < 0) {
-    ESP_LOGW(TAG, "  %s (%04x) would not go out (%d)", what, opcode, sent);
+    // -3 is USB_ERR_NODEV: somebody pulled the dongle out. Worth naming,
+    // because five identical lines saying a command would not go out read like
+    // a fault in the dongle rather than an empty socket.
+    ESP_LOGW(TAG, "  %s (%04x) would not go out (%d)%s", what, opcode, sent,
+             sent == -USB_ERR_NODEV ? " -- the dongle is no longer there" : "");
     return -1;
   }
 
@@ -407,6 +437,11 @@ void PortallBT::probe_hci(uint8_t hub_index, uint8_t hub_port, uint8_t intf_inde
   ESP_LOGI(TAG, "  events on endpoint %02x, packet %u, interval %u", events->bEndpointAddress,
            (unsigned) USB_GET_MAXPACKETSIZE(events->wMaxPacketSize), events->bInterval);
 
+  // A device that has just been enumerated starts its endpoint at DATA0, so
+  // the urb that carries the toggle starts there too. Everything after this
+  // reuses it and lets the toggle alternate on its own.
+  g_event_urb = usbh_urb{};
+
   // CherryUSB's own driver selects alternate setting 0 before it starts, so
   // this does too. A device that has alternate settings at all is entitled to
   // be told which one is wanted, and a vendor-class one that refuses costs a
@@ -433,6 +468,11 @@ void PortallBT::probe_hci(uint8_t hub_index, uint8_t hub_port, uint8_t intf_inde
         ESP_LOGI(TAG, "  it answered on attempt %u of %u", attempt, RESET_ATTEMPTS);
       }
       break;
+    }
+    if (!hport->connected) {
+      ESP_LOGW(TAG, "  the dongle was unplugged; giving up on this one");
+      this->probing_ = false;
+      return;
     }
     if (attempt < RESET_ATTEMPTS) {
       vTaskDelay(pdMS_TO_TICKS(RESET_RETRY_MS));
