@@ -456,6 +456,18 @@ void PortallBT::report_(uint8_t hub_index, uint8_t hub_port) {
     }
   }
 
+  // Those `[E/usbh_core] Do not support Class:...` lines just above are
+  // CherryUSB's, and they are expected rather than a fault. It prints one per
+  // interface for which no class driver is registered -- and none is, on
+  // purpose: its own Bluetooth driver is switched off for ESP-IDF, and this
+  // component drives the device itself from the enumeration event instead.
+  // Read its source rather than its log level: after that message it fires
+  // USBH_EVENT_INTERFACE_UNSUPPORTED and `continue`s, leaving `ret` untouched,
+  // so enumeration still succeeded and the device stays exactly where it is.
+  // Four red lines that mean nothing are worth one line that says so.
+  ESP_LOGI(TAG, "  the \"Do not support Class\" lines above are CherryUSB's and are expected:");
+  ESP_LOGI(TAG, "  no class driver is registered for this, and none is wanted -- it is driven here");
+
   if (hci_interface < 0) {
     return;
   }
