@@ -66,20 +66,45 @@ esp32_hosted:
   reset_pin: GPIO15
   use_psram: true
   slot: 1
+  
 i2c:
   - id: bsp_bus
     sda: GPIO31
     scl: GPIO32
     scan: True
     frequency: 400kHz   
+    
 
 esp_ldo:
   - voltage: 2.5V
     channel: 3  
+    
 psram:
   mode: hex
   speed: 200MHz
-
+  
+pi4ioe5v6408:
+  - id: pi4ioe1
+    address: 0x43
+    # 0: O - wifi_antenna_int_ext
+    # 1: O - speaker_enable
+    # 2: O - external_5v_power
+    # 3: NC
+    # 4: O - lcd reset
+    # 5: O - touch panel reset
+    # 6: O - camera reset
+    # 7: I - headphone detect
+  - id: pi4ioe2
+    address: 0x44
+    # 0: O - wifi_power
+    # 1: NC
+    # 2: NC
+    # 3: O - usb_5v_power
+    # 4: O - poweroff pulse
+    # 5: O - quick charge enable (inverted)
+    # 6: I - charging status
+    # 7: O - charge enable
+    
 pi4ioe5v6408:
   - id: pi4ioe1
     address: 0x43
@@ -87,10 +112,14 @@ pi4ioe5v6408:
 display:
   - platform: mipi_dsi
     id: main_display
-    model: M5STACK-TAB5
+    dimensions:
+      height: 1280
+      width: 720
+    model: M5Stack-Tab5
     reset_pin:
       pi4ioe5v6408: pi4ioe1
       number: 4
+    color_order: rgb
 
 output:
   - platform: ledc
@@ -119,6 +148,7 @@ lvgl:
   displays:
     - main_display
   rotation: 270
+  olor_depth: 16
   byte_order: little_endian
   # The variable under test.
   use_ppa: ${ppa}
@@ -146,4 +176,14 @@ switch:
       pi4ioe5v6408: pi4ioe1
       number: 6
     restore_mode: ALWAYS_ON  
+    
+  - platform: gpio
+    id: wifi_power
+    name: "WiFi"
+    internal: true
+    pin:
+      pi4ioe5v6408: pi4ioe2
+      number: 0
+    restore_mode: ALWAYS_ON
+    
   
