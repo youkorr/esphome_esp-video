@@ -144,6 +144,12 @@ void PortallBT::loop() {
     this->tail_ = (uint8_t) ((this->tail_ + 1) % QUEUE);
     this->report_(arrival.hub_index, arrival.hub_port);
   }
+  // Both live in hid.cpp. Input reports arrive on Bluedroid's task and an
+  // ESPHome automation may not run there, so they are queued and fired from
+  // here; the reconnection is here rather than in a task of its own because
+  // it is one comparison against a clock and a call every few seconds.
+  this->drain_reports_();
+  this->reconnect_tick_();
 }
 
 // ---------------------------------------------------------------------------
@@ -1302,6 +1308,12 @@ void PortallBT::start_host_stack_(struct usbh_hubport *hport, uint8_t intf,
     ESP_LOGI(TAG, "  Bluedroid reports address %02X:%02X:%02X:%02X:%02X:%02X (it should match above)",
              addr[0], addr[1], addr[2], addr[3], addr[4], addr[5]);
   }
+
+  // Everything above is the transport. From here on it is profiles, pairing
+  // and the memory of what was paired -- and none of it can be set up before
+  // enable(), because every one of those calls refuses with
+  // ESP_ERR_INVALID_STATE while the stack is not enabled.
+  this->start_profiles_();
 #else
   (void) hport;
   (void) intf;
@@ -1470,8 +1482,23 @@ void PortallBT::dump_config() {
   if (this->high_speed_) {
     // Worth saying on every boot rather than in documentation nobody reads:
     // this is the controller portall puts in device mode, so the two cannot
-    // share it and this is meant to be a firmware of its own for now.
+    // share it -- which is what portall's own `usb: false` is for.
     ESP_LOGCONFIG(TAG, "  This controller is the one portall uses for USB device mode.");
+    ESP_LOGCONFIG(TAG, "  A panel fed over Wi-Fi shares it by setting usb: false under portall:");
+  }
+  if (this->hid_host_) {
+    ESP_LOGCONFIG(TAG, "  Input devices: on, as \"%s\"", this->device_name_);
+    if (this->remembered_.has_hid) {
+      ESP_LOGCONFIG(TAG, "    Remembered: %02X:%02X:%02X:%02X:%02X:%02X -- reconnected by address, never scanned for",
+                    this->remembered_.hid[0], this->remembered_.hid[1], this->remembered_.hid[2],
+                    this->remembered_.hid[3], this->remembered_.hid[4], this->remembered_.hid[5]);
+    } else {
+      ESP_LOGCONFIG(TAG, "    Nothing paired yet. Run the portall_bt.pair action once.");
+    }
+    // Said here because it is the one surprise in this component's behaviour
+    // and somebody reading a boot log is the person it will surprise.
+    ESP_LOGCONFIG(TAG, "    Pairing runs an inquiry, which takes the Wi-Fi down while it lasts.");
+    ESP_LOGCONFIG(TAG, "    Nothing else here ever scans.");
   }
   ESP_LOGCONFIG(TAG, "  The host supplies 5V: on the Tab5 that is the second PI4IOE5V6408,");
   ESP_LOGCONFIG(TAG, "  bit 3 (usb_5v_power), which this component does not touch.");

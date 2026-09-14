@@ -13,6 +13,9 @@
 // blocking USB read there is no controller for.
 #define main component_main_unused
 #include "portall_bt.cpp"
+
+#include "esp_gap_bt_api.h"
+#include "esp_hidh_api.h"
 #undef main
 
 #include <cstdio>
@@ -41,6 +44,36 @@ esp_err_t esp_bluedroid_deinit(void) { return ESP_OK; }
 esp_err_t esp_bluedroid_attach_hci_driver(const esp_bluedroid_hci_driver_operations_t *) { return ESP_OK; }
 esp_err_t esp_bluedroid_detach_hci_driver(void) { return ESP_OK; }
 const uint8_t *esp_bt_dev_get_address(void) { return nullptr; }
+
+// And hid.cpp's half. It is linked here rather than mocked because a
+// declaration that no longer matches its definition is exactly the fault this
+// whole tool was built to catch -- so the linker is asked the question too.
+namespace esphome {
+uint32_t millis() { return 0; }
+uint32_t fnv1_hash(const char *) { return 0; }
+static ESPPreferences preferences_stub;
+ESPPreferences *global_preferences = &preferences_stub;
+}  // namespace esphome
+esp_err_t esp_bt_gap_register_callback(esp_bt_gap_cb_t) { return ESP_OK; }
+esp_err_t esp_bt_gap_set_scan_mode(esp_bt_connection_mode_t, esp_bt_discovery_mode_t) { return ESP_OK; }
+esp_err_t esp_bt_gap_start_discovery(esp_bt_inq_mode_t, uint8_t, uint8_t) { return ESP_OK; }
+esp_err_t esp_bt_gap_cancel_discovery(void) { return ESP_OK; }
+esp_err_t esp_bt_gap_set_device_name(const char *) { return ESP_OK; }
+esp_err_t esp_bt_gap_remove_bond_device(esp_bd_addr_t) { return ESP_OK; }
+int esp_bt_gap_get_bond_device_num(void) { return 0; }
+esp_err_t esp_bt_gap_get_bond_device_list(int *dev_num, esp_bd_addr_t *) {
+  *dev_num = 0;
+  return ESP_OK;
+}
+esp_err_t esp_bt_gap_set_security_param(esp_bt_sp_param_t, void *, uint8_t) { return ESP_OK; }
+esp_err_t esp_bt_gap_ssp_confirm_reply(esp_bd_addr_t, bool) { return ESP_OK; }
+esp_err_t esp_bt_gap_pin_reply(esp_bd_addr_t, bool, uint8_t, esp_bt_pin_code_t) { return ESP_OK; }
+esp_err_t esp_bt_hid_host_register_callback(esp_hh_cb_t) { return ESP_OK; }
+esp_err_t esp_bt_hid_host_init(void) { return ESP_OK; }
+esp_err_t esp_bt_hid_host_deinit(void) { return ESP_OK; }
+esp_err_t esp_bt_hid_host_connect(esp_bd_addr_t) { return ESP_OK; }
+esp_err_t esp_bt_hid_host_disconnect(esp_bd_addr_t) { return ESP_OK; }
+esp_err_t esp_bt_hid_host_virtual_cable_unplug(esp_bd_addr_t) { return ESP_OK; }
 
 using esphome::portall_bt::acl_length;
 using esphome::portall_bt::event_length;
