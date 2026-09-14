@@ -56,10 +56,42 @@ board it is on. Turn it on from the YAML before anything can enumerate:
         id: usb_5v_power
         restore_mode: ALWAYS_ON
 
-CHERRYUSB'S VERSION IS PINNED, and not out of caution. `usbh_initialize` grew
-a third parameter -- the event handler this component uses -- in 1.6.0; 1.5.x
-takes two. A floating version would therefore stop compiling on an upgrade,
-with an error that says nothing about why.
+CHERRYUSB COMES FROM A FORK, and one number is the whole reason. Its ESP port
+fixes how many alternate settings an interface may have at two:
+
+    osal/idf/usb_config.h:  #define CONFIG_USBHOST_MAX_INTF_ALTSETTINGS 2
+
+A Bluetooth dongle has two interfaces. The first carries HCI; the second
+carries SCO -- voice -- and that one has SIX alternate settings, one per audio
+channel bandwidth. The USB Bluetooth class says so, so every dongle is built
+that way. CherryUSB's parser gives up at the third and returns -USB_ERR_NOMEM
+for the WHOLE configuration descriptor, so the device never enumerates.
+Measured on a Tab5 with a Broadcom BCM20702A1:
+
+    [I/usbh_core] New device found,idVendor:0a5c,idProduct:21e8
+    [E/usbh_core] Interface altsetting num 2 overflow
+    [E/usbh_core] Parse config descriptor fail
+
+Note what came BEFORE those two lines: the device descriptor was read. So the
+host works, the full-speed dongle attaches to the high-speed PHY, and the only
+thing in the way is an array four entries too short.
+
+It cannot be reached from here. It is not a Kconfig option, and it is a bare
+#define with no #ifndef around it -- on the pinned version and on master alike
+-- so neither sdkconfig nor a -D can override it. The fork raises that one
+number and changes nothing else.
+
+It also explains something that had looked like a policy: CherryUSB switches
+its Bluetooth class driver off for ESP-IDF. At two alternate settings that
+driver could never have bound to any dongle, because none of them enumerate.
+
+The fix worth having is upstream and is four lines -- putting these constants
+behind `#ifndef`, the way the rest of that same file already does for
+everything else -- and then a project sets them from its own build. Until
+that exists, this points at a fork.
+
+THE FORK MUST BE OF 1.6.0 OR NEWER. `usbh_initialize` grew a third parameter
+-- the event handler this component uses -- in 1.6.0; 1.5.x takes two.
 """
 
 import esphome.codegen as cg
@@ -77,8 +109,10 @@ CONF_CONTROLLER = "controller"
 # here, so there is one definition of which register block is which.
 CONTROLLERS = {"high_speed": True, "full_speed": False}
 
-# See the module docstring: 1.6.0 changed usbh_initialize's signature.
-CHERRYUSB_VERSION = "1.6.1"
+# See the module docstring for why this is a fork rather than the registry's
+# own `cherry-embedded/cherryusb`, and what the one changed line is.
+CHERRYUSB_REPO = "https://github.com/youkorr/CherryUSB"
+CHERRYUSB_REF = "esp-altsettings"
 
 portall_bt_ns = cg.esphome_ns.namespace("portall_bt")
 PortallBT = portall_bt_ns.class_("PortallBT", cg.Component)
@@ -101,10 +135,14 @@ async def to_code(config):
     await cg.register_component(var, config)
     cg.add(var.set_high_speed(config[CONF_CONTROLLER]))
 
-    # Fetched from Espressif's component registry at build time rather than
-    # carried here: ESPHome writes this into src/idf_component.yml and the IDF
-    # component manager downloads it. Nothing for the user to install.
-    esp32.add_idf_component(name="cherry-embedded/cherryusb", ref=CHERRYUSB_VERSION)
+    # Fetched at build time rather than carried here: ESPHome writes this into
+    # src/idf_component.yml and the IDF component manager clones it. Nothing
+    # for the user to install. The plain name rather than the registry's
+    # `cherry-embedded/cherryusb` because this is a git source, and the
+    # namespaced form belongs to the registry.
+    esp32.add_idf_component(
+        name="cherryusb", repo=CHERRYUSB_REPO, ref=CHERRYUSB_REF
+    )
 
     # CherryUSB's own CMakeLists force-enables every host class driver it
     # supports on IDF, so there is nothing to select per class here. These
