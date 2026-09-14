@@ -23,11 +23,19 @@
 #define PORTALL_AUDIO_CHANNELS 1
 
 extern "C" {
+#include "sdkconfig.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "driver/jpeg_decode.h"
 #include "driver/ppa.h"
+/* `usb: false` leaves TinyUSB out of the build entirely, so this header does
+ * not exist to be found. usb_descriptors.h stays either way: it carries the
+ * udisp wire format, which is what arrives over the network as well. Every
+ * `#if CFG_TUD_...` below reads as 0 without it, which is exactly right -- no
+ * digitizer, no sound card, no drive. */
+#if CONFIG_USB_DISPLAY_DEVICE
 #include "tusb.h"
+#endif
 #include "usb_descriptors.h"
 }
 

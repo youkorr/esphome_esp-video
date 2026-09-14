@@ -1,5 +1,22 @@
 menu "USB Extended Display"
 
+    config USB_DISPLAY_DEVICE
+        bool "Be a USB device at all"
+        default y
+        help
+            Off means this board never brings TinyUSB up: no vendor pipe, no
+            touch digitizer, no sound card, no sender drive, and no USB device
+            PHY. The picture arrives over the network instead.
+
+            The reason it exists is not to save memory. The ESP32-P4 has two
+            USB OTG peripherals and a board wires its sockets to one each -- on
+            the M5Stack Tab5 the USB-A HOST socket is on the high-speed one,
+            which is the same peripheral this component puts in DEVICE mode. So
+            a panel fed over Wi-Fi cannot host anything on USB, a Bluetooth
+            dongle included, until it lets that peripheral go.
+
+            Set from the component's `usb:` option; do not set it by hand.
+
     config USB_DISPLAY_VID
         hex "USB Vendor ID"
         default 0x303A

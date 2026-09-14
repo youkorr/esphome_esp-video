@@ -126,6 +126,7 @@ CONF_PRODUCT = "product"
 CONF_VENDOR_ID = "vendor_id"
 CONF_PRODUCT_ID = "product_id"
 CONF_SERIAL = "serial"
+CONF_USB = "usb"
 CONF_USB_SPEED = "usb_speed"
 CONF_SENDER_DRIVE = "sender_drive"
 CONF_JPEG_QUALITY = "jpeg_quality"
@@ -250,6 +251,38 @@ def _request_fast_network(config):
         # Older ESPHome has no such request. Nothing is set instead: the
         # values this used to set were the problem, not the fix.
         pass
+    return config
+
+
+def _validate_usb(config):
+    """Refuse a board that has given up both ways of being fed.
+
+    `usb: false` exists for one reason, and it is a fact about the silicon
+    rather than a preference. The ESP32-P4 has two USB OTG peripherals and a
+    board wires each of its sockets to one of them; on the M5Stack Tab5 the
+    USB-A HOST socket is on the high-speed peripheral, which is exactly the one
+    this component puts in DEVICE mode. So a panel cannot host anything on USB
+    -- a Bluetooth dongle for Classic audio and HID, which is what this was
+    written for -- while it is still pretending to be a screen on a cable.
+
+    What it costs is everything on that cable: the vendor pipe the picture used
+    to arrive on, the HID digitizer, the USB sound card and the drive carrying
+    the sender. What it does not cost is the panel: `port:` is the other way in
+    and it carries pictures, touches and sound already.
+
+    Which is why the one refusal here is having neither. A board with no `port:`
+    and no USB device has nothing that can ever send it a picture, and it would
+    boot, allocate every buffer, and sit black for ever with a perfectly clean
+    log. That is the silent no-op this project keeps paying for, so it is a
+    validation failure instead.
+    """
+    if not config[CONF_USB] and CONF_PORT not in config:
+        raise cv.Invalid(
+            "usb: false releases the USB peripheral, so the picture has to "
+            "arrive over the network -- but no port: is set, and nothing else "
+            "can feed this panel. Add port: 5000, or leave usb: true.",
+            path=[CONF_USB],
+        )
     return config
 
 
@@ -395,6 +428,8 @@ CONFIG_SCHEMA = cv.All(
             # stage, for a picture that is softer but not by much.
             cv.Optional(CONF_RENDER_WIDTH): cv.int_range(min=16, max=4096),
             cv.Optional(CONF_RENDER_HEIGHT): cv.int_range(min=16, max=4096),
+            # Whether this board is a USB device at all. See _validate_usb.
+            cv.Optional(CONF_USB, default=True): cv.boolean,
             cv.Optional(CONF_USB_SPEED, default="high"): cv.enum(
                 _USB_SPEEDS, lower=True
             ),
@@ -429,6 +464,7 @@ CONFIG_SCHEMA = cv.All(
     # The hardware JPEG decoder and the High-Speed USB PHY are both ESP32-P4.
     esp32.only_on_variant(supported=[esp32.VARIANT_ESP32P4]),
     _warn_about_espressif_driver,
+    _validate_usb,
     _validate_render_size,
     _request_fast_network,
 )
@@ -457,15 +493,26 @@ async def to_code(config):
         # The hand-set values were not a floor being raised -- they were a
         # ceiling being lowered by a factor of eight.
 
-    # The descriptors have to be compiled into TinyUSB itself, which only a
-    # real IDF component can do (see that component's CMakeLists).
+    # This one is added either way, and not only for the descriptors: it also
+    # carries usb_descriptors.h, which is where the udisp WIRE FORMAT is
+    # defined -- the frame header the network path parses. One definition of
+    # that header is worth more than a tidier pair of files, so the component
+    # registers its include directories whatever `usb:` says and its
+    # CMakeLists returns before reaching for TinyUSB.
     esp32.add_idf_component(
         name="usb_display_tusb",
         path=os.path.join(
             os.path.dirname(os.path.dirname(__file__)), "usb_display_tusb"
         ),
     )
-    esp32.add_idf_component(name="espressif/tinyusb", ref="*")
+
+    # And this is the whole of what `usb: false` buys: no TinyUSB in the build,
+    # so nothing claims the OTG peripheral and a USB HOST may have it. See
+    # _validate_usb.
+    usb = config[CONF_USB]
+    esp32.add_idf_sdkconfig_option("CONFIG_USB_DISPLAY_DEVICE", usb)
+    if usb:
+        esp32.add_idf_component(name="espressif/tinyusb", ref="*")
 
     esp32.add_idf_sdkconfig_option("CONFIG_USB_DISPLAY_VID", config[CONF_VENDOR_ID])
     esp32.add_idf_sdkconfig_option("CONFIG_USB_DISPLAY_PID", config[CONF_PRODUCT_ID])
@@ -477,25 +524,37 @@ async def to_code(config):
     esp32.add_idf_sdkconfig_option(
         "CONFIG_USB_DISPLAY_HIGH_SPEED", _USB_SPEEDS[config[CONF_USB_SPEED]]
     )
-    esp32.add_idf_sdkconfig_option(
-        "CONFIG_USB_DISPLAY_SENDER_DRIVE", config[CONF_SENDER_DRIVE]
-    )
+    # A drive is a USB interface, so there is not one to present without USB --
+    # and the script it carries is a hundred kilobytes of flash that would be
+    # compiled in for nobody. Both halves key on the same name.
+    sender_drive = usb and config[CONF_SENDER_DRIVE]
+    esp32.add_idf_sdkconfig_option("CONFIG_USB_DISPLAY_SENDER_DRIVE", sender_drive)
     # The HID report descriptor states the coordinate range, so it needs the
     # geometry at compile time as well.
     esp32.add_idf_sdkconfig_option("CONFIG_USB_DISPLAY_WIDTH", config[CONF_WIDTH])
     esp32.add_idf_sdkconfig_option("CONFIG_USB_DISPLAY_HEIGHT", config[CONF_HEIGHT])
+    # These two are the USB FACE of the touch screen and the speaker -- a HID
+    # digitizer and a sound card -- and neither exists without a USB device.
+    # Both things themselves survive: contacts still go back up the socket to
+    # whoever is sending the picture, and the speaker still plays the PCM that
+    # arrives on it.
     esp32.add_idf_sdkconfig_option(
-        "CONFIG_USB_DISPLAY_TOUCH", CONF_TOUCHSCREEN_ID in config
+        "CONFIG_USB_DISPLAY_TOUCH", usb and CONF_TOUCHSCREEN_ID in config
     )
-    esp32.add_idf_sdkconfig_option("CONFIG_USB_DISPLAY_AUDIO", CONF_SPEAKER_ID in config)
+    esp32.add_idf_sdkconfig_option(
+        "CONFIG_USB_DISPLAY_AUDIO", usb and CONF_SPEAKER_ID in config
+    )
     if speaker_id := config.get(CONF_SPEAKER_ID):
-        esp32.add_idf_component(name="espressif/usb_device_uac", ref="~1.3.0")
-        # Plugged into the TinyUSB device this component already brings up,
-        # rather than bringing up one of its own.
-        esp32.add_idf_sdkconfig_option("CONFIG_USB_DEVICE_UAC_AS_PART", True)
-        esp32.add_idf_sdkconfig_option("CONFIG_UAC_SPEAKER_CHANNEL_NUM", 1)
-        esp32.add_idf_sdkconfig_option("CONFIG_UAC_MIC_CHANNEL_NUM", 0)
-        esp32.add_idf_sdkconfig_option("CONFIG_UAC_SAMPLE_RATE", 48000)
+        if usb:
+            esp32.add_idf_component(name="espressif/usb_device_uac", ref="~1.3.0")
+            # Plugged into the TinyUSB device this component already brings up,
+            # rather than bringing up one of its own. All of it is the USB
+            # sound card; the speaker below is wired either way, because the
+            # PCM that arrives over the network goes to the same place.
+            esp32.add_idf_sdkconfig_option("CONFIG_USB_DEVICE_UAC_AS_PART", True)
+            esp32.add_idf_sdkconfig_option("CONFIG_UAC_SPEAKER_CHANNEL_NUM", 1)
+            esp32.add_idf_sdkconfig_option("CONFIG_UAC_MIC_CHANNEL_NUM", 0)
+            esp32.add_idf_sdkconfig_option("CONFIG_UAC_SAMPLE_RATE", 48000)
         spk = await cg.get_variable(speaker_id)
         cg.add(var.set_speaker(spk))
 
@@ -525,7 +584,7 @@ async def to_code(config):
         f"_Bl{config[CONF_MAX_FRAME_BYTES]}",
     )
 
-    if config[CONF_SENDER_DRIVE]:
+    if sender_drive:
         with open(SENDER_SCRIPT, "rb") as handle:
             script = handle.read()
         # Line endings the way the drive's other file has them: this is opened

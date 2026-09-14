@@ -1,7 +1,20 @@
 #pragma once
 
-#include "tusb.h"
 #include "sdkconfig.h"
+
+/* Everything above the frame header below belongs to the USB DEVICE, and a
+ * board that is not one has no TinyUSB in its build at all -- so this include
+ * would not resolve. The wire protocol at the bottom of this file is a
+ * different thing that happens to live here, and the network path needs it
+ * whether or not there is a USB socket in the picture: one definition of the
+ * frame header is worth more than a tidier pair of files.
+ *
+ * Nothing else needs a guard. Every block between here and there is already
+ * inside a `#if CFG_TUD_...`, and those are 0 to the preprocessor when
+ * tusb_config.h was never read. */
+#if CONFIG_USB_DISPLAY_DEVICE
+#include "tusb.h"
+#endif
 
 #ifdef __cplusplus
 extern "C" {

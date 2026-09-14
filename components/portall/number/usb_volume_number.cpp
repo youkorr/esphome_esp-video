@@ -4,7 +4,7 @@
 
 #include <cmath>
 
-#if CFG_TUD_AUDIO
+#ifdef USE_SPEAKER
 
 namespace esphome {
 namespace portall {

@@ -25,7 +25,9 @@
 #include <cstring>
 
 extern "C" {
+#if CONFIG_USB_DISPLAY_DEVICE
 #include "tusb.h"
+#endif
 #include "usb_descriptors.h"
 }
 
