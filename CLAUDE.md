@@ -3511,15 +3511,79 @@ NEGATIVE: -3 NODEV (somebody pulled the dongle out), -10 NAK (the endpoint has
 nothing to give, which is a controller that never answered rather than a
 transfer that failed), -14 TIMEOUT.
 
+### The radio works, and an inquiry is what proves it
+
+    asking for extended results
+    listening for Bluetooth devices for about 10 seconds
+      found 46:E8:1C:8A:88:DD  audio/video   -64 dBm
+    inquiry finished, status 00, 1 device heard
+
+An inquiry is Bluetooth CLASSIC, which is exactly what the C6 cannot do, so a
+device named there is one no panel in this project could have heard before.
+`inquiry_seconds:` governs it and 0 turns it off; mode 2 is asked for first so
+each result carries an RSSI and an extended inquiry response, whose 0x09 field
+is the device's own name. A device that publishes no EIR is reported by the
+controller with the plain with-RSSI event instead, so an empty name there is
+the specification working rather than a lookup that failed.
+
+Two faults on the way, both a number borrowed from the wrong context -- the
+same shape as the alignment one above:
+
+- The three inquiry-result events carry the same fourteen bytes in two
+  arrangements, so **the Class of Device is at offset 9 in one and 8 in the
+  other**. One offset for both folds a reserved byte into it and calls a
+  headset a toy.
+- **An event shorter than six bytes was dropped at the door.** Six is the
+  minimum of a Command COMPLETE and belongs to the function that waits for
+  one; `Inquiry Complete` is THREE bytes, so the end of every scan was thrown
+  away and the panel sat out its whole deadline before reporting an inquiry
+  that had finished on time. Each case checks its own length now.
+
+**And the inquiry takes the Wi-Fi down, which is a real constraint and not a
+detail.** Measured twice, on two different channels:
+
+| | inquiry | Wi-Fi |
+|---|---|---|
+| run 1 | 22:23:35 - 22:23:49 | fails 22:23:38, reconnects **22:23:50** |
+| run 2 | 22:29:04 - 22:29:14 | fails 22:29:07, reconnects **22:29:14** |
+
+`Authentication Failed`, `Probe Request Unsuccessful`, three adapter restarts
+-- and the Wi-Fi comes back the second the inquiry ends, both times. The
+Livebox is on channel 1 in one run and 11 in the other, so it is not a
+channel: an inquiry sweeps the whole 2.4 GHz band at full power, which is the
+most disruptive thing Bluetooth does, and the dongle's antenna is centimetres
+from the C6's.
+
+What follows from it: **a scan is a rare, on-demand event and never a loop**
+-- this probe firmware does one per boot because it is a probe. An established
+connection should be far gentler, since Bluetooth then hops 79 known channels
+instead of sweeping; that is reasoning, not measurement, and the A2DP work is
+where it gets tested. A 5 GHz access point would sidestep it entirely.
+
 ### What is NOT done
 
-**No host stack.** This speaks the transport and asks four questions; it does
-not pair, scan, or carry audio. NimBLE is BLE only, so **A2DP needs Bluedroid**
--- the only Classic stack in ESP-IDF -- and whether it builds for a P4 target
-against a controller that is not the C6 is the open question. esp-hosted's own
-design says the host may run NimBLE *or* Bluedroid, and the P4 shipped
-NimBLE-only because the C6 has no Classic to talk to; a dongle removes that
-reason but proves nothing about the build.
+**No host stack.** This speaks the transport, asks four questions and runs an
+inquiry; it does not pair, connect or carry audio. NimBLE is BLE only, so
+**A2DP needs Bluedroid** -- the only Classic stack in ESP-IDF.
+
+**And ESP-IDF's own Kconfig says that configuration exists**, which settles
+the question this file previously recorded as open. In `components/bt/Kconfig`:
+
+    config BT_ENABLED              depends on !APP_NO_BLOBS
+    config BT_BLUEDROID_ENABLED    (no dependency at all)
+    config BT_CONTROLLER_ENABLED   depends on SOC_BT_SUPPORTED
+    config BT_CONTROLLER_DISABLED  (no dependency)
+        "This option is recommended for Bluetooth Host only usecases"
+
+`esp32p4/include/soc/soc_caps.h` defines no `SOC_BT_SUPPORTED`, so
+`BT_CONTROLLER_ENABLED` is unavailable on a P4 and `BT_CONTROLLER_DISABLED` is
+the only choice -- which is exactly the one wanted. **Bluedroid dual-mode,
+host only, is selectable on an ESP32-P4 in stock ESP-IDF.** Selectable is not
+linked and not running, but it is no longer a guess about whether the route
+exists.
+
+That same header is also the citation for the two OTG controllers, in
+Espressif's own words: `#define SOC_USB_OTG_PERIPH_NUM (2U)`.
 
 **The Realtek needs its firmware.** The TP-Link UB500 answers HCI Reset and
 gives a real address from ROM -- its address matched the user's own Windows
