@@ -4129,6 +4129,190 @@ everything else, would retire `cherryusb_patch` entirely. The file carries
 **Espressif's own copyright** and lives in `cherry-embedded/CherryUSB`. Not
 reported yet.
 
+## One board can now be a panel AND a Bluetooth host
+
+**`usb: false` on portall, and the reason is silicon rather than taste.** The
+ESP32-P4 has two USB OTG peripherals and a board wires each of its sockets to
+one of them; on the M5Stack Tab5 the USB-A HOST socket is the high-speed one,
+which is exactly the peripheral portall puts in DEVICE mode. So the whole of
+the Bluetooth work above ran on a firmware with `portall_bt:` and no
+`portall:` at all -- a Classic host driven by a screen showing nothing, which
+is of no use to anybody.
+
+It leaves TinyUSB out of the build entirely: no vendor pipe, no HID digitizer,
+no USB sound card, no sender drive, no device PHY. The picture, the touches
+and the sound keep arriving over `port:`, which is the only way in left -- and
+a board with neither is a **validation failure** rather than one that boots,
+allocates every buffer and sits black for ever with a clean log.
+
+**usb_descriptors.h carries two unrelated things and only one of them is
+TinyUSB's.** The USB descriptors are; the udisp **frame header** is not, and
+the network path parses it. So the component still registers and returns from
+its CMakeLists before reaching for a library that is not in the build, rather
+than the header being split. One definition of the wire format is worth more
+than a tidier pair of files -- the same rule `udisp_send.py` and `ha_send.py`
+live under.
+
+**And it exposed a guard that had been wrong since the network path existed.**
+The volume entity was `#if CFG_TUD_AUDIO` -- the USB sound card -- while the
+volume it moves is applied in `on_audio_samples`, the one door PCM comes
+through whichever way it arrived. A board with no USB would have lost its
+volume control while still playing the page's sound. `#ifdef USE_SPEAKER` now,
+which is where `set_audio_volume` actually lives. This file already records a
+panel reporting exactly that symptom with a `platform: template` number in its
+place; the wording was corrected then and the condition was not.
+
+**`tools/checkguards.py` is what says the C++ is right, because nothing here
+can compile it.** It walks the preprocessor guard stack and asks, of every
+line naming a TinyUSB symbol, whether anything above it goes false without a
+device. Counting `#if` against `#endif` does not find the fault that matters:
+a `tud_*` call outside every guard balances perfectly, compiles in every
+configuration anybody here can compile, and fails at the **link**, on somebody
+else's board. Reproduced against a copy with the guards stripped -- 29
+problems, `tud_vendor_rx_cb` and `tud_mount_cb` among them -- before it was
+believed.
+
+It was wrong itself first, and the fix is worth recording: it read `#else` as
+unprotected whatever it followed, which is right after `#if CONFIG_...` and
+exactly backwards after `#if !CONFIG_...`, the form `on_vendor_rx` happened to
+use. The answer was **not** to teach the check about negation. It was to stop
+writing the negated form, which no reader could follow either.
+
+## A gamepad and a remote are the same feature
+
+Both are Classic HID, both arrive as input reports over ACL, and they differ
+only in which buttons somebody presses. So `hid: true` is the answer to a
+panel that wants a gamepad AND to one that wants arrow keys for YouTube's
+television interface -- a thread this file spends several pages on -- and
+neither waits for the other. `components/portall_bt/hid.cpp`.
+
+**The memory has three parts and only one of them was missing.** Asked for as
+*"il faut que le Bluetooth quant il accroche un Bluetooth hote puisse le
+memoriser"*.
+
+- **Bluedroid keeps the link keys** -- the cryptography of a pairing -- in NVS
+  by itself. Nothing here writes them and they survive a restart untouched.
+- **What it does not keep is which address plays which part.**
+  `esp_bt_gap_get_bond_device_list` returns addresses and nothing else, so a
+  bonded gamepad and a bonded speaker are indistinguishable. One small record
+  in ESPHome's preferences answers that. Losing it costs a reconnection;
+  losing Bluedroid's costs the pairing.
+- **And nothing reconnects on its own.** That is the part that had to be
+  written: read the record at startup, call `esp_bt_hid_host_connect`, and
+  again on a 2 s -> 60 s backoff while the device is away.
+
+**That third part is also what keeps the picture, which is the nicest thing
+about this design.** A connection by ADDRESS runs no inquiry, and an inquiry
+is the most disruptive thing Bluetooth does -- measured twice on this board,
+the Wi-Fi went down for exactly as long as one ran, on two different channels.
+So remembering the device and not killing the picture are the same piece of
+work. `pair()` is an action somebody invokes once; nothing else here ever
+scans. The panel stays **CONNECTABLE** so a paired gamepad can page it back
+when somebody presses its button, and is discoverable only while pairing runs.
+
+**`CONFIG_BT_HID_REMOVE_DEVICE_BONDING_ENABLED` defaults to y and is turned
+off.** It throws the pairing away when a device asks for a virtual cable
+unplug -- what the HID specification asks for, and from the sofa a gamepad
+that has silently forgotten the panel and has to be paired again by somebody
+who did nothing wrong. A panel is not a PC being handed between desks.
+
+**The report queue drops the OLDEST, which is the opposite of the queue beside
+it.** An enumeration's FIRST event is what somebody is waiting to read about;
+a button's LAST event is the release, and a release that never arrives leaves
+a key held down for ever. portall's touch queue learned that at a cost of
+twenty seconds of apparent latency, and a finger and a thumb are the same
+problem.
+
+**What is NOT done: this carries reports, it does not interpret them.** A HID
+report descriptor differs per device, so a mapping written with no device to
+try it against would be a guess dressed as a recipe -- which this file already
+records costing a round trip over the Chromecast user agent. `on_hid_report`
+hands the bytes to the YAML and `show_reports:` prints them. The mapping is
+written afterwards, with a real device's own log in hand.
+
+### `cv.enum` returns the KEY, and every `if` written against it is taken
+
+Found by writing a validator against the same wrong assumption and **testing
+it against the configuration it was meant to refuse**. It did not refuse it.
+
+`cv.enum({"none": False, "bluedroid": True})` returns the key as a string
+carrying the mapped value on `.enum_value`. So `config["host_stack"]` is
+`"none"`, which is perfectly truthy, and `if config[CONF_HOST_STACK]:` has
+always been taken.
+
+Codegen was never affected, and that is exactly what hid it:
+`cpp_generator.safe_exp` unwraps an `EnumValue` before emitting it, so
+`set_host_stack(...)` emitted `false` correctly while the sdkconfig block
+beside it ran anyway. **Every firmware built with `host_stack: none`, and
+every one that never mentioned it at all, has been compiling the whole of
+Bluedroid -- `CONFIG_BT_ENABLED`, Classic, A2DP, 1430 objects of it -- into a
+binary whose own C++ then refused to use it.** Nothing failed. It cost flash
+and build time and said nothing.
+
+`_wants(config, key)` is the one place that asks now. The general rule: an
+ESPHome enum option is a STRING, whatever its mapping says, and the only
+honest way to read it in Python is `.enum_value`.
+
+Only `portall_bt` was affected. The three `_USB_SPEEDS` maps elsewhere index
+the dictionary by the key -- `_USB_SPEEDS[config[CONF_USB_SPEED]]` -- which
+works precisely because the value IS the key string.
+
+### Reading the headers is what stopped three wrong lines
+
+Each of these would have reached a user as a build error on their own board,
+which this file already calls the worst place to find one:
+
+- **`ESP_HIDH_DATA_IND_EVT` carries no report id.** It has status, handle,
+  proto_mode, len and data. Every HID example in circulation prints an id, and
+  a stand-in header with an invented field would have let code that cannot
+  build pass the only C++ check this repository has. Where a device uses
+  report ids at all the first byte of the data IS the id; where it does not,
+  there is none to be had, so `on_hid_report` hands over exactly what arrived.
+- **`BT_HID_ENABLED` is a menuconfig with `BT_HID_HOST_ENABLED` under it**, so
+  both have to be set; one alone is a silent nothing.
+- **The stand-ins are copied field for field from v5.5.4**, which is what
+  ESPHome 2026.6.5 pins (`ESP_IDF_FRAMEWORK_VERSION_LOOKUP`, recommended
+  5.5.4). Version matters more than it looks here -- this file already records
+  a helper rename reaching a user as a compile error.
+
+`tools/checkbt.py` gained a third configuration, bluedroid + hid, for the
+reason the second exists: the newest code sits behind an `#ifdef` no pass had
+opened. It earned it on the first run -- the reconnection clock was behind the
+Bluedroid guard while the public callbacks that touch it are not, which
+compiled two ways out of three.
+
+### A2DP in ESP-IDF 5.5.4 is NOT the API every example uses
+
+Read before writing a line of it, and it is the finding that changes the size
+of that job. In **5.4**:
+
+    esp_a2d_source_register_data_callback(esp_a2d_source_data_cb_t)
+
+a PULL callback handed raw PCM, with Bluedroid doing the SBC encoding. In
+**5.5.4's public header that function does not exist.** What is there is:
+
+    esp_a2d_source_register_stream_endpoint(uint8_t seid, const esp_a2d_mcc_t *)
+    esp_a2d_audio_buff_t *esp_a2d_audio_buff_alloc(uint16_t size);
+    esp_err_t esp_a2d_source_audio_data_send(esp_a2d_conn_hdl_t, esp_a2d_audio_buff_t *);
+
+a PUSH of **encoded** frames -- their own words, "Send an audio buffer with
+encoded audio data to sink", and the sink side says "undecoded" in the same
+file. So the application owns the codec and owns the clock.
+
+Espressif's own `a2dp_source` example at that same tag still calls the 5.4
+function, and the implementation file still defines it while the public header
+no longer declares it. **The header is the specification, not the example** --
+a component can only include what is public.
+
+What that means for the work: an SBC encoder is needed.
+`espressif/esp_audio_codec` (in `espressif/esp-adf-libs`) has one, standard
+and mSBC, with exactly the parameters A2DP wants -- 44.1 kHz, joint stereo,
+block length 16, 8 subbands, loudness allocation, a bitpool range. Fetched
+from the registry at build time, the way `cherry-embedded/cherryusb` already
+is. Not yet written, and the pacing is the hard half: push means the sender
+owns real time, where the old pull callback was clocked by the stack.
+
+
 ## Repository conventions
 
 - Work on branch `claude/esphome-pr-outdated-mdq36w`, then merge into `main`
