@@ -20,6 +20,14 @@ What to look for, with a Bluetooth dongle plugged in:
     portall_bt:   interface 0: class e0 subclass 01 protocol 01
     portall_bt:   interface 1: class e0 subclass 01 protocol 01
 
+And then it puts the radio to work: an `inquiry_seconds:` window of Bluetooth
+CLASSIC inquiry, which is exactly what the ESP32-C6 on these panels cannot do,
+so every device it names is one no panel here could have heard before.
+
+    portall_bt: listening for Bluetooth devices for about 10 seconds
+    portall_bt:   found 4C:87:5D:11:22:33  audio/video  -54 dBm
+    portall_bt: inquiry finished, status 00, 3 devices heard
+
 Class E0 subclass 1 protocol 1 is the Bluetooth primary controller descriptor,
 and it is exactly what CherryUSB's own class driver matches on -- so a dongle
 that prints those two lines is one its driver would bind to unchanged. That
@@ -113,6 +121,7 @@ CODEOWNERS = ["@youkorr"]
 DEPENDENCIES = ["esp32"]
 
 CONF_CONTROLLER = "controller"
+CONF_INQUIRY_SECONDS = "inquiry_seconds"
 
 # True selects the high-speed peripheral. The C++ turns it into CherryUSB's
 # ESP_USB_HS0_BASE / ESP_USB_FS0_BASE rather than repeating those addresses
@@ -132,6 +141,12 @@ CONFIG_SCHEMA = cv.All(
             cv.Optional(CONF_CONTROLLER, default="high_speed"): cv.enum(
                 CONTROLLERS, lower=True, space="_"
             ),
+            # How long to listen for Bluetooth Classic devices once the dongle
+            # has answered. 0 turns it off. The specification's own ceiling is
+            # 61 seconds and the C++ clamps to it.
+            cv.Optional(
+                CONF_INQUIRY_SECONDS, default="10s"
+            ): cv.All(cv.positive_time_period_seconds, cv.Range(max=cv.TimePeriod(seconds=61))),
         }
     ).extend(cv.COMPONENT_SCHEMA),
     esp32.only_on_variant(supported=[esp32.VARIANT_ESP32P4]),
@@ -142,6 +157,7 @@ async def to_code(config):
     var = cg.new_Pvariable(config[CONF_ID])
     await cg.register_component(var, config)
     cg.add(var.set_high_speed(config[CONF_CONTROLLER]))
+    cg.add(var.set_inquiry_seconds(config[CONF_INQUIRY_SECONDS].total_seconds))
 
     # Fetched from Espressif's component registry at build time rather than
     # carried here: ESPHome writes this into src/idf_component.yml and the IDF
