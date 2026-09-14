@@ -27,6 +27,7 @@ class PortallBT : public Component {
 
   void set_high_speed(bool high_speed) { this->high_speed_ = high_speed; }
   void set_inquiry_seconds(uint16_t seconds) { this->inquiry_seconds_ = seconds; }
+  void set_host_stack(bool wanted) { this->host_stack_ = wanted; }
 
   // Called from CherryUSB's task. Records the port and returns; everything
   // that can wait, waits.
@@ -40,7 +41,10 @@ class PortallBT : public Component {
   void report_(uint8_t hub_index, uint8_t hub_port);
   void inquire_(struct usbh_hubport *hport, uint8_t intf, struct usb_endpoint_descriptor *events);
 
+  void try_host_stack_();
+
   uint16_t inquiry_seconds_{10};
+  bool host_stack_{false};
   bool probing_{false};
   bool high_speed_{true};
   bool started_{false};
