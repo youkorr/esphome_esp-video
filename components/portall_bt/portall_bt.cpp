@@ -944,8 +944,17 @@ static uint32_t g_sco_dropped = 0;
 // in this transport arrives as a board that reboots and a line about
 // somebody else's file. Reporting the boring frames is what this project has
 // twice had to learn: the evidence is in what went right up to the failure.
-// Twelve of them, then silence for ever.
-static constexpr uint8_t FRAMES_REPORTED = 12;
+// SIXTY-FOUR of them, and the number is the lesson: it was twelve, and
+// Bluedroid's startup asserted on the THIRTEENTH frame. Twelve well-formed
+// answers were printed, the crash was on the next one, and the log stopped
+// exactly one line before the evidence it exists to carry.
+//
+// A budget on a diagnostic is a guess about where the fault is, and this one
+// guessed wrong by a single line. Bluedroid sends about thirty commands while
+// it starts -- reset, the buffer sizes, flow control, the local features, the
+// BLE reads -- so the cap is above the whole sequence now. A panel that gets
+// past startup pays thirty lines once and nothing afterwards.
+static constexpr uint8_t FRAMES_REPORTED = 64;
 static uint8_t g_frames_said = 0;
 
 static void say_frame(const char *what, const uint8_t *frame, uint32_t len) {
@@ -953,10 +962,23 @@ static void say_frame(const char *what, const uint8_t *frame, uint32_t len) {
     return;
   }
   g_frames_said++;
-  // For an event: code then parameter length. For ACL: the handle. Both are
-  // the two bytes that decide how it is read.
-  ESP_LOGI(TAG, "  %s %u bytes, first four %02x %02x %02x %02x", what, (unsigned) len, frame[0],
-           len > 1 ? frame[1] : 0, len > 2 ? frame[2] : 0, len > 3 ? frame[3] : 0);
+
+  // A Command Complete says which command it answers, and that is the one
+  // thing worth reading: it turns "the thirteenth frame" into an opcode that
+  // can be looked up in the specification. Its shape is code, parameter
+  // length, num_hci_command_packets, then the opcode little-endian.
+  //
+  // Printed as words rather than as four hex bytes, because the first version
+  // made a reader decode `0e 05 01 0f` by hand to find 0x200F -- and the byte
+  // that names the command is split across two of them.
+  if (frame[0] == 0x0E && len >= 5) {
+    const uint16_t opcode = (uint16_t) (frame[3] | (frame[4] << 8));
+    ESP_LOGI(TAG, "  %u: %s %u bytes, complete for opcode %04x, %u parameters",
+             (unsigned) g_frames_said, what, (unsigned) len, opcode, frame[1]);
+    return;
+  }
+  ESP_LOGI(TAG, "  %u: %s %u bytes, code %02x, %u parameters", (unsigned) g_frames_said, what,
+           (unsigned) len, frame[0], len > 1 ? frame[1] : 0);
 }
 
 // A declared length this reader cannot hold. It cannot happen -- an event is
