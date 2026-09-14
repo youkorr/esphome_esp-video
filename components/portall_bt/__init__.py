@@ -130,10 +130,11 @@ that says nothing about why.
 
 import os
 
+import esphome.automation as automation
 import esphome.codegen as cg
 from esphome.components import esp32
 import esphome.config_validation as cv
-from esphome.const import CONF_ID
+from esphome.const import CONF_ID, CONF_TRIGGER_ID
 
 CODEOWNERS = ["@youkorr"]
 DEPENDENCIES = ["esp32"]
@@ -141,10 +142,41 @@ DEPENDENCIES = ["esp32"]
 CONF_CONTROLLER = "controller"
 CONF_INQUIRY_SECONDS = "inquiry_seconds"
 CONF_HOST_STACK = "host_stack"
+CONF_HID = "hid"
+CONF_DEVICE_NAME = "device_name"
+CONF_PAIR_SECONDS = "pair_seconds"
+CONF_SHOW_REPORTS = "show_reports"
+CONF_ON_HID_REPORT = "on_hid_report"
 
 # "bluedroid" turns ESP-IDF's own Bluetooth host on, in the one configuration a
 # chip with no controller of its own can have. See the module docstring.
 HOST_STACKS = {"none": False, "bluedroid": True}
+
+
+def _wants(config, key):
+    """Whether an enum option is on, which `if config[key]` does NOT answer.
+
+    `cv.enum({"none": False, ...})` returns the KEY as a string carrying the
+    mapped value on `.enum_value`. So `config["host_stack"]` is the string
+    "none" -- which is perfectly truthy -- and every `if` written against it is
+    always taken. Codegen is unaffected, because cpp_generator's safe_exp
+    unwraps an EnumValue before emitting it, and that is exactly what hid the
+    fault: `set_host_stack(...)` emitted `false` correctly while the sdkconfig
+    block beside it ran anyway.
+
+    Which means every firmware built with `host_stack: none`, and every one
+    that never mentioned it at all, has been compiling the whole of Bluedroid
+    -- CONFIG_BT_ENABLED, Classic, A2DP, 1430 objects of it -- into a binary
+    whose own C++ then refused to use it. Nothing failed. It cost flash and
+    build time and said nothing, which is why it survived several releases.
+
+    Found by writing a validator against the same wrong assumption and TESTING
+    IT against a configuration it was supposed to refuse. It did not refuse it.
+    That is the only reason any of this came to light, and it is the rule this
+    repository keeps having to relearn: run the check against the state it was
+    written to catch, before believing it.
+    """
+    return bool(config[key].enum_value)
 
 # True selects the high-speed peripheral. The C++ turns it into CherryUSB's
 # ESP_USB_HS0_BASE / ESP_USB_FS0_BASE rather than repeating those addresses
@@ -156,6 +188,52 @@ CHERRYUSB_VERSION = "1.6.1"
 
 portall_bt_ns = cg.esphome_ns.namespace("portall_bt")
 PortallBT = portall_bt_ns.class_("PortallBT", cg.Component)
+PairAction = portall_bt_ns.class_("PairAction", automation.Action)
+ForgetAction = portall_bt_ns.class_("ForgetAction", automation.Action)
+# What `on_hid_report` hands the YAML: the bytes the device sent, nothing
+# invented. ESP_HIDH_DATA_IND_EVT carries no report id -- see portall_bt.h.
+HID_REPORT_TRIGGER = automation.Trigger.template(cg.std_vector.template(cg.uint8))
+
+def _validate_hid(config):
+    """A profile needs a host, and the host is not on by default.
+
+    `hid: true` with `host_stack: none` validates, compiles, flashes and then
+    does nothing whatever -- there is no Bluetooth host in the build for a
+    profile to attach to. That is the silent no-op this project keeps paying
+    for, most recently as a probe firmware that spent a round trip to a board
+    proving nothing because the question was never asked. So it is a refusal.
+    """
+    if config[CONF_HID] and not _wants(config, CONF_HOST_STACK):
+        raise cv.Invalid(
+            "hid: true needs a Bluetooth host to attach to. Add "
+            "host_stack: bluedroid, which is what brings ESP-IDF's Classic "
+            "stack into the build.",
+            path=[CONF_HID],
+        )
+    return config
+
+
+PORTALL_BT_ACTION_SCHEMA = automation.maybe_simple_id(
+    {cv.GenerateID(): cv.use_id(PortallBT)}
+)
+
+
+# Both do their work and return. pair() hands a discovery to the stack and
+# comes straight back -- the results arrive on a callback -- and forget()
+# walks the bond list and writes one preference before it ends. Neither waits
+# on anything, which is what synchronous means here; esphome warns by name for
+# an action registered without saying.
+@automation.register_action(
+    "portall_bt.pair", PairAction, PORTALL_BT_ACTION_SCHEMA, synchronous=True
+)
+@automation.register_action(
+    "portall_bt.forget", ForgetAction, PORTALL_BT_ACTION_SCHEMA, synchronous=True
+)
+async def portall_bt_action_to_code(config, action_id, template_arg, args):
+    var = cg.new_Pvariable(action_id, template_arg)
+    await cg.register_parented(var, config[CONF_ID])
+    return var
+
 
 CONFIG_SCHEMA = cv.All(
     cv.Schema(
@@ -171,9 +249,30 @@ CONFIG_SCHEMA = cv.All(
                 CONF_INQUIRY_SECONDS, default="10s"
             ): cv.All(cv.positive_time_period_seconds, cv.Range(max=cv.TimePeriod(seconds=61))),
             cv.Optional(CONF_HOST_STACK, default="none"): cv.enum(HOST_STACKS, lower=True),
+            # A gamepad, a keyboard, a mouse or a remote -- one feature, not
+            # four. See hid.cpp; they differ only in which buttons get pressed.
+            cv.Optional(CONF_HID, default=False): cv.boolean,
+            # What this panel calls itself while pairing. Seen once, on the
+            # screen of whatever is being paired with.
+            cv.Optional(CONF_DEVICE_NAME, default="portall"): cv.string_strict,
+            # How long portall_bt.pair scans for. The specification's ceiling
+            # is 61 seconds and the C++ clamps to it.
+            cv.Optional(CONF_PAIR_SECONDS, default="10s"): cv.All(
+                cv.positive_time_period_seconds,
+                cv.Range(max=cv.TimePeriod(seconds=61)),
+            ),
+            # Print every input report. A report descriptor differs per device,
+            # so these bytes are the only specification there is for a mapping
+            # -- and a moving thumbstick sends a hundred a second, which is why
+            # it is a flag rather than the default.
+            cv.Optional(CONF_SHOW_REPORTS, default=False): cv.boolean,
+            cv.Optional(CONF_ON_HID_REPORT): automation.validate_automation(
+                {cv.GenerateID(CONF_TRIGGER_ID): cv.declare_id(HID_REPORT_TRIGGER)}
+            ),
         }
     ).extend(cv.COMPONENT_SCHEMA),
     esp32.only_on_variant(supported=[esp32.VARIANT_ESP32P4]),
+    _validate_hid,
 )
 
 
@@ -183,6 +282,16 @@ async def to_code(config):
     cg.add(var.set_high_speed(config[CONF_CONTROLLER]))
     cg.add(var.set_inquiry_seconds(config[CONF_INQUIRY_SECONDS].total_seconds))
     cg.add(var.set_host_stack(config[CONF_HOST_STACK]))
+    cg.add(var.set_hid_host(config[CONF_HID]))
+    cg.add(var.set_device_name(config[CONF_DEVICE_NAME]))
+    cg.add(var.set_pair_seconds(config[CONF_PAIR_SECONDS].total_seconds))
+    cg.add(var.set_show_reports(config[CONF_SHOW_REPORTS]))
+    for conf in config.get(CONF_ON_HID_REPORT, []):
+        trigger = cg.new_Pvariable(conf[CONF_TRIGGER_ID])
+        cg.add(var.add_hid_report_trigger(trigger))
+        await automation.build_automation(
+            trigger, [(cg.std_vector.template(cg.uint8), "data")], conf
+        )
 
     # Fetched from Espressif's component registry at build time rather than
     # carried here: ESPHome writes this into src/idf_component.yml and the IDF
@@ -208,7 +317,7 @@ async def to_code(config):
     esp32.add_idf_sdkconfig_option("CONFIG_CHERRYUSB_HOST", True)
     esp32.add_idf_sdkconfig_option("CONFIG_CHERRYUSB_HOST_DWC2_ESP", True)
 
-    if config[CONF_HOST_STACK]:
+    if _wants(config, CONF_HOST_STACK):
         # Read out of ESP-IDF's own Kconfig rather than assumed, because every
         # one of these has a dependency and three of them would be refused on
         # this chip if the controller were not disabled:
@@ -295,3 +404,30 @@ async def to_code(config):
         # here instead, on purpose rather than by inheritance.
         esp32.add_idf_sdkconfig_option("CONFIG_BT_BLE_42_FEATURES_SUPPORTED", True)
         esp32.add_idf_sdkconfig_option("CONFIG_BT_BLE_50_FEATURES_SUPPORTED", False)
+
+        if config[CONF_HID]:
+            # Read out of ESP-IDF's own Kconfig.in rather than remembered:
+            #
+            #   BT_HID_ENABLED       depends on BT_CLASSIC_ENABLED, default n
+            #   BT_HID_HOST_ENABLED  depends on BT_HID_ENABLED,     default n
+            #
+            # A menuconfig and the option under it, so both have to be set.
+            esp32.add_idf_sdkconfig_option("CONFIG_BT_HID_ENABLED", True)
+            esp32.add_idf_sdkconfig_option("CONFIG_BT_HID_HOST_ENABLED", True)
+
+            # AND THIS ONE IS A TRAP, and it is Espressif's default rather than
+            # a choice of theirs to argue with:
+            #
+            #   BT_HID_REMOVE_DEVICE_BONDING_ENABLED  default y
+            #
+            # It throws the pairing away when a device asks for a "virtual
+            # cable unplug". The HID specification asks for that -- optional in
+            # 1.0, mandatory in 1.1 -- and it is also, from the sofa, a gamepad
+            # that has silently forgotten the panel and has to be paired again
+            # by someone who did nothing wrong. A panel is not a PC being
+            # handed between desks; the device it is paired with is the one in
+            # the same room, for years. So the bonding stays, which is the
+            # whole of what was asked for here.
+            esp32.add_idf_sdkconfig_option(
+                "CONFIG_BT_HID_REMOVE_DEVICE_BONDING_ENABLED", False
+            )

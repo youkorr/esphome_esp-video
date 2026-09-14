@@ -88,6 +88,24 @@ pi4ioe5v6408:
     # 6: I - charging status
     # 7: O - charge enable
     
+button:
+  # Pairing is an ACTION and never a loop, and the reason is measured rather
+  # than cautious: an inquiry sweeps the whole 2.4 GHz band at full power, and
+  # on this board it took the Wi-Fi down for exactly as long as it ran, twice,
+  # on two different channels. Everything after the pairing reconnects BY
+  # ADDRESS, which scans nothing at all -- so remembering the device and
+  # keeping the picture are the same piece of work.
+  - platform: template
+    name: "Pair an input device"
+    on_press:
+      - portall_bt.pair: dongle
+
+  - platform: template
+    name: "Forget input devices"
+    entity_category: config
+    on_press:
+      - portall_bt.forget: dongle
+
 switch:
   - platform: gpio
     id: usb_5v_power
@@ -114,7 +132,26 @@ portall_bt:
   # all about whether the stack compiles and links for an esp32p4 -- and a
   # silent nothing is the failure this project keeps having to apologise for.
   #
-  # It only calls esp_bluedroid_init() so far. esp_bluedroid_enable() is where
-  # a host reaches for a controller, and what it reaches through is
-  # esp_bluedroid_attach_hci_driver(), which is not written yet.
   host_stack: bluedroid
+
+  # A gamepad, a keyboard, a mouse or a remote -- one feature, not four. They
+  # are all Classic HID, they all arrive as input reports over ACL, and they
+  # differ only in which buttons somebody presses.
+  hid: true
+
+  # What this panel calls itself while pairing, seen once on the screen of
+  # whatever is being paired with.
+  device_name: "Panel"
+
+  # Print every input report. A HID report descriptor differs per device, so
+  # these bytes are the only specification a button mapping can be written
+  # against -- and there is no way to guess them. Turn it off once the mapping
+  # is written: a thumbstick in motion sends a hundred of these a second.
+  show_reports: true
+
+  on_hid_report:
+    - lambda: |-
+        // `data` is exactly what the device sent. Where a device uses report
+        // ids at all, data[0] is the id; where it does not, there is no id to
+        // be had -- ESP_HIDH_DATA_IND_EVT does not carry one.
+        ESP_LOGD("panel", "%u bytes from the input device", (unsigned) data.size());

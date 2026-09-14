@@ -42,6 +42,13 @@ SOURCES = sorted((ROOT / "components" / "portall_bt").glob("*.cpp"))
 CONFIGURATIONS = [
     ("host_stack: none", []),
     ("host_stack: bluedroid", ["-DCONFIG_BT_BLUEDROID_ENABLED=1"]),
+    # And a third, for the same reason the second exists: the HID host is
+    # behind CONFIG_BT_HID_HOST_ENABLED, so without this pass the newest file
+    # in the component compiles down to nothing and the check says CLEAN.
+    (
+        "host_stack: bluedroid, hid: true",
+        ["-DCONFIG_BT_BLUEDROID_ENABLED=1", "-DCONFIG_BT_HID_HOST_ENABLED=1"],
+    ),
 ]
 
 
@@ -112,6 +119,12 @@ def run_tests() -> bool:
                 "-o",
                 str(binary),
                 str(test),
+                # hid.cpp is a second translation unit of the same component
+                # and loop() calls into it, so the test does not link without
+                # it. Named rather than globbed: a test that silently picked up
+                # whatever was in the folder would be a different check every
+                # time somebody added a file.
+                str(ROOT / "components" / "portall_bt" / "hid.cpp"),
             ],
             capture_output=True,
             text=True,
