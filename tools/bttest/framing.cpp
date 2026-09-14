@@ -46,9 +46,13 @@ static int failures = 0;
 
 // The reader's own loop, with the blocking read replaced by a chopper. Frames
 // go in whole, arrive in packets of `mps`, and must come out whole again.
+// `stall_every` injects a read that brought nothing -- a NAK, which is the
+// ordinary answer of an endpoint with nothing to report -- after that many
+// packets. `drop_on_stall` is the OLD behaviour: clear what has been read.
 static void run(const char *what, const std::vector<std::vector<uint8_t>> &frames, uint32_t mps,
                 uint32_t (*length)(const uint8_t *, uint32_t),
-                const std::vector<size_t> &expected) {
+                const std::vector<size_t> &expected, uint32_t stall_every = 0,
+                bool drop_on_stall = false) {
   std::vector<uint8_t> frame(2048);
   std::vector<size_t> delivered;
   uint32_t filled = 0;
@@ -59,9 +63,17 @@ static void run(const char *what, const std::vector<std::vector<uint8_t>> &frame
   // anything claiming to model it. The first version of this chopper ran the
   // frames together, which made the reader look broken on a stream it will
   // never see.
+  uint32_t packets = 0;
   for (const auto &one : frames) {
     bytes += one.size();
     for (size_t at = 0; at < one.size();) {
+      if (stall_every != 0 && packets != 0 && packets % stall_every == 0) {
+        // Nothing arrived this time round.
+        if (drop_on_stall) {
+          filled = 0;
+        }
+      }
+      packets++;
       const uint32_t take = (uint32_t) ((one.size() - at) < mps ? (one.size() - at) : mps);
       memcpy(&frame[filled], &one[at], take);
       filled += take;
@@ -201,6 +213,52 @@ int main() {
       want.push_back(a.size());
     }
     run("ACL, the exact multiples of 64 included", frames, 64, acl_length, want);
+  }
+
+  // A NAK in the middle of a multi-packet frame. Keeping what has been read
+  // costs nothing; clearing it loses the frame AND leaves its remaining
+  // packets to be assembled as a fresh one, which is the desynchronisation
+  // Bluedroid refused with an assert about parameter_length.
+  {
+    std::vector<std::vector<uint8_t>> frames;
+    std::vector<size_t> want;
+    for (auto &e : {command_complete(0x1002, 65), command_complete(0x1001, 8),
+                    command_complete(0x1003, 9)}) {
+      frames.push_back(e);
+      want.push_back(e.size());
+    }
+    run("a NAK every other packet, keeping what was read", frames, 16, event_length, want, 2,
+        false);
+
+    // And the same stream with the old behaviour, which must NOT come out
+    // whole -- otherwise this test is not exercising the fault.
+    std::vector<uint8_t> scratch(2048);
+    uint32_t filled = 0, packets = 0;
+    std::vector<size_t> got;
+    for (const auto &one : frames) {
+      for (size_t at = 0; at < one.size();) {
+        if (packets != 0 && packets % 2 == 0) {
+          filled = 0;  // the old rule: a refusal voids what was read
+        }
+        packets++;
+        const uint32_t take = (uint32_t) ((one.size() - at) < 16 ? (one.size() - at) : 16);
+        memcpy(&scratch[filled], &one[at], take);
+        filled += take;
+        at += take;
+        const uint32_t n = event_length(scratch.data(), filled);
+        if (n != 0 && filled >= n) {
+          got.push_back(n);
+          filled = 0;
+        }
+      }
+    }
+    if (got == want) {
+      printf("  ECHEC  dropping on a NAK still delivered every frame, so this is not the fault\n");
+      failures++;
+    } else {
+      printf("  ok     dropping on a NAK loses the stream (%zu frames out of %zu, wrong sizes)\n",
+             got.size(), want.size());
+    }
   }
 
   // The OLD rule, kept so the fault stays reproduced rather than remembered:

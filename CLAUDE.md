@@ -3805,6 +3805,63 @@ usual shape:
   being tested at all. The test said so itself, because the premise is
   asserted: "the premise: 0x1004 answers in 15 bytes, not 16".
 
+### A NAK is silence, not a lost frame, and treating them alike breaks the stream for good
+
+The length rule got past 0x1004 and Bluedroid then refused a frame in its own
+parser:
+
+    assert failed: read_command_complete_header hci_packet_parser.c:283
+    (parameter_length >= (parameter_bytes_we_read_here + minimum_bytes_after))
+
+Read rather than guessed at: `read_command_complete_header` reads
+num_hci_command_packets, the opcode and the status -- four bytes -- and each
+caller says how many more it needs (0 for a generic command complete, 7 for
+Read Buffer Size, 8 for Read Local Version). So the assert means the frame
+handed up declared a parameter length too small for what it is.
+
+And both readers had a way to produce exactly that. On ANY error they did
+`filled = 0`, NAKs included -- and a NAK is what an interrupt endpoint with
+nothing to report answers, hundreds of times, which the probe itself measured
+at about eleven milliseconds each. Clearing on one does not merely drop the
+frame being read: **the packets of that frame that have not arrived yet
+arrive afterwards and are assembled as a FRESH frame**, whose second byte is
+somebody's payload rather than a length. One dropped packet therefore breaks
+the stream for good rather than for one frame, and the first thing downstream
+reads out of the wreckage is a bad parameter_length.
+
+`read_failed_for_good()` is the distinction: NODEV, NOTCONN and SHUTDOWN clear
+and stop, everything else is waited through with what has been read kept. The
+probe got away with the old behaviour because nothing else was running to
+interrupt a long event; with two reader tasks, Bluedroid's own tasks and Wi-Fi
+beside it, the timing is not the same firmware's.
+
+**This is not proven to be THE cause of that assert** -- it is a real defect
+that produces exactly its signature, found by reading the code the log pointed
+at. What settles it is the next run, because the transport now says what it
+hands up.
+
+### The log was silent where the evidence is, for the third time in this file
+
+Bluedroid's startup is a dozen commands and it refuses the first malformed
+answer with an assert naming its own parser and nothing whatever about what it
+was given. So a fault in this transport reaches a panel as a reboot and a line
+about somebody else's file.
+
+`say_frame()` prints the first **twelve** frames handed up -- length and the
+first four bytes, which for an event is the code and the parameter length --
+then goes quiet for ever. `too_long()` refuses a declared length this reader
+cannot hold and says so rather than reading past its own array; it cannot
+happen, which is exactly why it must not be silent if it does.
+
+That is the same lesson as `--show-media` and as `--show-touches`: the
+evidence for a failure is in the boring frames before it, and every one of
+those diagnostics was built after the guessing rather than before it.
+
+The framing test gained the case that was missing: a NAK every other packet
+across three multi-packet events. Keeping what was read delivers all three;
+the old behaviour delivers one frame of the wrong size, and the test asserts
+that it does -- a check that cannot fail on the broken code is not a check.
+
 Fixing it found the other half. That file has never passed `esphome config`:
 its `api:` encryption key is an **empty string**, which is the same fault
 CLAUDE.md already records for `ws-usb-screen.yaml` and the Guition pair -- a
