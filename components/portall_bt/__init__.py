@@ -228,6 +228,31 @@ async def to_code(config):
         # whatever the chip itself can do. Espressif wrote that clause for this
         # case, and it is why A2DP on a P4 is a configuration rather than a
         # hope.
+        # ESPHome does not merely leave ESP-IDF's components alone: it EXCLUDES
+        # most of them, `bt` among them, and generates src/CMakeLists.txt with
+        # REQUIRES set to whatever survives. So turning the sdkconfig options on
+        # builds Bluedroid and still leaves our own file unable to see its
+        # headers -- which is exactly what happened, in IDF's own words:
+        #
+        #   portall_bt.cpp (in "src" component) includes esp_bt_main.h,
+        #   provided by bt component(s). However, bt component(s) is not in
+        #   the requirements list of "src".
+        #
+        # `include_builtin_idf_component` is the supported way back in. It takes
+        # a name off ESPHome's exclusion set, and the generated REQUIRES is that
+        # set's complement, so one call fixes both halves. Guarded because a
+        # helper that moves between versions reaches a user as a build failure
+        # on their own board, which this project has already paid for once.
+        include_builtin = getattr(esp32, "include_builtin_idf_component", None)
+        if include_builtin is None:
+            raise cv.Invalid(
+                "host_stack: bluedroid needs an ESPHome that can put ESP-IDF's "
+                "bt component back into the build "
+                "(esp32.include_builtin_idf_component). Upgrade ESPHome, or set "
+                "host_stack: none."
+            )
+        include_builtin("bt")
+
         esp32.add_idf_sdkconfig_option("CONFIG_BT_ENABLED", True)
         esp32.add_idf_sdkconfig_option("CONFIG_BT_BLUEDROID_ENABLED", True)
         esp32.add_idf_sdkconfig_option("CONFIG_BT_CONTROLLER_DISABLED", True)
