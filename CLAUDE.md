@@ -3585,6 +3585,64 @@ exists.
 That same header is also the citation for the two OTG controllers, in
 Espressif's own words: `#define SOC_USB_OTG_PERIPH_NUM (2U)`.
 
+**Selecting it is not enough: ESPHome EXCLUDES the `bt` component from every
+build.** The options went in, Bluedroid compiled -- 1430 objects of it -- and
+our own file still could not see `esp_bt_main.h`. ESP-IDF said why in as many
+words: portall_bt.cpp is in the `src` component, the header is provided by
+`bt`, and `bt` is not in src's requirements.
+
+That is ESPHome's doing rather than ESP-IDF's. `DEFAULT_EXCLUDED_IDF_COMPONENTS`
+carries `bt` (its own comment says "re-included by request_bluetooth()"), and
+`src/CMakeLists.txt` is generated with `REQUIRES
+${ESPHOME_PROJECT_BUILTIN_COMPONENTS}` -- which is the discovered component
+list MINUS that exclusion set. So the sdkconfig options build the stack and
+leave it out of reach, and the one call that fixes both halves is
+`esp32.include_builtin_idf_component("bt")`. Verified against the generated
+files: before it, no `ESPHOME_PROJECT_BUILTIN_COMPONENTS bt` line exists;
+after it, there is one. Present in 2026.6.5 and 2026.10.0-dev alike, which is
+why it is called rather than the newer `request_bluetooth()` -- that one also
+writes BLE sdkconfig defaults nobody here wants.
+
+**And the glue is NOT VHCI, which is what this was about to be written
+against.** `esp_vhci_host_send_packet` was the assumption, from the ESP32's
+own controller API. Read rather than remembered: `components/bt/controller/
+CMakeLists.txt` exposes `../include/<target>/include` **only when the
+controller is enabled**, so on a P4 there is no `esp_bt.h` to call at all --
+and bluedroid's own `hci_hal_h4.c` guards its include with `#if
+(BT_CONTROLLER_INCLUDED == TRUE)` and calls `hci_host_send_packet()` /
+`hci_host_register_callback()` instead.
+
+Those come from **`esp_bluedroid_hci.h`**, which is Espressif's supported hook
+for exactly this case -- a host with somebody else's controller:
+
+```c
+typedef struct esp_bluedroid_hci_driver_callbacks {
+    void (*notify_host_send_available)(void);
+    int  (*notify_host_recv)(uint8_t *data, uint16_t len);
+} esp_bluedroid_hci_driver_callbacks_t;
+
+typedef struct esp_bluedroid_hci_driver_operations {
+    void      (*send)(uint8_t *data, uint16_t len);
+    bool      (*check_send_available)(void);
+    esp_err_t (*register_host_callback)(
+                  const esp_bluedroid_hci_driver_callbacks_t *callback);
+} esp_bluedroid_hci_driver_operations_t;
+
+esp_err_t esp_bluedroid_attach_hci_driver(
+              const esp_bluedroid_hci_driver_operations_t *ops);
+esp_err_t esp_bluedroid_detach_hci_driver(void);
+```
+
+Three functions, attached before `esp_bluedroid_init()`. What crosses them is
+**H4**: one leading byte says command (0x01), ACL (0x02), SCO (0x03) or event
+(0x04), which is the same split USB already makes physically -- commands on
+the control endpoint, ACL on bulk, events on the interrupt IN. So the mapping
+is a demultiplex rather than a translation, and it is what `btusb.c` does too.
+
+The lesson is the ordinary one and it was nearly paid for again: the link
+error would eventually have named these symbols, and reading Espressif's
+header named them first, correctly, and said what their arguments mean.
+
 **The Realtek needs its firmware.** The TP-Link UB500 answers HCI Reset and
 gives a real address from ROM -- its address matched the user's own Windows
 screenshot exactly -- and that is the false success this file warned about:
