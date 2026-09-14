@@ -148,7 +148,7 @@ lvgl:
   displays:
     - main_display
   rotation: 270
-  olor_depth: 16
+  color_depth: 16
   byte_order: little_endian
   # The variable under test.
   use_ppa: ${ppa}
