@@ -209,13 +209,31 @@ static int hci_await(struct usbh_hubport *hport, struct usb_endpoint_descriptor 
   struct usbh_urb &urb = g_event_urb;
   const uint32_t started = now_ms();
 
+  // ONE PACKET PER READ, and the event reassembled from them. Asking for the
+  // whole buffer at once works for the short events and fails for the long
+  // ones: Read Local Name answers with 255 bytes, which on a 16-byte endpoint
+  // is seventeen packets in a single periodic transfer, and that came back
+  // -14 (timeout) on a Tab5 five times running while Reset, Read Local
+  // Version and Read BD Address -- all under 16 bytes -- answered at once.
+  //
+  // Reading a packet at a time is also what both references do: CherryUSB's
+  // own driver fills its urb with `ep_mps` and accumulates until a short
+  // packet, and Linux's btusb reads wMaxPacketSize and reassembles in
+  // hci_recv_fragment. A short packet ends the event.
+  const uint32_t mps = USB_GET_MAXPACKETSIZE(ep->wMaxPacketSize);
+  uint32_t filled = 0;
+
   *saw = Waited{};
   while (now_ms() - started < patience_ms) {
-    usbh_int_urb_fill(&urb, hport, ep, g_hci_evt, sizeof(g_hci_evt), 500, nullptr, nullptr);
+    // g_hci_evt is aligned and every full packet is a multiple of the packet
+    // size, so the offset handed to DMA stays aligned for as long as there is
+    // more to come. The one short packet is the last.
+    usbh_int_urb_fill(&urb, hport, ep, g_hci_evt + filled, mps, 500, nullptr, nullptr);
     const int err = usbh_submit_urb(&urb);
     saw->reads++;
     if (err < 0) {
       saw->last_error = err;
+      filled = 0;  // half an event is not an event
       if (err == -USB_ERR_NODEV || err == -USB_ERR_NOTCONN || err == -USB_ERR_SHUTDOWN) {
         return -1;  // it was unplugged; there is nothing to be patient about
       }
@@ -228,17 +246,26 @@ static int hci_await(struct usbh_hubport *hport, struct usb_endpoint_descriptor 
     if (urb.actual_length <= 0) {
       continue;  // an empty read is silence, not an answer to discard
     }
+
+    filled += (uint32_t) urb.actual_length;
+    if ((uint32_t) urb.actual_length == mps && filled + mps <= sizeof(g_hci_evt)) {
+      continue;  // a full packet means there is more of this event to come
+    }
+
     saw->events++;
-    saw->last_length = urb.actual_length;
+    saw->last_length = (int) filled;
     saw->last_code = g_hci_evt[0];
-    if (urb.actual_length < 6 || g_hci_evt[0] != HCI_EVENT_COMMAND_COMPLETE) {
+    const uint32_t length = filled;
+    filled = 0;
+
+    if (length < 6 || g_hci_evt[0] != HCI_EVENT_COMMAND_COMPLETE) {
       continue;
     }
     const uint16_t answered = (uint16_t) (g_hci_evt[3] | (g_hci_evt[4] << 8));
     if (answered != opcode) {
       continue;
     }
-    return (int) urb.actual_length;
+    return (int) length;
   }
   return -1;
 }
