@@ -3862,6 +3862,50 @@ across three multi-packet events. Keeping what was read delivers all three;
 the old behaviour delivers one frame of the wrong size, and the test asserts
 that it does -- a check that cannot fail on the broken code is not a check.
 
+### Both fixes are confirmed, and the diagnostic stopped one line short of the fault
+
+The next run printed twelve well-formed frames and then asserted, and two of
+those twelve are the proof:
+
+    event 70 bytes, first four 0e 44 01 02    Read Local Supported Commands
+    event 16 bytes, first four 0e 0e 01 04    Read Local Extended Features
+
+Seventy bytes is five packets arriving whole, which is the NAK fix; sixteen is
+the frame that fills a packet exactly, twice, which is the length fix. Every
+one of the twelve matches a command in Bluedroid's own startup, in its order:
+reset, buffer size, controller-to-host flow control, host buffer size, local
+version, address, supported commands, extended features, simple pairing, LE
+host supported, extended features page one, and `0e 05 01 0f` -- which is
+**LE Read White List Size, 0x200F**.
+
+So the transport is carrying real answers. The assert is on the THIRTEENTH
+frame, and the reporter's cap was twelve.
+
+**A budget on a diagnostic is a guess about where the fault is, and this one
+guessed wrong by a single line.** The whole point of `say_frame` was to make
+the next failure legible, and it stopped exactly one frame before it. Sixty-
+four now, which is above the thirty-odd commands Bluedroid sends while it
+starts -- a panel that gets past startup pays them once and is quiet
+afterwards.
+
+**And the line made a reader decode hex by hand.** `0e 05 01 0f` is an opcode
+split across two bytes, the second of which was not printed at all. It says
+`complete for opcode 200f, 5 parameters` now. Checked by CAPTURING the
+function's own output over five frames a panel really sent, rather than by
+recomputing `frame[3] | frame[4] << 8` in the test -- and proved by swapping
+the two bytes, which fails all five.
+
+What comes after 0x200F was read out of Espressif's `controller.c` rather
+than guessed: `make_ble_read_buffer_size()`, **ungated**. So the thirteenth
+frame is the Command Complete for LE Read Buffer Size, and whether it is
+malformed by us or simply short because this controller refuses it is what
+the next log says. A **BCM20702A1 is Bluetooth 4.0**, and Bluedroid is
+written against Espressif's own controller, which answers everything it asks
+-- a controller that replies "Unknown HCI Command", which is status and
+nothing else, gives a parameter length of 4 where the parser wants more, and
+that assert is exactly what that would look like. Not proven; named, so the
+next run can settle it in one line.
+
 Fixing it found the other half. That file has never passed `esphome config`:
 its `api:` encryption key is an **empty string**, which is the same fault
 CLAUDE.md already records for `ws-usb-screen.yaml` and the Guition pair -- a

@@ -16,7 +16,10 @@
 #undef main
 
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
+#include <string>
+#include <unistd.h>
 #include <vector>
 
 // Stubs for everything the component calls and this test does not: it is
@@ -213,6 +216,66 @@ int main() {
       want.push_back(a.size());
     }
     run("ACL, the exact multiples of 64 included", frames, 64, acl_length, want);
+  }
+
+  // The opcode the log prints, checked against the twelve frames a panel
+  // really sent. `0e 05 01 0f 20` is LE Read White List Size and a reader had
+  // to work that out by hand from four hex bytes, which is why say_frame
+  // prints it as a number now. Captured off stdout rather than restated here:
+  // a test that recomputes `frame[3] | frame[4] << 8` proves only that it can
+  // copy the line it is checking.
+  {
+    const struct {
+      uint8_t bytes[5];
+      const char *expect;
+    } cases[] = {
+        {{0x0E, 0x04, 0x01, 0x03, 0x0C}, "opcode 0c03"},  // Reset
+        {{0x0E, 0x0B, 0x01, 0x05, 0x10}, "opcode 1005"},  // Read Buffer Size
+        {{0x0E, 0x44, 0x01, 0x02, 0x10}, "opcode 1002"},  // Supported Commands
+        {{0x0E, 0x0E, 0x01, 0x04, 0x10}, "opcode 1004"},  // Extended Features
+        {{0x0E, 0x05, 0x01, 0x0F, 0x20}, "opcode 200f"},  // LE White List Size
+    };
+
+    char path[] = "/tmp/portall_bt_sayXXXXXX";
+    const int hole = mkstemp(path);
+    const int saved = dup(fileno(stdout));
+    fflush(stdout);
+    dup2(hole, fileno(stdout));
+    esphome::portall_bt::g_frames_said = 0;
+    for (auto &c : cases) {
+      esphome::portall_bt::say_frame("event", c.bytes, sizeof(c.bytes));
+    }
+    fflush(stdout);
+    dup2(saved, fileno(stdout));
+    close(saved);
+    close(hole);
+
+    std::string said;
+    {
+      FILE *back = fopen(path, "rb");
+      char buf[512];
+      size_t n;
+      while (back != nullptr && (n = fread(buf, 1, sizeof(buf), back)) > 0) {
+        said.append(buf, n);
+      }
+      if (back != nullptr) {
+        fclose(back);
+      }
+    }
+    remove(path);
+
+    bool ok = true;
+    for (auto &c : cases) {
+      if (said.find(c.expect) == std::string::npos) {
+        printf("  ECHEC  the log never said \"%s\"\n", c.expect);
+        ok = false;
+      }
+    }
+    if (ok) {
+      printf("  ok     the log names the opcode for all five real frames\n");
+    } else {
+      failures++;
+    }
   }
 
   // A NAK in the middle of a multi-packet frame. Keeping what has been read
