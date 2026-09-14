@@ -4,6 +4,7 @@
 
 #include "esphome/core/log.h"
 
+#include <cstdio>
 #include <cstring>
 
 // CherryUSB comes from Espressif's component registry -- __init__.py writes it
@@ -582,14 +583,21 @@ static void report_found(const uint8_t *entry, bool has_rssi, const char *name, 
   const uint8_t at = has_rssi ? 8 : 9;
   const uint32_t cod =
       (uint32_t) entry[at] | ((uint32_t) entry[at + 1] << 8) | ((uint32_t) entry[at + 2] << 16);
+  // A device that publishes no extended inquiry response has no name to give,
+  // and in inquiry mode 2 the controller reports it with the plain
+  // with-RSSI event rather than the extended one. That is the specification
+  // working, not a lookup that failed, so the line simply ends.
+  char tail[40] = "";
+  if (name != nullptr) {
+    snprintf(tail, sizeof(tail), "  \"%s\"", name);
+  }
   if (has_rssi) {
-    ESP_LOGI(TAG, "  found %02X:%02X:%02X:%02X:%02X:%02X  %-12s %4d dBm  %s", entry[5], entry[4],
+    ESP_LOGI(TAG, "  found %02X:%02X:%02X:%02X:%02X:%02X  %-12s %4d dBm%s", entry[5], entry[4],
              entry[3], entry[2], entry[1], entry[0], device_kind(cod), (int) (int8_t) entry[13],
-             name != nullptr ? name : "");
+             tail);
   } else {
-    ESP_LOGI(TAG, "  found %02X:%02X:%02X:%02X:%02X:%02X  %-12s           %s", entry[5], entry[4],
-             entry[3], entry[2], entry[1], entry[0], device_kind(cod),
-             name != nullptr ? name : "");
+    ESP_LOGI(TAG, "  found %02X:%02X:%02X:%02X:%02X:%02X  %-12s%s", entry[5], entry[4], entry[3],
+             entry[2], entry[1], entry[0], device_kind(cod), tail);
   }
 }
 
@@ -653,7 +661,14 @@ void PortallBT::inquire_(struct usbh_hubport *hport, uint8_t intf,
 
   while (now_ms() - started < deadline) {
     const int len = hci_next_event(hport, events, deadline - (now_ms() - started), &saw);
-    if (len < 6) {
+    if (len < 3) {
+      // Three is an event: a code, a parameter length, and one byte of
+      // parameters. SIX was the threshold here for one run and it is the
+      // minimum of a Command COMPLETE, borrowed from the function that waits
+      // for one -- and Inquiry Complete is three bytes long, so the end of
+      // every inquiry was being thrown away at the door. The panel's log said
+      // "the inquiry never finished" fourteen seconds after a scan that had
+      // finished on time. Each case below checks its own length now.
       if (len < 0) {
         break;
       }
@@ -662,6 +677,9 @@ void PortallBT::inquire_(struct usbh_hubport *hport, uint8_t intf,
 
     switch (g_hci_evt[0]) {
       case HCI_EVENT_COMMAND_STATUS: {
+        if (len < 6) {
+          break;  // status, credit and the opcode it is about
+        }
         const uint16_t about = (uint16_t) (g_hci_evt[4] | (g_hci_evt[5] << 8));
         if (about == HCI_INQUIRY) {
           if (g_hci_evt[2] != 0x00) {
