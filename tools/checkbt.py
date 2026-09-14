@@ -11,7 +11,9 @@ error, which is the worst place to find one.
 This does not fix that -- only a real toolchain compiles for real -- but it
 closes the cheap half. `tools/btstub/` holds stand-ins for the handful of
 headers portall_bt includes: ESPHome's Component and log macros, FreeRTOS's
-two task calls, and CherryUSB's host API. The CherryUSB stub is copied field
+two task calls, CherryUSB's host API, and the four Bluedroid headers the host
+stack needs -- including esp_bluedroid_hci.h, which is the whole
+specification of the HCI glue. The CherryUSB stub is copied field
 for field from core/usbh_core.h, common/usb_def.h and osal/idf/usb_config.h
 of the version the component pins, so a member that does not exist, a
 constant that was never defined and a typo in a name are all caught here in a
@@ -31,6 +33,17 @@ import sys
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 SOURCES = sorted((ROOT / "components" / "portall_bt").glob("*.cpp"))
 
+# BOTH ways, and the second one is the point. Most of the host-stack code sits
+# behind `#ifdef CONFIG_BT_BLUEDROID_ENABLED`, so a single pass without that
+# symbol compiles the file and never looks at the half most likely to be
+# wrong -- it is the newest, it calls the least familiar API, and it is the
+# only part no user has ever built. A check that passes on code it did not
+# read is the silent no-op this repository keeps recording.
+CONFIGURATIONS = [
+    ("host_stack: none", []),
+    ("host_stack: bluedroid", ["-DCONFIG_BT_BLUEDROID_ENABLED=1"]),
+]
+
 
 def main() -> int:
     if not SOURCES:
@@ -39,26 +52,29 @@ def main() -> int:
 
     failed = False
     for source in SOURCES:
-        command = [
-            "g++",
-            "-std=gnu++17",
-            "-fsyntax-only",
-            "-Wall",
-            "-Wextra",
-            "-Wno-unused-parameter",
-            "-DUSE_ESP32",
-            f"-I{ROOT / 'tools' / 'btstub'}",
-            f"-I{source.parent}",
-            str(source),
-        ]
-        result = subprocess.run(command, capture_output=True, text=True)
-        if result.returncode == 0 and not result.stderr.strip():
-            print(f"  ok     {source.relative_to(ROOT)}")
-        else:
-            failed = True
-            print(f"  ECHEC  {source.relative_to(ROOT)}")
-            for line in result.stderr.strip().splitlines():
-                print(f"         {line}")
+        for label, extra in CONFIGURATIONS:
+            command = [
+                "g++",
+                "-std=gnu++17",
+                "-fsyntax-only",
+                "-Wall",
+                "-Wextra",
+                "-Wno-unused-parameter",
+                "-DUSE_ESP32",
+                *extra,
+                f"-I{ROOT / 'tools' / 'btstub'}",
+                f"-I{source.parent}",
+                str(source),
+            ]
+            result = subprocess.run(command, capture_output=True, text=True)
+            name = f"{source.relative_to(ROOT)}  ({label})"
+            if result.returncode == 0 and not result.stderr.strip():
+                print(f"  ok     {name}")
+            else:
+                failed = True
+                print(f"  ECHEC  {name}")
+                for line in result.stderr.strip().splitlines():
+                    print(f"         {line}")
 
     return 1 if failed else 0
 

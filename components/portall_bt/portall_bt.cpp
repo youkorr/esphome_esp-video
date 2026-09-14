@@ -18,6 +18,8 @@
 // sdkconfig. See __init__.py for why that configuration is possible on a chip
 // with no Bluetooth of its own.
 #ifdef CONFIG_BT_BLUEDROID_ENABLED
+#include "esp_bluedroid_hci.h"
+#include "esp_bt_device.h"
 #include "esp_bt_main.h"
 #endif
 
@@ -100,13 +102,17 @@ void PortallBT::try_host_stack_() {
     return;
   }
 #ifdef CONFIG_BT_BLUEDROID_ENABLED
-  const esp_err_t err = esp_bluedroid_init();
-  if (err != ESP_OK) {
-    ESP_LOGE(TAG, "Bluedroid would not initialise (%d)", (int) err);
-    return;
-  }
-  ESP_LOGI(TAG, "Bluedroid initialised -- it compiles, it links, and it is up to");
-  ESP_LOGI(TAG, "  esp_bluedroid_enable() next, once this component can carry its HCI");
+  // Nothing is started here any more, and the order is the reason.
+  // `esp_bluedroid_attach_hci_driver()` has to be called BEFORE
+  // `esp_bluedroid_init()` -- Espressif's own header says so -- and the driver
+  // cannot be attached until there is a dongle to attach it to. So the whole
+  // sequence moved to start_host_stack_(), which runs once the probe has
+  // finished with a controller that answers.
+  //
+  // This line stays because the alternative is silence, and silence is what
+  // cost the round trip that proved Bluedroid links: a board built with
+  // host_stack: bluedroid said nothing whatever about it.
+  ESP_LOGI(TAG, "Bluedroid is wanted; waiting for a dongle to hand it");
 #else
   // Belt and braces: the option sets the sdkconfig, so reaching here means the
   // two disagreed, and a silent nothing is exactly what this file keeps having
@@ -789,6 +795,363 @@ void PortallBT::inquire_(struct usbh_hubport *hport, uint8_t intf,
   }
 }
 
+// ---------------------------------------------------------------------------
+// The HCI transport: what makes a USB dongle Bluedroid's controller.
+// ---------------------------------------------------------------------------
+//
+// This is NOT VHCI, which is what it was nearly written against.
+// `esp_vhci_host_send_packet()` belongs to the ESP32's own controller, and
+// components/bt/controller/CMakeLists.txt exposes that header only when the
+// controller is enabled -- so on a P4 there is no esp_bt.h to call at all.
+// Bluedroid's own hci_hal_h4.c guards its include with
+// `#if (BT_CONTROLLER_INCLUDED == TRUE)` and goes through esp_bluedroid_hci.h
+// instead, which is Espressif's supported hook for exactly this case: a host
+// with somebody else's controller.
+//
+// What crosses those three function pointers is H4 -- one leading byte saying
+// what the rest is. The useful part is that USB has already made the same
+// split physically, so this is a demultiplex rather than a translation, and it
+// is why Linux's btusb.c has the same shape:
+//
+//     0x01 command  -> the control endpoint, as a class request
+//     0x02 ACL      -> the bulk pair
+//     0x03 SCO      -> isochronous, which is not carried here
+//     0x04 event    <- the interrupt IN endpoint
+#ifdef CONFIG_BT_BLUEDROID_ENABLED
+
+static constexpr uint8_t H4_COMMAND = 0x01;
+static constexpr uint8_t H4_ACL = 0x02;
+static constexpr uint8_t H4_SCO = 0x03;
+static constexpr uint8_t H4_EVENT = 0x04;
+
+// Where the dongle is, filled in by the probe once it has one that answers.
+// File scope for the same reason g_instance is: these are plain C function
+// pointers with no user argument, and there is one bus and one dongle.
+struct HciLink {
+  struct usbh_hubport *hport;
+  struct usb_endpoint_descriptor *events;
+  struct usb_endpoint_descriptor *acl_in;
+  struct usb_endpoint_descriptor *acl_out;
+  uint8_t intf;
+  volatile bool up;
+};
+static HciLink g_link{};
+static const esp_bluedroid_hci_driver_callbacks_t *g_host_cb = nullptr;
+
+// DMA touches these, so they go where CherryUSB puts its own, exactly like the
+// probe's. Separate from the probe's buffers because they are live at the same
+// time as each other: Bluedroid sends from its task while two tasks of ours
+// read.
+static USB_NOCACHE_RAM_SECTION USB_MEM_ALIGNX uint8_t g_tx_cmd[264];
+static USB_NOCACHE_RAM_SECTION USB_MEM_ALIGNX uint8_t g_tx_acl[1100];
+static USB_NOCACHE_RAM_SECTION USB_MEM_ALIGNX uint8_t g_rx_acl_pkt[512];
+
+// These two are NOT written by DMA -- every packet lands in a staging buffer
+// and is memcpy'd here -- so they are ordinary memory and may start at any
+// offset. That distinction is the whole of the alignment fault this file
+// already records: it is the buffer handed to the controller that must be on a
+// 64-byte line, not the one assembled by hand.
+static uint8_t g_rx_evt_frame[264];
+static uint8_t g_rx_acl_frame[1100];
+
+// One urb per endpoint, kept for the life of the link, because CherryUSB
+// stores the DATA0/DATA1 toggle IN THE URB. The event reader deliberately
+// reuses g_event_urb, the one the probe just finished with: a fresh urb would
+// restart at DATA0 against a device that has been alternating since the reset,
+// and every second packet would be discarded -- the "one, miss, one, miss"
+// fault recorded above, which cost a round trip to a board to find once.
+static struct usbh_urb g_acl_in_urb;
+static struct usbh_urb g_acl_out_urb;
+
+// Errors are counted rather than printed, and only the first of each kind
+// reaches the log. A transport fault repeats at the rate of the traffic, and a
+// log that scrolls is a log nobody reads -- the same rule the sender's error
+// caps live under.
+static uint32_t g_tx_errors = 0;
+static uint32_t g_sco_dropped = 0;
+
+static bool link_gone(int err) {
+  return err == -USB_ERR_NODEV || err == -USB_ERR_NOTCONN || err == -USB_ERR_SHUTDOWN;
+}
+
+// Bluedroid calls this from its own HCI task. It blocks until the dongle has
+// taken the bytes, which is what check_send_available() being unconditionally
+// true means: there is never a send in flight to wait for.
+static void hci_drv_send(uint8_t *data, uint16_t len) {
+  if (!g_link.up || data == nullptr || len < 2) {
+    return;
+  }
+  const uint8_t kind = data[0];
+  const uint8_t *body = data + 1;
+  const uint16_t body_len = (uint16_t) (len - 1);
+
+  if (kind == H4_COMMAND) {
+    if (body_len > sizeof(g_tx_cmd)) {
+      ESP_LOGE(TAG, "a %u-byte HCI command will not fit; dropping it", (unsigned) body_len);
+      return;
+    }
+    // The same class request the probe uses, and deliberately not sharing its
+    // hci_command(): that one builds an opcode, and Bluedroid hands over a
+    // packet that is already built.
+    struct usb_setup_packet *setup = g_link.hport->setup;
+    setup->bmRequestType = USB_REQUEST_DIR_OUT | USB_REQUEST_CLASS | USB_REQUEST_RECIPIENT_DEVICE;
+    setup->bRequest = 0x00;
+    setup->wValue = 0;
+    setup->wIndex = g_link.intf;
+    setup->wLength = body_len;
+    memcpy(g_tx_cmd, body, body_len);
+    const int err = usbh_control_transfer(g_link.hport, setup, g_tx_cmd);
+    if (err < 0) {
+      if (g_tx_errors++ == 0) {
+        ESP_LOGE(TAG, "the dongle refused an HCI command (%d); further ones are counted only", err);
+      }
+      if (link_gone(err)) {
+        g_link.up = false;
+      }
+    }
+    return;
+  }
+
+  if (kind == H4_ACL) {
+    if (g_link.acl_out == nullptr || body_len > sizeof(g_tx_acl)) {
+      return;
+    }
+    memcpy(g_tx_acl, body, body_len);
+    usbh_bulk_urb_fill(&g_acl_out_urb, g_link.hport, g_link.acl_out, g_tx_acl, body_len, 1000,
+                       nullptr, nullptr);
+    const int err = usbh_submit_urb(&g_acl_out_urb);
+    if (err < 0) {
+      if (g_tx_errors++ == 0) {
+        ESP_LOGE(TAG, "the dongle refused ACL data (%d); further ones are counted only", err);
+      }
+      if (link_gone(err)) {
+        g_link.up = false;
+      }
+    }
+    return;
+  }
+
+  if (kind == H4_SCO) {
+    // SCO is the isochronous alternate settings, and nothing here selects one.
+    // That means a headset's MICROPHONE and a telephone call, not music: A2DP
+    // is ACL. Said once so it is a known gap rather than a mystery.
+    if (g_sco_dropped++ == 0) {
+      ESP_LOGW(TAG, "SCO audio is not carried over this transport (voice calls, not music)");
+    }
+  }
+}
+
+// Always true, and that is a statement about hci_drv_send rather than about
+// the dongle: it does not return until the transfer is done, so there is never
+// anything outstanding for the host to wait behind. The consequence is that
+// notify_host_send_available() is never needed -- and never calling it from
+// inside send() also keeps this off the reentrant path back into Bluedroid's
+// own task.
+static bool hci_drv_check_send_available(void) { return g_link.up; }
+
+static esp_err_t hci_drv_register_host_callback(
+    const esp_bluedroid_hci_driver_callbacks_t *callback) {
+  g_host_cb = callback;
+  return ESP_OK;
+}
+
+static const esp_bluedroid_hci_driver_operations_t g_hci_ops = {
+    .send = hci_drv_send,
+    .check_send_available = hci_drv_check_send_available,
+    .register_host_callback = hci_drv_register_host_callback,
+};
+
+// Events, reassembled a packet at a time exactly the way the probe proved, and
+// handed up with the H4 byte in front. A short packet ends an event.
+//
+// A refusal is the NORMAL state here: an interrupt IN with nothing to report
+// NAKs, and the probe measured that coming back in about eleven milliseconds.
+// So a refusal is not an error to report, it is silence -- which is also why
+// the pause after one is short.
+static void hci_event_task(void *arg) {
+  uint32_t mps = USB_GET_MAXPACKETSIZE(g_link.events->wMaxPacketSize);
+  if (mps == 0 || mps > sizeof(g_hci_pkt)) {
+    ESP_LOGE(TAG, "the event endpoint says its packets are %u bytes, which will not fit",
+             (unsigned) mps);
+    g_link.up = false;
+    vTaskDelete(nullptr);
+    return;
+  }
+  uint32_t filled = 0;
+
+  while (g_link.up) {
+    usbh_int_urb_fill(&g_event_urb, g_link.hport, g_link.events, g_hci_pkt, mps, 1000, nullptr,
+                      nullptr);
+    const int err = usbh_submit_urb(&g_event_urb);
+    if (err < 0) {
+      if (link_gone(err)) {
+        break;
+      }
+      filled = 0;  // half an event is not an event
+      vTaskDelay(pdMS_TO_TICKS(5));
+      continue;
+    }
+    if (g_event_urb.actual_length <= 0) {
+      continue;
+    }
+
+    uint32_t take = (uint32_t) g_event_urb.actual_length;
+    if (1 + filled + take > sizeof(g_rx_evt_frame)) {
+      take = (uint32_t) sizeof(g_rx_evt_frame) - 1 - filled;
+    }
+    memcpy(&g_rx_evt_frame[1 + filled], g_hci_pkt, take);
+    filled += take;
+    if ((uint32_t) g_event_urb.actual_length == mps && 1 + filled + mps <= sizeof(g_rx_evt_frame)) {
+      continue;
+    }
+
+    g_rx_evt_frame[0] = H4_EVENT;
+    if (g_host_cb != nullptr && g_host_cb->notify_host_recv != nullptr) {
+      g_host_cb->notify_host_recv(g_rx_evt_frame, (uint16_t) (filled + 1));
+    }
+    filled = 0;
+  }
+
+  g_link.up = false;
+  ESP_LOGW(TAG, "the dongle stopped answering; Bluedroid has no controller now");
+  vTaskDelete(nullptr);
+}
+
+// ACL, which is where everything above a connection lives -- A2DP included.
+// Its own task rather than a turn in the one above, because both endpoints
+// block and a reader cannot wait on two at once. btusb submits both at the
+// same time for the same reason.
+static void hci_acl_task(void *arg) {
+  uint32_t mps = USB_GET_MAXPACKETSIZE(g_link.acl_in->wMaxPacketSize);
+  if (mps == 0 || mps > sizeof(g_rx_acl_pkt)) {
+    ESP_LOGE(TAG, "the ACL endpoint says its packets are %u bytes, which will not fit",
+             (unsigned) mps);
+    vTaskDelete(nullptr);
+    return;
+  }
+  uint32_t filled = 0;
+
+  while (g_link.up) {
+    usbh_bulk_urb_fill(&g_acl_in_urb, g_link.hport, g_link.acl_in, g_rx_acl_pkt, mps, 1000, nullptr,
+                       nullptr);
+    const int err = usbh_submit_urb(&g_acl_in_urb);
+    if (err < 0) {
+      if (link_gone(err)) {
+        break;
+      }
+      filled = 0;
+      vTaskDelay(pdMS_TO_TICKS(5));
+      continue;
+    }
+    if (g_acl_in_urb.actual_length <= 0) {
+      continue;
+    }
+
+    uint32_t take = (uint32_t) g_acl_in_urb.actual_length;
+    if (1 + filled + take > sizeof(g_rx_acl_frame)) {
+      take = (uint32_t) sizeof(g_rx_acl_frame) - 1 - filled;
+    }
+    memcpy(&g_rx_acl_frame[1 + filled], g_rx_acl_pkt, take);
+    filled += take;
+    if ((uint32_t) g_acl_in_urb.actual_length == mps && 1 + filled + mps <= sizeof(g_rx_acl_frame)) {
+      continue;
+    }
+
+    g_rx_acl_frame[0] = H4_ACL;
+    if (g_host_cb != nullptr && g_host_cb->notify_host_recv != nullptr) {
+      g_host_cb->notify_host_recv(g_rx_acl_frame, (uint16_t) (filled + 1));
+    }
+    filled = 0;
+  }
+
+  vTaskDelete(nullptr);
+}
+
+#endif  // CONFIG_BT_BLUEDROID_ENABLED
+
+// Hands the dongle to Bluedroid, in the one order Espressif's header allows:
+// attach the transport, THEN initialise, THEN enable. The readers start before
+// enable, because the first thing enable does is send an HCI Reset and wait
+// for its Command Complete -- with nothing reading the endpoint that wait can
+// only time out.
+void PortallBT::start_host_stack_(struct usbh_hubport *hport, uint8_t intf,
+                                  struct usb_endpoint_descriptor *events,
+                                  struct usb_endpoint_descriptor *acl_in,
+                                  struct usb_endpoint_descriptor *acl_out) {
+  if (!this->host_stack_ || this->stack_up_) {
+    return;
+  }
+#ifdef CONFIG_BT_BLUEDROID_ENABLED
+  g_link.hport = hport;
+  g_link.intf = intf;
+  g_link.events = events;
+  g_link.acl_in = acl_in;
+  g_link.acl_out = acl_out;
+  g_link.up = true;
+  g_acl_in_urb = usbh_urb{};
+  g_acl_out_urb = usbh_urb{};
+
+  esp_err_t err = esp_bluedroid_attach_hci_driver(&g_hci_ops);
+  if (err != ESP_OK) {
+    ESP_LOGE(TAG, "Bluedroid would not take the HCI transport (%d)", (int) err);
+    g_link.up = false;
+    return;
+  }
+
+  if (xTaskCreate(hci_event_task, "portall_bt_evt", 4096, nullptr, 6, nullptr) != pdPASS) {
+    ESP_LOGE(TAG, "could not start the task that reads events, so nothing would answer Bluedroid");
+    g_link.up = false;
+    return;
+  }
+  if (acl_in != nullptr) {
+    if (xTaskCreate(hci_acl_task, "portall_bt_acl", 4096, nullptr, 6, nullptr) != pdPASS) {
+      // Events alone are enough to bring the stack up, so this costs the data
+      // path and not the milestone. An accessory must never cost the picture.
+      ESP_LOGW(TAG, "could not start the ACL reader; the stack will come up but carry no data");
+    }
+  } else {
+    ESP_LOGW(TAG, "this interface has no bulk IN endpoint, so no ACL data can arrive");
+  }
+
+  err = esp_bluedroid_init();
+  if (err != ESP_OK) {
+    ESP_LOGE(TAG, "Bluedroid would not initialise (%d)", (int) err);
+    g_link.up = false;
+    return;
+  }
+  ESP_LOGI(TAG, "Bluedroid initialised; handing it the dongle");
+
+  err = esp_bluedroid_enable();
+  if (err != ESP_OK) {
+    ESP_LOGE(TAG, "Bluedroid would not enable (%d) -- the transport is attached and the", (int) err);
+    ESP_LOGE(TAG, "  controller answered the probe, so read the HCI traffic above this line");
+    g_link.up = false;
+    return;
+  }
+
+  this->stack_up_ = true;
+  ESP_LOGI(TAG, "Bluedroid is ENABLED on a USB dongle -- a Classic host on a chip with no radio");
+
+  // The proof, and it costs one line: this address comes out of Bluedroid,
+  // which has never seen the dongle except through the three function pointers
+  // above. If it matches the address the probe read for itself -- a different
+  // code path, a different buffer, a different task -- then the transport is
+  // carrying real answers rather than plausible ones.
+  const uint8_t *addr = esp_bt_dev_get_address();
+  if (addr != nullptr) {
+    ESP_LOGI(TAG, "  Bluedroid reports address %02X:%02X:%02X:%02X:%02X:%02X (it should match above)",
+             addr[0], addr[1], addr[2], addr[3], addr[4], addr[5]);
+  }
+#else
+  (void) hport;
+  (void) intf;
+  (void) events;
+  (void) acl_in;
+  (void) acl_out;
+  ESP_LOGE(TAG, "host_stack: bluedroid was asked for and CONFIG_BT_BLUEDROID_ENABLED is not set");
+#endif
+}
+
 void PortallBT::probe_hci(uint8_t hub_index, uint8_t hub_port, uint8_t intf_index) {
   struct usbh_hubport *hport = usbh_find_hubport(0, hub_index, hub_port);
   if (hport == nullptr || !hport->connected) {
@@ -806,16 +1169,27 @@ void PortallBT::probe_hci(uint8_t hub_index, uint8_t hub_port, uint8_t intf_inde
   // Events arrive on the interrupt IN endpoint. Finding it by its attributes
   // rather than by its number, because a number is a convention and these
   // descriptors are the device's own word.
+  // ACL is on the bulk pair of the same interface, and it is found here rather
+  // than later for the same reason: a descriptor read once, in one place, by
+  // its attributes. Only the events matter to the probe; the bulk pair matters
+  // to whatever carries data afterwards, which is Bluedroid.
   struct usb_endpoint_descriptor *events = nullptr;
+  struct usb_endpoint_descriptor *acl_in = nullptr;
+  struct usb_endpoint_descriptor *acl_out = nullptr;
   uint8_t endpoints = alt->intf_desc.bNumEndpoints;
   if (endpoints > CONFIG_USBHOST_MAX_ENDPOINTS) {
     endpoints = CONFIG_USBHOST_MAX_ENDPOINTS;
   }
   for (uint8_t i = 0; i < endpoints; i++) {
     struct usb_endpoint_descriptor *ep = &alt->ep[i].ep_desc;
-    if ((ep->bEndpointAddress & 0x80) != 0 && USB_GET_ENDPOINT_TYPE(ep->bmAttributes) == 3) {
+    const bool inbound = (ep->bEndpointAddress & 0x80) != 0;
+    const uint8_t kind = USB_GET_ENDPOINT_TYPE(ep->bmAttributes);
+    if (inbound && kind == 3 && events == nullptr) {
       events = ep;
-      break;
+    } else if (inbound && kind == 2 && acl_in == nullptr) {
+      acl_in = ep;
+    } else if (!inbound && kind == 2 && acl_out == nullptr) {
+      acl_out = ep;
     }
   }
   if (events == nullptr) {
@@ -825,6 +1199,12 @@ void PortallBT::probe_hci(uint8_t hub_index, uint8_t hub_port, uint8_t intf_inde
   }
   ESP_LOGI(TAG, "  events on endpoint %02x, packet %u, interval %u", events->bEndpointAddress,
            (unsigned) USB_GET_MAXPACKETSIZE(events->wMaxPacketSize), events->bInterval);
+  if (acl_in != nullptr && acl_out != nullptr) {
+    ESP_LOGI(TAG, "  ACL on endpoints %02x in / %02x out, packets %u / %u",
+             acl_in->bEndpointAddress, acl_out->bEndpointAddress,
+             (unsigned) USB_GET_MAXPACKETSIZE(acl_in->wMaxPacketSize),
+             (unsigned) USB_GET_MAXPACKETSIZE(acl_out->wMaxPacketSize));
+  }
 
   // A device that has just been enumerated starts its endpoint at DATA0, so
   // the urb that carries the toggle starts there too. Everything after this
@@ -914,6 +1294,11 @@ void PortallBT::probe_hci(uint8_t hub_index, uint8_t hub_port, uint8_t intf_inde
   // Bluetooth CLASSIC, which is precisely what the C6 on these panels cannot
   // do -- so a device heard here is a device no panel could have heard before.
   this->inquire_(hport, intf, events);
+
+  // And then, if it was asked for, hand the whole dongle to a real host stack.
+  // Last on purpose: everything above is this component reading the endpoint
+  // for itself, and from here on the reader tasks own it.
+  this->start_host_stack_(hport, intf, events, acl_in, acl_out);
 
   this->probing_ = false;
 }
