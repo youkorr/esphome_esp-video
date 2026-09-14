@@ -17,7 +17,7 @@ logger:
 
 api:
   encryption:
-    key: ""
+    key: !secret api_encryption_key
 
 ota:
   - platform: esphome
@@ -108,3 +108,13 @@ switch:
 
 portall_bt:
   id: dongle
+  # Bluedroid, host only, with the dongle as the controller. This is the whole
+  # question the last build was meant to answer and could not: the option
+  # defaults to none, so a firmware that does not ask for it says nothing at
+  # all about whether the stack compiles and links for an esp32p4 -- and a
+  # silent nothing is the failure this project keeps having to apologise for.
+  #
+  # It only calls esp_bluedroid_init() so far. esp_bluedroid_enable() is where
+  # a host reaches for a controller, and what it reaches through is
+  # esp_bluedroid_attach_hci_driver(), which is not written yet.
+  host_stack: bluedroid
