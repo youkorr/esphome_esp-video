@@ -76,7 +76,60 @@ def main() -> int:
                 for line in result.stderr.strip().splitlines():
                     print(f"         {line}")
 
+    if not run_tests():
+        failed = True
+
     return 1 if failed else 0
+
+
+def run_tests() -> bool:
+    """Compile and RUN tools/bttest/*.cpp, which include the component itself.
+
+    A syntax check cannot see arithmetic, and the arithmetic is where this
+    component's faults have lived: an alignment taken from the wrong port, a
+    class-of-device offset taken from the wrong event, and a frame ended on a
+    short packet that a frame of exactly one packet never produces. These link
+    against the real source and exercise the real functions.
+    """
+    tests = sorted((ROOT / "tools" / "bttest").glob("*.cpp"))
+    if not tests:
+        return True
+
+    ok = True
+    for test in tests:
+        binary = test.with_suffix(".bin")
+        build = subprocess.run(
+            [
+                "g++",
+                "-std=gnu++17",
+                "-Wall",
+                "-Wextra",
+                "-Wno-unused-parameter",
+                "-DUSE_ESP32",
+                "-DCONFIG_BT_BLUEDROID_ENABLED=1",
+                f"-I{ROOT / 'tools' / 'btstub'}",
+                f"-I{ROOT / 'components' / 'portall_bt'}",
+                "-o",
+                str(binary),
+                str(test),
+            ],
+            capture_output=True,
+            text=True,
+        )
+        if build.returncode != 0:
+            ok = False
+            print(f"  ECHEC  {test.relative_to(ROOT)} would not build")
+            for line in build.stderr.strip().splitlines():
+                print(f"         {line}")
+            continue
+
+        run = subprocess.run([str(binary)], capture_output=True, text=True)
+        binary.unlink(missing_ok=True)
+        for line in run.stdout.strip().splitlines():
+            print(line if line.startswith("  ") else f"  {line}")
+        if run.returncode != 0:
+            ok = False
+    return ok
 
 
 if __name__ == "__main__":

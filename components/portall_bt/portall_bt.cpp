@@ -234,6 +234,46 @@ static USB_NOCACHE_RAM_SECTION USB_MEM_ALIGNX uint8_t g_hci_pkt[64];
 // own structure for exactly this reason; this one had been stack-allocated.
 static struct usbh_urb g_event_urb;
 
+// HOW LONG A PACKET IS, asked of the packet itself rather than guessed from a
+// short read. This is the fault that stopped Bluedroid on its fifth command.
+//
+// The first version ended an event when a read came back SHORTER than the
+// endpoint's packet size, which is how CherryUSB's own driver is written and
+// how the probe was proved -- and it is wrong for an event whose length is an
+// exact multiple of that size, because there is no short read to wait for. A
+// Bluetooth interrupt endpoint is 16 bytes, and of the seven commands
+// Bluedroid sends while it starts, exactly ONE answers in exactly 16:
+//
+//     0x0C03 Reset                          6 bytes, last packet  6
+//     0x1001 Read Local Version            13              ...   13
+//     0x1002 Read Local Supported Commands 70              ...    6
+//     0x1003 Read Local Supported Features 14              ...   14
+//     0x1004 Read Local Extended Features  16              ...    0   <-
+//     0x1005 Read Buffer Size              13              ...   13
+//     0x1009 Read BD Address               12              ...   12
+//
+// and the panel's log stopped on precisely that one:
+//
+//     BT_HCI: command_timed_out ... opcode: 0x1004
+//
+// The reader was still waiting for a packet the controller had no reason to
+// send, the next read NAKed, and a NAK throws the part-read frame away. The
+// probe never met it because none of its four answers is a multiple of 16 --
+// it worked by arithmetic nobody had done.
+//
+// HCI says how long everything is, in the frame, which is what btusb reads
+// instead of counting packets. So do these.
+//
+// An event: code, parameter length, then that many bytes.
+static uint32_t event_length(const uint8_t *event, uint32_t filled) {
+  return filled >= 2 ? 2u + (uint32_t) event[1] : 0u;  // 0 = not known yet
+}
+
+// ACL: handle and flags, then a little-endian length, then that many bytes.
+static uint32_t acl_length(const uint8_t *acl, uint32_t filled) {
+  return filled >= 4 ? 4u + (uint32_t) (acl[2] | (acl[3] << 8)) : 0u;
+}
+
 static int hci_command(struct usbh_hubport *hport, uint8_t intf, uint16_t opcode,
                        const uint8_t *params, uint8_t len) {
   struct usb_setup_packet *setup = hport->setup;
@@ -335,14 +375,18 @@ static int hci_next_event(struct usbh_hubport *hport, struct usb_endpoint_descri
     }
     memcpy(&g_hci_evt[filled], g_hci_pkt, take);
     filled += take;
-    if ((uint32_t) urb.actual_length == mps && filled + mps <= sizeof(g_hci_evt)) {
-      continue;  // a full packet means there is more of this event to come
+
+    // The event's own length field, never the shape of the read. See
+    // event_length() above for what counting packets cost.
+    const uint32_t want = event_length(g_hci_evt, filled);
+    if (want == 0 || filled < want) {
+      continue;  // the header has not arrived yet, or the event has not
     }
 
     saw->events++;
-    saw->last_length = (int) filled;
+    saw->last_length = (int) want;
     saw->last_code = g_hci_evt[0];
-    return (int) filled;
+    return (int) want;
   }
   return -1;
 }
@@ -1001,13 +1045,15 @@ static void hci_event_task(void *arg) {
     }
     memcpy(&g_rx_evt_frame[1 + filled], g_hci_pkt, take);
     filled += take;
-    if ((uint32_t) g_event_urb.actual_length == mps && 1 + filled + mps <= sizeof(g_rx_evt_frame)) {
-      continue;
+
+    const uint32_t want = event_length(&g_rx_evt_frame[1], filled);
+    if (want == 0 || filled < want) {
+      continue;  // the header has not arrived yet, or the event has not
     }
 
     g_rx_evt_frame[0] = H4_EVENT;
     if (g_host_cb != nullptr && g_host_cb->notify_host_recv != nullptr) {
-      g_host_cb->notify_host_recv(g_rx_evt_frame, (uint16_t) (filled + 1));
+      g_host_cb->notify_host_recv(g_rx_evt_frame, (uint16_t) (want + 1));
     }
     filled = 0;
   }
@@ -1053,13 +1099,18 @@ static void hci_acl_task(void *arg) {
     }
     memcpy(&g_rx_acl_frame[1 + filled], g_rx_acl_pkt, take);
     filled += take;
-    if ((uint32_t) g_acl_in_urb.actual_length == mps && 1 + filled + mps <= sizeof(g_rx_acl_frame)) {
+
+    // Same rule, ACL's own header. A bulk endpoint makes this worse rather
+    // than better: 64 bytes on this dongle, so every ACL payload of 60, 124,
+    // 188 ... would have hung on the short packet that never came.
+    const uint32_t want = acl_length(&g_rx_acl_frame[1], filled);
+    if (want == 0 || filled < want) {
       continue;
     }
 
     g_rx_acl_frame[0] = H4_ACL;
     if (g_host_cb != nullptr && g_host_cb->notify_host_recv != nullptr) {
-      g_host_cb->notify_host_recv(g_rx_acl_frame, (uint16_t) (filled + 1));
+      g_host_cb->notify_host_recv(g_rx_acl_frame, (uint16_t) (want + 1));
     }
     filled = 0;
   }
