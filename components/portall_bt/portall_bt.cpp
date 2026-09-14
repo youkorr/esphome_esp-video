@@ -123,6 +123,7 @@ static constexpr uint16_t HCI_READ_LOCAL_VERSION = 0x1001;
 static constexpr uint16_t HCI_READ_BD_ADDR = 0x1009;
 
 static constexpr uint16_t HCI_INQUIRY = 0x0401;
+static constexpr uint16_t HCI_WRITE_INQUIRY_MODE = 0x0C45;
 
 static constexpr uint8_t HCI_EVENT_INQUIRY_COMPLETE = 0x01;
 static constexpr uint8_t HCI_EVENT_INQUIRY_RESULT = 0x02;
@@ -545,7 +546,36 @@ struct Seen {
 // middle of it and call a headset a toy.
 static constexpr uint8_t INQUIRY_ENTRY = 14;
 
-static void report_found(const uint8_t *entry, bool has_rssi, Seen *seen) {
+// The friendly name, out of an extended inquiry response. EIR is a run of
+// (length, type, value) pieces, and 0x09 is the complete local name with 0x08
+// the shortened one -- so a speaker says "JBL Flip 5" here and an address
+// stops being the only thing a person can go on.
+static bool eir_name(const uint8_t *eir, uint32_t len, char *out, uint32_t room) {
+  uint32_t at = 0;
+  while (at + 1 < len) {
+    const uint32_t piece = eir[at];
+    if (piece == 0) {
+      break;  // the padding that ends every EIR
+    }
+    if (at + 1 + piece > len) {
+      break;  // a length the bytes do not back up
+    }
+    const uint8_t type = eir[at + 1];
+    if (type == 0x09 || type == 0x08) {
+      uint32_t take = piece - 1;
+      if (take > room - 1) {
+        take = room - 1;
+      }
+      memcpy(out, &eir[at + 2], take);
+      out[take] = 0;
+      return take > 0;
+    }
+    at += 1 + piece;
+  }
+  return false;
+}
+
+static void report_found(const uint8_t *entry, bool has_rssi, const char *name, Seen *seen) {
   if (!seen->add(entry)) {
     return;
   }
@@ -553,11 +583,13 @@ static void report_found(const uint8_t *entry, bool has_rssi, Seen *seen) {
   const uint32_t cod =
       (uint32_t) entry[at] | ((uint32_t) entry[at + 1] << 8) | ((uint32_t) entry[at + 2] << 16);
   if (has_rssi) {
-    ESP_LOGI(TAG, "  found %02X:%02X:%02X:%02X:%02X:%02X  %s  %d dBm", entry[5], entry[4], entry[3],
-             entry[2], entry[1], entry[0], device_kind(cod), (int) (int8_t) entry[13]);
+    ESP_LOGI(TAG, "  found %02X:%02X:%02X:%02X:%02X:%02X  %-12s %4d dBm  %s", entry[5], entry[4],
+             entry[3], entry[2], entry[1], entry[0], device_kind(cod), (int) (int8_t) entry[13],
+             name != nullptr ? name : "");
   } else {
-    ESP_LOGI(TAG, "  found %02X:%02X:%02X:%02X:%02X:%02X  %s", entry[5], entry[4], entry[3],
-             entry[2], entry[1], entry[0], device_kind(cod));
+    ESP_LOGI(TAG, "  found %02X:%02X:%02X:%02X:%02X:%02X  %-12s           %s", entry[5], entry[4],
+             entry[3], entry[2], entry[1], entry[0], device_kind(cod),
+             name != nullptr ? name : "");
   }
 }
 
@@ -578,6 +610,26 @@ void PortallBT::inquire_(struct usbh_hubport *hport, uint8_t intf,
     length = 0x30;  // the specification's own ceiling, 61 seconds
   }
   const uint8_t params[5] = {0x33, 0x8B, 0x9E, length, 0x00};
+
+  // Ask for results that carry an RSSI and an extended inquiry response before
+  // inquiring, because the default -- mode 0 -- gives an address and a class
+  // and nothing else, which is what the first run of this printed. Mode 2 is
+  // where a speaker's own name comes from. A controller that will not do 2 is
+  // offered 1, and one that will not do either keeps the plain results: this
+  // is a better log, never a requirement.
+  static const char *const modes[] = {"extended results", "results with RSSI"};
+  for (uint8_t mode = 2; mode >= 1; mode--) {
+    const uint8_t wanted[1] = {mode};
+    if (hci_command(hport, intf, HCI_WRITE_INQUIRY_MODE, wanted, 1) < 0) {
+      break;
+    }
+    Waited asked{};
+    const int len = hci_await(hport, events, HCI_WRITE_INQUIRY_MODE, 1500, &asked);
+    if (len >= 6 && g_hci_evt[5] == 0x00) {
+      ESP_LOGI(TAG, "  asking for %s", modes[2 - mode]);
+      break;
+    }
+  }
 
   ESP_LOGI(TAG, "listening for Bluetooth devices for about %u seconds",
            (unsigned) ((length * 128) / 100));
@@ -630,7 +682,7 @@ void PortallBT::inquire_(struct usbh_hubport *hport, uint8_t intf,
             break;  // the device's own count, believed no further than the bytes
           }
           const uint8_t before = seen.count;
-          report_found(&g_hci_evt[at], rssi, &seen);
+          report_found(&g_hci_evt[at], rssi, nullptr, &seen);
           if (seen.count != before) {
             found++;
           }
@@ -638,9 +690,12 @@ void PortallBT::inquire_(struct usbh_hubport *hport, uint8_t intf,
         break;
       }
       case HCI_EVENT_EXTENDED_INQUIRY_RESULT: {
-        if (len >= 18) {
+        if (len >= 3 + INQUIRY_ENTRY) {
+          char name[32];
+          const bool named = eir_name(&g_hci_evt[3 + INQUIRY_ENTRY],
+                                      (uint32_t) len - (3 + INQUIRY_ENTRY), name, sizeof(name));
           const uint8_t before = seen.count;
-          report_found(&g_hci_evt[3], true, &seen);
+          report_found(&g_hci_evt[3], true, named ? name : nullptr, &seen);
           if (seen.count != before) {
             found++;
           }
