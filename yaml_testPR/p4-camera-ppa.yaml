@@ -1,0 +1,149 @@
+substitutions:
+  # Flip this to "false" for the second run.
+  ppa: "true"
+
+esphome:
+  name: p4-camera-ppa
+  friendly_name: p4-camera-ppa
+
+# Replace this with your actual platform if you aren't using ESP32.
+esp32:
+  board: esp32-p4-evboard
+  flash_size: 16MB
+  cpu_frequency: 360MHz
+  framework:
+    type: esp-idf
+    advanced:
+      enable_idf_experimental_features: true
+
+logger:
+  level: DEBUG
+  logs:
+    esp-idf: WARN                 # tout le bruit IDF d'un coup
+    esp_video_camera: DEBUG 
+
+api:
+  encryption:
+    key: "/1eEkde2dDe8x4u84xeIfH4nrFL+84klpvUg9fWceTs="
+
+ota:
+  - platform: esphome
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  ap:
+    ssid: p4-camera-ppa Fallback Hotspot
+    password: "zQBdXfqiVlsy"
+
+captive_portal:
+  
+external_components:
+
+  - source:
+      type: git
+      url: https://github.com/youkorr/esphome
+      ref: esp_video_camera-lvgl
+    components: [esp_video_camera, lvgl_camera_display]
+    refresh: always
+
+  - source:
+      type: git
+      url: https://github.com/youkorr/lvgl_9.5
+      ref: claude/jolly-lamport-ERZOC
+    components: [lvgl]
+    
+    refresh: always
+esp32_hosted:
+  variant: esp32c6
+  active_high: true
+  clk_pin: GPIO12
+  cmd_pin: GPIO13
+  d0_pin: GPIO11
+  d1_pin: GPIO10
+  d2_pin: GPIO9
+  d3_pin: GPIO8
+  reset_pin: GPIO15
+  use_psram: true
+  slot: 1
+i2c:
+  - id: bsp_bus
+    sda: GPIO31
+    scl: GPIO32
+    scan: True
+    frequency: 400kHz   
+
+esp_ldo:
+  - voltage: 2.5V
+    channel: 3  
+psram:
+  mode: hex
+  speed: 200MHz
+
+pi4ioe5v6408:
+  - id: pi4ioe1
+    address: 0x43
+
+display:
+  - platform: mipi_dsi
+    id: main_display
+    model: M5STACK-TAB5
+    reset_pin:
+      pi4ioe5v6408: pi4ioe1
+      number: 4
+
+output:
+  - platform: ledc
+    id: backlight_pwm
+    pin: GPIO22
+    frequency: 1000Hz
+
+light:
+  - platform: monochromatic
+    id: backlight
+    name: Backlight
+    output: backlight_pwm
+    restore_mode: RESTORE_DEFAULT_ON
+
+esp_video_camera:
+  id: video_camera
+  name: Camera
+  i2c_id: bsp_bus
+  device: jpeg
+  sensor_model: sc2356
+  resolution: 1280x720
+  # Deliberately high: the point is to find the ceiling, not to sit under one.
+  max_framerate: 30
+
+lvgl:
+  displays:
+    - main_display
+  rotation: 270
+  byte_order: little_endian
+  # The variable under test.
+  use_ppa: ${ppa}
+  use_ppa_img: ${ppa}
+  # The overlay that reports what LVGL itself manages to render.
+  perf_monitor: true
+  pages:
+    - id: camera_page
+      widgets:
+        - canvas:
+            id: camera_canvas
+            width: 1280
+            height: 720
+
+lvgl_camera_display:
+  camera_id: video_camera
+  canvas_id: camera_canvas
+
+switch:
+  # Releases the sensor's reset. Nothing answers on the bus until it is let go.
+  - platform: gpio
+    id: camera_reset
+    name: Camera reset
+    pin:
+      pi4ioe5v6408: pi4ioe1
+      number: 6
+    restore_mode: ALWAYS_ON  
+  
