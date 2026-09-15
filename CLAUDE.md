@@ -4766,6 +4766,114 @@ run away: if the scan was refused, the new line names the error; if it ran and
 heard nothing, the count says so; and either way the three-second report
 survives the Wi-Fi drop. No C++ here has been compiled by a real toolchain.
 
+## The "shuuut" was a ring counting in bytes, and the volume reached nothing
+
+**Reported as *"je recois un son qui un bruit shuuut et audio et recommence ...
+impossible de controler le volume et le mixer ne fonctionne pas tu a inventer
+systeme audio resempler!!!"*, pointing at their own working
+`yaml/GUITION_ PORTAL.yaml`.** Three complaints, three separate faults, and
+the YAML one was the fairest of them.
+
+**A FRAME IS FOUR BYTES AND AN INDEX OFF THAT GRID IS WHITE NOISE.** The ring
+in `a2dp.cpp` dropped and copied BYTES. The moment it overran, the tail moved
+by whatever odd number of bytes had overflowed, and from then on every sample
+handed to the encoder was the high byte of one and the low byte of the next --
+full-scale hiss. That is the "shuuut"; the audio in between is a later drop
+happening to realign it by chance, and the cycle is the ring overrunning
+again.
+
+**The test tone could never have shown it**, which is why it shipped. The tone
+is generated in `fill_pcm` only when the ring is EMPTY, so the one path
+anybody had listened to does not use the ring at all and cannot overrun it.
+Everything was proved on the path that could not fail.
+
+Everything is whole frames now, on the way in and on the way out. And the
+policy moved to the side that may apply it: the producer was advancing
+`g_pcm_tail`, **the consumer's own index**, to drop the oldest -- racing the
+task that was reading it. The consumer holds the occupancy down to
+`PCM_HIGH_WATER` by skipping whole frames, which is race-free; the producer
+refuses only what will not fit. The ring is 0.2 s with the mark at 0.1, and
+that mark IS the added latency, because the consumer is a real-time clock and
+occupancy parks there.
+
+**And nothing at the end of the volume chain obeyed it.** `portall.set_volume`
+does not scale anything -- `on_audio_samples` only GATES on the value, so zero
+is silence -- and hands the number to `speaker_->set_volume()`. Every block
+between passes it on faithfully: a mixer source gives it to the mixer's output
+speaker, a resampler to its own. It arrived at `PortallBTSpeaker` and met
+`speaker::Speaker::set_volume()`, which stores the value and applies it to an
+`audio_dac_`. **A Bluetooth speaker has no codec on this board**, so the chain
+ended at nothing. The base class invites the fix in its own comment --
+"Individual speaker components can override and implement in software if an
+audio dac isn't available" -- so `set_volume`/`set_mute_state` now scale the
+samples in Q15 as they are copied. Mute is its own flag rather than a gain of
+zero, so unmuting returns to the volume that was set.
+
+That also explains why the same slider works on the panel's own loudspeaker in
+the same YAML: an `i2s_audio` speaker ends the chain at an ES8311's register.
+
+**The mixer complaint was right and the file simply had none.**
+`yaml/tab5-portall-bluetooth.yaml` went `portall -> resampler -> bt_speaker`,
+which is not how anybody writes ESPHome audio and is not what their own file
+does. It is `mixer -> resampler -> bt_speaker` now, with the page, the
+announcement pipeline and the media pipeline as three sources -- the shape of
+`yaml/GUITION_ PORTAL.yaml` with the Bluetooth speaker where the I2S one was.
+
+Three things in that rewrite were read rather than assumed:
+
+- **`timeout: never` on every source, and it is not decoration.** A mixer
+  source's `timeout:` **defaults to 500 ms**: half a second with nothing to
+  play and it stops, and the next sound restarts it through `finish()` on the
+  output and a fresh A2DP stream. Their working file carries it on all three
+  sources and that is why.
+- **Every source must agree on the sample rate.** `MixerSpeaker::start()`
+  takes its rate from the first source to start and then returns
+  `ESP_ERR_INVALID_ARG` for any later source at a different one -- surfacing
+  as "Incompatible audio streams" on the source that lost, which is an
+  announcement that is simply never heard. The task's restart-at-the-source's-
+  rate path applies only when exactly ONE source has data. So both media
+  pipelines are 48000, matching portall.
+- **A resampler's `bits_per_sample` defaults to the word `passthrough`**, and
+  a mixer above it INHERITS that field from its output speaker -- then refuses
+  it with "Expected integer, but cannot parse passthrough as an integer",
+  naming a component nobody wrote wrong. Spell it out on the resampler.
+
+**The resampler itself stays, and "tu a inventer" is the one part that is not
+so.** A mixer adapts its output's rate; A2DP cannot, because 44100 is a
+hardcoded constant in `btc_a2dp_source.c`. Their Guition file needs no
+resampler precisely because its output is I2S, which plays at whatever it is
+given. The lesson is narrower than the complaint and worth keeping: **the
+pattern was right and the placement was wrong** -- one block between the mixer
+and the speaker, where the single rate change belongs, not a lone block
+standing in for the mixer.
+
+**Two corrections to this file.**
+
+- It says a `platform: template` number "stores a value and writes to the log,
+  and is connected to nothing". That is true of a bare one and false of
+  theirs, which carries `on_value: portall.set_volume` with the `x / 100.0`
+  lambda -- and theirs also has `restore_value` and an `initial_value`, which
+  `platform: portall` cannot. The example uses the template form now, for the
+  reason this file already gives two paragraphs earlier: a volume is a
+  SETTING.
+- It describes "the Guition example" wiring the page's sound through a
+  resampler into a third mixer input. There is no such file in `yaml/` any
+  more -- only `GUITION_ PORTAL.yaml`, which is the user's own configuration
+  and has no resampler in it. The paragraph describes a file that is gone.
+
+**Both faults were reproduced against the old code before the fix was
+believed**, which is this file's standing rule: with the byte-granular ring
+back, "an overrun leaves a whole number of frames" and "no frame has its two
+channels out of step" both fail; with the two overrides removed, all four
+volume cases fail. `tools/bttest/speaker.cpp` carries them, linking the
+shipped `play()` and reading back through the shipped `fill_pcm()`.
+
+The YAML validates against **2026.8.2**, which is what the user builds, and
+the resolved config was read rather than the source: the resampler comes out
+targeting 44100 mono 16-bit and every mixer source carries `timeout: never`.
+**No C++ here has been compiled by a real toolchain, and nothing has been
+heard** -- whether a car receiver plays it cleanly is one run away.
+
 ## Repository conventions
 
 - Work on branch `claude/esphome-pr-outdated-mdq36w`, then merge into `main`

@@ -33,16 +33,16 @@ void PortallBTSpeaker::dump_config() {
                 (unsigned) this->audio_stream_info_.get_channels());
   if (this->audio_stream_info_.get_channels() == 1)
     ESP_LOGCONFIG(TAG, "  Each sample goes out twice: A2DP carries two channels and this panel produces one");
+  ESP_LOGCONFIG(TAG, "  Volume is applied here, in software: there is no codec on this path to set it in");
 }
 
 void PortallBTSpeaker::start() {
-  this->half_sample_ = 0;
-  this->have_half_ = false;
+  this->carry_len_ = 0;
   this->state_ = speaker::STATE_RUNNING;
 }
 
 void PortallBTSpeaker::stop() {
-  this->have_half_ = false;
+  this->carry_len_ = 0;
   this->state_ = speaker::STATE_STOPPED;
 }
 
@@ -74,7 +74,7 @@ size_t PortallBTSpeaker::play(const uint8_t *data, size_t length) {
       ESP_LOGI(TAG, "No Bluetooth speaker is connected, so this sound is being dropped. Pair one with the "
                     "portall_bt.pair action.");
     }
-    this->have_half_ = false;
+    this->carry_len_ = 0;
     return length;
   }
   this->said_nowhere_ = false;
@@ -103,58 +103,87 @@ size_t PortallBTSpeaker::play(const uint8_t *data, size_t length) {
     }
   }
 
-  if (this->audio_stream_info_.get_channels() >= 2) {
-    // Already two channels: the bytes are the wire format as they stand.
-    this->parent_->feed_audio(data, (uint32_t) length);
-    return length;
-  }
-
-  this->play_mono_(data, length);
+  this->play_frames_(data, length, this->audio_stream_info_.get_channels() >= 2 ? 4 : 2);
   return length;
 }
 
-void PortallBTSpeaker::play_mono_(const uint8_t *data, size_t length) {
-  // A small buffer rather than a call per sample: feed_audio copies byte by
-  // byte into a ring, so handing it 256 bytes at a time instead of 4 is the
-  // difference between one loop and two.
+void PortallBTSpeaker::set_volume(float volume) {
+  // Keep the base class's bookkeeping -- get_volume() and any audio_dac a
+  // future board might carry -- and add the part that actually does it.
+  speaker::Speaker::set_volume(volume);
+  volume = volume < 0.0f ? 0.0f : (volume > 1.0f ? 1.0f : volume);
+  this->gain_q15_ = (int32_t) (volume * 32768.0f + 0.5f);
+}
+
+void PortallBTSpeaker::set_mute_state(bool mute_state) {
+  speaker::Speaker::set_mute_state(mute_state);
+  this->muted_ = mute_state;
+}
+
+int16_t PortallBTSpeaker::scaled_(uint8_t low, uint8_t high) const {
+  if (this->muted_)
+    return 0;
+  const int16_t sample = (int16_t) ((uint16_t) low | ((uint16_t) high << 8));
+  if (this->gain_q15_ >= 32768)
+    return sample;
+  return (int16_t) (((int32_t) sample * this->gain_q15_) >> 15);
+}
+
+void PortallBTSpeaker::play_frames_(const uint8_t *data, size_t length, uint8_t in_frame) {
+  /* A staging buffer rather than a call per frame: feed_audio copies into a
+   * ring, so handing it 256 bytes at a time instead of 4 is the difference
+   * between one loop and many. 256 is a multiple of four, which is what keeps
+   * every flush a whole number of A2DP frames. */
   uint8_t out[256];
   size_t used = 0;
 
-  // Finish the sample the last call ended in the middle of, if there was one.
-  if (this->have_half_ && length > 0) {
-    this->have_half_ = false;
-    const uint8_t low = this->half_sample_;
-    const uint8_t high = data[0];
-    data += 1;
-    length -= 1;
-    out[used++] = low;
-    out[used++] = high;
-    out[used++] = low;
-    out[used++] = high;
+  // Finish the unit the last call ended in the middle of, if there was one.
+  if (this->carry_len_ > 0) {
+    const uint8_t want = in_frame - this->carry_len_;
+    if (length < want) {
+      // Still not a whole one. Keep gathering; nothing goes out this call.
+      memcpy(this->carry_ + this->carry_len_, data, length);
+      this->carry_len_ += (uint8_t) length;
+      return;
+    }
+    memcpy(this->carry_ + this->carry_len_, data, want);
+    data += want;
+    length -= want;
+    this->carry_len_ = 0;
+    used += this->emit_frame_(out, this->carry_, in_frame);
   }
 
-  while (length >= 2) {
+  while (length >= in_frame) {
     if (used + 4 > sizeof(out)) {
       this->parent_->feed_audio(out, (uint32_t) used);
       used = 0;
     }
-    out[used++] = data[0];
-    out[used++] = data[1];
-    out[used++] = data[0];
-    out[used++] = data[1];
-    data += 2;
-    length -= 2;
+    used += this->emit_frame_(out + used, data, in_frame);
+    data += in_frame;
+    length -= in_frame;
   }
 
   if (used > 0)
     this->parent_->feed_audio(out, (uint32_t) used);
 
-  // Carry the odd byte. See the header: half a sample kept as a whole one
-  // would put the two channels out of step for the rest of the stream.
-  if (length == 1) {
-    this->half_sample_ = data[0];
-    this->have_half_ = true;
+  // Whatever is left is less than one unit. See the header: dropping it, or
+  // keeping it as a whole one, puts the two channels out of step for the rest
+  // of the stream.
+  if (length > 0) {
+    memcpy(this->carry_, data, length);
+    this->carry_len_ = (uint8_t) length;
   }
+}
+
+size_t PortallBTSpeaker::emit_frame_(uint8_t *out, const uint8_t *in, uint8_t in_frame) const {
+  const int16_t left = this->scaled_(in[0], in[1]);
+  // Mono duplicates; stereo takes the second sample as it comes.
+  const int16_t right = in_frame >= 4 ? this->scaled_(in[2], in[3]) : left;
+  out[0] = (uint8_t) (left & 0xFF);
+  out[1] = (uint8_t) ((left >> 8) & 0xFF);
+  out[2] = (uint8_t) (right & 0xFF);
+  out[3] = (uint8_t) ((right >> 8) & 0xFF);
+  return 4;
 }
 
 }  // namespace portall_bt

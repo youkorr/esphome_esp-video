@@ -50,6 +50,7 @@
 #include "esphome/core/log.h"
 #include "esphome/core/hal.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstring>
 
@@ -74,12 +75,40 @@ static constexpr uint32_t A2DP_BYTES_PER_FRAME = 4;
 
 static PortallBT *g_a2dp = nullptr;
 
-// One tenth of a second of sound in hand. Enough to ride a scheduling hiccup
-// on the producer's side, and small enough that what comes out is what is
-// being played now rather than a backlog -- the same reasoning the sender's
-// own half-second audio deque is built on, one order of magnitude tighter
-// because this queue has no network under it.
-static constexpr uint32_t PCM_RING = 17640;  // 0.1 s at 44100 x 4 bytes
+/* The ring between the ESPHome loop and Bluedroid's encoder, and every number
+ * in it is a multiple of A2DP_BYTES_PER_FRAME for one reason:
+ *
+ * A FRAME IS FOUR BYTES AND AN INDEX THAT STOPS BEING A MULTIPLE OF FOUR IS
+ * WHITE NOISE. The first version of this dropped and copied BYTES. The moment
+ * it overran, the tail advanced by whatever odd number of bytes had
+ * overflowed, and from then on every sample handed to the encoder was
+ * assembled out of the high byte of one and the low byte of the next -- which
+ * is full-scale hiss, not a click and not a skip. Reported from a paired car
+ * receiver as a "shuuut" noise, then audio, then the same again: the noise is
+ * the misalignment, the audio is a later drop happening to realign it by
+ * chance, and the cycle is the ring overrunning again. The test tone never
+ * showed it because the tone is generated only when the ring is EMPTY, so the
+ * one path anybody had listened to could not overrun.
+ *
+ * WHO OWNS WHICH INDEX. One producer (the ESPHome loop, through the speaker
+ * platform) owns the head; one consumer (Bluedroid's A2DP task) owns the
+ * tail. Neither writes the other's, which the first version also broke: it
+ * dropped the oldest by advancing the TAIL from the producer, racing the
+ * consumer for the index it was reading.
+ *
+ * Dropping the oldest is still the right policy -- sound whose moment has
+ * passed is worth less than sound being played now -- so it moved to the side
+ * that may do it. The consumer holds the occupancy down to PCM_HIGH_WATER by
+ * skipping whole frames, which is race-free because the tail is its own; the
+ * producer only refuses what genuinely will not fit, as a backstop.
+ *
+ * The sizes follow from that. The consumer is a real-time clock: it takes
+ * exactly 44100 frames a second whatever anybody upstream does, so occupancy
+ * parks at the high-water mark and that mark IS the added latency. A tenth of
+ * a second of latency with another tenth of headroom above it for a Wi-Fi
+ * hiccup on the producer's side. */
+static constexpr uint32_t PCM_HIGH_WATER = 17640;  // 0.1 s at 44100 x 4 bytes
+static constexpr uint32_t PCM_RING = 35280;        // twice that, so there is room above it
 static uint8_t g_pcm[PCM_RING];
 static volatile uint32_t g_pcm_head = 0;
 static volatile uint32_t g_pcm_tail = 0;
@@ -88,9 +117,10 @@ static volatile uint32_t g_pcm_tail = 0;
 // restarted every callback is a click every callback.
 static uint32_t g_tone_at = 0;
 
-static uint32_t pcm_available() {
-  const uint32_t head = g_pcm_head;
-  const uint32_t tail = g_pcm_tail;
+/* Takes the two indexes rather than reading them, so each side passes the one
+ * it owns as a plain value and reads the other's once. Reading a volatile
+ * twice in one expression is how a ring ends up with a length it never had. */
+static uint32_t pcm_used(uint32_t head, uint32_t tail) {
   return head >= tail ? head - tail : PCM_RING - tail + head;
 }
 
@@ -302,12 +332,33 @@ void PortallBT::start_a2dp_() {
 uint32_t PortallBT::fill_pcm(uint8_t *buf, uint32_t len) {
 #if defined(CONFIG_BT_BLUEDROID_ENABLED) && defined(CONFIG_BT_A2DP_ENABLE)
   uint32_t written = 0;
+  uint32_t tail = g_pcm_tail;
 
-  // Whatever has been fed in, first.
-  while (written < len && g_pcm_tail != g_pcm_head) {
-    buf[written++] = g_pcm[g_pcm_tail];
-    g_pcm_tail = (g_pcm_tail + 1) % PCM_RING;
+  /* Catch up first, because this is the side that may. Everything above the
+   * high-water mark is sound that has been waiting longer than the latency
+   * this path is willing to add, so it is skipped -- in whole frames, from
+   * the index this task owns. The producer never touches it. */
+  uint32_t used = pcm_used(g_pcm_head, tail);
+  if (used > PCM_HIGH_WATER) {
+    const uint32_t skip = (used - PCM_HIGH_WATER) / A2DP_BYTES_PER_FRAME * A2DP_BYTES_PER_FRAME;
+    tail = (tail + skip) % PCM_RING;
+    this->pcm_dropped_ += skip;
+    used -= skip;
   }
+
+  /* Whatever has been fed in, in whole frames. `len` is Bluedroid's own
+   * buffer and is always a whole number of frames; taking a part of one from
+   * the ring would leave the tail off the frame grid, which is the fault this
+   * file's header is about. */
+  uint32_t take = used < len ? used : len;
+  take = take / A2DP_BYTES_PER_FRAME * A2DP_BYTES_PER_FRAME;
+  while (written < take) {
+    const uint32_t run = std::min(take - written, PCM_RING - tail);
+    memcpy(buf + written, g_pcm + tail, run);
+    written += run;
+    tail = (tail + run) % PCM_RING;
+  }
+  g_pcm_tail = tail;
 
   if (written < len && this->test_tone_hz_ != 0) {
     // A sine, in frames rather than bytes, so the two channels cannot drift
@@ -341,18 +392,32 @@ uint32_t PortallBT::fill_pcm(uint8_t *buf, uint32_t len) {
 
 void PortallBT::feed_audio(const uint8_t *data, uint32_t len) {
 #if defined(CONFIG_BT_BLUEDROID_ENABLED) && defined(CONFIG_BT_A2DP_ENABLE)
-  for (uint32_t i = 0; i < len; i++) {
-    const uint32_t next = (g_pcm_head + 1) % PCM_RING;
-    if (next == g_pcm_tail) {
-      // Full. Drop the OLDEST, because sound whose moment has passed is worth
-      // less than the sound being played now -- the same choice the sender's
-      // own audio deque makes, for the same reason.
-      g_pcm_tail = (g_pcm_tail + 1) % PCM_RING;
-      this->pcm_dropped_++;
-    }
-    g_pcm[g_pcm_head] = data[i];
-    g_pcm_head = next;
+  /* Whole frames only, on the way in as well as on the way out. A caller
+   * handing over half a frame is the speaker platform's to carry, and it
+   * does; this refuses the remainder rather than putting the ring off its
+   * grid, because one byte here is hiss for the rest of the stream. */
+  len = len / A2DP_BYTES_PER_FRAME * A2DP_BYTES_PER_FRAME;
+
+  uint32_t head = g_pcm_head;
+  /* One frame is left unused so a full ring and an empty one are different
+   * states. This is the backstop, not the policy: the consumer holds the
+   * occupancy down to the high-water mark, so a ring this full means the loop
+   * has outrun a real-time clock, which cannot last. Refusing the NEWEST is
+   * what keeps this to the one index this task owns. */
+  const uint32_t room = PCM_RING - A2DP_BYTES_PER_FRAME - pcm_used(head, g_pcm_tail);
+  if (len > room) {
+    this->pcm_dropped_ += len - room;
+    len = room;
   }
+
+  uint32_t done = 0;
+  while (done < len) {
+    const uint32_t run = std::min(len - done, PCM_RING - head);
+    memcpy(g_pcm + head, data + done, run);
+    done += run;
+    head = (head + run) % PCM_RING;
+  }
+  g_pcm_head = head;
 #else
   (void) data;
   (void) len;
@@ -361,7 +426,7 @@ void PortallBT::feed_audio(const uint8_t *data, uint32_t len) {
 
 uint32_t PortallBT::pcm_queued() const {
 #if defined(CONFIG_BT_BLUEDROID_ENABLED) && defined(CONFIG_BT_A2DP_ENABLE)
-  return pcm_available();
+  return pcm_used(g_pcm_head, g_pcm_tail);
 #else
   return 0;
 #endif

@@ -158,6 +158,90 @@ int main() {
     drain(bt);
   }
 
+  /* THE "SHUUUT". A ring that drops or copies BYTES puts its indexes off the
+   * four-byte frame grid, and from then on every sample the encoder is handed
+   * is the high byte of one and the low byte of the next -- full-scale hiss,
+   * reported from a car as a "shuuut" noise with audio in between. This fills
+   * the ring past its capacity, which is the only thing that ever triggered
+   * it: the test tone is generated when the ring is EMPTY, so the one path
+   * anybody had listened to could not overrun. */
+  {
+    PortallBTSpeaker fast;
+    fast.set_parent(&bt);
+    fast.set_audio_stream_info(esphome::audio::AudioStreamInfo(16, 1, 44100));
+    fast.start();
+    drain(bt);
+
+    /* A ramp, so a misalignment is unmistakable: consecutive frames differ by
+     * one, and a stream read half a sample out reads as huge alternating
+     * values instead. Far more than the ring can hold, in blocks that are a
+     * whole number of mono samples but NOT a whole number of A2DP frames --
+     * 1922 bytes is 961 samples, which is what makes the old code drop an odd
+     * count and lose the grid. */
+    std::vector<int16_t> ramp;
+    for (int i = 0; i < 961; i++)
+      ramp.push_back((int16_t) (i & 0x3FFF));
+    const std::vector<uint8_t> block = mono(ramp);
+    for (int round = 0; round < 40; round++)
+      fast.play(block.data(), block.size());
+
+    const std::vector<uint8_t> got = drain(bt);
+    check("an overrun leaves a whole number of frames", got.size() % 4 == 0);
+
+    // Every frame's two channels must still be the same sample. They are only
+    // ever written as a pair, so anything else is the grid having slipped.
+    bool paired = !got.empty();
+    for (size_t i = 0; i + 3 < got.size(); i += 4)
+      paired = paired && got[i] == got[i + 2] && got[i + 1] == got[i + 3];
+    check("and no frame has its two channels out of step", paired);
+
+    // The ring holds what it says it holds, rather than growing without limit.
+    check("and the ring did not grow past its own size", got.size() <= 35280);
+  }
+
+  /* THE VOLUME. `portall.set_volume` hands the value down the speaker chain
+   * and every block passes it on, so it arrives here -- where the base class
+   * would give it to an audio_dac that a Bluetooth speaker does not have.
+   * Reported as a slider that moved and did nothing. */
+  {
+    PortallBTSpeaker quiet;
+    quiet.set_parent(&bt);
+    quiet.set_audio_stream_info(esphome::audio::AudioStreamInfo(16, 1, 44100));
+    quiet.start();
+    drain(bt);
+
+    quiet.set_volume(0.5f);
+    const std::vector<uint8_t> loud = mono({1000, -1000});
+    quiet.play(loud.data(), loud.size());
+    const std::vector<uint8_t> half = drain(bt);
+    const int16_t first = (int16_t) ((uint16_t) half[0] | ((uint16_t) half[1] << 8));
+    const int16_t second = (int16_t) ((uint16_t) half[4] | ((uint16_t) half[5] << 8));
+    check("half volume halves the samples", half.size() == 8 && first == 500 && second == -500);
+
+    quiet.set_volume(1.0f);
+    quiet.play(loud.data(), loud.size());
+    const std::vector<uint8_t> full = drain(bt);
+    const int16_t back = (int16_t) ((uint16_t) full[0] | ((uint16_t) full[1] << 8));
+    check("and full volume leaves them alone", back == 1000);
+
+    quiet.set_mute_state(true);
+    quiet.play(loud.data(), loud.size());
+    const std::vector<uint8_t> muted = drain(bt);
+    bool silent = muted.size() == 8;
+    for (uint8_t byte : muted)
+      silent = silent && byte == 0;
+    check("mute is silence, not a quiet noise", silent);
+
+    /* And unmuting returns to the VOLUME, not to full -- which is why mute is
+     * its own flag rather than a gain of zero. */
+    quiet.set_volume(0.5f);
+    quiet.set_mute_state(false);
+    quiet.play(loud.data(), loud.size());
+    const std::vector<uint8_t> after = drain(bt);
+    const int16_t restored = (int16_t) ((uint16_t) after[0] | ((uint16_t) after[1] << 8));
+    check("and unmuting comes back to the volume that was set", restored == 500);
+  }
+
   // And a starved read is silence rather than a short answer, because A2DP has
   // a clock at the other end: fewer bytes than asked for is a gap in a stream
   // being decoded at a fixed rate, which is a click.
