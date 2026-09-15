@@ -1,0 +1,340 @@
+# M5Stack Tab5: a Home Assistant panel over Wi-Fi whose sound comes out of a
+# Bluetooth speaker.
+#
+# WHY THIS FILE EXISTS. Until `usb: false` there was no way to have both: the
+# ESP32-P4 has two USB OTG peripherals, a board wires each socket to one of
+# them, and on the Tab5 the USB-A HOST socket -- where the Bluetooth dongle
+# goes -- is the SAME high-speed peripheral portall puts in DEVICE mode. So
+# every log in this project's Bluetooth thread came from a firmware with
+# `portall_bt:` and no `portall:` at all: a Classic host driving a screen that
+# was showing nothing. This is the two of them on one board.
+#
+# WHAT IT NEEDS BESIDE THE BOARD. A USB Bluetooth dongle in the USB-A socket
+# (both a Broadcom BCM20702A1 and a TP-Link UB500 are proven), the portall
+# add-on running on the Home Assistant box, and an A2DP speaker to pair with.
+# `micro_wake_word` and `voice_assistant` are deliberately NOT here: they pull
+# esp-tflite-micro, which this repository records as OOM-killing the compile,
+# and they are orthogonal to what this file demonstrates. Copy them from
+# yaml/tab5-portall-screen.yaml if the panel wants Assist as well.
+
+substitutions:
+  name: tab5-portall-bluetooth
+
+esphome:
+  name: tab5-portall-bluetooth
+  friendly_name: tab5_portall_bluetooth
+
+esp32:
+  board: esp32-p4-evboard
+  cpu_frequency: 360MHz
+  flash_size: 16MB
+  engineering_sample: true
+  framework:
+    type: esp-idf
+    advanced:
+      enable_idf_experimental_features: yes
+
+logger:
+
+api:
+  encryption:
+    key: !secret api_encryption_key
+
+ota:
+  - platform: esphome
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  # A panel taking twenty-four pictures a second is not a sensor that speaks
+  # once a minute: a radio that sleeps between beacons adds latency and lets
+  # the access point buffer a burst that was meant to arrive smoothly.
+  power_save_mode: none
+  ap:
+    ssid: tab5-bt Fallback
+    password: ""
+
+captive_portal:
+
+psram:
+  mode: hex
+  speed: 200MHz
+
+esp_ldo:
+  - voltage: 2.5V
+    channel: 3
+
+i2c:
+  - id: bsp_bus
+    sda: GPIO31
+    scl: GPIO32
+    frequency: 400kHz
+
+esp32_hosted:
+  variant: esp32c6
+  active_high: true
+  clk_pin: GPIO12
+  cmd_pin: GPIO13
+  d0_pin: GPIO11
+  d1_pin: GPIO10
+  d2_pin: GPIO9
+  d3_pin: GPIO8
+  reset_pin: GPIO15
+  use_psram: false
+  slot: 1
+
+external_components:
+  - source:
+      type: git
+      url: https://github.com/youkorr/esphome_esp-video
+      ref: main
+    components: [portall, portall_bt]
+    refresh: 0s
+
+pi4ioe5v6408:
+  - id: pi4ioe1
+    address: 0x43
+    # 0: O - wifi_antenna_int_ext
+    # 1: O - speaker_enable
+    # 2: O - external_5v_power
+    # 3: NC
+    # 4: O - lcd reset
+    # 5: O - touch panel reset
+    # 6: O - camera reset
+    # 7: I - headphone detect
+  - id: pi4ioe2
+    address: 0x44
+    # 0: O - wifi_power
+    # 1: NC
+    # 2: NC
+    # 3: O - usb_5v_power
+    # 4: O - poweroff pulse
+    # 5: O - quick charge enable (inverted)
+    # 6: I - charging status
+    # 7: O - charge enable
+
+switch:
+  - platform: gpio
+    id: wifi_power
+    name: "WiFi"
+    internal: true
+    pin:
+      pi4ioe5v6408: pi4ioe2
+      number: 0
+    restore_mode: ALWAYS_ON
+
+  # The dongle's power. Without this the USB-A socket is dead and portall_bt
+  # reports no device at all, which reads exactly like a dongle that does not
+  # work.
+  - platform: gpio
+    id: usb_5v_power
+    name: USB-A Power
+    pin:
+      pi4ioe5v6408: pi4ioe2
+      number: 3
+    restore_mode: ALWAYS_ON
+
+  - platform: gpio
+    id: speaker_enable
+    name: "Speaker Enable"
+    pin:
+      pi4ioe5v6408: pi4ioe1
+      number: 1
+    restore_mode: ALWAYS_ON
+
+  - platform: gpio
+    id: wifi_antenna_int_ext
+    internal: True
+    pin:
+      pi4ioe5v6408: pi4ioe1
+      number: 0
+
+# ---------------------------------------------------------------------------
+# The Tab5's own sound. ES8388 as the codec and ES7210 for the microphones,
+# both on the one I2S bus, exactly as the panel is wired.
+# ---------------------------------------------------------------------------
+i2s_audio:
+  - id: mic_bus
+    i2s_lrclk_pin: GPIO29
+    i2s_bclk_pin: GPIO27
+    i2s_mclk_pin: GPIO30
+
+audio_dac:
+  - platform: es8388
+    id: es8388_dac
+
+select:
+  - platform: es8388
+    dac_output:
+      id: dac_output_select
+      name: "DAC Output"
+    adc_input_mic:
+      name: "ADC Input Mic"
+
+speaker:
+  # The panel's own loudspeaker. Home Assistant's announcements come out here,
+  # which is why it stays even on a panel whose page audio goes to Bluetooth:
+  # a message from the house should not be silent because a car drove away
+  # with the speaker.
+  - platform: i2s_audio
+    id: tab5_speaker
+    i2s_audio_id: mic_bus
+    i2s_dout_pin: GPIO26
+    audio_dac: es8388_dac
+    dac_type: external
+    channel: mono
+    buffer_duration: 100ms
+    bits_per_sample: 16bit
+    sample_rate: 48000
+
+  # And the Bluetooth one. It takes 44100 Hz, 16-bit -- hardcoded in
+  # Espressif's btc_a2dp_source.c, not a preference -- and duplicates a mono
+  # sample onto both channels itself.
+  - platform: portall_bt
+    id: bt_speaker
+    portall_bt_id: dongle
+
+  # portall sends 48000 Hz because that is what a browser produces, so the
+  # rate has to change somewhere. This is the only block between the two and
+  # it is not optional: without it the speaker above is handed 48000 and
+  # everything plays fast and high.
+  - platform: resampler
+    id: page_to_bluetooth
+    output_speaker: bt_speaker
+
+display:
+  - platform: mipi_dsi
+    id: main_screen
+    model: M5Stack-Tab5
+    dimensions:
+      width: 720
+      height: 1280
+    pixel_mode: 16
+    update_interval: never
+    auto_clear_enabled: false
+    reset_pin:
+      pi4ioe5v6408: pi4ioe1
+      number: 4
+
+touchscreen:
+  - platform: gt911
+    id: touch_screen
+    i2c_id: bsp_bus
+    update_interval: 8ms
+    reset_pin:
+      pi4ioe5v6408: pi4ioe1
+      number: 5
+    calibration:
+      x_min: 0
+      x_max: 720
+      y_min: 0
+      y_max: 1280
+
+output:
+  - platform: ledc
+    pin: GPIO22
+    id: backlight_pwm
+    frequency: 1000Hz
+
+light:
+  - platform: monochromatic
+    output: backlight_pwm
+    id: backlight
+    name: Backlight
+    restore_mode: ALWAYS_ON
+
+media_player:
+  - platform: speaker
+    name: "Tab5"
+    id: speaker_player
+    announcement_pipeline:
+      speaker: tab5_speaker
+      format: FLAC
+      sample_rate: 48000
+      num_channels: 1
+
+number:
+  # The one volume control that governs the page's sound whichever way it
+  # leaves the board -- it is applied in on_audio_samples, the single door
+  # PCM comes through. A `platform: template` number in its place stores a
+  # value and is connected to nothing, which a panel reported as the volume
+  # not working.
+  - platform: portall
+    name: "Volume"
+    id: panel_volume
+
+portall:
+  id: panel
+  display_id: main_screen
+  width: 720
+  height: 1280
+  rotation: 0
+  port: 5000
+  touchscreen_id: touch_screen
+
+  # THE LINE THIS WHOLE FILE IS ABOUT. The Tab5's USB-A host socket and
+  # portall's device mode are the same peripheral, so a board hosting a
+  # Bluetooth dongle cannot also be a USB display. TinyUSB is left out of the
+  # build entirely -- no vendor pipe, no HID digitizer, no USB sound card, no
+  # sender drive -- and the picture, the touches and the sound all arrive over
+  # `port:` above, which is the only way in left.
+  usb: false
+
+  # The page's sound goes to Bluetooth by way of the resampler. Pointing this
+  # straight at bt_speaker would hand it 48000 Hz; pointing it at
+  # tab5_speaker instead is the panel's own loudspeaker, which is the other
+  # sensible answer and what yaml/tab5-portall-screen.yaml does.
+  speaker_id: page_to_bluetooth
+
+portall_bt:
+  id: dongle
+
+  # Bluedroid, host only, with the dongle as the controller. The ESP32-P4 has
+  # no Bluetooth radio of any kind -- SOC_BT_SUPPORTED is not defined for it --
+  # so this is Espressif's own dual-mode host driving somebody else's chip over
+  # USB.
+  host_stack: bluedroid
+
+  # A2DP source. This is the half of the work the ESP32-C6 on these panels can
+  # never do: A2DP is Bluetooth CLASSIC and that radio is BLE only.
+  audio: true
+
+  # No test tone: there is a real source plumbed in above. Set it to 440 to
+  # hear the chain before trusting it -- it plays whenever nothing else has
+  # been fed in, which on a silent page is all the time.
+  test_tone: 0
+
+  # A gamepad or a remote. Off because it costs flash and nothing here has one
+  # to pair with; the same pair button below finds either, since the class of
+  # device is what sorts a speaker from a joystick.
+  hid: false
+
+  device_name: "Tab5"
+
+  on_media_key:
+    - lambda: |-
+        // The car receiver's steering wheel, or the button on an earcup.
+        ESP_LOGI("panel", "button %02x %s", code, pressed ? "down" : "up");
+
+  on_media_volume:
+    - lambda: |-
+        // A fraction, because AVRCP carries 0..127 and no YAML should have to
+        // know that. Sent straight at the one volume this board has.
+        id(panel_volume).make_call().set_value(volume * 100.0f).perform();
+
+button:
+  # Pairing is an ACTION and never a loop. An inquiry sweeps the whole 2.4 GHz
+  # band at full power and was measured taking this board's Wi-Fi down for
+  # exactly as long as it ran, twice, on two different channels -- which on a
+  # panel fed over Wi-Fi is the picture stopping. Everything afterwards
+  # reconnects BY ADDRESS, which scans nothing at all.
+  - platform: template
+    name: "Pair a Bluetooth speaker"
+    on_press:
+      - portall_bt.pair: dongle
+
+  - platform: template
+    name: "Forget Bluetooth devices"
+    entity_category: config
+    on_press:
+      - portall_bt.forget: dongle
