@@ -165,6 +165,23 @@ portall_bt:
   # is written: a thumbstick in motion sends a hundred of these a second.
   show_reports: false
 
+  # The speaker's own buttons, over AVRCP. A car receiver's steering wheel, a
+  # headphone's play/pause, a volume knob -- these arrive here because the
+  # panel registers as the AVRCP TARGET, which is the end that RECEIVES the
+  # commands. Without it the device asks for the channel and is refused, which
+  # a panel's log showed as "rcvd conn req for unknown PSM: 23".
+  on_media_key:
+    - lambda: |-
+        // code is an esp_avrc_pt_cmd_t: 0x44 play, 0x46 pause, 0x4B next,
+        // 0x4C previous. The component already names the common ones in its
+        // own log line; this is where a panel decides what to DO with one.
+        ESP_LOGI("panel", "button %02x %s", code, pressed ? "down" : "up");
+
+  on_media_volume:
+    - lambda: |-
+        // A fraction, because AVRCP carries 0..127 and nobody wants that.
+        ESP_LOGI("panel", "the speaker asked for %.0f%%", volume * 100.0f);
+
   on_hid_report:
     - lambda: |-
         // `data` is exactly what the device sent. Where a device uses report

@@ -4406,6 +4406,111 @@ been compiled by a real toolchain, and the sound it can send is a test tone.
 Feeding it from portall -- 48 kHz mono into 44.1 kHz stereo, through
 ESPHome's resampler -- is the next step and is not written.
 
+## It plays. A car receiver, paired and streaming, on the first real run
+
+The whole chain, from a panel's own log:
+
+    scanning for about 10 seconds -- put the device in pairing mode now
+      heard 46:E8:1C:8A:88:DD  class 240404
+      that is a speaker -- stopping the scan and pairing with it
+    scan finished; the Wi-Fi should come back now
+    paired with 46:E8:1C:8A:88:DD "UGREEN-90748" -- Bluedroid has the link key in NVS now
+    speaker 46:E8:1C:8A:88:DD is connected
+    remembering 46:E8:1C:8A:88:DD as this panel's speaker
+    audio stream started
+
+**And that address is the one the very first inquiry in this whole thread
+heard.** Months of project time earlier, the probe printed `found
+46:E8:1C:8A:88:DD audio/video -64 dBm` and nobody knew what it was. It is the
+car receiver, and it is now the panel's speaker.
+
+`class 240404` is the sort working: `(0x240404 & 0x1f00) >> 8` is 4,
+`ESP_BT_COD_MAJOR_DEV_AV`, so one pair action found a speaker among whatever
+else the house was broadcasting and connected the right profile to it.
+
+**`event 257 bytes, code 2f, 255 parameters` is the length rule at its
+limit** -- an extended inquiry result, the largest frame HCI defines, carried
+whole over a sixteen-byte endpoint. That is seventeen packets reassembled by
+the rule that replaced counting short packets.
+
+Two warnings in that log are the diagnosis confirming itself again:
+`opcode=0xfc82, status= 01: Illegal Command` is a vendor command this dongle
+does not have, answered with a status and nothing else -- the same shape as
+0x2027 and 0x204A, costing a warning because its answer goes to a parser that
+needs no parameters. And `btm_sec_l2cap_access_req: (initiator) remote
+features unknown` is Bluedroid noting it has not read the remote's features
+yet at the moment it opens the channel; the pairing completed immediately
+after it.
+
+### The device asked for its buttons and was refused
+
+    W BT_L2CAP: L2CAP - rcvd conn req for unknown PSM: 23
+
+**23 is 0x17, which is AVCTP, which is the channel AVRCP runs over.** So that
+line is the car kit asking to send play, pause, next and a volume level, and a
+panel with no AVRCP registered saying no. On a car receiver those are the
+steering wheel and the knob; on headphones it is the button on the earcup.
+
+The log asked for the feature, which is the best kind of request. `audio: true`
+now registers the AVRCP **TARGET**, and which role is which is the one thing
+worth getting right: the target is the end that RECEIVES commands, because the
+target is the player. The panel plays; the thing with buttons on it is the
+controller. Registering the other way round would have put this panel in the
+role of sending play/pause to a car radio that has no player.
+
+**AVRC has to be initialised BEFORE A2DP, and that is in their header rather
+than in a guess.** `esp_a2d_source_init`'s own documentation: *"If you want to
+use AVRC together, you should initiate AVRC first."* The same shape as
+attaching the HCI driver before `esp_bluedroid_init()` -- an ordering written
+down in a header by the people who wrote the stack, in a component that has
+already been caught once by not reading one.
+
+The supported command set is **copied from the ALLOWED set** rather than
+listed here, which is what Espressif's own examples do and is the only version
+that cannot go stale: the stack says what it can carry and this says yes to
+all of it. A hand-written list of key codes would quietly stop supporting
+whatever the specification gained after it was typed.
+
+`on_media_key` and `on_media_volume` are the triggers. The key codes ARE a
+fixed enumeration in `esp_avrc_api.h` -- unlike a HID report descriptor, which
+differs per device -- so naming them in the log is reading rather than
+guessing. The volume crosses as a **fraction**, because AVRCP carries 0..127
+and no YAML should have to know that. And the key state is **0 for PRESSED**,
+which is the opposite of every other input API in this component and is
+exactly why the stand-in header is copied field for field rather than typed.
+
+### An ACL packet is not an event, and for one release the log said it was
+
+The same log, six times:
+
+    ACL 20 bytes, code 0c, 32 parameters
+
+Three numbers and not one of them true. An ACL packet begins with a 12-bit
+connection handle and two 2-bit flags, little-endian, and its LENGTH is the
+two bytes after that -- so `0c` is the low half of the handle, `32` is 0x20,
+which is the other half with the packet-boundary flag folded in, and there is
+no code and no parameter count anywhere in it. `say_frame` was printing the
+event layout over ACL bytes.
+
+It survived because **nothing had ever carried ACL**. Every frame this
+component had seen until a speaker connected was an event, so the fallback
+branch had never been reached by anything it was wrong about. The first real
+connection printed six of them.
+
+    ACL 20 bytes, handle 00c, 16 of payload
+
+The test is that exact frame, captured off the reporter's own stdout, and it
+asserts both halves: that the new numbers are right AND that `code 0c` and
+`32 parameters` are gone -- a half-fix would pass otherwise. Reproduced
+against a copy with the branch removed, where it prints the panel's original
+line and fails.
+
+**What is still NOT done**: the sound reaching the car has not been confirmed
+by ear, the panel's own audio is not plumbed into it (48 kHz mono into
+44.1 kHz stereo, through ESPHome's resampler, is the next step), and nothing
+has paired over HID because there is no device here to pair with.
+
+
 ## Repository conventions
 
 - Work on branch `claude/esphome-pr-outdated-mdq36w`, then merge into `main`
