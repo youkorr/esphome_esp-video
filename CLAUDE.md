@@ -4621,6 +4621,77 @@ panel's own loudspeaker, whichever `speaker_id:` names, and both at once would
 be a mixer nobody has asked for.
 
 
+## A build directory kept TinyUSB, and the CMake was asking the wrong question
+
+**Reported as a compile error from a board, on a firmware with no `portall:`
+in it at all:**
+
+    tusb_option.h (in "espressif__tinyusb" component) includes tusb_config.h,
+    provided by usb_display_tusb component(s). However, usb_display_tusb
+    component(s) is not in the requirements list of "espressif__tinyusb".
+
+Two components the reader never configured, named in an error about a third.
+
+**Nothing in a clean build of that firmware asks for either one.** `portall`'s
+`to_code` is what adds `usb_display_tusb` and `espressif/tinyusb`, and it does
+not run without a `portall:` block; CherryUSB's own manifest was read rather
+than assumed and depends on neither. So both arrived from the BUILD DIRECTORY:
+`managed_components/` is discovered from disk, and a dependency that stops
+being requested does not reliably stop being on disk.
+
+**And that is only how they got there. What made it fail is ours.**
+`usb_display_tusb/CMakeLists.txt` decided whether to hand TinyUSB its
+`tusb_config.h` by testing **`CONFIG_USB_DISPLAY_DEVICE`** -- which is what
+portall's `usb:` option writes, our own intention rather than the build's
+state. The two agree in every configuration this repository generates and
+disagree the moment a build directory carries TinyUSB anyway: the option says
+no, the wiring is skipped, and TinyUSB is left in the build without the one
+header it cannot start without.
+
+The fix is the rule this file already records three times in other costumes --
+**ask the world, not the step**:
+
+```cmake
+idf_build_get_property(build_components BUILD_COMPONENTS)
+if(NOT "espressif__tinyusb" IN_LIST build_components)
+    return()
+endif()
+```
+
+`BUILD_COMPONENTS` is the build's own list and it is complete before any
+component's CMakeLists runs: `__build_expand_requirements` fills it during
+requirement expansion, and `add_subdirectory` reaches components afterwards
+(`tools/cmake/build.cmake` in v5.5.5, read rather than remembered). It also
+fixes the mirror-image case the old code turned into a hard CMake error --
+the option on with no TinyUSB to reach for, where
+`idf_component_get_property` fails outright rather than returning empty.
+
+**Wiring it up makes the build succeed and does not make it right**, so the
+one state that cannot come out of this repository's codegen -- TinyUSB present
+with `usb:` off -- now says so at configure time and names the remedy, because
+a build directory is not something a reader can see. On a Tab5 the leftover is
+worse than dead flash: TinyUSB claims the high-speed peripheral, which is the
+one the USB-A host socket needs, and freeing it is the whole of what `usb:
+false` is for.
+
+**`tools/checkcmake.py` is the first thing in this repository that has ever
+executed a line of CMake.** `esphome config` never reaches it, `checkguards`
+reads C++ and `checkbt` compiles C++; the one file that reached a user as a
+build error was the one nothing looked at. It processes the real CMakeLists
+with `add_subdirectory` against stand-in IDF functions that RECORD what they
+were handed, so a branch is proved by what it did rather than by grepping for
+an `if`. Four states, and three of the seven cases run the OLD file and
+require it to fail: the reported error reproduces, and so does the hard error
+on the reverse case.
+
+What it cannot check is that ESP-IDF's real build agrees -- the stubs say what
+these functions are called and what this file does with them, nothing more.
+
+**The lesson is not about CMake.** It is that `usb: false` was tested against
+the configurations this repository generates, and a user's build directory is
+not one of those. Anything keyed on our own option rather than on the build's
+state has the same hole.
+
 ## Repository conventions
 
 - Work on branch `claude/esphome-pr-outdated-mdq36w`, then merge into `main`
