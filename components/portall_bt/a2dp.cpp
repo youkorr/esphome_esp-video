@@ -359,6 +359,14 @@ void PortallBT::feed_audio(const uint8_t *data, uint32_t len) {
 #endif
 }
 
+uint32_t PortallBT::pcm_queued() const {
+#if defined(CONFIG_BT_BLUEDROID_ENABLED) && defined(CONFIG_BT_A2DP_ENABLE)
+  return pcm_available();
+#else
+  return 0;
+#endif
+}
+
 void PortallBT::on_a2dp_ready() {
   this->a2dp_up_ = true;
   // Only now is there a profile to connect with, so this is where a

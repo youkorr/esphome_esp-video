@@ -88,6 +88,13 @@ class PortallBT : public Component {
   uint32_t fill_pcm(uint8_t *buf, uint32_t len);
   /// Hand PCM to the speaker, in that same format. Safe from any task.
   void feed_audio(const uint8_t *data, uint32_t len);
+  /// How many bytes are waiting to be encoded. The speaker platform answers
+  /// has_buffered_data() with this.
+  uint32_t pcm_queued() const;
+  /// Whether a sink is connected. PCM handed over with nothing at the other
+  /// end has nowhere to go, and a speaker platform that says so in its own
+  /// log is better than one that quietly fills a ring for ever.
+  bool speaker_connected() const { return this->a2dp_open_; }
   void on_a2dp_ready();
   void on_a2dp_open(const uint8_t *addr);
   void on_a2dp_closed(bool abnormal);

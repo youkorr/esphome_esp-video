@@ -4511,6 +4511,116 @@ by ear, the panel's own audio is not plumbed into it (48 kHz mono into
 has paired over HID because there is no device here to pair with.
 
 
+## The panel's own sound now reaches that speaker
+
+**Asked as *"il ne faut oublier que le yaml il ya pas d'audio regarde l'audio
+du tab5"*, pointing at `yaml/tab5-portall-screen.yaml`.** It is the right
+objection: `PortallBT::feed_audio()` was public and NOTHING called it, so the
+only thing a paired car receiver could play was the test tone this component
+generates for itself. `speaker: - platform: portall_bt` is the door a YAML
+pushes real sound through, and `yaml/tab5-portall-bluetooth.yaml` is the whole
+chain on one board -- which `usb: false` is what made possible at all.
+
+**The two conversions are split, and where each one goes was read rather than
+assumed.** portall produces 48000 Hz 16-bit MONO; A2DP takes 44100 Hz 16-bit
+STEREO. Both numbers belong to somebody else.
+
+| | who does it | why there |
+|---|---|---|
+| 48000 -> 44100 | ESPHome's `resampler` speaker, in the YAML | real signal processing, and ESPHome already has it |
+| mono -> stereo | this platform's `play()` | each sample written twice: exact, no filter, no state |
+
+And the channel half has to be here, because ESPHome's own parts will not do
+it. Read in 2026.8.2 rather than remembered:
+
+- `AudioResampler::start()` returns **`ESP_ERR_NOT_SUPPORTED`** the moment
+  `input_stream_info_.get_channels() != output_stream_info.get_channels()`. A
+  resampler's output channel count is always its input's --
+  `target_stream_info_` is built with `this->audio_stream_info_.get_channels()`
+  -- so the `num_channels:` in its config is validation only.
+- The **mixer** does convert channels (`pcm_convert::copy_frames` takes an
+  input and an output channel count), and it wants every source already at the
+  output's sample rate, restarting the output speaker when one is not.
+
+So the alternative was resampler + mixer, two blocks in a household's YAML for
+a duplication that is three lines of arithmetic. Same instinct as every other
+time the simpler named thing won here.
+
+**`bits_per_sample`, `num_channels` and `sample_rate` carry DEFAULTS on this
+platform, and that is load-bearing rather than tidy.** A resampler pointed at
+this speaker **inherits** all three from it --
+`esphome.core.entity_helpers.inherit_property_from(CONF_NUM_CHANNELS,
+CONF_OUTPUT_SPEAKER)`, which reads the OUTPUT speaker's own config. Leaving
+them unset does not mean "anything": the resampler's `to_code` then does
+`config[CONF_SAMPLE_RATE]` and raises a **KeyError in somebody else's file**,
+which nobody would connect to this one. Verified on the resolved config rather
+than by reading: the resampler block comes out `num_channels: 1,
+sample_rate: 44100`, and asking this platform for 48000 is refused by its own
+schema (`value must be at most 44100`).
+
+**Sound with nothing paired is ACCEPTED and dropped, never refused, and the
+reason is a diagnosis rather than politeness.** portall reads a speaker that
+never takes a byte as a stream being *refused* and prints its long explanation
+about resamplers and mixers -- which here would be a confident account of the
+wrong fault. There is no speaker; that is not a stream that will not fit. One
+line says so, once.
+
+**The odd byte is carried.** Nothing in this project splits a 16-bit sample
+today -- portall flushes 1920-byte blocks and the resampler emits whole frames
+-- but half a sample kept as a whole one would swap the two channels for the
+rest of the stream, and from a car that is a fault nobody can diagnose. Three
+lines, and the test proves it: break the carry and "a sample split across two
+calls is not torn" fails.
+
+**The mistake a household will really make is the missing resampler**, so the
+log names it. Pointed straight at this platform, the speaker is handed 48000
+and the sink decodes at 44100 whatever arrives: everything fast and high,
+which reads as the panel being broken. `play()` says once what it got, what
+A2DP carries and what block to add. The test captures that line off stdout and
+asserts all three numbers are in it.
+
+`tools/bttest/speaker.cpp` links the SHIPPED `play()` and reads the bytes back
+through the SHIPPED `fill_pcm()` -- the path Bluedroid's encoder really uses.
+Seven cases, and both faults were reproduced against it before it was
+believed: passing mono through unduplicated fails two of them, throwing the
+odd byte away fails one.
+
+### And it found two checks that had never opened a platform file
+
+Both are the silent no-op this file keeps recording, and both were in the
+tools written to catch exactly that.
+
+- **`tools/checkbt.py` globbed `*.cpp`, not `**/*.cpp`.** A platform lives in
+  its own subdirectory, the way every ESPHome platform does, so the newest
+  file in the component would have compiled nowhere and the tool would have
+  printed `ok` about it by never seeing it. It also gained a sixth
+  configuration, `-DUSE_SPEAKER`, for the reason the second and third exist:
+  without it the file compiles to an empty translation unit.
+- **`tools/importcheck.py` could not import ANY platform file in this
+  repository.** `from .. import ...` executed as a loose script is an
+  ImportError before the first line is looked at, so `components/portall/
+  number/__init__.py` had been coming back `?` since it was written -- and
+  the one check that catches a NameError at import time had never read a
+  platform. It now executes the parent component FOR REAL as a package, which
+  catches a second thing as well: a platform importing a name its component
+  does not define. Both reproduced against a broken copy first.
+
+`tools/bttest/linkstubs.h` is one copy of every symbol a test on a workstation
+cannot have, because two copies drift the moment somebody adds a profile --
+and the whole point of linking against the real sources is that the LINKER is
+asked whether a declaration still matches its definition.
+
+**What is NOT done.** No C++ here has been compiled by a real toolchain; the
+stand-in `speaker.h` and `audio.h` under `tools/btstub/` are copied field for
+field from 2026.8.2 and say what these functions are called, not that an
+ESP-IDF build will accept them. Nothing has been **heard** -- the chain is
+proved to the byte on a workstation and to `esphome config` on the YAML, and
+whether a car receiver plays it is one run away. Lip sync is not attempted and
+neither is a second speaker: the page's sound goes to Bluetooth OR to the
+panel's own loudspeaker, whichever `speaker_id:` names, and both at once would
+be a mixer nobody has asked for.
+
+
 ## Repository conventions
 
 - Work on branch `claude/esphome-pr-outdated-mdq36w`, then merge into `main`
