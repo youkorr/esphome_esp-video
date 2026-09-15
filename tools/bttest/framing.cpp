@@ -311,6 +311,58 @@ int main() {
     }
   }
 
+  // An ACL packet is not an event, and for one release the log said so in
+  // three numbers that were all wrong. This is the exact frame a panel printed
+  // the first time a speaker connected:
+  //
+  //     ACL 20 bytes, code 0c, 32 parameters
+  //
+  // Twenty bytes, header 0x200c little-endian, sixteen of payload. `0c` is the
+  // low half of the handle, `32` is 0x20 -- the other half with the
+  // packet-boundary flag folded in. Neither is a code and neither is a count.
+  {
+    const uint8_t acl[20] = {0x0C, 0x20, 0x10, 0x00};
+
+    char path[] = "/tmp/portall_bt_aclXXXXXX";
+    const int hole = mkstemp(path);
+    const int saved = dup(fileno(stdout));
+    fflush(stdout);
+    dup2(hole, fileno(stdout));
+    esphome::portall_bt::g_frames_said = 0;
+    esphome::portall_bt::say_frame("ACL", acl, sizeof(acl), true);
+    fflush(stdout);
+    dup2(saved, fileno(stdout));
+    close(saved);
+    close(hole);
+
+    std::string said;
+    {
+      FILE *back = fopen(path, "rb");
+      char buf[512];
+      size_t n;
+      while (back != nullptr && (n = fread(buf, 1, sizeof(buf), back)) > 0) {
+        said.append(buf, n);
+      }
+      if (back != nullptr) {
+        fclose(back);
+      }
+    }
+    remove(path);
+
+    const bool right = said.find("handle 00c") != std::string::npos &&
+                       said.find("16 of payload") != std::string::npos;
+    // And the numbers that made the old line meaningless must be gone, or a
+    // half-fix would pass: "code 0c" and "32 parameters" were the whole fault.
+    const bool gone = said.find("code 0c") == std::string::npos &&
+                      said.find("32 parameters") == std::string::npos;
+    if (right && gone) {
+      printf("  ok     an ACL frame reads as a handle and a length, not as an event\n");
+    } else {
+      printf("  ECHEC  the ACL line is still wrong: %s", said.c_str());
+      failures++;
+    }
+  }
+
   // A NAK in the middle of a multi-packet frame. Keeping what has been read
   // costs nothing; clearing it loses the frame AND leaves its remaining
   // packets to be assembled as a fresh one, which is the desynchronisation

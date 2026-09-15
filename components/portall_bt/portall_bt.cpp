@@ -149,6 +149,7 @@ void PortallBT::loop() {
   // here; the reconnection is here rather than in a task of its own because
   // it is one comparison against a clock and a call every few seconds.
   this->drain_reports_();
+  this->drain_media_();
   this->reconnect_tick_();
 }
 
@@ -980,7 +981,7 @@ static uint8_t g_frames_said = 0;
 // timeout, so twenty milliseconds is nothing to the host.
 static constexpr uint32_t REPORT_SETTLE_MS = 20;
 
-static void say_frame(const char *what, const uint8_t *frame, uint32_t len) {
+static void say_frame(const char *what, const uint8_t *frame, uint32_t len, bool is_acl = false) {
   if (g_frames_said >= FRAMES_REPORTED) {
     return;
   }
@@ -998,6 +999,23 @@ static void say_frame(const char *what, const uint8_t *frame, uint32_t len) {
     const uint16_t opcode = (uint16_t) (frame[3] | (frame[4] << 8));
     ESP_LOGI(TAG, "  %u: %s %u bytes, complete for opcode %04x, %u parameters",
              (unsigned) g_frames_said, what, (unsigned) len, opcode, frame[1]);
+    vTaskDelay(pdMS_TO_TICKS(REPORT_SETTLE_MS));
+    return;
+  }
+  // An ACL packet is not an event and its first two bytes are not a code and a
+  // parameter count: they are a 12-bit connection handle with two 2-bit flags
+  // above it, little-endian, and the LENGTH is the two bytes after. Printed
+  // the event way, a panel's first real connection read
+  //
+  //     ACL 20 bytes, code 0c, 32 parameters
+  //
+  // where `0c` is half a handle and `32` is the other half with the
+  // packet-boundary flag folded in -- three numbers, none of them true. It was
+  // never noticed because nothing had carried ACL until a speaker connected.
+  if (is_acl && len >= 4) {
+    const uint16_t header = (uint16_t) (frame[0] | (frame[1] << 8));
+    ESP_LOGI(TAG, "  %u: ACL %u bytes, handle %03x, %u of payload", (unsigned) g_frames_said,
+             (unsigned) len, header & 0x0FFF, (unsigned) (frame[2] | (frame[3] << 8)));
     vTaskDelay(pdMS_TO_TICKS(REPORT_SETTLE_MS));
     return;
   }
@@ -1222,7 +1240,7 @@ static void hci_acl_task(void *arg) {
       continue;
     }
 
-    say_frame("ACL", &g_rx_acl_frame[1], want);
+    say_frame("ACL", &g_rx_acl_frame[1], want, true);
     g_rx_acl_frame[0] = H4_ACL;
     if (g_host_cb != nullptr && g_host_cb->notify_host_recv != nullptr) {
       g_host_cb->notify_host_recv(g_rx_acl_frame, (uint16_t) (want + 1));

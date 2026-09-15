@@ -55,6 +55,7 @@
 
 #if defined(CONFIG_BT_BLUEDROID_ENABLED) && defined(CONFIG_BT_A2DP_ENABLE)
 #include "esp_a2dp_api.h"
+#include "esp_avrc_api.h"
 #include "esp_bt_defs.h"
 #include "esp_gap_bt_api.h"
 #endif
@@ -151,15 +152,133 @@ static void a2dp_cb(esp_a2d_cb_event_t event, esp_a2d_cb_param_t *param) {
   }
 }
 
+/* AVRCP, and the panel's TARGET role is the one that matters.
+ *
+ * A speaker that has just connected asks for a second L2CAP channel, and a
+ * panel that has not registered AVRCP refuses it. From a real car receiver's
+ * first connection:
+ *
+ *     W BT_L2CAP: L2CAP - rcvd conn req for unknown PSM: 23
+ *
+ * 23 is 0x17, AVCTP, which is the channel AVRCP runs over -- so that line is
+ * the device asking for its own buttons and being told no. On a car kit that
+ * is the steering wheel, the volume knob and the track buttons; on a pair of
+ * headphones it is the one on the earcup.
+ *
+ * The panel is the TARGET because the panel is the player: the target is the
+ * end that RECEIVES play, pause and next. The other end, the controller, is
+ * the thing with the buttons on it. Getting that the wrong way round would
+ * register the role that sends commands to something that has no player.
+ *
+ * The supported command set is copied from the ALLOWED one rather than listed
+ * here, which is how Espressif's own examples do it and is the only version
+ * that cannot go stale: the stack says what it can carry, and this says yes to
+ * all of it. A hand-written list would quietly stop supporting whatever was
+ * added to the specification after it was typed.
+ */
+static const char *key_name(uint8_t code) {
+  switch (code) {
+    case ESP_AVRC_PT_CMD_PLAY: return "play";
+    case ESP_AVRC_PT_CMD_PAUSE: return "pause";
+    case ESP_AVRC_PT_CMD_STOP: return "stop";
+    case ESP_AVRC_PT_CMD_FORWARD: return "next";
+    case ESP_AVRC_PT_CMD_BACKWARD: return "previous";
+    case ESP_AVRC_PT_CMD_FAST_FORWARD: return "fast forward";
+    case ESP_AVRC_PT_CMD_REWIND: return "rewind";
+    case ESP_AVRC_PT_CMD_VOL_UP: return "volume up";
+    case ESP_AVRC_PT_CMD_VOL_DOWN: return "volume down";
+    case ESP_AVRC_PT_CMD_MUTE: return "mute";
+    case ESP_AVRC_PT_CMD_POWER: return "power";
+    default: return "";
+  }
+}
+
+static void avrcp_tg_cb(esp_avrc_tg_cb_event_t event, esp_avrc_tg_cb_param_t *param) {
+  if (g_a2dp == nullptr)
+    return;
+  switch (event) {
+    case ESP_AVRC_TG_CONNECTION_STATE_EVT:
+      ESP_LOGI(TAG, "the speaker's buttons are %s",
+               param->conn_stat.connected ? "connected" : "disconnected");
+      break;
+
+    case ESP_AVRC_TG_PASSTHROUGH_CMD_EVT:
+      g_a2dp->on_media_key(param->psth_cmd.key_code,
+                           param->psth_cmd.key_state == ESP_AVRC_PT_CMD_STATE_PRESSED);
+      break;
+
+    case ESP_AVRC_TG_SET_ABSOLUTE_VOLUME_CMD_EVT:
+      // AVRCP carries volume as 0..127, not 0..100 and not 0..255.
+      g_a2dp->on_media_volume((float) param->set_abs_vol.volume / 127.0f);
+      break;
+
+    default:
+      break;
+  }
+}
+
+static void start_avrcp() {
+  esp_avrc_tg_register_callback(avrcp_tg_cb);
+  const esp_err_t err = esp_avrc_tg_init();
+  if (err != ESP_OK) {
+    ESP_LOGW(TAG, "AVRCP would not start (%d); the speaker's buttons will do nothing", (int) err);
+    return;
+  }
+  esp_avrc_psth_bit_mask_t allowed = {};
+  if (esp_avrc_tg_get_psth_cmd_filter(ESP_AVRC_PSTH_FILTER_ALLOWED_CMD, &allowed) == ESP_OK)
+    esp_avrc_tg_set_psth_cmd_filter(ESP_AVRC_PSTH_FILTER_SUPPORTED_CMD, &allowed);
+}
+
 #endif  // CONFIG_BT_BLUEDROID_ENABLED && CONFIG_BT_A2DP_ENABLE
 
 // ---------------------------------------------------------------------------
+
+void PortallBT::on_media_key(uint8_t code, bool pressed) {
+  const uint8_t next = (uint8_t) ((this->key_head_ + 1) % MEDIA_KEYS);
+  if (next == this->key_tail_)
+    this->key_tail_ = (uint8_t) ((this->key_tail_ + 1) % MEDIA_KEYS);
+  this->keys_[this->key_head_] = MediaKey{code, pressed};
+  this->key_head_ = next;
+}
+
+void PortallBT::on_media_volume(float fraction) {
+  this->media_volume_ = fraction;
+  this->media_volume_fresh_ = true;
+}
+
+void PortallBT::drain_media_() {
+#if defined(CONFIG_BT_BLUEDROID_ENABLED) && defined(CONFIG_BT_A2DP_ENABLE)
+  while (this->key_tail_ != this->key_head_) {
+    const MediaKey key = this->keys_[this->key_tail_];
+    this->key_tail_ = (uint8_t) ((this->key_tail_ + 1) % MEDIA_KEYS);
+    const char *name = key_name(key.code);
+    ESP_LOGI(TAG, "button %02x%s%s %s", key.code, name[0] != '\0' ? " " : "", name,
+             key.pressed ? "pressed" : "released");
+    for (auto *trigger : this->media_key_triggers_)
+      trigger->trigger(key.code, key.pressed);
+  }
+  if (this->media_volume_fresh_) {
+    this->media_volume_fresh_ = false;
+    ESP_LOGI(TAG, "the speaker asked for volume %.0f%%", this->media_volume_ * 100.0f);
+    for (auto *trigger : this->media_volume_triggers_)
+      trigger->trigger(this->media_volume_);
+  }
+#endif
+}
 
 void PortallBT::start_a2dp_() {
 #if defined(CONFIG_BT_BLUEDROID_ENABLED) && defined(CONFIG_BT_A2DP_ENABLE)
   if (!this->a2dp_)
     return;
   g_a2dp = this;
+
+  // BEFORE the A2DP calls, and that is not a preference: esp_a2d_source_init's
+  // own documentation says "If you want to use AVRC together, you should
+  // initiate AVRC first." The same shape as attaching the HCI driver before
+  // esp_bluedroid_init -- an ordering written down in a header, which this
+  // component has already been caught getting wrong by not reading one.
+  start_avrcp();
+
   esp_a2d_register_callback(a2dp_cb);
   // The deprecated entry point, deliberately. See this file's header: it is
   // what a default build supports, and it makes Bluedroid the clock.

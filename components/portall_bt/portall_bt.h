@@ -32,6 +32,17 @@ struct HidReport {
   uint8_t data[63];
 };
 
+/// One button press from the speaker, on its way to the ESPHome loop.
+///
+/// A car receiver's steering-wheel buttons, a headphone's play/pause, a
+/// volume knob. Queued rather than fired where it arrives, for the reason
+/// every queue in this component exists: Bluedroid's callbacks run on its own
+/// task and an ESPHome automation may not.
+struct MediaKey {
+  uint8_t code;
+  bool pressed;
+};
+
 /// Which remote device plays which part, remembered across restarts.
 ///
 /// This is NOT the pairing. Bluedroid keeps the link keys itself, in NVS, and
@@ -81,6 +92,18 @@ class PortallBT : public Component {
   void on_a2dp_open(const uint8_t *addr);
   void on_a2dp_closed(bool abnormal);
   void on_a2dp_audio(bool started);
+  /// AVRCP, from the speaker's own buttons. `code` is an esp_avrc_pt_cmd_t --
+  /// 0x44 play, 0x46 pause, 0x4B next, 0x4C previous -- and the volume is a
+  /// fraction, because AVRCP carries 0..127 and nobody wants to know that.
+  void on_media_key(uint8_t code, bool pressed);
+  void on_media_volume(float fraction);
+
+  void add_media_key_trigger(Trigger<uint8_t, bool> *trigger) {
+    this->media_key_triggers_.push_back(trigger);
+  }
+  void add_media_volume_trigger(Trigger<float> *trigger) {
+    this->media_volume_triggers_.push_back(trigger);
+  }
   void set_device_name(const char *name) { this->device_name_ = name; }
   void set_pair_seconds(uint16_t seconds) { this->pair_seconds_ = seconds; }
   void set_show_reports(bool wanted) { this->show_reports_ = wanted; }
@@ -148,6 +171,7 @@ class PortallBT : public Component {
   void start_a2dp_();
   void remember_sink_(const uint8_t *addr);
   void a2dp_reconnect_();
+  void drain_media_();
 
   // Attaches the transport, initialises Bluedroid and enables it, in that
   // order -- which is Espressif's, not a preference: the HCI driver has to be
@@ -173,6 +197,10 @@ class PortallBT : public Component {
   uint16_t test_tone_hz_{0};
   uint32_t pcm_starved_{0};
   uint32_t pcm_dropped_{0};
+  float media_volume_{1.0f};
+  bool media_volume_fresh_{false};
+  std::vector<Trigger<uint8_t, bool> *> media_key_triggers_;
+  std::vector<Trigger<float> *> media_volume_triggers_;
   bool profiles_up_{false};
   // When the next reconnection attempt is due, and how long to wait after the
   // one after that. A device that is switched off must not be asked for
@@ -209,6 +237,13 @@ class PortallBT : public Component {
   // and a release that never arrives leaves a key held down for ever. portall's
   // touch queue learned that at a cost of twenty seconds of apparent latency,
   // and a finger and a thumb are the same problem.
+  // Buttons, filled on Bluedroid's task and emptied by loop(). Sixteen is
+  // generous: a thumb is not a thumbstick.
+  static constexpr uint8_t MEDIA_KEYS = 16;
+  MediaKey keys_[MEDIA_KEYS];
+  volatile uint8_t key_head_{0};
+  volatile uint8_t key_tail_{0};
+
   static constexpr uint8_t REPORTS = 32;
   HidReport reports_[REPORTS];
   volatile uint8_t report_head_{0};

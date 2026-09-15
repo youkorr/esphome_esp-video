@@ -149,6 +149,8 @@ CONF_DEVICE_NAME = "device_name"
 CONF_PAIR_SECONDS = "pair_seconds"
 CONF_SHOW_REPORTS = "show_reports"
 CONF_ON_HID_REPORT = "on_hid_report"
+CONF_ON_MEDIA_KEY = "on_media_key"
+CONF_ON_MEDIA_VOLUME = "on_media_volume"
 
 # "bluedroid" turns ESP-IDF's own Bluetooth host on, in the one configuration a
 # chip with no controller of its own can have. See the module docstring.
@@ -196,6 +198,14 @@ ForgetAction = portall_bt_ns.class_("ForgetAction", automation.Action)
 # invented. ESP_HIDH_DATA_IND_EVT carries no report id -- see portall_bt.h.
 HID_REPORT_TRIGGER = automation.Trigger.template(cg.std_vector.template(cg.uint8))
 
+# AVRCP, from the buttons on the speaker itself: a car receiver's steering
+# wheel, a headphone's play/pause, a volume knob. `code` is an
+# esp_avrc_pt_cmd_t -- 0x44 play, 0x46 pause, 0x4B next, 0x4C previous -- and
+# unlike a HID report these ARE a fixed enumeration in Espressif's header, so
+# naming them is reading rather than guessing.
+MEDIA_KEY_TRIGGER = automation.Trigger.template(cg.uint8, cg.bool_)
+MEDIA_VOLUME_TRIGGER = automation.Trigger.template(cg.float_)
+
 def _validate_hid(config):
     """A profile needs a host, and the host is not on by default.
 
@@ -219,6 +229,14 @@ def _validate_hid(config):
             "stack into the build.",
             path=[CONF_AUDIO],
         )
+    for key in (CONF_ON_MEDIA_KEY, CONF_ON_MEDIA_VOLUME):
+        if key in config and not config[CONF_AUDIO]:
+            raise cv.Invalid(
+                f"{key} comes from AVRCP, which rides alongside the audio "
+                "connection, so it needs audio: true. Without it nothing ever "
+                "fires and the automation is silently dead.",
+                path=[key],
+            )
     if config[CONF_TEST_TONE] and not config[CONF_AUDIO]:
         raise cv.Invalid(
             "test_tone: has nothing to play through. It is the A2DP source's "
@@ -293,6 +311,12 @@ CONFIG_SCHEMA = cv.All(
             cv.Optional(CONF_ON_HID_REPORT): automation.validate_automation(
                 {cv.GenerateID(CONF_TRIGGER_ID): cv.declare_id(HID_REPORT_TRIGGER)}
             ),
+            cv.Optional(CONF_ON_MEDIA_KEY): automation.validate_automation(
+                {cv.GenerateID(CONF_TRIGGER_ID): cv.declare_id(MEDIA_KEY_TRIGGER)}
+            ),
+            cv.Optional(CONF_ON_MEDIA_VOLUME): automation.validate_automation(
+                {cv.GenerateID(CONF_TRIGGER_ID): cv.declare_id(MEDIA_VOLUME_TRIGGER)}
+            ),
         }
     ).extend(cv.COMPONENT_SCHEMA),
     esp32.only_on_variant(supported=[esp32.VARIANT_ESP32P4]),
@@ -318,6 +342,16 @@ async def to_code(config):
         await automation.build_automation(
             trigger, [(cg.std_vector.template(cg.uint8), "data")], conf
         )
+    for conf in config.get(CONF_ON_MEDIA_KEY, []):
+        trigger = cg.new_Pvariable(conf[CONF_TRIGGER_ID])
+        cg.add(var.add_media_key_trigger(trigger))
+        await automation.build_automation(
+            trigger, [(cg.uint8, "code"), (cg.bool_, "pressed")], conf
+        )
+    for conf in config.get(CONF_ON_MEDIA_VOLUME, []):
+        trigger = cg.new_Pvariable(conf[CONF_TRIGGER_ID])
+        cg.add(var.add_media_volume_trigger(trigger))
+        await automation.build_automation(trigger, [(cg.float_, "volume")], conf)
 
     # Fetched from Espressif's component registry at build time rather than
     # carried here: ESPHome writes this into src/idf_component.yml and the IDF
