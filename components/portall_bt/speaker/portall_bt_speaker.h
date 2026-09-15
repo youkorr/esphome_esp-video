@@ -57,19 +57,54 @@ class PortallBTSpeaker : public Component, public speaker::Speaker {
   void stop() override;
   bool has_buffered_data() const override;
 
+  /* Volume and mute are done HERE, in software, on the samples on their way
+   * past -- and the base class invites exactly that: "Individual speaker
+   * components can override and implement in software if an audio dac isn't
+   * available."
+   *
+   * Without these two the slider moved and nothing happened, which is what a
+   * panel reported. The chain explains why. `portall.set_volume` does not
+   * scale anything itself: portall's on_audio_samples() only GATES on the
+   * value -- a volume of zero is silence -- and hands the number to
+   * speaker_->set_volume(). Every block between here and there passes it on
+   * faithfully (a mixer source gives it to the mixer's output speaker, a
+   * resampler to its own output speaker), so it arrives here intact. And here
+   * it met speaker::Speaker::set_volume(), which stores the value and applies
+   * it to an audio_dac_ -- a codec on an I2S bus. A Bluetooth speaker has no
+   * codec on this board, so there was nothing at the end of the chain to
+   * obey it.
+   *
+   * That is also why it works on the panel's own loudspeaker in the same
+   * YAML: an i2s_audio speaker has an ES8311 or ES8388 behind it and the
+   * volume is set in the codec's own register. */
+  void set_volume(float volume) override;
+  void set_mute_state(bool mute_state) override;
+
  protected:
-  /// Push `length` bytes of 16-bit mono at the ring, each sample twice.
-  void play_mono_(const uint8_t *data, size_t length);
+  /* One path for both channel counts. `in_frame` is how many bytes of the
+   * caller's stream make one A2DP frame -- 2 when it is mono and each sample
+   * goes out twice, 4 when it is already stereo -- and it is the unit the
+   * carry above is kept in. */
+  void play_frames_(const uint8_t *data, size_t length, uint8_t in_frame);
+  /// Write one A2DP frame, with the gain applied, and return the bytes used.
+  size_t emit_frame_(uint8_t *out, const uint8_t *in, uint8_t in_frame) const;
+  /// A 16-bit sample with volume and mute applied.
+  int16_t scaled_(uint8_t low, uint8_t high) const;
 
   PortallBT *parent_{nullptr};
-  /* A sample is two bytes and a caller is not obliged to hand over a whole
-   * one. Nothing in this project has ever split one -- portall flushes in
-   * 1920-byte blocks and the resampler emits whole frames -- but half a
-   * sample carried into the next call would swap the two channels for the
-   * rest of the stream, and that is a fault nobody could diagnose from a car.
-   * One byte of carry costs nothing and removes the question. */
-  uint8_t half_sample_{0};
-  bool have_half_{false};
+  /* A caller is not obliged to hand over a whole unit, and what this leaves
+   * behind is never thrown away.
+   *
+   * The unit differs by path -- two bytes of a mono sample, four of a stereo
+   * frame -- so the carry holds up to three. Nothing in this project has ever
+   * split one (portall flushes 1920-byte blocks and the resampler emits whole
+   * frames), but a part-unit dropped or kept as a whole one puts the two
+   * channels out of step for the REST OF THE STREAM, and past the ring that
+   * is not a click but hiss. Three bytes of carry cost nothing and remove the
+   * question, and everything handed to feed_audio is a whole number of
+   * frames because of them. */
+  uint8_t carry_[4]{};
+  uint8_t carry_len_{0};
   /* Said once rather than every block. A panel with no speaker paired feeds
    * this fifty times a second, and a warning at that rate is a log nobody can
    * read -- but total silence about sound going nowhere is exactly the fault
@@ -79,6 +114,12 @@ class PortallBTSpeaker : public Component, public speaker::Speaker {
    * checked there rather than in dump_config(), where audio_stream_info_ is
    * still whatever ESPHome starts it at. */
   bool said_format_{false};
+  /* Q15 rather than a float, because this multiplies every sample on the
+   * audio task's critical path: 32768 is unity and the shift back is free.
+   * Mute is kept as its own flag rather than a gain of zero, so unmuting
+   * returns to the volume that was set rather than to silence. */
+  int32_t gain_q15_{32768};
+  bool muted_{false};
 };
 
 }  // namespace portall_bt

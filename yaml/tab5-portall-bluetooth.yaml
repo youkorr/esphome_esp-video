@@ -172,10 +172,9 @@ select:
       name: "ADC Input Mic"
 
 speaker:
-  # The panel's own loudspeaker. Home Assistant's announcements come out here,
-  # which is why it stays even on a panel whose page audio goes to Bluetooth:
-  # a message from the house should not be silent because a car drove away
-  # with the speaker.
+  # The panel's own loudspeaker, on the Tab5's ES8388. It is the fallback and
+  # the one-line swap: point the mixer's `output_speaker:` below at this
+  # instead and the whole chain comes out of the panel again.
   - platform: i2s_audio
     id: tab5_speaker
     i2s_audio_id: mic_bus
@@ -185,22 +184,55 @@ speaker:
     channel: mono
     buffer_duration: 100ms
     bits_per_sample: 16bit
-    sample_rate: 48000
+    sample_rate: 44100
 
-  # And the Bluetooth one. It takes 44100 Hz, 16-bit -- hardcoded in
-  # Espressif's btc_a2dp_source.c, not a preference -- and duplicates a mono
-  # sample onto both channels itself.
+  # The Bluetooth one. 44100 Hz, 16-bit -- hardcoded in Espressif's
+  # btc_a2dp_source.c, not a preference -- and it duplicates a mono sample
+  # onto both channels itself. The VOLUME is applied here too, in software:
+  # every block above passes set_volume() on to its output speaker, and an
+  # i2s_audio speaker ends that chain at a codec's own register while this one
+  # has no codec to end it at.
   - platform: portall_bt
     id: bt_speaker
     portall_bt_id: dongle
 
-  # portall sends 48000 Hz because that is what a browser produces, so the
-  # rate has to change somewhere. This is the only block between the two and
-  # it is not optional: without it the speaker above is handed 48000 and
-  # everything plays fast and high.
+  # 48000 -> 44100, and it is NOT optional. Everything upstream runs at 48000
+  # because that is what a browser produces; A2DP decodes at 44100 whatever
+  # arrives, so without this the panel plays fast and high. It sits between
+  # the mixer and the speaker rather than in front of one source, because
+  # there is one rate to change and it is the whole output's.
   - platform: resampler
-    id: page_to_bluetooth
+    id: to_bluetooth
     output_speaker: bt_speaker
+    # Spelt out because the MIXER above inherits this from its output speaker,
+    # and a resampler's own default for it is the word `passthrough` -- which
+    # the mixer's schema then refuses with "Expected integer, but cannot parse
+    # passthrough as an integer", naming a component nobody wrote wrong.
+    bits_per_sample: 16
+
+  # And the mixer, which is how ESPHome shares one output between several
+  # sources -- the shape yaml/GUITION_ PORTAL.yaml already uses.
+  #
+  # `timeout: never` ON EVERY SOURCE is the part that is easy to leave out and
+  # impossible to diagnose. A source speaker's `timeout:` DEFAULTS TO 500 ms:
+  # half a second with nothing to play and it STOPS, and the next sound has to
+  # start it again -- through finish() on the output, a restart of the mixer's
+  # own task and a fresh A2DP stream. On a dashboard that is silent between
+  # announcements that happens constantly, and from a car receiver it is sound
+  # that keeps cutting out and coming back.
+  - platform: mixer
+    id: mixing_speaker
+    output_speaker: to_bluetooth
+    source_speakers:
+      - id: announcement_mixing_input
+        timeout: never
+      - id: media_mixing_input
+        timeout: never
+      # The page's own sound. Its own input, so a Home Assistant announcement
+      # lands OVER the page rather than fighting it, and stopping one does not
+      # stop the other.
+      - id: portall_mixing_input
+        timeout: never
 
 display:
   - platform: mipi_dsi
@@ -244,24 +276,52 @@ light:
     restore_mode: ALWAYS_ON
 
 media_player:
+  # Home Assistant's own audio, which is a different thing from the page's and
+  # always was. Both pipelines are 48000 so that every source into the mixer
+  # agrees, and that is a REQUIREMENT rather than a tidiness:
+  # MixerSpeaker::start() takes its rate from the first source to start and
+  # then returns ESP_ERR_INVALID_ARG for any later source at a different one --
+  # which surfaces as "Incompatible audio streams" on the source that lost,
+  # and as an announcement that is simply never heard.
   - platform: speaker
     name: "Tab5"
     id: speaker_player
+    task_stack_in_psram: true
     announcement_pipeline:
-      speaker: tab5_speaker
+      speaker: announcement_mixing_input
+      format: FLAC
+      sample_rate: 48000
+      num_channels: 1
+    media_pipeline:
+      speaker: media_mixing_input
       format: FLAC
       sample_rate: 48000
       num_channels: 1
 
 number:
-  # The one volume control that governs the page's sound whichever way it
-  # leaves the board -- it is applied in on_audio_samples, the single door
-  # PCM comes through. A `platform: template` number in its place stores a
-  # value and is connected to nothing, which a panel reported as the volume
-  # not working.
-  - platform: portall
+  # The page's volume, and it is a SETTING rather than a following entity:
+  # `restore_value` and an `initial_value` are what make a panel come back at
+  # the level somebody left it. That is why `portall.set_volume` exists as an
+  # action -- a template number had nothing to call before it, which is the
+  # one thing that was missing, not the template number itself.
+  #
+  # The slider runs to 100 and every volume in ESPHome is a FRACTION, so the
+  # lambda divides. Leaving that out is the mistake this will really see, and
+  # set_audio_volume clamps and says so rather than failing a boot.
+  - platform: template
     name: "Volume"
     id: panel_volume
+    optimistic: true
+    restore_value: true
+    initial_value: 70
+    min_value: 0
+    max_value: 100
+    step: 1
+    unit_of_measurement: "%"
+    on_value:
+      then:
+        - portall.set_volume:
+            volume: !lambda 'return x / 100.0;'
 
 portall:
   id: panel
@@ -280,11 +340,10 @@ portall:
   # `port:` above, which is the only way in left.
   usb: false
 
-  # The page's sound goes to Bluetooth by way of the resampler. Pointing this
-  # straight at bt_speaker would hand it 48000 Hz; pointing it at
-  # tab5_speaker instead is the panel's own loudspeaker, which is the other
-  # sensible answer and what yaml/tab5-portall-screen.yaml does.
-  speaker_id: page_to_bluetooth
+  # The page's sound goes into its own mixer input, which is where a source
+  # belongs -- not straight at a speaker. From there it is mixed with Home
+  # Assistant's audio, resampled to 44100 and sent to the paired device.
+  speaker_id: portall_mixing_input
 
 portall_bt:
   id: dongle
