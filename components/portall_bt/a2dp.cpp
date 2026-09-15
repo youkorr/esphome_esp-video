@@ -381,6 +381,7 @@ void PortallBT::on_a2dp_open(const uint8_t *addr) {
   ESP_LOGI(TAG, "speaker %02X:%02X:%02X:%02X:%02X:%02X is connected", addr[0], addr[1], addr[2], addr[3],
            addr[4], addr[5]);
   this->a2dp_open_ = true;
+  memcpy(this->open_sink_, addr, 6);
   this->remember_sink_(addr);
   // Ask before starting. The reply comes back as ESP_A2D_MEDIA_CTRL_ACK_EVT.
   esp_a2d_media_ctrl(ESP_A2D_MEDIA_CTRL_CHECK_SRC_RDY);
@@ -395,6 +396,7 @@ void PortallBT::on_a2dp_closed(bool abnormal) {
              abnormal ? " (signal lost)" : "");
   }
   this->a2dp_open_ = false;
+  memset(this->open_sink_, 0, 6);
   this->a2dp_playing_ = false;
   this->reconnect_backoff_ms_ = 2000;
   this->reconnect_due_ms_ = millis() + 2000;

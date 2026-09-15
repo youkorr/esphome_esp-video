@@ -147,6 +147,28 @@ class PortallBT : public Component {
   bool wants_input() const { return this->hid_host_; }
 
   void pair();
+  /// Hang up whatever is connected. An inquiry cannot find a device that is
+  /// already talking to this panel, so pairing and forgetting both start here.
+  void drop_links_();
+  /// Count a device heard during a pair scan, so the end of one can say
+  /// whether it heard anything at all.
+  void note_heard() { this->heard_++; }
+  uint16_t heard() const { return this->heard_; }
+  /// Put the reconnection clock back after a pair scan.
+  void resume_reconnect();
+  /* Say how the pairing went once the Wi-Fi is back.
+   *
+   * An inquiry sweeps the whole 2.4 GHz band and takes this panel's own link
+   * down for exactly as long as it runs -- measured twice on this board, on
+   * two different channels. So every line a scan produces is written into a
+   * link that is not there: what was heard, what it paired with, whether it
+   * found nothing. A panel reported a pairing as total silence, and this is at
+   * least half of why. The outcome is therefore repeated a few seconds later,
+   * when there is something to carry it. */
+  void pair_report_tick_();
+  /// Ask for that line, three seconds after a scan ends -- long enough for the
+  /// radio to have come back, short enough that nobody has walked away.
+  void say_pairing_later();
   /// Forget every bonded device, both stores. The way back from a gamepad
   /// somebody has given away.
   void forget();
@@ -216,6 +238,19 @@ class PortallBT : public Component {
   uint32_t reconnect_due_ms_{0};
   uint32_t reconnect_backoff_ms_{0};
   bool hid_open_{false};
+  /* The address of whatever is connected RIGHT NOW, which is a different
+   * question from what this panel remembers. `remembered_` survives a restart
+   * and is cleared by forget(); these two are the live links, and a link has
+   * to be dropped by address. Keeping them apart is what lets forget() hang up
+   * BEFORE it throws the key away -- removing a bond while the ACL is still up
+   * leaves a connection with nothing behind it, which is the worst of both. */
+  uint8_t open_sink_[6]{};
+  uint8_t open_hid_[6]{};
+  /* Pairing suspends the reconnection clock and this is what puts it back, so
+   * a scan that finds nothing does not cost a paired device its way home. */
+  bool reconnect_paused_{false};
+  uint16_t heard_{0};
+  uint32_t pair_report_due_ms_{0};
   Remembered remembered_{};
   ESPPreferenceObject remembered_pref_;
   bool show_reports_{false};

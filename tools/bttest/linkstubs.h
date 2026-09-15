@@ -9,7 +9,42 @@
  *
  * Include this from exactly one translation unit per test binary: these are
  * definitions, not declarations.
+ *
+ * The stubs that a test might want to WATCH append to `g_calls` -- pairing and
+ * forgetting are sequences of calls to somebody else's stack, so what a test
+ * has to check is which calls happened and in what order. `g_discovery_result`
+ * lets a test make the stack refuse, which is the state a panel reported and
+ * which no amount of reading could have produced.
  */
+#include <string>
+#include <vector>
+
+static std::vector<std::string> g_calls;
+static esp_err_t g_discovery_result = ESP_OK;
+/// How many devices the stack's own NVS claims to remember.
+static int g_bonded = 0;
+
+static void note_call(const char *what) { g_calls.push_back(what); }
+
+static bool called(const char *what) {
+  for (const std::string &one : g_calls)
+    if (one == what)
+      return true;
+  return false;
+}
+
+/// Did `first` happen before `second`? Both must have happened.
+static bool called_before(const char *first, const char *second) {
+  size_t a = g_calls.size();
+  size_t b = g_calls.size();
+  for (size_t i = 0; i < g_calls.size(); i++) {
+    if (a == g_calls.size() && g_calls[i] == first)
+      a = i;
+    if (b == g_calls.size() && g_calls[i] == second)
+      b = i;
+  }
+  return a < g_calls.size() && b < g_calls.size() && a < b;
+}
 
 // Stubs for everything the component calls and this test does not: it is
 // linked, not run, apart from the two length functions.
@@ -41,14 +76,16 @@ static ESPPreferences preferences_stub;
 ESPPreferences *global_preferences = &preferences_stub;
 }  // namespace esphome
 esp_err_t esp_bt_gap_register_callback(esp_bt_gap_cb_t) { return ESP_OK; }
-esp_err_t esp_bt_gap_set_scan_mode(esp_bt_connection_mode_t, esp_bt_discovery_mode_t) { return ESP_OK; }
-esp_err_t esp_bt_gap_start_discovery(esp_bt_inq_mode_t, uint8_t, uint8_t) { return ESP_OK; }
-esp_err_t esp_bt_gap_cancel_discovery(void) { return ESP_OK; }
+esp_err_t esp_bt_gap_set_scan_mode(esp_bt_connection_mode_t, esp_bt_discovery_mode_t) { note_call("esp_bt_gap_set_scan_mode"); return ESP_OK; }
+esp_err_t esp_bt_gap_start_discovery(esp_bt_inq_mode_t, uint8_t, uint8_t) { note_call("esp_bt_gap_start_discovery"); return g_discovery_result; }
+esp_err_t esp_bt_gap_cancel_discovery(void) { note_call("esp_bt_gap_cancel_discovery"); return ESP_OK; }
 esp_err_t esp_bt_gap_set_device_name(const char *) { return ESP_OK; }
-esp_err_t esp_bt_gap_remove_bond_device(esp_bd_addr_t) { return ESP_OK; }
-int esp_bt_gap_get_bond_device_num(void) { return 0; }
-esp_err_t esp_bt_gap_get_bond_device_list(int *dev_num, esp_bd_addr_t *) {
-  *dev_num = 0;
+esp_err_t esp_bt_gap_remove_bond_device(esp_bd_addr_t) { note_call("esp_bt_gap_remove_bond_device"); return ESP_OK; }
+int esp_bt_gap_get_bond_device_num(void) { return g_bonded; }
+esp_err_t esp_bt_gap_get_bond_device_list(int *dev_num, esp_bd_addr_t *list) {
+  *dev_num = g_bonded;
+  for (int i = 0; i < g_bonded; i++)
+    memset(list[i], 0x11, 6);
   return ESP_OK;
 }
 esp_err_t esp_bt_gap_set_security_param(esp_bt_sp_param_t, void *, uint8_t) { return ESP_OK; }
@@ -58,7 +95,7 @@ esp_err_t esp_bt_hid_host_register_callback(esp_hh_cb_t) { return ESP_OK; }
 esp_err_t esp_bt_hid_host_init(void) { return ESP_OK; }
 esp_err_t esp_bt_hid_host_deinit(void) { return ESP_OK; }
 esp_err_t esp_bt_hid_host_connect(esp_bd_addr_t) { return ESP_OK; }
-esp_err_t esp_bt_hid_host_disconnect(esp_bd_addr_t) { return ESP_OK; }
+esp_err_t esp_bt_hid_host_disconnect(esp_bd_addr_t) { note_call("esp_bt_hid_host_disconnect"); return ESP_OK; }
 esp_err_t esp_bt_hid_host_virtual_cable_unplug(esp_bd_addr_t) { return ESP_OK; }
 
 #if defined(CONFIG_BT_A2DP_ENABLE)
@@ -75,7 +112,7 @@ esp_err_t esp_a2d_source_register_data_callback(esp_a2d_source_data_cb_t) { retu
 esp_err_t esp_a2d_source_init(void) { return ESP_OK; }
 esp_err_t esp_a2d_source_deinit(void) { return ESP_OK; }
 esp_err_t esp_a2d_source_connect(esp_bd_addr_t) { return ESP_OK; }
-esp_err_t esp_a2d_source_disconnect(esp_bd_addr_t) { return ESP_OK; }
+esp_err_t esp_a2d_source_disconnect(esp_bd_addr_t) { note_call("esp_a2d_source_disconnect"); return ESP_OK; }
 esp_err_t esp_a2d_media_ctrl(esp_a2d_media_ctrl_t) { return ESP_OK; }
 esp_err_t esp_avrc_tg_init(void) { return ESP_OK; }
 esp_err_t esp_avrc_tg_deinit(void) { return ESP_OK; }
