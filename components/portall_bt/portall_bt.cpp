@@ -151,6 +151,7 @@ void PortallBT::loop() {
   this->drain_reports_();
   this->drain_media_();
   this->reconnect_tick_();
+  this->pair_report_tick_();
 }
 
 // ---------------------------------------------------------------------------

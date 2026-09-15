@@ -129,6 +129,7 @@ static void gap_cb(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *param) {
       }
       say_addr(addr, param->disc_res.bda);
       const uint32_t major = esp_bt_gap_get_cod_major_dev(cod);
+      g_bt->note_heard();
       ESP_LOGI(TAG, "  heard %s  class %06X%s%s", addr, (unsigned) cod, name != nullptr ? "  " : "",
                name != nullptr ? name : "");
       // A gamepad, a keyboard, a mouse or a remote all say PERIPHERAL. Taking
@@ -157,8 +158,18 @@ static void gap_cb(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *param) {
     }
 
     case ESP_BT_GAP_DISC_STATE_CHANGED_EVT:
-      if (param->disc_st_chg.state == ESP_BT_GAP_DISCOVERY_STOPPED)
-        ESP_LOGI(TAG, "scan finished; the Wi-Fi should come back now");
+      if (param->disc_st_chg.state == ESP_BT_GAP_DISCOVERY_STOPPED) {
+        ESP_LOGI(TAG, "scan finished, %u device(s) heard; the Wi-Fi should come back now",
+                 (unsigned) g_bt->heard());
+        // A count of zero used to read exactly like a scan that never started,
+        // and the two need different next steps: nothing heard is a device not
+        // in pairing mode, or one still connected somewhere else.
+        if (g_bt->heard() == 0)
+          ESP_LOGW(TAG, "  nothing answered. Put the device in PAIRING mode -- a speaker already "
+                        "connected to a telephone or a car will not answer a scan.");
+        g_bt->resume_reconnect();
+        g_bt->say_pairing_later();
+      }
       break;
 
     case ESP_BT_GAP_AUTH_CMPL_EVT:
@@ -326,6 +337,7 @@ void PortallBT::on_hid_open(const uint8_t *addr) {
   say_addr(text, addr);
   ESP_LOGI(TAG, "input device %s is connected", text);
   this->hid_open_ = true;
+  memcpy(this->open_hid_, addr, 6);
   this->reconnect_backoff_ms_ = RECONNECT_FIRST_MS;
   this->remember_hid_(addr);
 #else
@@ -337,6 +349,7 @@ void PortallBT::on_hid_closed() {
   if (this->hid_open_)
     ESP_LOGI(TAG, "input device disconnected; it will be asked for again by address, with no scan");
   this->hid_open_ = false;
+  memset(this->open_hid_, 0, 6);
   // Straight back to the short interval: a device that has just been switched
   // off is the one most likely to be switched on again in a moment.
   this->reconnect_backoff_ms_ = RECONNECT_FIRST_MS;
@@ -425,9 +438,30 @@ void PortallBT::pair() {
     ESP_LOGW(TAG, "nothing to pair with yet -- no dongle has answered");
     return;
   }
+  /* AN INQUIRY CANNOT FIND A DEVICE THAT IS ALREADY TALKING TO THIS PANEL,
+   * and that is what "I can't pair any more" turns out to be.
+   *
+   * The first pairing works because nothing is remembered and nothing is
+   * connected. Afterwards this component reconnects BY ADDRESS on a 2 s -> 60 s
+   * clock, for ever, which is the whole design -- so by the time somebody
+   * presses Pair again the speaker is connected to us, is therefore not
+   * answering anybody's inquiry, and the scan hears silence. Reported from a
+   * panel whose boot inquiry had heard that same speaker at -45 dBm six
+   * seconds earlier, which is what rules out the radio and the distance.
+   *
+   * So pairing begins by getting out of the way: stop paging for the length of
+   * the scan, and hang up what is already up. */
+  this->reconnect_paused_ = true;
+  this->reconnect_backoff_ms_ = 0;
+  this->drop_links_();
+  this->heard_ = 0;
+
   // Discoverable only while this runs, so the panel is not in every phone's
   // Bluetooth list for the rest of its life for the sake of one pairing.
-  esp_bt_gap_set_scan_mode(ESP_BT_CONNECTABLE, ESP_BT_GENERAL_DISCOVERABLE);
+  const esp_err_t mode = esp_bt_gap_set_scan_mode(ESP_BT_CONNECTABLE, ESP_BT_GENERAL_DISCOVERABLE);
+  if (mode != ESP_OK)
+    ESP_LOGW(TAG, "could not make this panel discoverable (%d); a device that needs to see it "
+                  "will not", (int) mode);
 
   // Same conversion as the probe's own inquiry, and for the same reason: the
   // specification counts this in units of 1.28 seconds.
@@ -442,7 +476,83 @@ void PortallBT::pair() {
   ESP_LOGW(TAG, "  the Wi-Fi will drop while this runs. An inquiry sweeps the whole 2.4 GHz");
   ESP_LOGW(TAG, "  band, and the picture on this panel comes over that band. It comes back");
   ESP_LOGW(TAG, "  the moment the scan ends, and nothing after this ever scans again.");
-  esp_bt_gap_start_discovery(ESP_BT_INQ_MODE_GENERAL_INQUIRY, length, 0);
+  /* CHECKED, because the silent version of this is the fault this repository
+   * records more often than any other -- and here it wore the worst costume of
+   * all: the three encouraging lines above print, discovery never starts, and
+   * the log then says NOTHING. Not even "scan finished", because that line
+   * comes from an event the stack only sends if it began. From the outside a
+   * refused scan and a scan that heard nothing are the same silence. */
+  const esp_err_t started = esp_bt_gap_start_discovery(ESP_BT_INQ_MODE_GENERAL_INQUIRY, length, 0);
+  if (started != ESP_OK) {
+    ESP_LOGE(TAG, "the scan did not start (%d) -- nothing is being looked for. Press this again "
+                  "in a few seconds; if it keeps refusing, restart the panel.", (int) started);
+    this->resume_reconnect();
+  }
+#endif
+}
+
+void PortallBT::drop_links_() {
+#if defined(CONFIG_BT_A2DP_ENABLE)
+  char text[18];
+  if (this->a2dp_open_ && addr_set(this->open_sink_)) {
+    say_addr(text, this->open_sink_);
+    ESP_LOGI(TAG, "  hanging up the speaker %s first -- a connected device answers no inquiry",
+             text);
+    esp_a2d_source_disconnect(this->open_sink_);
+  }
+#endif
+#if defined(CONFIG_BT_HID_HOST_ENABLED)
+  char hid_text[18];
+  if (this->hid_open_ && addr_set(this->open_hid_)) {
+    say_addr(hid_text, this->open_hid_);
+    ESP_LOGI(TAG, "  hanging up the input device %s first", hid_text);
+    esp_bt_hid_host_disconnect(this->open_hid_);
+  }
+#endif
+}
+
+void PortallBT::say_pairing_later() {
+  // Defined here rather than inline in the header, and the reason is narrower
+  // than it first looked: now_ms_() is a free `static` function in THIS file,
+  // not a member, so the header cannot see it at all -- a member declared
+  // later would have been fine. Written inline first, and checkbt.py named the
+  // line in one pass across five configurations.
+  this->pair_report_due_ms_ = now_ms_() + 3000;
+}
+
+void PortallBT::pair_report_tick_() {
+#ifdef CONFIG_BT_BLUEDROID_ENABLED
+  if (this->pair_report_due_ms_ == 0)
+    return;
+  if ((int32_t) (now_ms_() - this->pair_report_due_ms_) < 0)
+    return;
+  this->pair_report_due_ms_ = 0;
+
+  if (this->a2dp_open_ || this->hid_open_) {
+    ESP_LOGI(TAG, "pairing finished: a device is connected. Nothing will scan again -- from now "
+                  "on this panel reconnects by address.");
+  } else if (this->heard_ == 0) {
+    ESP_LOGW(TAG, "pairing finished and nothing answered the scan. Put the device in PAIRING "
+                  "mode and press the button again; a speaker already connected to a telephone "
+                  "or a car does not answer.");
+  } else {
+    ESP_LOGW(TAG, "pairing finished: %u device(s) heard, none of them connected. Only a speaker "
+                  "or an input device is taken, and only if this panel was asked for that kind.",
+             (unsigned) this->heard_);
+  }
+#endif
+}
+
+void PortallBT::resume_reconnect() {
+#ifdef CONFIG_BT_BLUEDROID_ENABLED
+  if (!this->reconnect_paused_)
+    return;
+  this->reconnect_paused_ = false;
+  // From the short end of the backoff: whatever was just paired should come
+  // back at once, and a scan that found nothing should put a remembered device
+  // back where it was.
+  this->reconnect_backoff_ms_ = RECONNECT_FIRST_MS;
+  this->reconnect_due_ms_ = now_ms_() + RECONNECT_FIRST_MS;
 #endif
 }
 
@@ -452,6 +562,12 @@ void PortallBT::forget() {
     ESP_LOGW(TAG, "nothing to forget yet -- no dongle has answered");
     return;
   }
+  /* Hang up FIRST. Removing a bond while the ACL is still up leaves a live
+   * connection whose key the stack has just deleted -- and the device stays
+   * connected, so the pairing run that follows scans for something that cannot
+   * answer. That is the reported "even Forget does not help". */
+  this->drop_links_();
+
   const int bonded = esp_bt_gap_get_bond_device_num();
   if (bonded > 0) {
     esp_bd_addr_t list[8];
@@ -466,6 +582,7 @@ void PortallBT::forget() {
   this->remembered_ = Remembered{};
   this->remembered_pref_.save(&this->remembered_);
   this->hid_open_ = false;
+  memset(this->open_hid_, 0, 6);
   ESP_LOGI(TAG, "forgot %d paired device(s), link keys and roles both", bonded);
 #endif
 }

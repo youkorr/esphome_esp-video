@@ -4692,6 +4692,80 @@ the configurations this repository generates, and a user's build directory is
 not one of those. Anything keyed on our own option rather than on the build's
 state has the same hole.
 
+## A connected speaker answers no inquiry, so the second pairing never works
+
+**Reported as *"je n'arrive plus a me connecter au bluetooth meme si je vais
+reset Forget Bluetooth devices"*, with a log that ends dead:**
+
+    06:34:32  found 46:E8:1C:8A:88:DD  audio/video   -45 dBm
+    06:34:40  inquiry finished, status 00, 2 devices heard
+    06:34:46  scanning for about 10 seconds -- put the device in pairing mode now
+    06:34:46    the Wi-Fi will drop while this runs...
+    (nothing)
+
+The boot probe heard that speaker at **-45 dBm six seconds earlier**, which
+rules out the radio, the distance and the dongle in one line. So the question
+is only what the pairing run did, and the log answers with silence.
+
+**An inquiry cannot find a device that is already connected to this panel, and
+that is the fault.** The first pairing works because nothing is remembered and
+nothing is connected. Afterwards this component reconnects BY ADDRESS on a
+2 s -> 60 s clock, for ever -- which is the whole design and the reason it does
+not kill the Wi-Fi. So by the time somebody presses Pair a second time the
+speaker is connected to us, is therefore answering nobody's inquiry, and the
+scan hears nothing.
+
+**`forget()` made it permanent rather than fixing it.** It removed the bond
+from Bluedroid's NVS and cleared this component's own record -- and never hung
+up. A live ACL whose key has just been deleted is the worst of both: the device
+stays connected, so the next scan still cannot see it, and the key that would
+have let it reconnect cleanly is gone. Hanging up is now the FIRST thing both
+`pair()` and `forget()` do, and `open_sink_` / `open_hid_` exist to make it
+possible: what is connected right now is a different question from what the
+panel remembers, and only the first can be disconnected.
+
+**And nothing checked what the stack answered, in the one button a household
+presses.** `esp_bt_gap_start_discovery` and `esp_bt_gap_set_scan_mode` both
+return `esp_err_t` and both were ignored, so a refused scan printed three
+encouraging lines and then nothing at all -- not even `scan finished`, because
+that line comes from an event the stack only sends if the scan began. From
+outside, a refused scan and a scan that heard nothing are the same silence.
+That is this file's most-recorded fault shape wearing its worst costume.
+
+`scan finished` now carries a COUNT, and zero says what zero means.
+
+**The other half of the silence is that a scan cannot report itself.** An
+inquiry sweeps the whole 2.4 GHz band and takes this panel's own Wi-Fi down for
+exactly as long as it runs -- measured twice on this board, on two channels,
+and recorded above. So every line a pairing produces is written into a link
+that is not there. `pair_report_tick_()` says the outcome again **three seconds
+after the scan ends**, from `loop()`, when there is something to carry it: a
+device connected, nothing heard, or heard-but-not-taken. Three different next
+steps that used to be one silence.
+
+`tools/bttest/pairing.cpp` drives the SHIPPED `pair()` and `forget()` with
+recording stubs and asserts the ORDER -- disconnect before discovery,
+disconnect before the bond is removed -- because both faults are about
+sequence rather than about any single call. Seven cases; **four of them fail
+against the old code**, including the reported silence.
+
+Two smaller things the checks caught while this was written, both the shapes
+this file already records:
+
+- `char text[18]` declared above the profile guards is unused when neither
+  profile is compiled in -- found by the `host_stack: bluedroid` pass, which
+  exists for exactly that.
+- `say_pairing_later()` was written inline in the header and could not see
+  `now_ms_()`, which is a free `static` in `hid.cpp` rather than a member. The
+  first comment explaining it claimed a rule about member-function bodies that
+  is simply untrue; a member declared later WOULD have been visible. Corrected
+  in place, because a comment stating a false rule is worse than no comment.
+
+**What is NOT settled.** Which of the two halves the panel actually hit is one
+run away: if the scan was refused, the new line names the error; if it ran and
+heard nothing, the count says so; and either way the three-second report
+survives the Wi-Fi drop. No C++ here has been compiled by a real toolchain.
+
 ## Repository conventions
 
 - Work on branch `claude/esphome-pr-outdated-mdq36w`, then merge into `main`
