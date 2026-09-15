@@ -1,0 +1,262 @@
+substitutions:
+  name: ws-usb-screen
+  
+  micro_wake_word_model: okay_nabu
+
+esphome:
+  name: ws-usb-screen
+  friendly_name: ws-usb-screen
+
+esp32:
+  board: esp32-p4-evboard
+  flash_size: 32MB
+  cpu_frequency: 360MHz
+  framework:
+    type: esp-idf
+    advanced:
+      enable_idf_experimental_features: true
+
+      
+logger:
+
+api:
+  encryption:
+    key: "D1AIF4OzvQhGTdgRdt9pj08QtMk3lk9vgUa727W6LBE="
+psram:
+  mode: hex
+  speed: 200MHz
+
+# LDO du PHY MIPI : necessaire pour la DSI comme pour la CSI.
+esp_ldo:
+  - voltage: 2.5V
+    channel: 3
+i2c:
+  - id: bsp_bus
+    sda: GPIO7
+    scl: GPIO8
+    frequency: 400kHz
+    
+ota:
+  - platform: esphome
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  ap:
+    ssid: ws-usb-screen Fallback Hotspot
+    password: "XoIBpzlH5kYV"
+esp32_hosted:
+  variant: ESP32C6
+  reset_pin: GPIO54
+  cmd_pin: GPIO19
+  clk_pin: GPIO18
+  d0_pin: GPIO14
+  d1_pin: GPIO15
+  d2_pin: GPIO16
+  d3_pin: GPIO17
+  active_high: true
+  use_psram: true
+  slot: 1
+
+captive_portal:
+  
+external_components:
+  #- source:
+      #type: git
+      #url: https://github.com/youkorr/esphome_esp-video
+      #ref: claude/esphome-pr-outdated-mdq36w
+    #components: [usb_display]
+    #refresh: 0s
+  - source:
+      type: git
+      url: https://github.com/youkorr/esphome_esp-video
+      ref: main
+    components: [portall]
+    refresh: 0s 
+    
+  #- source:
+      #type: git
+      #url: https://github.com/youkorr/HA_display
+      #ref: main
+    #components: [usb_display]
+    #refresh: 0s    
+  #- source:
+      #type: git
+      #url: https://github.com/youkorr/face-toface
+      #ref: claude/mit-license-face-to-face-p9fc6m
+    #components: [fdaudio]
+    #refresh: 0s
+    
+output:
+  - platform: ledc
+    pin: GPIO32
+    id: backlight_pwm
+    frequency: 1000Hz
+    inverted: true
+
+i2s_audio:
+  - id: audio_bus
+    i2s_mclk_pin: GPIO13
+    i2s_lrclk_pin: GPIO10
+    i2s_bclk_pin: GPIO12
+
+
+audio_dac:
+  - platform: es8311
+    id: es8311_dac
+    i2c_id: bsp_bus
+    address: 0x18
+
+audio_adc:
+  - platform: es7210
+    id: es7210_adc
+    i2c_id: bsp_bus
+    address: 0x40
+
+microphone:
+  - platform: i2s_audio
+    id: esp32_microphone
+    i2s_audio_id: audio_bus
+    i2s_din_pin: GPIO11
+    sample_rate: 16000
+    bits_per_sample: 16bit
+    adc_type: external
+
+speaker:
+  - platform: i2s_audio
+    id: esp32_speaker
+    i2s_audio_id: audio_bus
+    i2s_dout_pin: GPIO9
+    audio_dac: es8311_dac
+    dac_type: external
+    channel: stereo
+    buffer_duration: 100ms
+    bits_per_sample: 16bit
+    sample_rate: 48000
+    
+  - platform: mixer
+    id: mixing_speaker
+    output_speaker: esp32_speaker
+    source_speakers:
+      - id: announcement_mixing_input
+        timeout: never
+      - id: media_mixing_input
+        timeout: never
+      - id: portall_media_mixing_input
+        timeout: never  
+
+media_player:
+  - platform: speaker
+    name: "ESP32 P4 Media Player"
+    id: speaker_media_player
+    codec_support_enabled: true
+    volume_min: 0.5
+    volume_max: 0.75
+    volume_increment: 0.05
+    announcement_pipeline:
+      speaker: announcement_mixing_input
+      format: FLAC
+      sample_rate: 44100
+      num_channels: 1
+    media_pipeline:
+      speaker: media_mixing_input
+      format: FLAC
+      num_channels: 2
+      sample_rate: 44100
+    on_announcement:
+      - switch.turn_on: audio_amplifier
+      - delay: 100ms
+    on_play:
+      - logger.log: "Media player started playing"
+      - switch.turn_on: audio_amplifier
+      - delay: 100ms
+    on_idle:
+      - delay: 100ms
+      - switch.turn_off: audio_amplifier
+
+
+
+
+ 
+
+
+
+
+
+
+number:
+  - platform: template
+    name: "Volume Portall"
+    id: volume_portall
+    min_value: 0
+    max_value: 100
+    step: 1
+    unit_of_measurement: "%"
+    mode: slider
+    optimistic: true
+    restore_value: true
+    initial_value: 40
+    on_value:
+      then:
+        - portall.set_volume:
+            volume: !lambda 'return x / 100.0;'
+    
+switch:
+
+  - platform: gpio
+    pin: GPIO53 
+    name: "Audio Amplifier"
+    id: audio_amplifier
+    restore_mode: ALWAYS_OFF 
+
+light:
+  - platform: monochromatic
+    output: backlight_pwm
+    name: "Display Backlight"
+    id: backlight
+    restore_mode: RESTORE_DEFAULT_ON
+    default_transition_length: 250ms
+    
+touchscreen:
+  - platform: gt911
+    id: touch
+    i2c_id: bsp_bus
+    reset_pin: GPIO23
+    update_interval: 20ms
+    on_touch:
+      - light.turn_on: backlight
+    transform:
+      swap_xy: false
+      mirror_x: true
+      mirror_y: true   
+display:
+  - platform: mipi_dsi
+    id: main_screen
+    # ESPHome connait exactement ce panneau (1024x600, EK79007, reset GPIO33).
+    model: WAVESHARE-ESP32-P4-WIFI6-TOUCH-LCD-7B
+    pixel_mode: 16
+    update_interval: never
+    auto_clear_enabled: false
+
+portall:
+  display_id: main_screen
+  touchscreen_id: touch
+  port: 5000   
+  width: 1024
+  height: 600
+  rotation: 0
+  vendor_id: 0x303A
+  #product_id: 0x2987
+  product_id: 0x2986           # <- la seule correction nécessaire
+  sender_drive: false
+  max_frame_bytes: 300000
+  jpeg_quality: 9
+  max_fps: 60
+  manufacturer: Espressif
+  product: ESP_Extern_Screen
+  serial: "012-2021"
+  speaker_id: portall_media_mixing_input
+  on_audio_start:
+    - switch.turn_on: audio_amplifier
+
+    
