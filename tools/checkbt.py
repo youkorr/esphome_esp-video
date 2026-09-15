@@ -31,7 +31,11 @@ import subprocess
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-SOURCES = sorted((ROOT / "components" / "portall_bt").glob("*.cpp"))
+# **/*.cpp rather than *.cpp: the speaker platform lives in its own
+# subdirectory, the way every ESPHome platform does, and a glob that
+# stopped at the top level would have said CLEAN about a file it never
+# opened -- which is the silent no-op this tool exists to close.
+SOURCES = sorted((ROOT / "components" / "portall_bt").glob("**/*.cpp"))
 
 # BOTH ways, and the second one is the point. Most of the host-stack code sits
 # behind `#ifdef CONFIG_BT_BLUEDROID_ENABLED`, so a single pass without that
@@ -63,6 +67,18 @@ CONFIGURATIONS = [
             "-DCONFIG_BT_BLUEDROID_ENABLED=1",
             "-DCONFIG_BT_HID_HOST_ENABLED=1",
             "-DCONFIG_BT_A2DP_ENABLE=1",
+        ],
+    ),
+    # And a fifth for the speaker platform, which is behind USE_SPEAKER --
+    # ESPHome's own define, written by codegen only when a speaker is in the
+    # YAML. Without this pass speaker/portall_bt_speaker.cpp compiles to an
+    # empty translation unit and this tool prints ok about nothing at all.
+    (
+        "speaker: - platform: portall_bt",
+        [
+            "-DCONFIG_BT_BLUEDROID_ENABLED=1",
+            "-DCONFIG_BT_A2DP_ENABLE=1",
+            "-DUSE_SPEAKER",
         ],
     ),
 ]
@@ -130,6 +146,12 @@ def run_tests() -> bool:
                 "-Wno-unused-parameter",
                 "-DUSE_ESP32",
                 "-DCONFIG_BT_BLUEDROID_ENABLED=1",
+                # The profiles are ON for the tests, unlike the syntax passes
+                # above which deliberately try every combination: a test that
+                # runs arithmetic needs the arithmetic compiled in, and the
+                # speaker's mono-to-stereo is behind both of these.
+                "-DCONFIG_BT_A2DP_ENABLE=1",
+                "-DUSE_SPEAKER",
                 f"-I{ROOT / 'tools' / 'btstub'}",
                 f"-I{ROOT / 'components' / 'portall_bt'}",
                 "-o",
@@ -142,6 +164,7 @@ def run_tests() -> bool:
                 # time somebody added a file.
                 str(ROOT / "components" / "portall_bt" / "hid.cpp"),
                 str(ROOT / "components" / "portall_bt" / "a2dp.cpp"),
+                str(ROOT / "components" / "portall_bt" / "speaker" / "portall_bt_speaker.cpp"),
             ],
             capture_output=True,
             text=True,
