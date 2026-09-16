@@ -4874,6 +4874,79 @@ targeting 44100 mono 16-bit and every mixer source carries `timeout: never`.
 **No C++ here has been compiled by a real toolchain, and nothing has been
 heard** -- whether a car receiver plays it cleanly is one run away.
 
+## Both components defaulted to the SAME USB controller, and nothing compared them
+
+**Reported from a Waveshare 7B as *"il faut rebooter quant la clef bluetooth
+est brancher"*, with an `Interrupt wdt timeout on CPU1`.** The register dump is
+what names the moment, and it is worth keeping because nothing else in the
+panic does. Four registers held ASCII:
+
+    A6 0x5b6d3533 "35m["   T3 0x6d2e7961 "ay.m"   T5 0x3a697364 "dsi:"
+    A7 0x645b5d43 "C][d"   T4 0x5f697069 "ipi_"   T6 0x5d393833 "389]"
+
+which is `\033[0;35m[C][display.mipi_dsi:389]` -- an ESPHome **dump_config**
+line. So the crash is at BOOT, printing the display's own configuration, not
+in use and nothing to do with audio. **A panic dump's registers are often full
+of the string that was being formatted; decode them before theorising.**
+
+**The ESP32-P4 has two USB OTG peripherals and both components default to the
+same one.** `portall:` defaults to `usb: true` with `usb_speed: high`, which
+puts TinyUSB on the high-speed controller as a **DEVICE**. `portall_bt:`
+defaults to `controller: high_speed`, which puts CherryUSB on that same
+register block as a **HOST**. Two drivers, one peripheral, one interrupt line
+-- and an interrupt watchdog timeout is exactly what that looks like.
+
+**Nothing compared the two**, so it validated, built, flashed and booted. That
+is this file's most-recorded shape in a new costume: not a check that passed
+vacuously, but two settings that must agree with nothing asking.
+
+**And the timing is what made it read as a Bluetooth fault.** With the socket
+empty the host side enumerates nothing and stays quiet, so the board comes up
+perfectly; plug the dongle in and the host begins servicing a peripheral
+TinyUSB also owns. "It needs rebooting once the dongle is in" is the collision
+described precisely, by somebody with no reason to suspect the display.
+
+`_one_controller_each` is a `FINAL_VALIDATE_SCHEMA` on portall_bt -- the
+component's first, there was none -- and it refuses the pair, naming both
+settings and both ways out. Three states were run through `esphome config` at
+**2026.8.2**, and the first is the one it was written to catch: portall at its
+defaults beside portall_bt is **refused**; `usb: false` passes; `controller:
+full_speed` passes. A firmware with `portall_bt:` and no `portall:` at all
+(`yaml/tab5-bt-probe.yaml`) is untouched, which is why the check reads the
+full config rather than assuming a sibling exists.
+
+Two details in it were decisions rather than typing:
+
+- **portall's key names are spelt out, not imported.** portall_bt alone is a
+  whole firmware, so a hard `from ... import` would fail to validate for every
+  board carrying only this component.
+- **It compares what the settings MEAN, not how they are spelt.** portall says
+  `high`/`full` and portall_bt says `high_speed`/`full_speed`, so both are
+  judged on `startswith("high")` -- a rename on either side still collides
+  correctly instead of silently passing, which is the failure mode of every
+  hand-copied pair of constants in this file.
+
+**And the fix the user needs next had no diagnostic at all.** Once the
+collision is gone, `controller:` is still a guess about how a board is wired,
+and a dongle on the OTHER peripheral produced one hopeful line at boot --
+`waiting for a device` -- and then silence for ever, identical to a dead
+dongle, an unpowered socket and a dead port. `say_if_nothing_arrived_()` says
+so once after `NOTHING_ARRIVED_MS = 10000`, names the controller it watched
+and the other one to try, and mentions the 5 V rail. Ten seconds cannot race an
+enumeration, which takes well under one.
+
+**Which socket a Waveshare 7B wires to which peripheral is NOT established
+here** -- that is board wiring, there is no board and no schematic that could
+be checked, and guessing it into an example is the "recipe dressed as a guess"
+this file already paid for once. The log line above is what settles it in one
+flash instead.
+
+**The C++ check earned itself again**, in the shape it has now caught three
+times: `now_ms()` and the new constant were defined halfway down the file and
+used in `setup()` at the top, which is not a thing reading the diff reveals.
+`now_ms()` moved to the top of the file rather than being forward-declared --
+a clock is not a detail of the HCI section that happened to need it first.
+
 ## Repository conventions
 
 - Work on branch `claude/esphome-pr-outdated-mdq36w`, then merge into `main`

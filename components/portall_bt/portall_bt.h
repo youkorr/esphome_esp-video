@@ -183,6 +183,7 @@ class PortallBT : public Component {
 
  private:
   void report_(uint8_t hub_index, uint8_t hub_port);
+  void say_if_nothing_arrived_();
   void inquire_(struct usbh_hubport *hport, uint8_t intf, struct usb_endpoint_descriptor *events);
 
   void try_host_stack_();
@@ -259,6 +260,18 @@ class PortallBT : public Component {
   bool probing_{false};
   bool high_speed_{true};
   bool started_{false};
+  /* Whether anything has ever enumerated, and when the host came up.
+   *
+   * An ESP32-P4 has two USB OTG peripherals and a board wires each of its
+   * sockets to one of them, so `controller:` is a guess until a device
+   * answers on it. Before this, a dongle on the OTHER controller produced one
+   * hopeful line at boot and then nothing at all, for ever -- the same
+   * silence as a dead dongle, a dead socket and an unpowered port. Saying so
+   * once, with the other controller named, is what turns that into one more
+   * flash rather than a diagnosis. */
+  bool seen_device_{false};
+  bool said_nothing_{false};
+  uint32_t host_up_ms_{0};
 
   // Single producer (CherryUSB's task), single consumer (loop). A ring this
   // small cannot overflow in practice -- a person plugs one dongle in -- but
