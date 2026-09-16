@@ -135,11 +135,17 @@ import esphome.codegen as cg
 from esphome.components import esp32
 import esphome.config_validation as cv
 from esphome.const import CONF_ID, CONF_TRIGGER_ID
+import esphome.final_validate as fv
 
 CODEOWNERS = ["@youkorr"]
 DEPENDENCIES = ["esp32"]
 
 CONF_CONTROLLER = "controller"
+# portall's own option names, spelt out rather than imported: portall_bt is a
+# whole firmware without portall (yaml/tab5-bt-probe.yaml), so a hard import
+# would fail for every board that has only this component.
+CONF_USB = "usb"
+CONF_USB_SPEED = "usb_speed"
 CONF_INQUIRY_SECONDS = "inquiry_seconds"
 CONF_HOST_STACK = "host_stack"
 CONF_HID = "hid"
@@ -266,6 +272,61 @@ async def portall_bt_action_to_code(config, action_id, template_arg, args):
     var = cg.new_Pvariable(action_id, template_arg)
     await cg.register_parented(var, config[CONF_ID])
     return var
+
+
+def _one_controller_each(config):
+    """Two drivers must not be handed the same USB peripheral.
+
+    Reported from a Waveshare 7B as a board that has to be REBOOTED once the
+    Bluetooth dongle is plugged in, with an `Interrupt wdt timeout on CPU1`
+    whose register dump was sitting inside `[C][display.mipi_dsi:389]` --
+    dump_config, so at boot rather than in use.
+
+    THE ESP32-P4 HAS TWO USB OTG PERIPHERALS AND BOTH COMPONENTS DEFAULT TO
+    THE SAME ONE. `portall:` defaults to `usb: true` with `usb_speed: high`,
+    which puts TinyUSB on the high-speed controller as a DEVICE; `portall_bt:`
+    defaults to `controller: high_speed`, which puts CherryUSB on that same
+    register block as a HOST. Two drivers, one peripheral, one interrupt line.
+
+    And nothing compared them, so it built, validated, flashed and booted.
+    What makes it look like a Bluetooth fault rather than a configuration one
+    is WHEN it bites: with the socket empty the host side enumerates nothing
+    and stays quiet, so the board comes up perfectly. Plug the dongle in and
+    the host starts servicing a peripheral TinyUSB also owns -- which is
+    exactly "it needs rebooting once the dongle is in".
+
+    Judged on what the two settings MEAN rather than on their spellings, which
+    differ between the components ("high" against "high_speed"): both say high
+    speed if they start with "high", so a rename on either side still compares
+    correctly instead of silently passing.
+    """
+    fconf = fv.full_config.get()
+    portall = fconf.get("portall")
+    # portall_bt on its own is a whole firmware -- yaml/tab5-bt-probe.yaml is
+    # one -- so a configuration without portall has nothing to collide with.
+    if portall is None or not portall.get(CONF_USB, False):
+        return config
+
+    device_high = str(portall.get(CONF_USB_SPEED, "high")).startswith("high")
+    host_high = str(config[CONF_CONTROLLER]).startswith("high")
+    if device_high != host_high:
+        return config
+
+    which = "high-speed" if host_high else "full-speed"
+    raise cv.Invalid(
+        f"portall and portall_bt are both using the {which} USB controller: "
+        f"portall is a USB DEVICE on it (usb: true, usb_speed: "
+        f"{portall.get(CONF_USB_SPEED, 'high')}) and portall_bt drives it as a "
+        f"HOST for the dongle (controller: {config[CONF_CONTROLLER]}). The "
+        "ESP32-P4 has two of these peripherals and one driver may have each. "
+        "A board like this boots normally with the socket empty and crashes "
+        "with an interrupt watchdog timeout once a dongle is plugged in.\n"
+        "Either add `usb: false` under portall: -- the picture, the touches "
+        "and the sound then all arrive over `port:`, which is what "
+        "yaml/tab5-portall-bluetooth.yaml does -- or move one of them to the "
+        "other controller, if this board's sockets are wired for that.",
+        path=[CONF_CONTROLLER],
+    )
 
 
 CONFIG_SCHEMA = cv.All(
@@ -502,3 +563,6 @@ async def to_code(config):
             esp32.add_idf_sdkconfig_option(
                 "CONFIG_BT_HID_REMOVE_DEVICE_BONDING_ENABLED", False
             )
+
+
+FINAL_VALIDATE_SCHEMA = _one_controller_each

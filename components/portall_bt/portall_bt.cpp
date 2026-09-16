@@ -36,6 +36,16 @@ static const char *const TAG = "portall_bt";
 // one host bus and one component; the schema does not allow a second.
 static PortallBT *g_instance = nullptr;
 
+// Milliseconds since boot. It lives up here rather than beside the first
+// function that needed it, because setup() reads it too and C++ will not look
+// ahead.
+static uint32_t now_ms() { return (uint32_t) (xTaskGetTickCount() * portTICK_PERIOD_MS); }
+
+// How long an empty socket is given before it is worth a line. A dongle
+// answers in well under a second; ten is generous enough that this can never
+// race an enumeration that was going to happen anyway.
+static constexpr uint32_t NOTHING_ARRIVED_MS = 10000;
+
 static void usb_event_handler(uint8_t busid, uint8_t hub_index, uint8_t hub_port, uint8_t intf,
                               uint8_t event) {
   (void) busid;
@@ -80,6 +90,7 @@ void PortallBT::setup() {
   }
 
   this->started_ = true;
+  this->host_up_ms_ = now_ms();
   ESP_LOGI(TAG, "USB host running on the %s controller; waiting for a device",
            this->high_speed_ ? "high-speed" : "full-speed");
 
@@ -142,8 +153,10 @@ void PortallBT::loop() {
   while (this->tail_ != this->head_) {
     const Arrival arrival = this->queue_[this->tail_];
     this->tail_ = (uint8_t) ((this->tail_ + 1) % QUEUE);
+    this->seen_device_ = true;
     this->report_(arrival.hub_index, arrival.hub_port);
   }
+  this->say_if_nothing_arrived_();
   // Both live in hid.cpp. Input reports arrive on Bluedroid's task and an
   // ESPHome automation may not run there, so they are queued and fired from
   // here; the reconnection is here rather than in a task of its own because
@@ -152,6 +165,31 @@ void PortallBT::loop() {
   this->drain_media_();
   this->reconnect_tick_();
   this->pair_report_tick_();
+}
+
+/* One line, once, when the socket this was pointed at stays empty.
+ *
+ * A dongle enumerates in well under a second, so ten is not a race -- it is
+ * long enough that anything plugged in at boot has already answered. What
+ * makes the line worth its space is that the three causes are
+ * indistinguishable without it: the wrong controller for this board's socket,
+ * a socket whose 5 V rail is off, and a dongle that is simply dead. It names
+ * the first because that is the one this component chose and the only one it
+ * can offer a remedy for. */
+void PortallBT::say_if_nothing_arrived_() {
+  if (!this->started_ || this->seen_device_ || this->said_nothing_) {
+    return;
+  }
+  if (now_ms() - this->host_up_ms_ < NOTHING_ARRIVED_MS) {
+    return;
+  }
+  this->said_nothing_ = true;
+  ESP_LOGW(TAG,
+           "Nothing has enumerated on the %s USB controller in %u seconds. This board may wire its "
+           "host socket to the other one -- try `controller: %s` under portall_bt:. If that is no "
+           "better, check that the socket's 5 V rail is switched on.",
+           this->high_speed_ ? "high-speed" : "full-speed", (unsigned) (NOTHING_ARRIVED_MS / 1000),
+           this->high_speed_ ? "full_speed" : "high_speed");
 }
 
 // ---------------------------------------------------------------------------
@@ -192,6 +230,7 @@ static constexpr uint8_t HCI_EVENT_EXTENDED_INQUIRY_RESULT = 0x2F;
 // exist at all -- the same dongle and the same firmware answered on one run
 // and said nothing on the next.
 static constexpr uint32_t RESET_SETTLE_MS = 300;
+
 static constexpr uint8_t RESET_ATTEMPTS = 5;
 static constexpr uint32_t RESET_RETRY_MS = 400;
 
@@ -334,7 +373,6 @@ struct Waited {
   uint8_t last_code; // the event code of the last thing that arrived
 };
 
-static uint32_t now_ms() { return (uint32_t) (xTaskGetTickCount() * portTICK_PERIOD_MS); }
 
 // Reads events until one of them is the Command Complete for `opcode`, or the
 // patience runs out. A controller answers other things while it settles -- a
