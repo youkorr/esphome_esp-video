@@ -535,7 +535,7 @@ async def to_code(config):
         # stands (it does not exist in 2026.6.5), so the two lines are written
         # here instead, on purpose rather than by inheritance.
         esp32.add_idf_sdkconfig_option("CONFIG_BT_BLE_42_FEATURES_SUPPORTED", True)
-        esp32.add_idf_sdkconfig_option("CONFIG_BT_BLE_50_FEATURES_SUPPORTED", True)
+        esp32.add_idf_sdkconfig_option("CONFIG_BT_BLE_50_FEATURES_SUPPORTED", false)
 
         if config[CONF_HID]:
             # Read out of ESP-IDF's own Kconfig.in rather than remembered:
