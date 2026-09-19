@@ -1,6 +1,7 @@
 #pragma once
 #include "esphome.h"
 #include <vector>
+#include "portall_bt.h"
 
 namespace esphome {
 
