@@ -3,7 +3,7 @@
 #include <vector>
 
 namespace esphome {
-namespace portall_bt {
+
 
 class UniversalHID {
  public:
