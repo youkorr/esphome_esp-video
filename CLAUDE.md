@@ -4947,6 +4947,129 @@ used in `setup()` at the top, which is not a thing reading the diff reveals.
 `now_ms()` moved to the top of the file rather than being forward-declared --
 a clock is not a detail of the HCI section that happened to need it first.
 
+## The paired devices are entities now, and the add-on is the wrong place for them
+
+**Asked as *"il faut le faire mais aussi reconnue par addon portall avec
+activation et desctivation bluetooth tu en pense quoi"*, after a guide that
+proposed a list of paired devices and a one-tap unpair.** Two halves, and only
+one of them should be built where it was asked for.
+
+**The list and the unpair belong on the BOARD, and they are built.**
+`switch: - platform: portall_bt` and `text_sensor: - platform: portall_bt`,
+plus `portall_bt.forget_speaker` / `portall_bt.forget_input` beside the
+existing `portall_bt.forget`. Every one of them reaches Home Assistant through
+the ESPHome API the panel already has open -- they appear on the device page
+with the volume slider and the pair button, which is where somebody looking for
+"my panel's Bluetooth" actually looks.
+
+**And the add-on half is a no, with a reason rather than a preference.** The
+add-on talks to a panel over ONE socket and that socket carries udisp: JPEG
+rectangles and PCM down, `'T'` touches and `'S'` awake/asleep up. There is no
+control channel and adding one would mean a new message type, a command
+vocabulary, a reply path, and a second copy of state that the ESPHome API
+already publishes correctly. It would also put Bluetooth controls on a panel
+whose add-on entry is only about rendering -- while the same panel's own
+device page would carry a different set. **Two places to look is worse than
+one, and the one that exists is already the right one.**
+
+The honest version of the ask is therefore already true: from Home Assistant,
+one page shows the panel's Bluetooth, and the add-on is not in the way of it.
+
+### Why a gamepad is detected as an audio device, which is the user's own fix
+
+Recorded because it corrects what this file would otherwise have said. The
+draft answer to *"les manettes, claviers ou capteurs sont detectes a tort comme
+des appareils audio"* was going to be that nothing is mis-sorted, since
+`ESP_BT_COD_MAJOR_DEV_PERIPHERAL` and `ESP_BT_COD_MAJOR_DEV_AV` are different
+numbers. That is wrong, and their commit says why: **a gamepad with a headphone
+jack reports Audio/Video as its MAJOR class**, because the chat headset is what
+the controller thinks it is. An NVIDIA Shield controller is the case in hand.
+
+So the sort reads the MINOR class too -- `(cod >> 2) & 0x3F`, where **0x12
+inside Audio/Video is "Gaming/Toy"** -- and takes such a device as an input
+device when `hid: true`. Theirs, kept verbatim.
+
+**What was added beside it is the silence.** A device heard and then not taken
+produced no line at all, so a panel with `hid: false` scanning past a gamepad
+looked exactly like a panel that heard nothing. It now says which kind of thing
+it heard and which option is off, which is the difference between "the dongle
+is broken" and "turn `hid:` on".
+
+### `off` is a flag, and a cleared clock would have turned itself back on
+
+**What off actually does is narrower than the word and the comment says so:**
+both profiles hang up and the panel stops PAGING for what it remembers. The
+dongle stays enumerated and Bluedroid stays running. Taking those apart at
+runtime is `esp_bluedroid_disable`, detaching the HCI driver and stopping two
+reader tasks -- on a stack this file records nine separate faults in bringing
+up, none of which can be compiled here. What off buys is the paging, which is
+the only radio time being spent while nothing is connected, beside a C6 whose
+antenna is centimetres from the dongle's.
+
+**And it had to be a flag.** Zeroing `reconnect_backoff_ms_` is what `pair()`
+does for the length of a scan and it is not enough to STAY off: the clock is
+re-armed in five other places -- every disconnect event in `a2dp.cpp` and
+`hid.cpp` puts it back. A switch built that way would turn itself on again the
+first time a speaker walked out of range, silently, which is this file's
+most-recorded shape. `reconnect_tick_()` asks `bt_off_` instead.
+
+Switching it back on restarts the backoff from its SHORT end, so a speaker
+still in the room comes back at once rather than after whatever the clock had
+grown to before it was switched off.
+
+### Two slots and no list, which is structural rather than a shortcut
+
+`Remembered` holds one address for a speaker and one for an input device,
+because reconnecting BY ADDRESS is the whole reason this component can come
+back without an inquiry -- and an inquiry takes the panel's own Wi-Fi down for
+as long as it runs, measured twice on this board. So there is nothing to page
+through: `text_sensor:` is ONE block with an optional `speaker:` and an
+optional `input:` under it, the shape `select: platform: es8388` already uses
+in this repository.
+
+Each reads the ADDRESS and whether it is connected -- `none`, `<addr>
+connected`, `<addr> paired, away`, or `<addr> (Bluetooth off)`. The address
+rather than the name: `Remembered` stores six bytes and nothing else, and
+adding a name would change a struct that is already sitting in NVS on every
+panel that has ever paired.
+
+`forget_one(bool speaker)` hangs up THAT device first and then removes its
+bond, for the reason `forget()` already records: removing a bond under a live
+ACL leaves the device connected with its key gone, so the next scan still
+cannot see it AND it can no longer come back on its own. The blanket
+`portall_bt.forget` stays beside the per-role ones, because it is the only one
+that also clears a bond this component never recorded a role for.
+
+### The example keeps `hid: false`, and that is why it has no input entity
+
+`yaml/tab5-portall-bluetooth.yaml` gains the switch, the speaker text sensor
+and a `Forget Bluetooth speaker` button -- and deliberately NOT the input ones,
+because that board has no gamepad to pair and `hid:` is off. An entity that can
+only ever read `none` is the silent no-op this file keeps recording, so the
+comment says to add `input:` when `hid: true` rather than shipping it dark.
+
+**Validated by running the CODEGEN, not only `esphome config`.** An
+unresolved parent id is exactly the class of fault that `config` cannot see --
+it validates YAML and never executes a `to_code`. So the resolved config was
+loaded and `generate_cpp_contents()` run against ESPHome **2026.8.2**, and the
+generated statements read: `bt_enabled->set_parent(dongle)`,
+`...textsensor->set_parent(dongle)` with `->set_speaker(true)`,
+`bt_enabled->set_restore_mode(switch_::SWITCH_RESTORE_DEFAULT_ON)` and
+`forgetspeakeraction->set_parent(dongle)`. Worth the extra step because
+`esphome config` prints nothing at all for an auto-generated `portall_bt_id`,
+so the one line that proves the wiring is invisible from its output.
+
+`tools/checkbt.py` gained a seventh and eighth configuration, `-DUSE_SWITCH`
+and `-DUSE_TEXT_SENSOR`, for the reason the second and third exist: without
+them each new platform compiles to an empty translation unit and the check
+prints `ok` about a file it never read.
+
+**What is NOT done.** No C++ here has been compiled by a real toolchain.
+Nothing has paired over HID, so the input slot has never held an address. And
+`components/portall_bt/universal_hid.h` -- the mapping from a Shield's report
+bytes to buttons -- is **included by nothing**, so a paired gamepad's buttons
+still reach the YAML as raw bytes through `on_hid_report` and no further.
+
 ## Repository conventions
 
 - Work on branch `claude/esphome-pr-outdated-mdq36w`, then merge into `main`

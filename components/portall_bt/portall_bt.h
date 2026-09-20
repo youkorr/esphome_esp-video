@@ -4,6 +4,7 @@
 #include "esphome/core/automation.h"
 #include "esphome/core/preferences.h"
 
+#include <string>
 #include <vector>
 
 struct usbh_hubport;
@@ -147,6 +148,38 @@ class PortallBT : public Component {
   bool wants_input() const { return this->hid_host_; }
 
   void pair();
+
+  /* Bluetooth off and on, as one switch a household can reach.
+   *
+   * WHAT "OFF" MEANS HERE, because the honest answer is narrower than the
+   * word: it hangs up both profiles and stops PAGING for them. It does not
+   * power the dongle down, does not stop CherryUSB and does not take
+   * Bluedroid apart -- that is `esp_bluedroid_disable`, detaching the HCI
+   * driver and stopping two reader tasks, on a stack that took nine separate
+   * faults to bring up and that nothing here can compile. What off costs the
+   * radio is the paging, which is the only part that was ever costing
+   * anything while nothing was connected.
+   *
+   * AND IT HAS TO BE A FLAG RATHER THAN A CLEARED CLOCK. Zeroing
+   * reconnect_backoff_ms_ is what pair() does for the length of a scan, and it
+   * is not enough to stay off: the clock is re-armed in five other places --
+   * every disconnect event in a2dp.cpp and hid.cpp puts it back -- so a switch
+   * built that way would turn itself on again the first time a speaker walked
+   * out of range, silently, which is the fault shape this component keeps
+   * paying for. reconnect_tick_() asks this one flag instead. */
+  void set_bt_enabled(bool on);
+  bool bt_enabled() const { return !this->bt_off_; }
+
+  /// Forget ONE remembered device rather than every bond at once.
+  /// `speaker` picks which of the two slots -- see Remembered, which holds
+  /// exactly one of each and is why there is no list here to page through.
+  void forget_one(bool speaker);
+
+  /// One line for a text sensor: the address and whether it is connected, or
+  /// "none". The ADDRESS rather than the name, because Remembered stores six
+  /// bytes and nothing else -- adding a name would change a struct that is
+  /// already in NVS on every panel that has paired.
+  std::string describe_role(bool speaker) const;
   /// Hang up whatever is connected. An inquiry cannot find a device that is
   /// already talking to this panel, so pairing and forgetting both start here.
   void drop_links_();
@@ -250,6 +283,8 @@ class PortallBT : public Component {
   /* Pairing suspends the reconnection clock and this is what puts it back, so
    * a scan that finds nothing does not cost a paired device its way home. */
   bool reconnect_paused_{false};
+  /// See set_bt_enabled: a flag, because the clock is re-armed elsewhere.
+  bool bt_off_{false};
   uint16_t heard_{0};
   uint32_t pair_report_due_ms_{0};
   Remembered remembered_{};
@@ -321,6 +356,19 @@ template<typename... Ts> class PairAction final : public Action<Ts...>, public P
 template<typename... Ts> class ForgetAction final : public Action<Ts...>, public Parented<PortallBT> {
  public:
   void play(const Ts &...) override { this->parent_->forget(); }
+};
+
+/* One action per role rather than one action taking a role, which is this
+ * project's own pattern: a household reads `portall_bt.forget_speaker` and
+ * knows what the button does without looking anything up. */
+template<typename... Ts> class ForgetSpeakerAction final : public Action<Ts...>, public Parented<PortallBT> {
+ public:
+  void play(const Ts &...) override { this->parent_->forget_one(true); }
+};
+
+template<typename... Ts> class ForgetInputAction final : public Action<Ts...>, public Parented<PortallBT> {
+ public:
+  void play(const Ts &...) override { this->parent_->forget_one(false); }
 };
 
 }  // namespace portall_bt

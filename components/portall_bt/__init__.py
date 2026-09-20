@@ -200,6 +200,12 @@ portall_bt_ns = cg.esphome_ns.namespace("portall_bt")
 PortallBT = portall_bt_ns.class_("PortallBT", cg.Component)
 PairAction = portall_bt_ns.class_("PairAction", automation.Action)
 ForgetAction = portall_bt_ns.class_("ForgetAction", automation.Action)
+# One action per role rather than one taking a role: a household reads
+# `portall_bt.forget_speaker` on a button and knows what it does. That is the
+# same named-per-thing choice `quality:`, `user_agent:` and `fps:` per link
+# were argued into, by the same person, and they were right each time.
+ForgetSpeakerAction = portall_bt_ns.class_("ForgetSpeakerAction", automation.Action)
+ForgetInputAction = portall_bt_ns.class_("ForgetInputAction", automation.Action)
 # What `on_hid_report` hands the YAML: the bytes the device sent, nothing
 # invented. ESP_HIDH_DATA_IND_EVT carries no report id -- see portall_bt.h.
 HID_REPORT_TRIGGER = automation.Trigger.template(cg.std_vector.template(cg.uint8))
@@ -267,6 +273,18 @@ PORTALL_BT_ACTION_SCHEMA = automation.maybe_simple_id(
 )
 @automation.register_action(
     "portall_bt.forget", ForgetAction, PORTALL_BT_ACTION_SCHEMA, synchronous=True
+)
+@automation.register_action(
+    "portall_bt.forget_speaker",
+    ForgetSpeakerAction,
+    PORTALL_BT_ACTION_SCHEMA,
+    synchronous=True,
+)
+@automation.register_action(
+    "portall_bt.forget_input",
+    ForgetInputAction,
+    PORTALL_BT_ACTION_SCHEMA,
+    synchronous=True,
 )
 async def portall_bt_action_to_code(config, action_id, template_arg, args):
     var = cg.new_Pvariable(action_id, template_arg)

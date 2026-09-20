@@ -149,6 +149,18 @@ switch:
       pi4ioe5v6408: pi4ioe1
       number: 0
 
+  # Bluetooth off and on, from the dashboard. What "off" does is narrower than
+  # the word: both profiles hang up and the panel stops PAGING for the devices
+  # it remembers. The dongle stays enumerated and Bluedroid stays running --
+  # taking those apart at runtime is a far bigger change than this is worth.
+  # What it buys is the paging, which is the only radio time being spent while
+  # nothing is connected, beside a C6 whose antenna is centimetres away.
+  - platform: portall_bt
+    name: "Bluetooth"
+    id: bt_enabled
+    icon: mdi:bluetooth
+    restore_mode: RESTORE_DEFAULT_ON
+
 # ---------------------------------------------------------------------------
 # The Tab5's own sound. ES8388 as the codec and ES7210 for the microphones,
 # both on the one I2S bus, exactly as the panel is wired.
@@ -381,6 +393,23 @@ portall_bt:
         // know that. Sent straight at the one volume this board has.
         id(panel_volume).make_call().set_value(volume * 100.0f).perform();
 
+# ---------------------------------------------------------------------------
+# What this panel has paired, in one place. There is a speaker slot and an
+# input slot and no list to page through, and that is structural: this
+# component reconnects BY ADDRESS, which is what lets it come back without an
+# inquiry -- and an inquiry takes this panel's own Wi-Fi down for as long as it
+# runs, measured twice on this board.
+#
+# Only `speaker:` is here because `hid: false` above. Add `input:` beside it
+# when a gamepad or a remote is paired, or the entity would read `none` for
+# ever, which is worse than not offering it.
+# ---------------------------------------------------------------------------
+text_sensor:
+  - platform: portall_bt
+    speaker:
+      name: "Bluetooth speaker"
+      icon: mdi:speaker-bluetooth
+
 button:
   # Pairing is an ACTION and never a loop. An inquiry sweeps the whole 2.4 GHz
   # band at full power and was measured taking this board's Wi-Fi down for
@@ -392,6 +421,17 @@ button:
     on_press:
       - portall_bt.pair: dongle
 
+  # One device at a time, which is what somebody looking at the entity above
+  # actually wants: the speaker has been replaced, the gamepad has not.
+  - platform: template
+    name: "Forget Bluetooth speaker"
+    entity_category: config
+    on_press:
+      - portall_bt.forget_speaker: dongle
+
+  # Every bond at once. Kept beside the one above because a panel that has got
+  # into a state nobody can explain wants the big hammer, and it is the only
+  # one that also clears a bond this component never recorded a role for.
   - platform: template
     name: "Forget Bluetooth devices"
     entity_category: config
