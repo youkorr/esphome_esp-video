@@ -159,6 +159,32 @@ CONF_ON_MEDIA_KEY = "on_media_key"
 CONF_ON_MEDIA_VOLUME = "on_media_volume"
 CONF_KEYS = "keys"
 
+# One definition of the reference, used by the schema and by `keys: true`.
+_PORTALL_ID = cv.use_id(
+    cg.esphome_ns.namespace("portall").class_("Portall", cg.Component)
+)
+
+
+def _keys(value):
+    """`true` becomes an unnamed reference to the only portall: there is.
+
+    AND IT HAS TO HAPPEN HERE, in the validator, which the first attempt got
+    wrong: it built the same id in `to_code` and the build died with "Circular
+    dependency detected". esphome fills an id whose name is None from the
+    declared ids of a matching type -- `if id.id is None and id.type is not
+    None` in config.py -- and that pass walks the VALIDATED CONFIG. An id
+    invented at codegen was never in it, so nothing ever resolved it and
+    get_variable waited for a variable that would never be registered.
+
+    Reproduced before it was believed, on the configuration a panel really
+    sent: `keys: true` beside `portall: id: udisp`.
+    """
+    if isinstance(value, str) or value is None:
+        return _PORTALL_ID(value)
+    if cv.boolean(value):
+        return _PORTALL_ID(None)
+    return False
+
 # "bluedroid" turns ESP-IDF's own Bluetooth host on, in the one configuration a
 # chip with no controller of its own can have. See the module docstring.
 HOST_STACKS = {"none": False, "bluedroid": True}
@@ -398,13 +424,23 @@ CONFIG_SCHEMA = cv.All(
             # component knows what SELECT, UP, DOWN, LEFT and RIGHT are,
             # because AVRCP and HID both say so themselves.
             #
+            # `keys: true` IS THE WHOLE POINT, and the first version of this
+            # took an id only. It shipped as `keys: panel` in the example, a
+            # household copied that line, and their own block was `id: udisp`
+            # -- so it failed to validate with "Couldn't find ID 'panel'".
+            #
+            # There is exactly ONE portall: per board, so asking anybody to go
+            # and read their own id is asking them to operate a mechanism
+            # rather than name a thing. That is the objection this option was
+            # built from in the first place, and the option itself still had
+            # it. `true` resolves the only one; an id is still accepted for a
+            # configuration that wants to be explicit.
+            #
             # `cv.use_id(...)` with a string rather than an imported class:
             # portall_bt alone is a whole firmware, and a hard import of
             # portall would fail to validate for every board carrying only
             # this component. esphome resolves the type by name at codegen.
-            cv.Optional(CONF_KEYS): cv.use_id(
-                cg.esphome_ns.namespace("portall").class_("Portall", cg.Component)
-            ),
+            cv.Optional(CONF_KEYS): _keys,
             cv.Optional(CONF_ON_HID_REPORT): automation.validate_automation(
                 {cv.GenerateID(CONF_TRIGGER_ID): cv.declare_id(HID_REPORT_TRIGGER)}
             ),
@@ -433,8 +469,12 @@ async def to_code(config):
     cg.add(var.set_device_name(config[CONF_DEVICE_NAME]))
     cg.add(var.set_pair_seconds(config[CONF_PAIR_SECONDS].total_seconds))
     cg.add(var.set_show_reports(config[CONF_SHOW_REPORTS]))
-    if CONF_KEYS in config:
-        panel = await cg.get_variable(config[CONF_KEYS])
+    keys = config.get(CONF_KEYS)
+    if keys:
+        # Already an id by now, named or not: _keys did that at validation
+        # time so esphome's own pass could resolve it. `false` arrives here as
+        # False and is falsy, which is the whole of the test.
+        panel = await cg.get_variable(keys)
         # The lambda is emitted into main.cpp, where both components' headers
         # are already in scope -- which is how portall_bt reaches portall
         # without including its header anywhere. A board carrying only

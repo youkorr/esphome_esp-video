@@ -392,7 +392,11 @@ portall_bt:
   # A gamepad is NOT covered: its report layout differs per device and is only
   # knowable from its own report descriptor. Its bytes still reach
   # `on_hid_report` below.
-  keys: panel
+  # `true` and not an id: there is one `portall:` per board and nobody should
+  # have to go and read their own. An id still works for a configuration that
+  # wants to be explicit -- and copying THIS line with an id in it is what
+  # made somebody's `portall:` named `udisp` fail to validate.
+  keys: true
 
   on_media_key:
     - lambda: |-
