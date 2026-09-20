@@ -200,8 +200,8 @@ void PortallBT::feed_hid_keys(const uint8_t *data, uint16_t len) {
        the exact shape of the report this whole path was rewritten for. The
        one setting that turns it on is named here rather than in a document
        somebody has to already know to look for. */
-    if (!this->said_unreadable_) {
-      this->said_unreadable_ = true;
+    if (this->said_shape_count_ == 0) {
+      this->said_shape_count_ = 1;
       ESP_LOGI(TAG, "this device is sending buttons, but 'keys:' is not set on "
                     "portall_bt, so nothing is decoded and nothing reaches the "
                     "page");
@@ -283,18 +283,19 @@ void PortallBT::feed_pad_report(const uint8_t *data, uint16_t len) {
     this->key_sink_(PAGE_KEYBOARD, KEY_ESCAPE);
   }
 
-  /* EVERY OTHER BUTTON NAMES ITSELF, ONCE, AND THAT IS THE POINT OF IT.
+  /* EVERY OTHER BUTTON NAMES ITSELF, ONCE.
    *
-   * X, Y and whatever else this byte carries have no agreed meaning in a page
-   * -- but the button somebody actually wants next is the gamepad's HOME, and
-   * nothing here knows which bit that is. Their notes cover A, B, X and Y and
-   * stop there, so guessing would be the recipe-dressed-as-a-guess this file
-   * has paid for before.
+   * X, Y and whatever else this byte carries have no agreed meaning in a page,
+   * so an unmapped bit says which bit it is the first time it is pressed and
+   * never again -- enough to map it from one line of somebody's log.
    *
-   * So an unmapped bit says which bit it is, the first time it is pressed and
-   * never again. One press of Home in a log is then the whole of what is
-   * needed to map it -- against a round trip that would otherwise start with
-   * "please turn show_reports on". */
+   * IT IS NOT WHERE HOME IS, and this comment said it was for one release.
+   * Linux's own hid-nvidia-shield.c settles it: the Shield's Home, Back,
+   * Search, Play/Pause and volume keys are CONSUMER page usages -- AC Home is
+   * 0x223 -- routed through android_input_mapping, which means they arrive on
+   * a different report entirely and never touch this byte. A reader told to
+   * press Home and watch for a bit here would have watched for ever. That is
+   * what say_unreadable_report_ is for, and why it reports per SHAPE. */
   const uint8_t unnamed = (uint8_t) (pressed & ~(PAD_A | PAD_B) & ~this->pad_said_);
   if (unnamed != 0) {
     this->pad_said_ = (uint8_t) (this->pad_said_ | unnamed);
@@ -319,20 +320,32 @@ void PortallBT::say_unreadable_report_(const uint8_t *data, uint16_t len) {
    *
    * Once, with the bytes, because a device that sends something unreadable
    * sends it for ever and a thumbstick sends it a hundred times a second. */
-  if (this->said_unreadable_)
+  if (len == 0)
     return;
-  this->said_unreadable_ = true;
-  char hex[3 * 8 + 1];
+  /* ONE LINE PER SHAPE. The first version of this said one line in TOTAL, and
+     that was wrong for the one button anybody would go looking for: the
+     Shield carries its Home button on a different report from its sticks, so
+     whichever arrived first would have spent the only line and Home would
+     have stayed as silent as before. See the note in the header. */
+  const uint16_t shape = (uint16_t) ((len << 8) | data[0]);
+  for (uint8_t i = 0; i < this->said_shape_count_; i++)
+    if (this->said_shapes_[i] == shape)
+      return;
+  if (this->said_shape_count_ >= SHAPES)
+    return;
+  this->said_shapes_[this->said_shape_count_++] = shape;
+
+  char hex[3 * 12 + 1];
   size_t at = 0;
-  const uint16_t show = len < 8 ? len : 8;
+  const uint16_t show = len < 12 ? len : 12;
   for (uint16_t i = 0; i < show && at + 3 < sizeof(hex); i++)
     at += (size_t) snprintf(hex + at, sizeof(hex) - at, "%02x ", data[i]);
   hex[at] = '\0';
   ESP_LOGI(TAG,
-           "this device's reports are %u bytes and start %s-- not a keyboard "
-           "and not a layout this knows, so its buttons reach on_hid_report "
-           "and go no further. Turn show_reports on and send the bytes.",
-           (unsigned) len, hex);
+           "a report this cannot read: %u bytes, id %#04x, starting %s-- its "
+           "buttons reach on_hid_report and go no further. Send this line and "
+           "say which button you pressed.",
+           (unsigned) len, (unsigned) data[0], hex);
 }
 
 }  // namespace portall_bt

@@ -381,17 +381,30 @@ The d-pad's four directions are HID's own Hat Switch encoding, so this is not
 one controller's quirk; a diagonal deliberately moves nothing, because a grid
 of tiles has no diagonal and a cleaner press is the answer.
 
-**The other buttons name themselves in the log, once each**, because which bit
-is a given controller's Home or Start is not something this can know without
-being told:
+**The other face buttons name themselves in the log, once each**, because
+what X or Start should mean in a page is not something this can know:
 
 ```
 gamepad: button bit 2 of byte 3 is pressed and is not mapped
 ```
 
-Press the one you want, read that line, and it can be mapped. Until then the
-way out of a link from a controller is B (Escape, within the page) or the
-corner gesture on the glass.
+**Home is not one of them**, and it is worth knowing why before you go
+hunting for it. On a Shield, Home, Back, Search, Play/Pause and the volume
+keys are not gamepad buttons at all -- they are HID *consumer* keys (Linux's
+own `hid-nvidia-shield.c` maps Home as usage `0x223`), so they arrive on a
+separate report and never touch the button byte. That report gets its own
+line instead:
+
+```
+a report this cannot read: 3 bytes, id 0x08, starting 08 23 02
+```
+
+One line per report shape, so the Home report gets named even though the
+sticks are sending a different one constantly. Send that line saying which
+button you pressed and it can be mapped.
+
+Until then the way out of a link from a controller is B (Escape, within the
+page) or the corner gesture on the glass.
 
 #### And whether the arrows do anything depends on the page
 
