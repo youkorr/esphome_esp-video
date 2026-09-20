@@ -157,6 +157,7 @@ CONF_SHOW_REPORTS = "show_reports"
 CONF_ON_HID_REPORT = "on_hid_report"
 CONF_ON_MEDIA_KEY = "on_media_key"
 CONF_ON_MEDIA_VOLUME = "on_media_volume"
+CONF_KEYS = "keys"
 
 # "bluedroid" turns ESP-IDF's own Bluetooth host on, in the one configuration a
 # chip with no controller of its own can have. See the module docstring.
@@ -387,6 +388,23 @@ CONFIG_SCHEMA = cv.All(
             # -- and a moving thumbstick sends a hundred a second, which is why
             # it is a flag rather than the default.
             cv.Optional(CONF_SHOW_REPORTS, default=False): cv.boolean,
+            # Where the buttons of every input device this component can read
+            # should go: the id of the `portall:` block, so they reach the page
+            # the panel is showing.
+            #
+            # ONE SETTING AND NO MAPPING, which is what was asked for -- "le
+            # comportement du bluetooth doit gerer toutes les peripherique
+            # qu'il dispose du bluetooth". A household names the panel; the
+            # component knows what SELECT, UP, DOWN, LEFT and RIGHT are,
+            # because AVRCP and HID both say so themselves.
+            #
+            # `cv.use_id(...)` with a string rather than an imported class:
+            # portall_bt alone is a whole firmware, and a hard import of
+            # portall would fail to validate for every board carrying only
+            # this component. esphome resolves the type by name at codegen.
+            cv.Optional(CONF_KEYS): cv.use_id(
+                cg.esphome_ns.namespace("portall").class_("Portall", cg.Component)
+            ),
             cv.Optional(CONF_ON_HID_REPORT): automation.validate_automation(
                 {cv.GenerateID(CONF_TRIGGER_ID): cv.declare_id(HID_REPORT_TRIGGER)}
             ),
@@ -415,6 +433,21 @@ async def to_code(config):
     cg.add(var.set_device_name(config[CONF_DEVICE_NAME]))
     cg.add(var.set_pair_seconds(config[CONF_PAIR_SECONDS].total_seconds))
     cg.add(var.set_show_reports(config[CONF_SHOW_REPORTS]))
+    if CONF_KEYS in config:
+        panel = await cg.get_variable(config[CONF_KEYS])
+        # The lambda is emitted into main.cpp, where both components' headers
+        # are already in scope -- which is how portall_bt reaches portall
+        # without including its header anywhere. A board carrying only
+        # portall_bt never generates this line and never needs portall to
+        # exist at all.
+        cg.add(
+            var.set_key_sink(
+                cg.RawExpression(
+                    f"[](uint16_t page, uint16_t usage) {{ "
+                    f"{panel}->send_key(page, usage); }}"
+                )
+            )
+        )
     for conf in config.get(CONF_ON_HID_REPORT, []):
         trigger = cg.new_Pvariable(conf[CONF_TRIGGER_ID])
         cg.add(var.add_hid_report_trigger(trigger))

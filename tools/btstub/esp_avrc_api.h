@@ -11,6 +11,27 @@
 #include <cstdint>
 
 typedef enum {
+  /* The AV/C panel subunit's navigation commands, which is where this
+     stand-in was HALF a header until keys.cpp needed them: it carried only
+     the media transport codes, because those were all the component happened
+     to use, so a missing navigation constant could never have been caught.
+     Copied field for field from v5.5.5, like the rest of these files. */
+  ESP_AVRC_PT_CMD_SELECT = 0x00,
+  ESP_AVRC_PT_CMD_UP = 0x01,
+  ESP_AVRC_PT_CMD_DOWN = 0x02,
+  ESP_AVRC_PT_CMD_LEFT = 0x03,
+  ESP_AVRC_PT_CMD_RIGHT = 0x04,
+  ESP_AVRC_PT_CMD_ROOT_MENU = 0x09,
+  ESP_AVRC_PT_CMD_SETUP_MENU = 0x0A,
+  ESP_AVRC_PT_CMD_CONT_MENU = 0x0B,
+  ESP_AVRC_PT_CMD_FAV_MENU = 0x0C,
+  ESP_AVRC_PT_CMD_EXIT = 0x0D,
+  ESP_AVRC_PT_CMD_ENTER = 0x2B,
+  ESP_AVRC_PT_CMD_CLEAR = 0x2C,
+  ESP_AVRC_PT_CMD_CHAN_UP = 0x30,
+  ESP_AVRC_PT_CMD_CHAN_DOWN = 0x31,
+  ESP_AVRC_PT_CMD_PAGE_UP = 0x37,
+  ESP_AVRC_PT_CMD_PAGE_DOWN = 0x38,
   ESP_AVRC_PT_CMD_POWER = 0x40,
   ESP_AVRC_PT_CMD_VOL_UP = 0x41,
   ESP_AVRC_PT_CMD_VOL_DOWN = 0x42,

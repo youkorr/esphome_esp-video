@@ -5213,10 +5213,10 @@ against (18,22,30) beside it.
 
 - **A gamepad's raw reports still stop at the YAML.** `on_hid_report` hands
   over bytes and nothing decodes them; `universal_hid.h` is still included by
-  nothing and would only write to the log if it were. The route that works
-  today with no guessing is **AVRCP** -- `on_media_key`, whose key codes are a
-  fixed enumeration rather than a per-device report layout -- and
-  `yaml/tab5-portall-bluetooth.yaml` wires exactly that to `portall.key`.
+  nothing and would only write to the log if it were.
+  **CORRECTED the same day**: the sentence that stood here said the AVRCP
+  route is wired "in `yaml/tab5-portall-bluetooth.yaml`", as a lambda a
+  household writes. That was wrong twice and the next section is about why.
 - No C++ here has been compiled by a real toolchain. What is proved is the
   codegen (`set_usage(7, 81)`, `(7, 82)`, `(7, 40)` and a `HomeAction`, read
   off `generate_cpp_contents` at 2026.8.2), the wire parser against a message
@@ -5225,6 +5225,116 @@ against (18,22,30) beside it.
 - **Nothing has been driven from an actual remote.** The chain is proved
   piece by piece on a workstation; whether a car receiver's Forward button
   moves a tile is one flash away.
+
+## The mapping was in the household's YAML, and both halves of that were wrong
+
+**Pushed back on as *"voici ce me derange 'le lambda' ... le comportement du
+bluetooth doit gerer toutes les peripherique qu'il dispose du bluetooth trouve
+une solution ce n'est pas la bonne solution"*.** Right, and this is the
+**sixth** time the same person has asked for a named setting over a mechanism
+somebody has to operate -- after the quality, the user agent, the frame limit,
+the stylesheet and the token, all per link. They have been right every time.
+
+The shipped version asked a YAML to carry this:
+
+```yaml
+    - if:
+        condition:
+          lambda: 'return pressed && code == ESP_AVRC_PT_CMD_FORWARD;'
+        then:
+          - portall.key: down
+```
+
+and it is now one line, `keys: panel`, with the component deciding.
+
+### And reading the specification showed the objection was righter than it knew
+
+The lambda above maps **FORWARD -- next track** onto "move down a tile". That
+is an invention, and `esp_avrc_api.h` at v5.5.5 says what it was standing in
+front of:
+
+    SELECT 0x00   UP 0x01   DOWN 0x02   LEFT 0x03   RIGHT 0x04
+    ROOT_MENU 0x09   EXIT 0x0D   ENTER 0x2B   PAGE_UP 0x37   PAGE_DOWN 0x38
+
+**AVRCP has had real arrows since it was derived from the AV/C panel
+subunit**, and a television-style Bluetooth remote sends exactly those. So
+there was never anything to decide -- and the wrong mapping was not merely
+verbose, it would have bound a remote's arrows to nothing while making its
+next-track button walk the list. This file's own shape, again: a defensible
+guess in the place a measurement belonged.
+
+`components/portall_bt/keys.cpp` is the one place that decides now, and
+**nothing in it is guessed**: the AVRCP table is a transcription of that
+header, and the HID one is the Keyboard/Keypad usage page, which is what a
+boot-protocol keyboard report carries by definition.
+
+### How portall_bt reaches portall without including its header
+
+`keys: panel` is `cv.use_id`, and `to_code` emits
+
+    dongle->set_key_sink([](uint16_t page, uint16_t usage) {
+        panel->send_key(page, usage); });
+
+into **main.cpp**, where both components' headers are already in scope. The
+sink is a `std::function` rather than a `Portall *` for exactly that reason:
+portall_bt alone is a whole firmware, and a board carrying only it must still
+build -- so this component includes portall's header nowhere, and a YAML that
+never sets `keys:` never generates that line. The class is named as a string
+in the schema for the same reason a hard `from ... import` was refused in
+`_one_controller_each`.
+
+Read off `generate_cpp_contents` at 2026.8.2 rather than assumed, because
+`esphome config` runs no `to_code` -- which this file recorded as a lesson one
+section earlier and applied here without being told twice.
+
+### What it covers, and the one line that says where it stops
+
+**A remote and a keyboard need nothing per device.** AVRCP's commands are an
+enumeration; a boot-protocol keyboard report is modifiers, a reserved byte and
+six keycodes, and those keycodes ARE usage page 0x07. Both are the
+specification rather than anybody's reading of one device.
+
+**A gamepad is not covered and does not pretend to be.** Its report layout
+differs per device and is only knowable from its own report descriptor. The
+test asserts the boundary from the other side: a gamepad-shaped eight-byte
+report with a non-zero second byte produces nothing at all.
+
+Two details that are defects if they are missing:
+
+- **A key still held is in EVERY report a keyboard sends.** Without comparing
+  against the last one, a finger resting on Down walks the whole list in a
+  second. `held_[6]` is the previous report and only what is NEW crosses.
+- **AVRCP sends a PRESSED and a RELEASED for every button**, so the decode is
+  on the press alone -- a tile moved twice per press is a remote nobody can
+  aim.
+
+### The stand-in header was half a header, and could not have caught this
+
+`tools/btstub/esp_avrc_api.h` carried `POWER` through `BACKWARD` -- the media
+transport codes, which were all the component happened to use -- and **not one
+of the navigation commands**. So a missing `ESP_AVRC_PT_CMD_UP` would have
+been a compile error on somebody's board and nothing here could have seen it
+coming. Copied field for field from v5.5.5 now, like the rest of them.
+
+### The test fails against the old mapping, which is the only reason to trust it
+
+`tools/bttest/input.cpp` drives the SHIPPED `feed_avrc_key()` and
+`feed_hid_keys()` through a recording sink. Nine navigation commands land on
+the right usages; the six transport commands must produce **nothing**, which
+is the fix itself kept rather than remembered. Reproduced against a copy
+carrying the old table and the repeat suppression removed: three cases fail,
+including `play, pause, stop, next, previous and volume move nothing`.
+
+`checkbt` links `keys.cpp` into every test binary -- the linker refused three
+of them the moment the drains called into it, which is the arrangement doing
+its job.
+
+### What is NOT done
+
+No C++ compiled by a real toolchain, and nothing driven from an actual remote.
+A gamepad still needs the descriptor route. And whether a given remote speaks
+AVRCP navigation or HID at all is the device's choice, not this component's --
+the log says which it decoded, once per press, so the next run settles it.
 
 ## Repository conventions
 
