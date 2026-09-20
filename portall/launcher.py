@@ -779,18 +779,34 @@ KEYS_JS = """<script>
     if (!way) return;
     var all = [].slice.call(document.querySelectorAll('a.tile'));
     if (!all.length) return;
+    /* SWALLOWED HERE, BEFORE ANYTHING ELSE, AND THAT IS THE WHOLE OF A BUG
+       REPORTED FROM A PANEL. It used to be called only when a tile was found
+       in that direction -- so an arrow at the EDGE of the grid fell through
+       to the browser, which scrolls. Pressing up on the top row therefore
+       scrolled the launcher away from the tile that still had the focus, and
+       the next press moved a focus ring nobody could see. Up is where it
+       shows first because up is the one direction the top row has nothing
+       in, and a launcher opens with the top row chosen.
+
+       The arrows belong to the grid on this page. There is nothing else on
+       it to scroll to. */
+    e.preventDefault();
     var from = document.activeElement;
     if (all.indexOf(from) < 0) {
       /* Nothing chosen yet, so the first arrow CHOOSES rather than moves.
          Deliberately not done when the page loads: a focus ring drawn on
          arrival is a rectangle on the wire for every panel in the house,
-         including the ones nobody drives with a remote. */
-      all[0].focus();
-      e.preventDefault();
+         including the ones nobody drives with a remote.
+
+         WHICH tile it chooses follows the direction, the way a menu does:
+         pressing up reaches for the one at the BOTTOM. Always taking the
+         first made up and down do the same thing from a cold page, which is
+         its own small "that did not do what I meant". */
+      (way === 'u' || way === 'l' ? all[all.length - 1] : all[0]).focus();
       return;
     }
     var next = nearest(from, way, all);
-    if (next) { next.focus(); e.preventDefault(); }
+    if (next) next.focus();
   });
 })();
 </script>"""

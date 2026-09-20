@@ -430,20 +430,6 @@ void PortallBT::on_hid_descriptor(const uint8_t *desc, uint16_t len, uint16_t ve
 void PortallBT::drain_reports_() {
   if (this->desc_pending_) {
     this->desc_pending_ = false;
-    if (this->show_reports_) {
-      /* The descriptor itself, under the same flag as the reports, because it
-         is the other half of the same question -- and because a device this
-         cannot read is one somebody will have to send the bytes of. */
-      char hex[3 * 32 + 1];
-      size_t at = 0;
-      const uint16_t show = this->pending_desc_len_ < 32 ? this->pending_desc_len_ : 32;
-      for (uint16_t i = 0; i < show && at + 3 < sizeof(hex); i++)
-        at += (size_t) snprintf(hex + at, sizeof(hex) - at, "%02x ",
-                                this->pending_desc_[i]);
-      hex[at] = '\0';
-      ESP_LOGI(TAG, "report descriptor, %u bytes, starting %s",
-               (unsigned) this->pending_desc_len_, hex);
-    }
     this->feed_hid_descriptor(this->pending_desc_, this->pending_desc_len_,
                               this->pending_desc_vendor_, this->pending_desc_product_);
   }

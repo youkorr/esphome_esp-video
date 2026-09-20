@@ -58,6 +58,7 @@ int32_t signed_item(uint32_t raw, uint8_t size) {
 
 void HidReportMap::clear() {
   this->count_ = 0;
+  this->wanted_ = 0;
   this->ids_ = false;
   this->truncated_ = false;
 }
@@ -96,7 +97,7 @@ bool HidReportMap::parse(const uint8_t *desc, uint16_t len) {
 
   uint16_t usages[MAX_LOCAL_USAGES];
   uint16_t usage_pages[MAX_LOCAL_USAGES];
-  uint8_t usage_count = 0;
+  uint16_t usage_count = 0;
   uint32_t usage_min = 0;
   uint32_t usage_max = 0;
   bool has_range = false;
@@ -230,6 +231,12 @@ bool HidReportMap::parse(const uint8_t *desc, uint16_t len) {
 
       for (uint16_t n = 0; n < report_count; n++) {
         if (!constant) {
+          /* Counted whether or not it is kept, so the log can say how far
+             short the cap fell. A limit that reports only that it was reached
+             leaves the next person guessing at the number to raise it to,
+             which is the round this replaces. */
+          if (this->wanted_ < 0xFFFF)
+            this->wanted_++;
           if (this->count_ >= MAX_FIELDS) {
             this->truncated_ = true;
           } else {
@@ -334,7 +341,7 @@ bool HidReportMap::decode(const uint8_t *report, uint16_t len,
   }
 
   bool any = false;
-  for (uint8_t n = 0; n < this->count_; n++) {
+  for (uint16_t n = 0; n < this->count_; n++) {
     const HidField &f = this->fields_[n];
     if (f.report_id != id)
       continue;

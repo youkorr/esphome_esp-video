@@ -1,5 +1,21 @@
 # Changelog
 
+## 4.10.1
+
+- **An arrow at the edge of the tile grid no longer scrolls the page away.**
+  Reported from a panel as up causing trouble, and the Bluetooth log showed
+  the press being decoded perfectly -- because the fault was here. The
+  launcher swallowed an arrow only when it FOUND a tile in that direction, so
+  up on the top row (and down on the bottom, and left on the first column)
+  fell through to the browser, which scrolls. From the glass that is the
+  launcher jumping away from the tile you had just chosen, and the focus ring
+  ending up somewhere you cannot see. The arrows belong to the grid on this
+  page; there is nothing else on it to scroll to.
+
+- **The first arrow now chooses by direction**: down or right reaches for the
+  first tile, up or left for the last, the way a menu does. It always took
+  the first before, so up and down did the same thing from a cold page.
+
 ## 4.10.0
 
 - **A remote or a gamepad can drive the links.** The tiles are plain
