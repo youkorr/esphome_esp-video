@@ -324,9 +324,17 @@ class PortallBT : public Component {
      twelve buttons costs twelve lines in total and not twelve a second. */
   uint8_t pad_said_{0};
   void say_unreadable_report_(const uint8_t *data, uint16_t len);
-  /* Whether the "this report means nothing to me" line has been said. Once:
-     a device that sends something unreadable sends it for ever. */
-  bool said_unreadable_{false};
+  /* The report SHAPES already named -- length in the high byte, report id in
+     the low one.
+     ONE LINE PER SHAPE, not one line in total, and the difference is the
+     whole usefulness of it. A Shield sends its gamepad state on one report
+     and its Home button on ANOTHER, so a single line spent on whichever
+     arrived first would leave the one button somebody is hunting for
+     permanently silent. Capped, because the cap is what keeps this from
+     becoming show_reports. */
+  static constexpr uint8_t SHAPES = 6;
+  uint16_t said_shapes_[SHAPES]{};
+  uint8_t said_shape_count_{0};
   std::vector<Trigger<float> *> media_volume_triggers_;
   bool profiles_up_{false};
   // When the next reconnection attempt is due, and how long to wait after the

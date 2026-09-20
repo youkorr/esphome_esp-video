@@ -67,6 +67,43 @@ static bool only(uint16_t usage) {
   return g_sent.size() == 1 && g_sent[0] == usage;
 }
 
+// A diagnostic is checked by CAPTURING what it printed, never by restating it:
+// a test that repeats the sentence proves only that it can copy.
+static std::string g_captured;
+static FILE *g_old_stdout = nullptr;
+static char g_capture_path[] = "/tmp/portall_bt_capture.XXXXXX";
+
+static void capture_begin() {
+  std::fflush(stdout);
+  int fd = mkstemp(g_capture_path);
+  g_old_stdout = stdout;
+  stdout = fdopen(fd, "w+");
+}
+
+static std::string capture_end() {
+  std::fflush(stdout);
+  FILE *mine = stdout;
+  stdout = g_old_stdout;
+  std::rewind(mine);
+  std::string out;
+  char line[512];
+  while (std::fgets(line, sizeof(line), mine) != nullptr)
+    out += line;
+  std::fclose(mine);
+  std::remove(g_capture_path);
+  return out;
+}
+
+static size_t count_of(const std::string &hay, const char *needle) {
+  size_t n = 0, at = 0;
+  const std::string what(needle);
+  while ((at = hay.find(what, at)) != std::string::npos) {
+    n++;
+    at += what.size();
+  }
+  return n;
+}
+
 // A boot-protocol keyboard report: modifiers, the RESERVED byte the
 // specification requires to be zero, then six keycodes.
 static void keyboard(PortallBT *bt, uint8_t k1, uint8_t k2 = 0) {
@@ -272,6 +309,30 @@ int main() {
     pad[3] = 0x04;   // X, which has no agreed meaning in a page
     bt->feed_pad_report(pad, sizeof(pad));
     ok("an unmapped button reaches the page as nothing", g_sent.empty());
+    delete bt;
+  }
+  {
+    // A SHAPE THIS CANNOT READ NAMES ITSELF -- once per shape, not once in
+    // total. THE FIX: the Shield carries its Home button on a different
+    // report from its sticks (Linux's hid-nvidia-shield.c maps Home as
+    // CONSUMER usage 0x223, not a gamepad button), so a single line spent on
+    // whichever report arrived first would leave Home permanently silent.
+    PortallBT *bt = fresh();
+    const uint8_t odd_a[5] = {0x07, 0x11, 0x22, 0x33, 0x44};
+    const uint8_t odd_b[3] = {0x08, 0x23, 0x02};   // a different shape
+    capture_begin();
+    bt->feed_hid_keys(odd_a, sizeof(odd_a));
+    bt->feed_hid_keys(odd_a, sizeof(odd_a));   // same shape again: silent
+    bt->feed_hid_keys(odd_b, sizeof(odd_b));
+    bt->feed_hid_keys(odd_b, sizeof(odd_b));
+    const std::string said = capture_end();
+    ok("an unreadable report names its own shape",
+       said.find("5 bytes, id 0x07") != std::string::npos);
+    ok("and a SECOND shape gets its own line",
+       said.find("3 bytes, id 0x08") != std::string::npos);
+    ok("but a shape already named stays quiet",
+       count_of(said, "a report this cannot read") == 2);
+    ok("and none of it reaches the page", g_sent.empty());
     delete bt;
   }
   {

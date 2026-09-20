@@ -5523,6 +5523,69 @@ maintenance trap and somebody else's file is still somebody else's.
 from an actual controller: the layout is the user's measurement, not this
 session's.
 
+## "Cherche sur internet, c'est plus simple ?" -- yes, and it found a defect
+
+**Asked as exactly that, about the round trip the previous section had just
+built in: press Home, read the bit, send me the line.** It is a fair
+challenge and it was right, which makes it the seventh time this user has
+been right about approach. Fifteen minutes of reading somebody else's driver
+beat asking them to go and press a button.
+
+**Linux ships a driver for this exact controller** -- `hid-nvidia-shield.c`,
+merged for 6.5, for the SHIELD 2017 "Thunderstrike", which is what
+`NVIDIA Controller v01.04` in their log is. Two things in it matter and both
+correct something this repository had already written down.
+
+**HOME IS NOT A GAMEPAD BUTTON.** Its `android_input_mapping()` returns early
+unless the usage page is CONSUMER, and then maps Play/Pause `0x0CD`, Volume
+Up `0x0E9`, Volume Down `0x0EA`, Search `0x221`, **Home `0x223`** and Back
+`0x224`. So the Shield's Home, Back and media keys arrive on a **separate
+report** and never touch the face-button byte at all.
+
+The diagnostic shipped one commit earlier told a reader to press Home and
+watch for `gamepad: button bit N of byte 3`. That line **cannot ever appear
+for Home**. It is this file's most-recorded fault in its purest form: not a
+check that passes vacuously, but a fix the reader is sent to a place it can
+never be found. And it would have cost them a flash and a round trip to
+discover, which is precisely what the search was supposed to save.
+
+**And it says one line in TOTAL was the wrong budget.** `say_unreadable_report_`
+named the first unreadable shape and went quiet for ever -- so on a
+controller whose sticks stream one report shape constantly, the Home report
+would have been swallowed by the very diagnostic meant to catch it. It
+reports **once per SHAPE** now (length + report id, capped at six), which is
+what makes "press Home and send me the line" a promise that can be kept.
+
+**The second correction is to the user's own deleted file**, and it is worth
+recording because the same mistake is easy to make again.
+`universal_hid.h` treated report ids `0x03` and `0x04` as a media remote.
+They are not: the kernel driver names them
+`THUNDERSTRIKE_HOSTCMD_RESP_REPORT_ID = 0x3` and
+`THUNDERSTRIKE_HOSTCMD_REQ_REPORT_ID = 0x4` -- NVIDIA's own host-command
+channel for battery, haptics, LED and firmware. Decoding them as key presses
+would have produced phantom buttons from a battery report.
+
+**What the search did NOT settle**, and the honest limit of it: the kernel
+driver leaves face buttons and the hat to the generic HID layer, reading the
+device's own report descriptor, so it says nothing about which bit is A. That
+half is still the user's measurement, and their hat values being HID's Hat
+Switch encoding is still what makes it trustworthy. The consumer report's
+layout -- its id, and whether it carries a bitmap or a 16-bit usage -- is not
+in that driver either, which is why it is a diagnostic here and not a table.
+
+**The lesson is narrow and it is not "always search".** It is that a
+component talking to a mass-market device is talking to something somebody
+else has already written a driver for, and that driver is a measurement
+nobody here has to pay for. This project reads Espressif's headers as a
+matter of course; it had never once read Linux's.
+
+Verified by capturing the diagnostic's own stdout over two report shapes:
+each is named once, a repeat is silent, and nothing reaches the page.
+Reproduced against the shipped one-line-in-total version first, where `and a
+SECOND shape gets its own line` fails.
+
+Sources: torvalds/linux `drivers/hid/hid-nvidia-shield.c`.
+
 ## Repository conventions
 
 - Work on branch `claude/esphome-pr-outdated-mdq36w`, then merge into `main`
