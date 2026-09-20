@@ -5329,6 +5329,41 @@ including `play, pause, stop, next, previous and volume move nothing`.
 of them the moment the drains called into it, which is the arrangement doing
 its job.
 
+### `keys: panel` was an id, and a household copied it into a board that had none
+
+**Reported from a real build the same day:**
+
+    Couldn't find ID 'panel'. Please check you have defined an ID with that
+    name in your configuration.
+      keys: panel
+
+Their `portall:` block is `id: udisp`. The example said `keys: panel`, they
+copied the line, and it could not validate. **That is the same objection the
+whole section above was built from, still sitting in the option itself**:
+there is exactly ONE `portall:` per board, so asking anybody to go and read
+their own id is asking them to operate a mechanism rather than name a thing.
+
+`keys: true` now resolves the only one. An id is still accepted, and a typo in
+that form is still refused -- so being explicit stays possible without being
+required.
+
+**And the first attempt at it died in the build**, which is the part worth
+keeping. It built the unnamed id in `to_code`:
+
+    esphome.core.EsphomeError: Circular dependency detected!
+
+esphome fills an id whose name is None from the declared ids of a matching
+type -- `if id.id is None and id.type is not None` in `config.py` -- and that
+pass walks the **validated config**. An id invented at codegen was never in
+it, so nothing resolved it and `get_variable` waited for a variable that would
+never be registered. `_keys` does it in the VALIDATOR now.
+
+Four cases run through real esphome on the configuration a panel really sent,
+with `portall: id: udisp` throughout, reading the generated C++ rather than
+the validator's opinion: `keys: true` and `keys: udisp` both emit
+`udisp->send_key(page, usage)`, `keys: panel` is refused, and `keys: false`
+emits nothing at all.
+
 ### What is NOT done
 
 No C++ compiled by a real toolchain, and nothing driven from an actual remote.
