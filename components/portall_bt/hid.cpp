@@ -129,46 +129,60 @@ static void gap_cb(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *param) {
       }
       say_addr(addr, param->disc_res.bda);
       const uint32_t major = esp_bt_gap_get_cod_major_dev(cod);
+      // Bits 2-7 of the Class of Device, whose meaning depends on the major
+      // class above. Within AUDIO/VIDEO, 0x12 is Gaming/Toy -- a gamepad
+      // with a headphone jack, not a speaker.
+      const uint32_t minor = (cod >> 2) & 0x3F;
       g_bt->note_heard();
-      ESP_LOGI(TAG, "  heard %s  class %06X%s%s", addr, (unsigned) cod, name != nullptr ? "  " : "",
+      ESP_LOGI(TAG, "  heard %s  class %06X  major %u minor %u%s%s", addr, (unsigned) cod,
+               (unsigned) major, (unsigned) minor, name != nullptr ? "  " : "",
                name != nullptr ? name : "");
-      // A gamepad, a keyboard, a mouse or a remote all say PERIPHERAL. Taking
-      // the first of those rather than the first of ANYTHING is what stops a
-      // pairing run walking off to the neighbour's telephone.
-      // Two kinds of thing are worth pairing with and the class of device is
-      // what tells them apart, so one action serves both. AUDIO/VIDEO is a
-      // speaker, a headset or a car receiver; PERIPHERAL is a gamepad, a
-      // keyboard, a mouse or a remote. Taking the first of THOSE rather than
-      // the first of anything is what stops a pairing run walking off to the
-      // neighbour's telephone.
-      if (major == ESP_BT_COD_MAJOR_DEV_AV && g_bt->wants_speaker()) {
-        ESP_LOGI(TAG, "  that is a speaker -- stopping the scan and pairing with it");
-        esp_bt_gap_cancel_discovery();
-#ifdef CONFIG_BT_A2DP_ENABLE
-        esp_a2d_source_connect(param->disc_res.bda);
-#endif
-      } else if (major == ESP_BT_COD_MAJOR_DEV_PERIPHERAL && g_bt->wants_input()) {
+      // PERIPHERAL is tested FIRST. A gamepad, a keyboard, a mouse or a
+      // remote all say PERIPHERAL, and that answer is unambiguous -- so it
+      // takes priority over the AUDIO/VIDEO check below. Putting audio first
+      // is what let a controller with a headphone jack (NVIDIA Shield, among
+      // others) be mistaken for a speaker: it reports AUDIO/VIDEO because of
+      // the jack, and `wants_speaker()` was tested before the minor class
+      // could say otherwise.
+      if (major == ESP_BT_COD_MAJOR_DEV_PERIPHERAL && g_bt->wants_input()) {
         ESP_LOGI(TAG, "  that is an input device -- stopping the scan and pairing with it");
         esp_bt_gap_cancel_discovery();
 #ifdef CONFIG_BT_HID_HOST_ENABLED
         esp_bt_hid_host_connect(param->disc_res.bda);
 #endif
-      } else if (major == ESP_BT_COD_MAJOR_DEV_AV) {
-        /* Heard, recognised, and passed over -- which without these two lines
-         * is indistinguishable from not being heard at all.
+      } else if (major == ESP_BT_COD_MAJOR_DEV_AV && minor == 0x12 && g_bt->wants_input()) {
+        // Gaming/Toy within Audio/Video: a gamepad that reports audio
+        // capabilities because it carries a headphone jack or a microphone.
+        // The NVIDIA Shield controller is one. Pairing it via A2DP makes the
+        // panel stream audio to a thumbstick and ignore its buttons, which is
+        // the fault this block exists to prevent.
+        ESP_LOGI(TAG, "  that is a gaming device (A/V class, minor 0x12) -- pairing as input");
+        esp_bt_gap_cancel_discovery();
+#ifdef CONFIG_BT_HID_HOST_ENABLED
+        esp_bt_hid_host_connect(param->disc_res.bda);
+#endif
+      } else if (major == ESP_BT_COD_MAJOR_DEV_AV && g_bt->wants_speaker()) {
+        ESP_LOGI(TAG, "  that is a speaker -- stopping the scan and pairing with it");
+        esp_bt_gap_cancel_discovery();
+#ifdef CONFIG_BT_A2DP_ENABLE
+        esp_a2d_source_connect(param->disc_res.bda);
+#endif
+      } else if (major == ESP_BT_COD_MAJOR_DEV_PERIPHERAL || major == ESP_BT_COD_MAJOR_DEV_AV) {
+        /* Heard, recognised, and passed over -- which without this line is
+         * indistinguishable from not being heard at all.
          *
          * `audio:` and `hid:` both default to FALSE, and they are what
          * wants_speaker() and wants_input() return. So a panel built with one
          * of them on skips every device of the other kind IN SILENCE: the
          * device appears on the line above, nothing connects, and the scan
-         * ends saying it heard something. Reported as input devices being
-         * "taken for audio ones", which is the natural reading when a speaker
-         * in the same room IS taken and a gamepad beside it is not. Nothing
-         * is mis-sorted; the other half was never compiled in. */
-        ESP_LOGW(TAG, "  that is a speaker, and this panel has `audio: true` off -- skipping it");
-      } else if (major == ESP_BT_COD_MAJOR_DEV_PERIPHERAL) {
-        ESP_LOGW(TAG, "  that is an input device (gamepad, keyboard, mouse, remote), and this panel "
-                      "has `hid: true` off -- skipping it. Add `hid: true` under portall_bt: to pair it.");
+         * ends saying it heard something. That silence is the other half of
+         * the mis-detection above -- with `hid:` off, a controller is skipped
+         * whatever its class says, and the speaker beside it is taken. */
+        const bool input_kind =
+            major == ESP_BT_COD_MAJOR_DEV_PERIPHERAL || minor == 0x12;
+        ESP_LOGW(TAG, "  that is %s, and this panel has `%s: true` off -- skipping it",
+                 input_kind ? "an input device (gamepad, keyboard, mouse, remote)" : "a speaker",
+                 input_kind ? "hid" : "audio");
       }
       break;
     }
