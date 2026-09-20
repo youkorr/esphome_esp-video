@@ -5040,7 +5040,7 @@ cannot see it AND it can no longer come back on its own. The blanket
 `portall_bt.forget` stays beside the per-role ones, because it is the only one
 that also clears a bond this component never recorded a role for.
 
-### The example keeps `hid: false`, and that is why it has no input entity
+### The example kept `hid: false`, and that is no longer true -- see below
 
 `yaml/tab5-portall-bluetooth.yaml` gains the switch, the speaker text sensor
 and a `Forget Bluetooth speaker` button -- and deliberately NOT the input ones,
@@ -5063,6 +5063,11 @@ so the one line that proves the wiring is invisible from its output.
 and `-DUSE_TEXT_SENSOR`, for the reason the second and third exist: without
 them each new platform compiles to an empty translation unit and the check
 prints `ok` about a file it never read.
+
+**SUPERSEDED, and by the hardware rather than by an argument**: a Shield now
+pairs, connects and drives the launcher from that board, so the reason `hid:`
+was off stopped being true and the input entity stopped being dark. See
+**A dark entity is right until the device exists** below.
 
 **What is NOT done.** No C++ here has been compiled by a real toolchain.
 Nothing has paired over HID, so the input slot has never held an address. And
@@ -5878,6 +5883,80 @@ controller sends anything at all in the seconds before it hangs up, and
 whether the same eleven seconds appear with the panel's Wi-Fi quiet. The
 dongle's antenna is centimetres from the C6's, and this file already records
 an inquiry taking the Wi-Fi down for exactly as long as it runs.
+
+## A dark entity is right until the device exists, and then it is just missing
+
+**Reported in one line with the block pasted: *"il manque un test sensor pour
+les device il y a juste pour le speaker"*.** Correct, and the interesting part
+is that the example was RIGHT when it was written and had quietly stopped
+being so.
+
+`yaml/tab5-portall-bluetooth.yaml` carried a speaker text sensor and no input
+one, with a comment saying why: `hid: false` on that board, and **an entity
+that can only ever read `none` is worse than no entity** -- the silent no-op
+this file keeps recording, avoided deliberately. Then a Shield paired with a
+panel, connected, and moved tiles. The comment's premise died with that run
+and the comment stayed.
+
+So the rule survives and its application inverts: `hid: true`, both slots, and
+the comment now says to take `input:` back out **along with `hid:`** if a panel
+will only ever have a speaker. A conditional written into a file has to be
+re-read whenever its condition changes, and nothing does that but somebody
+noticing -- which is what happened.
+
+**Three other things in that file went stale in the same run**, all of them
+sentences that were true when typed:
+
+- `hid: false` itself, with "nothing here has one to pair with".
+- **"A gamepad is NOT covered: its report layout ... is only knowable from its
+  own report descriptor."** True, and it stopped being an obstacle the day the
+  descriptor started being read. A comment that is a correct fact and a wrong
+  conclusion is the hardest kind to spot, because re-reading it confirms it.
+- `Pair a Bluetooth speaker`, on the one button that finds both kinds -- the
+  comment beside it already said so. `Pair a Bluetooth device` now, with
+  `Forget Bluetooth controller` beside the speaker's.
+
+### `tools/checkcodegen.py`, and it reproduces a fault `esphome config` calls ok
+
+Adding two entities meant proving they are WIRED, and `esphome config` cannot
+say: it validates YAML and stops before any `to_code` runs, and it prints
+nothing at all for an auto-generated `portall_bt_id`. This file already
+records doing that step by hand twice. It is a tool now, and it earns itself
+on a fault this repository has actually shipped:
+
+| | `esphome config` | `tools/checkcodegen.py` |
+|---|---|---|
+| a to_code resolving an id that does not exist | **ok** | `ECHEC (codegen: Circular dependency detected!)` |
+
+That is the exact error a household got from `keys: panel`, and the exact one
+a first attempt at fixing it produced. Reproduced by breaking the text
+sensor's `to_code` in place, running both, and restoring.
+
+It loads each example the way `checkyaml.py` does -- throwaway secrets, a
+local `external_components` so the working tree is what is checked -- then
+calls `generate_cpp_contents()`; `--show` prints the statements that join one
+component to another, which is how these entities were proved rather than
+assumed:
+
+    portall_bt_portallbttextsensor_id->set_speaker(true);
+    portall_bt_portallbttextsensor_id_2->set_speaker(false);
+    portall_bt_forgetinputaction_id->set_parent(dongle);
+    dongle->set_hid_host(true);
+    dongle->set_key_sink([](uint16_t page, uint16_t usage) { panel->send_key(page, usage); });
+
+It has to run inside the esphome being checked, so it takes that venv's
+python rather than a binary. Two blind spots are inherited and named: it
+carries checkyaml's micro_wake_word case, because that model is downloaded
+DURING validation and a sandbox with no route to github.com would otherwise
+report a good file as broken; and `GUITION_ PORTAL.yaml` is skipped by name,
+because it is a household's own configuration rather than an example this
+repository offers and its `esphome: name:` is theirs to fix.
+
+**`describe_role()` was read rather than trusted**, since the input slot has
+never held an address on any panel: `speaker ? remembered_.sink :
+remembered_.hid` and `speaker ? a2dp_open_ : hid_open_`, both branches
+correct. A slot nothing has ever exercised is exactly where a copy-paste
+reads the wrong member.
 
 ## Repository conventions
 

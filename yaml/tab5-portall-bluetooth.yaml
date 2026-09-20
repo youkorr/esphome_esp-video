@@ -375,10 +375,15 @@ portall_bt:
   # been fed in, which on a silent page is all the time.
   test_tone: 0
 
-  # A gamepad or a remote. Off because it costs flash and nothing here has one
-  # to pair with; the same pair button below finds either, since the class of
-  # device is what sorts a speaker from a joystick.
-  hid: false
+  # A gamepad or a remote. ON, and it used to be off with the comment "nothing
+  # here has one to pair with" -- which stopped being true the day an NVIDIA
+  # Shield controller paired with a panel and drove the launcher. The same
+  # pair button below finds either kind, since the class of device is what
+  # sorts a speaker from a joystick.
+  #
+  # Turn it off if this panel will only ever have a speaker: it is a whole HID
+  # host's worth of flash for a profile nothing uses.
+  hid: true
 
   device_name: "Tab5"
 
@@ -395,9 +400,14 @@ portall_bt:
   # is no use to somebody sitting down with a remote in their hand. Back stays
   # Escape, which is back WITHIN the page.
   #
-  # A gamepad is NOT covered: its report layout differs per device and is only
-  # knowable from its own report descriptor. Its bytes still reach
-  # `on_hid_report` below.
+  # A GAMEPAD IS COVERED TOO, and this comment used to say the opposite -- "its
+  # report layout differs per device and is only knowable from its own report
+  # descriptor", which is true and stopped being an obstacle: every HID device
+  # carries that descriptor, Bluedroid hands it over whole when the device
+  # connects, and this component reads it. So the d-pad is the arrows, A is
+  # Enter, B and Back are Escape and Home leaves the link, on a controller
+  # nobody had to measure first. Its raw bytes still reach `on_hid_report`
+  # below for anything the mapping has no meaning for.
   # `true` and not an id: there is one `portall:` per board and nobody should
   # have to go and read their own. An id still works for a configuration that
   # wants to be explicit -- and copying THIS line with an id in it is what
@@ -424,15 +434,24 @@ portall_bt:
 # inquiry -- and an inquiry takes this panel's own Wi-Fi down for as long as it
 # runs, measured twice on this board.
 #
-# Only `speaker:` is here because `hid: false` above. Add `input:` beside it
-# when a gamepad or a remote is paired, or the entity would read `none` for
-# ever, which is worse than not offering it.
+# BOTH SLOTS, because `hid: true` above. This block carried only `speaker:`
+# while hid was off, on the rule that an entity which can only ever read
+# `none` is worse than no entity -- so if this panel will only have a speaker,
+# take `input:` back out along with `hid:`.
+#
+# Each reads the ADDRESS and whether it is connected: `none`, `<addr>
+# connected`, `<addr> paired, away`, or `<addr> (Bluetooth off)`. The address
+# rather than the name, because what is kept across a restart is six bytes and
+# nothing else.
 # ---------------------------------------------------------------------------
 text_sensor:
   - platform: portall_bt
     speaker:
       name: "Bluetooth speaker"
       icon: mdi:speaker-bluetooth
+    input:
+      name: "Bluetooth controller"
+      icon: mdi:controller
 
 button:
   # Pairing is an ACTION and never a loop. An inquiry sweeps the whole 2.4 GHz
@@ -440,8 +459,11 @@ button:
   # exactly as long as it ran, twice, on two different channels -- which on a
   # panel fed over Wi-Fi is the picture stopping. Everything afterwards
   # reconnects BY ADDRESS, which scans nothing at all.
+  #
+  # It is named for neither device on purpose: ONE button finds both, and
+  # offering two would be two ten-second Wi-Fi outages where one does.
   - platform: template
-    name: "Pair a Bluetooth speaker"
+    name: "Pair a Bluetooth device"
     on_press:
       - portall_bt.pair: dongle
 
@@ -452,6 +474,12 @@ button:
     entity_category: config
     on_press:
       - portall_bt.forget_speaker: dongle
+
+  - platform: template
+    name: "Forget Bluetooth controller"
+    entity_category: config
+    on_press:
+      - portall_bt.forget_input: dongle
 
   # Every bond at once. Kept beside the one above because a panel that has got
   # into a state nobody can explain wants the big hammer, and it is the only
