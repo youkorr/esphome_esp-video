@@ -180,13 +180,111 @@ int main() {
   }
   {
     PortallBT *bt = fresh();
-    // A gamepad's report is not this shape, and this component does not
-    // pretend to read one: the RESERVED byte being non-zero is the whole of
-    // the test, and it is why `keys:` has to be asked for.
+    // An eight-byte report whose RESERVED byte is not zero is not a keyboard
+    // and is not the Shield's shape either, so nothing is decoded from it.
     const uint8_t gamepad[8] = {0x80, 0x7F, 0x80, 0x7F, 0x08, 0x00, 0x00, 0x00};
     bt->feed_hid_keys(gamepad, sizeof(gamepad));
-    ok("a report that is not a boot keyboard report is left alone",
-       g_sent.empty());
+    ok("a report that is neither shape is left alone", g_sent.empty());
+    delete bt;
+  }
+
+  std::printf("a gamepad, from the layout measured on a real Shield\n");
+  {
+    // 33 bytes behind report id 0x01; the hat in the HIGH nibble of byte 2,
+    // the face buttons in byte 3. THE FAULT: every one of these used to be
+    // dropped without a word -- a controller paired, connected, and every
+    // button doing nothing.
+    struct { uint8_t hat; uint16_t usage; const char *name; } hats[] = {
+        {0x0, 0x52, "hat north -> up"},
+        {0x2, 0x4F, "hat east  -> right"},
+        {0x4, 0x51, "hat south -> down"},
+        {0x6, 0x50, "hat west  -> left"},
+    };
+    for (const auto &one : hats) {
+      PortallBT *bt = fresh();
+      uint8_t pad[33] = {};
+      pad[0] = 0x01;
+      pad[2] = (uint8_t) (one.hat << 4);
+      bt->feed_pad_report(pad, sizeof(pad));
+      ok(one.name, only(one.usage));
+      delete bt;
+    }
+  }
+  {
+    PortallBT *bt = fresh();
+    uint8_t pad[33] = {};
+    pad[0] = 0x01;
+    pad[2] = 0x80;   // hat at rest
+    pad[3] = 0x01;   // A
+    bt->feed_pad_report(pad, sizeof(pad));
+    ok("A is ok", only(0x28));
+    delete bt;
+  }
+  {
+    PortallBT *bt = fresh();
+    uint8_t pad[33] = {};
+    pad[0] = 0x01;
+    pad[2] = 0x80;
+    pad[3] = 0x02;   // B
+    bt->feed_pad_report(pad, sizeof(pad));
+    ok("B is back", only(0x29));
+    delete bt;
+  }
+  {
+    PortallBT *bt = fresh();
+    uint8_t pad[33] = {};
+    pad[0] = 0x01;
+    pad[2] = 0x10;   // a diagonal: north-east
+    bt->feed_pad_report(pad, sizeof(pad));
+    // A grid of tiles has no diagonal, and choosing one of the two axes for
+    // the caller would be the invention this file exists to keep out.
+    ok("a diagonal on the hat moves nothing", g_sent.empty());
+    delete bt;
+  }
+  {
+    PortallBT *bt = fresh();
+    uint8_t pad[33] = {};
+    pad[0] = 0x01;
+    pad[2] = 0x80;
+    pad[3] = 0x01;
+    bt->feed_pad_report(pad, sizeof(pad));
+    bt->feed_pad_report(pad, sizeof(pad));
+    bt->feed_pad_report(pad, sizeof(pad));
+    // A thumb held on a button is in EVERY report, exactly as a key is.
+    ok("a button held down is sent once, not once per report", only(0x28));
+    delete bt;
+  }
+  {
+    PortallBT *bt = fresh();
+    uint8_t pad[33] = {};
+    pad[0] = 0x01;
+    pad[2] = 0x80;
+    for (int i = 0; i < 4; i++)
+      bt->feed_pad_report(pad, sizeof(pad));   // hat resting, nothing pressed
+    ok("a resting controller sends nothing at all", g_sent.empty());
+    delete bt;
+  }
+  {
+    PortallBT *bt = fresh();
+    uint8_t pad[33] = {};
+    pad[0] = 0x01;
+    pad[2] = 0x80;
+    pad[3] = 0x04;   // X, which has no agreed meaning in a page
+    bt->feed_pad_report(pad, sizeof(pad));
+    ok("an unmapped button reaches the page as nothing", g_sent.empty());
+    delete bt;
+  }
+  {
+    // THE WHOLE ROUTE, as a panel really has it: through feed_hid_keys,
+    // which is what drain_reports_ calls. The 33-byte report used to be
+    // dropped by looks_like_keyboard and that was the end of it.
+    PortallBT *bt = fresh();
+    uint8_t pad[33] = {};
+    pad[0] = 0x01;
+    pad[2] = 0x40;   // hat south
+    bt->feed_hid_keys(pad, sizeof(pad));
+    ok("and it arrives through feed_hid_keys, which is the real path",
+       only(0x51));
     delete bt;
   }
   {

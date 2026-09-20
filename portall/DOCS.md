@@ -367,6 +367,32 @@ the corner reaches -- the panel's own `url:`.
 Backspace and the rest go straight into whatever the page has focused, which
 is what a sign-in form wants.
 
+**A gamepad works too, and its d-pad is the arrows.** Pair it the same way,
+with `hid: true`:
+
+| on the controller | in the page |
+|---|---|
+| d-pad | the four arrows |
+| A | Enter |
+| B | Escape |
+| everything else | nothing yet -- see below |
+
+The d-pad's four directions are HID's own Hat Switch encoding, so this is not
+one controller's quirk; a diagonal deliberately moves nothing, because a grid
+of tiles has no diagonal and a cleaner press is the answer.
+
+**The other buttons name themselves in the log, once each**, because which bit
+is a given controller's Home or Start is not something this can know without
+being told:
+
+```
+gamepad: button bit 2 of byte 3 is pressed and is not mapped
+```
+
+Press the one you want, read that line, and it can be mapped. Until then the
+way out of a link from a controller is B (Escape, within the page) or the
+corner gesture on the glass.
+
 #### And whether the arrows do anything depends on the page
 
 This is the part to read before deciding a remote is broken. A browser does
@@ -381,6 +407,11 @@ differently:
 | **Jellyfin** | yes, **once its layout is TV** | Settings > Display > Layout: **TV** |
 | **Home Assistant** | no -- **Tab** moves between cards, Enter opens | nothing to set |
 | **anything else** | arrows scroll the page, Tab moves focus | -- |
+
+**If nothing happens at all, the log now says which of the three it is** --
+`keys:` not set, a report shape this cannot read (with its bytes), or a
+button that crossed and the page ignored. Before, all three were the same
+silence.
 
 The Jellyfin row is its own source rather than a guess:
 `src/scripts/keyboardNavigation.js` drops every navigation key unless
