@@ -86,6 +86,74 @@ async def portall_awake_to_code(config, action_id, template_arg, args):
     return var
 
 
+# portall.key and portall.home -- what a remote or a gamepad presses through.
+#
+# THE NAMES ARE RESOLVED HERE, so a YAML never carries a number and the board
+# never carries a table of names. What crosses the wire is the HID usage, and
+# the sender turns that into whatever its browser calls the key: one table, in
+# Python, correctable without reflashing a panel.
+#
+# The list is deliberately short and navigational. A remote's media buttons are
+# not here because a panel that plays to a Bluetooth speaker already has them
+# through AVRCP -- `on_media_key` on portall_bt -- and two ways to send play
+# and pause would be two things to keep in step.
+KEYS = {
+    # HID Keyboard/Keypad page, and these four are why this exists: YouTube's
+    # television interface and any grid of tiles are driven by arrows.
+    "up": (0x07, 0x52),
+    "down": (0x07, 0x51),
+    "left": (0x07, 0x50),
+    "right": (0x07, 0x4F),
+    "ok": (0x07, 0x28),  # Return
+    "back": (0x07, 0x29),  # Escape, which is what a television interface takes
+    "tab": (0x07, 0x2B),
+    "space": (0x07, 0x2C),
+    "page_up": (0x07, 0x4B),
+    "page_down": (0x07, 0x4E),
+}
+
+CONF_KEY = "key"
+
+KeyAction = portall_ns.class_("KeyAction", automation.Action)
+HomeAction = portall_ns.class_("HomeAction", automation.Action)
+
+
+@automation.register_action(
+    "portall.key",
+    KeyAction,
+    cv.maybe_simple_value(
+        {
+            cv.GenerateID(): cv.use_id(Portall),
+            cv.Required(CONF_KEY): cv.one_of(*KEYS, lower=True),
+        },
+        key=CONF_KEY,
+    ),
+    # send_key() writes into a queue and returns; the network task is what
+    # touches the socket. Nothing is deferred to a callback or a timer.
+    synchronous=True,
+)
+async def portall_key_to_code(config, action_id, template_arg, args):
+    var = cg.new_Pvariable(action_id, template_arg)
+    await cg.register_parented(var, config[CONF_ID])
+    page, usage = KEYS[config[CONF_KEY]]
+    cg.add(var.set_usage(page, usage))
+    return var
+
+
+@automation.register_action(
+    "portall.home",
+    HomeAction,
+    _AWAKE_ACTION_SCHEMA,
+    # ask_home() sets a latch. Same shape as sleep and wake, which is why it
+    # shares their schema.
+    synchronous=True,
+)
+async def portall_home_to_code(config, action_id, template_arg, args):
+    var = cg.new_Pvariable(action_id, template_arg)
+    await cg.register_parented(var, config[CONF_ID])
+    return var
+
+
 # portall.set_volume, for a volume somebody wants to own themselves: a template
 # number with restore_value and an initial_value, which is how ESPHome does a
 # setting and is what the component's own number entity deliberately is not --

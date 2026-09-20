@@ -183,6 +183,34 @@ def find_endpoint(vid, pid):
     return device, endpoint
 
 
+# What a remote's or a gamepad's button becomes in a browser.
+#
+# THE TABLE IS HERE AND NOT ON THE BOARD, which is the one design decision in
+# this whole path: the far end of this socket is a browser, and "ArrowDown" is
+# the browser's word rather than the board's. The board sends the HID usage the
+# device itself reported, so this table can be corrected -- or a key added --
+# by rebuilding the add-on, which happens on its own, instead of by reflashing
+# every panel in the house.
+#
+# Keyed on (usage page, usage). Page 0x07 is HID's Keyboard/Keypad page and
+# these codes are the specification's, not anybody's invention.
+BROWSER_KEYS = {
+    (0x07, 0x52): "ArrowUp",
+    (0x07, 0x51): "ArrowDown",
+    (0x07, 0x50): "ArrowLeft",
+    (0x07, 0x4F): "ArrowRight",
+    (0x07, 0x28): "Enter",
+    (0x07, 0x29): "Escape",
+    (0x07, 0x2B): "Tab",
+    (0x07, 0x2C): " ",
+    (0x07, 0x4B): "PageUp",
+    (0x07, 0x4E): "PageDown",
+}
+
+
+_unknown_keys = set()
+
+
 def parse_messages(buffer):
     """Pull whole messages out of a byte buffer from the board.
 
@@ -207,6 +235,12 @@ def parse_messages(buffer):
       Two bytes like b"S" rather than one, because two is the shortest thing
       this parser can recognise at all.
 
+      b"K", then a HID usage page and a usage, both little-endian: five bytes,
+      one key press. A remote or a gamepad paired to the board through
+      portall_bt, replayed into the page with the browser's own keyboard --
+      which is the only way a panel with no keys can drive an interface built
+      for arrows, YouTube's television one above all.
+
     Returns ("touch", contacts), ("awake", bool) and ("home", True) pairs, and
     whatever tail is still short of a whole message so the caller can hand it
     back next time.
@@ -224,6 +258,26 @@ def parse_messages(buffer):
         if kind == ord("H"):
             messages.append(("home", True))
             at += 2
+            continue
+        if kind == ord("K"):
+            if len(buffer) - at < 5:
+                break
+            page = buffer[at + 1] | (buffer[at + 2] << 8)
+            usage = buffer[at + 3] | (buffer[at + 4] << 8)
+            # The name is resolved here rather than by the caller, so a usage
+            # this sender has never heard of is dropped at the one place that
+            # knows what the table holds -- and says so once, because a button
+            # that does nothing is exactly the silence this project keeps
+            # having to break.
+            name = BROWSER_KEYS.get((page, usage))
+            if name is None:
+                if (page, usage) not in _unknown_keys:
+                    _unknown_keys.add((page, usage))
+                    print(f"Key: HID usage {page:#06x}/{usage:#06x} arrived and "
+                          f"this sender has no browser key for it")
+            else:
+                messages.append(("key", name))
+            at += 5
             continue
         if kind != ord("T"):
             # Not a message boundary: skip a byte rather than reading a length
