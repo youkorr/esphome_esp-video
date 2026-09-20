@@ -27,9 +27,10 @@
  * own report descriptor -- true, and it stopped being the obstacle the moment
  * somebody read one off a real device. The layout below is the USER'S OWN,
  * measured from an NVIDIA Shield controller against this component's
- * `show_reports:` and written up in `universal_hid.h`, which sat in this
- * repository included by nothing while a panel reported that no button did
- * anything.
+ * `show_reports:`. It reached this file by way of a `universal_hid.h` they
+ * wrote and this repository carried, included by nothing, while a panel
+ * reported that no button did anything; that file is gone now, because two
+ * copies of one mapping drift the moment anybody adds a device.
  *
  * And it corroborates itself, which is what made it safe to take. Their hat
  * values -- 0 up, 2 right, 4 down, 6 left, 8 at rest -- are not arbitrary:
