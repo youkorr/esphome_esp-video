@@ -457,6 +457,17 @@ PAGE = """<!doctype html>
    -webkit-tap-highlight-color: transparent;
  }
  a.tile:active { border-color: var(--accent); transform: scale(.985); }
+ /* Where a remote is pointing. A panel driven by arrow keys has nothing else
+    to say which tile is chosen -- there is no pointer and no hover -- so this
+    is the whole of the feedback. Thick enough to read across a room, and NOT
+    animated: a ring that pulses is a repaint, and a repaint is a rectangle on
+    the wire for as long as the panel is awake. */
+ a.tile:focus { outline: none; }
+ a.tile:focus-visible, a.tile.chosen {
+   outline: none;
+   border-color: var(--accent);
+   box-shadow: 0 0 0 .5vmin var(--accent);
+ }
  .icon {
    flex: none; width: clamp(44px, 9vw, 74px); height: clamp(44px, 9vw, 74px);
    display: grid; place-items: center; border-radius: 28%%;
@@ -724,6 +735,65 @@ def weather_block(state):
     icon = SKY.get(str(state.get("condition") or "").lower(), "")
     text = str(state.get("text") or "")
     return html.escape(icon), html.escape(text)
+
+# Arrow keys across the tiles, which is what makes a remote or a gamepad worth
+# pairing at all.
+#
+# WITHOUT THIS THE WHOLE CHAIN DOES NOTHING HERE. A tile is a plain <a href>,
+# and in a browser the arrow keys do not move the focus between links -- only
+# Tab does. So a panel could pair a remote, carry its presses over the socket,
+# replay them perfectly into the page, and still sit there, because nothing on
+# the page was listening for an arrow. It is the cheapest piece of this whole
+# path and the one it could not work without.
+#
+# Geometric rather than document order: the tiles are a grid, and "down" means
+# the tile below rather than the next one in the markup. `along + across * 3`
+# is what decides between two candidates the same distance away -- straight
+# ahead beats near-and-sideways.
+KEYS_JS = """<script>
+(function () {
+  var WAY = {ArrowUp: 'u', ArrowDown: 'd', ArrowLeft: 'l', ArrowRight: 'r'};
+  function middle(el) {
+    var r = el.getBoundingClientRect();
+    return {x: r.left + r.width / 2, y: r.top + r.height / 2};
+  }
+  function nearest(from, way, all) {
+    var here = middle(from), best = null, score = Infinity;
+    for (var i = 0; i < all.length; i++) {
+      if (all[i] === from) continue;
+      var there = middle(all[i]);
+      var dx = there.x - here.x, dy = there.y - here.y;
+      var along, across;
+      if (way === 'u') { along = -dy; across = Math.abs(dx); }
+      else if (way === 'd') { along = dy; across = Math.abs(dx); }
+      else if (way === 'l') { along = -dx; across = Math.abs(dy); }
+      else { along = dx; across = Math.abs(dy); }
+      if (along <= 1) continue;
+      var s = along + across * 3;
+      if (s < score) { score = s; best = all[i]; }
+    }
+    return best;
+  }
+  document.addEventListener('keydown', function (e) {
+    var way = WAY[e.key];
+    if (!way) return;
+    var all = [].slice.call(document.querySelectorAll('a.tile'));
+    if (!all.length) return;
+    var from = document.activeElement;
+    if (all.indexOf(from) < 0) {
+      /* Nothing chosen yet, so the first arrow CHOOSES rather than moves.
+         Deliberately not done when the page loads: a focus ring drawn on
+         arrival is a rectangle on the wire for every panel in the house,
+         including the ones nobody drives with a remote. */
+      all[0].focus();
+      e.preventDefault();
+      return;
+    }
+    var next = nearest(from, way, all);
+    if (next) { next.focus(); e.preventDefault(); }
+  });
+})();
+</script>"""
 
 TILE = ('<a class="tile" href="%(url)s">'
         '<span class="icon%(icon_long)s">%(icon)s</span>'
@@ -1024,7 +1094,11 @@ def render(links, title="", subtitle="", theme="dark",
             now += (f'<span class="wx"><span class="sky" id="sky">{sky}</span>'
                     f'<span class="out" id="temp">{temp}</span></span>')
         now += "</div>"
-    scripts = (CLOCK_JS if clock else "") + (
+    # Always, and not behind an option. It costs one listener that fires on a
+    # key nobody presses unless there is a remote, and an option for it would
+    # be one more thing to read past -- which this add-on has already had to
+    # take five settings off the form for.
+    scripts = KEYS_JS + (CLOCK_JS if clock else "") + (
         WEATHER_JS % {"path": WEATHER_PATH} if weather is not None else "")
 
     # The bar's own rules, after the sheet above and before nothing: there is

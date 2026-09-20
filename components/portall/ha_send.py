@@ -4481,9 +4481,18 @@ def main():
                         last_sent = started
 
                     reports = []
+                    keys = []
                     for kind, body in endpoint.read_messages():
                         if kind == "touch":
                             reports.append(body)
+                            continue
+                        if kind == "key":
+                            # A remote or a gamepad paired to the board, come
+                            # back up the same socket the touches use. The
+                            # board sent a HID usage; the name arrives already
+                            # resolved, because only this end knows what a
+                            # browser calls a key.
+                            keys.append(body)
                             continue
                         if kind == "home":
                             # portall.home on the board. Until now the way back
@@ -4583,6 +4592,36 @@ def main():
                             if injector is None or injector.began:
                                 pending = None
                                 capture.request(discard=True)
+
+                    if keys:
+                        for name in keys:
+                            # Always said out loud, and it costs nothing: a
+                            # person presses a button a few times a minute
+                            # where a finger reports fifty times a second. A
+                            # button that did nothing and said nothing is the
+                            # exact silence this project keeps having to
+                            # break, and one line settles whether the press
+                            # crossed the link or the page ignored it.
+                            print(f"Key: {name}")
+                            try:
+                                page.keyboard.press(name)
+                            except Exception as problem:  # noqa: BLE001
+                                # An accessory must never cost the picture.
+                                print(f"Key: {name} would not go in ({problem})")
+                        if URGENT_AFTER_INPUT:
+                            # A key is an input exactly as a contact is, and
+                            # what a button STARTS is where the frame limit
+                            # hurts most: a tile opening, a row of the
+                            # television interface sliding. Same window.
+                            #
+                            # The frame in hand is NOT thrown away, and that is
+                            # the difference from a landing finger. A press
+                            # discards what predates it because none of it
+                            # shows the press; a key changes nothing on screen
+                            # by itself, so the picture in hand is still the
+                            # newest true one, and asking the browser to start
+                            # again would only cost an interval.
+                            urgent_until = time.monotonic() + args.urgent_window
 
                     loops += 1
                     now = time.monotonic()

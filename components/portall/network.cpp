@@ -76,6 +76,29 @@ void Portall::queue_touch_(const touchscreen::TouchPoints_t &points) {
 }
 #endif  // USE_TOUCHSCREEN
 
+void Portall::ask_home() {
+  /* A latch rather than a queue: going home twice is going home once, and a
+     panel asked before a sender has connected should go home when one does
+     rather than forgetting it was asked. */
+  this->home_pending_ = true;
+  ESP_LOGD(TAG, "Asked to go back to this panel's own page");
+}
+
+void Portall::send_key(uint16_t usage_page, uint16_t usage) {
+  if (this->key_queue_ == nullptr)
+    return;
+  const KeyEvent event{usage_page, usage};
+  if (xQueueSend(this->key_queue_, &event, 0) != pdTRUE) {
+    /* Drop the OLDEST, as the touch queue does. A full queue here means the
+       link has gone away while somebody kept pressing, and the presses worth
+       keeping are the last ones -- what a person pressed most recently is
+       what they still want to happen. */
+    KeyEvent discarded;
+    xQueueReceive(this->key_queue_, &discarded, 0);
+    xQueueSend(this->key_queue_, &event, 0);
+  }
+}
+
 void Portall::set_awake(bool awake) {
   if (this->asleep_ != !awake) {
     this->asleep_ = !awake;
@@ -90,18 +113,48 @@ void Portall::send_queued_messages_(int client) {
      sender's parser needs at least two to recognise anything. The second is
      the state itself.
 
-     There was an 'H' here too, for a portall.home action that put the panel
-     back on its own page from the YAML. It is gone: the corner gesture is how
-     a panel comes home, nobody was calling the action, and a message type
-     nothing sends is a thing to keep in step for no one. The SENDER still
-     understands 'H', deliberately -- a board flashed before this and a sender
-     fetched after it are not updated together, so the tolerant half is the
-     one to keep. */
+     'H' was removed once, as a portall.home action nobody was calling, and the
+     SENDER's half was deliberately kept -- a board is flashed by hand and the
+     sender is fetched when the add-on's image is built, so the two are never
+     updated together and the tolerant end is the one to keep. That patience
+     paid: a remote with a Back button is what wanted it, and putting the board
+     half back needed no change to any sender at all.
+
+     'K' is the new one, and it is five bytes rather than two. */
   if (this->status_pending_) {
     this->status_pending_ = false;
     const uint8_t message[2] = {'S', (uint8_t) (this->asleep_ ? 0 : 1)};
     if (::send(client, message, sizeof(message), MSG_DONTWAIT) < 0)
       this->status_pending_ = true;
+  }
+
+  /* 'H' again, and this is the message the comment above says the sender still
+     understands -- so a panel flashed with this and an add-on built any time
+     in the last several releases already agree about it. Nothing on the sender
+     side had to change for a remote's Back button to bring a panel home. */
+  if (this->home_pending_) {
+    this->home_pending_ = false;
+    const uint8_t message[2] = {'H', 0};
+    if (::send(client, message, sizeof(message), MSG_DONTWAIT) < 0)
+      this->home_pending_ = true;
+  }
+
+  /* 'K', then a HID usage page and usage, both little-endian: five bytes, the
+     same fixed shape as the two above rather than a length-prefixed thing of
+     its own. The sender turns the usage into whatever its browser calls that
+     key, which is why no name crosses here. */
+  if (this->key_queue_ != nullptr) {
+    KeyEvent key;
+    while (xQueuePeek(this->key_queue_, &key, 0) == pdTRUE) {
+      const uint8_t message[5] = {
+          'K',
+          (uint8_t) (key.page & 0xFF),  (uint8_t) (key.page >> 8),
+          (uint8_t) (key.usage & 0xFF), (uint8_t) (key.usage >> 8),
+      };
+      if (::send(client, message, sizeof(message), MSG_DONTWAIT) < 0)
+        return;
+      xQueueReceive(this->key_queue_, &key, 0);
+    }
   }
 #ifdef USE_TOUCHSCREEN
   if (this->touch_queue_ == nullptr)
@@ -137,6 +190,9 @@ void Portall::setup_network_() {
     this->touch_queue_ = xQueueCreate(8, sizeof(TouchEvent));
   }
 #endif
+  /* Not behind USE_TOUCHSCREEN: a key has nothing to do with a touch screen,
+     and a panel driven entirely by a remote may have no digitizer at all. */
+  this->key_queue_ = xQueueCreate(UDISP_NET_KEY_QUEUE, sizeof(KeyEvent));
   // Utilisation de tskNO_AFFINITY pour répartir la charge réseau sur les deux cœurs RISC-V du P4
   xTaskCreatePinnedToCore(Portall::network_task, "udispnet", 4096, this, 4, nullptr, tskNO_AFFINITY);
   ESP_LOGCONFIG(TAG, "Listening on port %u for frames", (unsigned) this->port_);

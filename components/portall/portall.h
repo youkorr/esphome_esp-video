@@ -46,6 +46,14 @@ namespace portall {
 /// digitizer reports over HID, so neither path is the narrower one.
 static constexpr uint8_t UDISP_NET_TOUCH_MAX = 5;
 
+/* Key presses waiting to go back to the sender. Eight, because a remote is
+   somebody pressing a button and not a stream -- and because a full queue
+   drops its OLDEST, the same rule the touch queue and portall_bt's report
+   queue live under. Here it is milder than for a finger: there is no release
+   to lose, since one press crosses as one message. What it protects against
+   is a button held down against a link that has gone away. */
+static constexpr uint8_t UDISP_NET_KEY_QUEUE = 8;
+
 /**
  * @brief Turns the ESP32-P4 into a second monitor for a PC over USB.
  *
@@ -183,6 +191,28 @@ class Portall : public Component
   /// command, none of which need a finger on the glass at all.
   ///
   /// Like set_awake this only TELLS the sender. Nothing on the board changes.
+  ///
+  /// This documentation outlived its function by several releases: the
+  /// portall.home action was removed as unused, and both this comment and the
+  /// member's own down in the protected section were left describing something
+  /// that no longer existed. A remote with a Back button is what wants it, so
+  /// it is back rather than tidied away.
+  void ask_home();
+
+  /// One key press, as the HID usage the device itself reported.
+  ///
+  /// WHY A USAGE AND NOT A KEY NAME, which is the whole design decision here:
+  /// what is on the other end of this socket is a BROWSER, and the names a
+  /// browser knows ("ArrowDown", "Enter") are the browser's vocabulary rather
+  /// than the board's. Sending the usage keeps ONE table, in the sender's
+  /// Python, where it can be corrected without reflashing a panel -- the same
+  /// split every other part of this project already makes: the board carries,
+  /// the sender knows what a page is.
+  ///
+  /// A press, not a down and an up. A remote button is a press, and holding
+  /// one to repeat is not something a grid of tiles needs; leaving the pair
+  /// out means nothing can be left held down by a message that went missing.
+  void send_key(uint16_t usage_page, uint16_t usage);
 
  protected:
   /// One frame in flight: a compressed frame being filled by USB, or a full one
@@ -318,6 +348,16 @@ class Portall : public Component
      on catching it the same millisecond. It stays set while no sender is
      connected, so a panel asked to go home before one arrives goes home when
      it does. */
+  volatile bool home_pending_{false};
+
+  /* Keys meet the network task the way contacts do: the action plays on
+     ESPHome's loop and the socket is written from the network task, so they
+     do not touch the same descriptor. */
+  struct KeyEvent {
+    uint16_t page;
+    uint16_t usage;
+  };
+  QueueHandle_t key_queue_{nullptr};
 
   Frame *frames_{nullptr};
   QueueHandle_t empty_queue_{nullptr};
@@ -474,6 +514,27 @@ template<typename... Ts> class WakeAction final : public Action<Ts...>, public P
  * refused: a volume is not worth failing a boot over, and set_audio_volume
  * says so once when it happens.
  */
+/* portall.key and portall.home, which is what a remote or a gamepad presses
+   through. The KEY is resolved to its HID usage at codegen, so nothing on the
+   board carries a table of names and a YAML never carries a number. */
+template<typename... Ts> class KeyAction final : public Action<Ts...>, public Parented<Portall> {
+ public:
+  void set_usage(uint16_t page, uint16_t usage) {
+    this->page_ = page;
+    this->usage_ = usage;
+  }
+  void play(const Ts &...) override { this->parent_->send_key(this->page_, this->usage_); }
+
+ protected:
+  uint16_t page_{0};
+  uint16_t usage_{0};
+};
+
+template<typename... Ts> class HomeAction final : public Action<Ts...>, public Parented<Portall> {
+ public:
+  void play(const Ts &...) override { this->parent_->ask_home(); }
+};
+
 template<typename... Ts> class SetVolumeAction final : public Action<Ts...>, public Parented<Portall> {
  public:
   TEMPLATABLE_VALUE(float, volume)

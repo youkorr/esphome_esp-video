@@ -383,9 +383,37 @@ portall_bt:
   device_name: "Tab5"
 
   on_media_key:
+    # The car receiver's steering wheel, or the button on an earcup -- and the
+    # one remote that needs NOTHING guessed, because AVRCP's key codes are a
+    # fixed enumeration rather than a per-device report layout.
+    #
+    # This is what drives the launcher's tiles: portall.key replays a press
+    # into the browser rendering the page, which is the only way a panel with
+    # no keys can move around an interface built for arrows.
     - lambda: |-
-        // The car receiver's steering wheel, or the button on an earcup.
         ESP_LOGI("panel", "button %02x %s", code, pressed ? "down" : "up");
+    - if:
+        condition:
+          lambda: 'return pressed && code == ESP_AVRC_PT_CMD_FORWARD;'
+        then:
+          - portall.key: down
+    - if:
+        condition:
+          lambda: 'return pressed && code == ESP_AVRC_PT_CMD_BACKWARD;'
+        then:
+          - portall.key: up
+    - if:
+        condition:
+          lambda: 'return pressed && code == ESP_AVRC_PT_CMD_PLAY;'
+        then:
+          - portall.key: ok
+    - if:
+        condition:
+          lambda: 'return pressed && code == ESP_AVRC_PT_CMD_STOP;'
+        then:
+          # Back to this panel's own page. Not a key at all: it is the 'H'
+          # message, which every sender has understood for releases.
+          - portall.home: panel
 
   on_media_volume:
     - lambda: |-

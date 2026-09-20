@@ -5070,6 +5070,162 @@ Nothing has paired over HID, so the input slot has never held an address. And
 bytes to buttons -- is **included by nothing**, so a paired gamepad's buttons
 still reach the YAML as raw bytes through `on_hid_report` and no further.
 
+## A remote drives the links, and the arrow keys were the part nobody would have checked
+
+**Asked three times before it was built, which is the finding.** First
+*"il fonctionne pas avec mes link de mon addon?"*, then a link to
+**bluepad32**, then -- fairly -- *"tu ma pas dit ce que tu propose ... car il
+ya que l'audio qui fonctionne avec le bluetooth"*. Two rounds of correct
+analysis and no proposal. That is this file's most-recorded shape in its
+fifth costume: an answer the reader cannot act on has not been delivered.
+
+### The fault that would have shipped: `<a href>` does not listen to arrows
+
+```
+TILE = ('<a class="tile" href="%(url)s">'
+```
+
+No `tabindex`, no `keydown`. **In a browser the arrow keys do not move the
+focus between links -- only Tab does.** So the whole chain could have been
+built, flashed, and proved end to end on the wire, and a panel would have sat
+there doing nothing: the remote pairs, the board carries the press, the sender
+replays it perfectly into the page, and the page has never been listening.
+
+It is the cheapest line of this whole path and the one it could not work
+without. `KEYS_JS` in `launcher.py` moves between tiles **geometrically** --
+down means the tile below, not the next one in the markup -- because the tiles
+are a grid. `along + across * 3` is what decides between two candidates the
+same distance away: straight ahead beats near-and-sideways.
+
+Two decisions worth keeping:
+
+- **Nothing is focused when the page loads.** A focus ring drawn on arrival is
+  a rectangle on the wire for every panel in the house, including the ones
+  nobody drives with a remote. The FIRST arrow chooses; after that it moves.
+- **The ring does not pulse.** Same rule `HomeHint` lives under: a repaint is
+  a rectangle on the wire for as long as the panel is awake.
+
+### What crosses the wire is a HID usage, and the table lives in Python
+
+`'K'`, then a usage page and a usage, both little-endian -- five bytes, the
+same fixed shape as `'T'` and `'S'` rather than a length-prefixed thing of its
+own.
+
+**The far end of this socket is a BROWSER, and "ArrowDown" is the browser's
+word rather than the board's.** So the board sends the usage the device itself
+reported and `BROWSER_KEYS` in `udisp_send.py` turns it into a key name: ONE
+table, in the sender's Python, corrected by rebuilding the add-on's image --
+which happens on its own -- instead of by reflashing every panel in the house.
+It is the same split every other part of this project already makes.
+
+A press, not a down and an up. A remote button is a press, holding one to
+repeat is not something a grid of tiles needs, and leaving the pair out means
+nothing can be left held down by a message that went missing.
+
+`portall.key: down` is the YAML surface: the NAME is resolved to its usage at
+codegen, so a YAML never carries a number and the board never carries a table
+of names.
+
+### `portall.home` is back, and the sender's tolerance is what paid
+
+4.9.0 removed the action and **deliberately kept the sender's half of `'H'`**,
+on the grounds that a board is flashed by hand while the sender is fetched
+when the add-on's image is built, so the two are never updated together and
+the tolerant end is the one to keep. A remote's Back button is what wanted it.
+Putting the board half back needed **no change to any sender at all** -- a
+panel flashed with this works against an add-on built any time in the last
+several releases.
+
+That is the first time in this file a piece of deliberate patience has been
+collected on, and it is worth saying so: the rule is not "keep everything", it
+is that the END THAT CANNOT BE UPDATED TOGETHER WITH THE OTHER should be the
+tolerant one.
+
+**And the removal left two remnants behind.** The public documentation comment
+for `ask_home()` and the protected comment for `home_pending_` were both still
+there, describing a method and a member that had been deleted -- a paragraph
+each, in a header, about something that did not exist. Neither is visible from
+a diff of the change that removed them. The function went back under its own
+comments rather than the comments being tidied away.
+
+### `tools/checkkeys.py`, because the two tables sit in two files
+
+`KEYS` in `components/portall/__init__.py` and `BROWSER_KEYS` in
+`udisp_send.py` are exactly the hand-copied pair of constants this file names
+as the failure mode of every such pair: a name in one and not the other is a
+button that crosses the link perfectly and does nothing, and `esphome config`
+cannot see it -- one side is Python the board never runs and the other is
+Python the board never sees.
+
+It executes both tables rather than parsing them, and it also refuses a usage
+carrying a zero, which is `KeyAction`'s own uninitialised value. Reproduced
+against a broken copy before it was believed: a name the sender does not know
+and a name resolving to zero, both caught, exit 1.
+
+### The test's ruler was wrong before the code was
+
+The first browser test asserted that below *Home Assistant* is *Jellyfin*. It
+is not: at 800 px the grid has **two** columns, so *Jellyfin* is to the RIGHT
+and *YouTube* is below. Three assertions failed and the code was correct in
+all three. The expectations are derived from the geometry the browser actually
+computed now -- `below()` and `right_of()` read `getBoundingClientRect()` --
+so the test cannot be wrong about a layout it did not choose.
+
+Measured in the shipped Chromium at both panel shapes, on the real launcher
+served by its own server: 2 columns at 800x1280 and 3 at 1280x800, arrows
+moving correctly in all four directions at both, the bottom of the list
+keeping its focus rather than losing it, a letter key stealing nothing, and
+the focus ring read off the PIXELS -- (100,116,139) on the chosen tile's edge
+against (18,22,30) beside it.
+
+### On bluepad32, which somebody sent and which is the right pointer
+
+- **It does not support the ESP32-P4**, and cannot: its targets are ESP32, S3,
+  C3, C6, H2, Pico W, Pico 2 W and Posix, `esp32p4` appears nowhere in the
+  tree, and it drives the chip's OWN Bluetooth controller -- which is the one
+  thing a P4 has none of.
+- **It is BTstack, not Bluedroid** (`REQUIRES "btstack"`), and its own LICENSE
+  says so in its first lines: Apache 2.0, but depending on BlueKitchen's
+  stack, which is commercial and free for open source. Adopting it means
+  replacing the host stack that took nine faults to raise, plus writing a
+  BTstack HCI transport over CherryUSB -- BTstack's USB transport is
+  libusb/Posix only.
+- **The portable prize is `uni_hid_parser_generic.c`**: Apache 2.0, and
+  **zero references to btstack**. It does not read raw bytes; it reads
+  `(usage_page, usage, value)` already decoded, and ranges them into a unified
+  gamepad. That is precisely the mapping this project has been unable to write
+  without a device in hand.
+- **And reading it found the opening in OUR stack.** ESP-IDF v5.5.5's
+  `esp_hidh_api.h`, read rather than remembered:
+  `ESP_HIDH_GET_DSCP_EVT` -> `dscp { vendor_id, product_id, version, dl_len,
+  dsc_list }`. **Bluedroid already hands us the device's own HID report
+  descriptor and its VID/PID.** So the descriptor-driven route is open on the
+  stack we have, with no BTstack at all. What is missing is a descriptor
+  WALKER -- descriptor plus report to usages -- which is the BlueKitchen-
+  licensed piece in BTstack and would have to be written or sourced.
+
+  That corrects what this file would otherwise have said, and what was said in
+  chat: that a mapping cannot be written without the user's own log. True of a
+  mapping written BY HAND. Not true of one driven by the descriptor, because
+  the device says where its own buttons are.
+
+### What is NOT done
+
+- **A gamepad's raw reports still stop at the YAML.** `on_hid_report` hands
+  over bytes and nothing decodes them; `universal_hid.h` is still included by
+  nothing and would only write to the log if it were. The route that works
+  today with no guessing is **AVRCP** -- `on_media_key`, whose key codes are a
+  fixed enumeration rather than a per-device report layout -- and
+  `yaml/tab5-portall-bluetooth.yaml` wires exactly that to `portall.key`.
+- No C++ here has been compiled by a real toolchain. What is proved is the
+  codegen (`set_usage(7, 81)`, `(7, 82)`, `(7, 40)` and a `HomeAction`, read
+  off `generate_cpp_contents` at 2026.8.2), the wire parser against a message
+  split one byte at a time, the two tables' join, and the launcher in a real
+  browser.
+- **Nothing has been driven from an actual remote.** The chain is proved
+  piece by piece on a workstation; whether a car receiver's Forward button
+  moves a tile is one flash away.
+
 ## Repository conventions
 
 - Work on branch `claude/esphome-pr-outdated-mdq36w`, then merge into `main`

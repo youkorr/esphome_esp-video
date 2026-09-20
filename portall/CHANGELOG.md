@@ -1,5 +1,34 @@
 # Changelog
 
+## 4.10.0
+
+- **A remote or a gamepad can drive the links.** The tiles are plain
+  `<a href>`, and in a browser the arrow keys do not move the focus between
+  links -- only Tab does. So a panel could pair a remote, carry its presses
+  across the socket and replay them perfectly into the page, and still sit
+  there. The launcher listens for the arrows now and moves between tiles
+  geometrically: down means the tile below, not the next one in the markup.
+
+  The chosen tile shows a ring in the accent colour, because a panel driven by
+  arrows has nothing else to say where it is -- no pointer, no hover. It is not
+  animated: a ring that pulses is a repaint, and a repaint is a rectangle on
+  the wire for as long as the panel is awake. Nothing is focused when the page
+  loads, so a panel nobody drives with a remote sends exactly what it sent
+  before; the first arrow chooses rather than moves.
+
+- **`portall.home` is back**, one release after it was removed -- and putting
+  it back needed no change to any sender at all. 4.9.0 kept the sender's half
+  of the `'H'` message deliberately, on the grounds that a board is flashed by
+  hand while the sender is fetched when this image is built, so the two are
+  never updated together and the tolerant end is the one to keep. A remote with
+  a Back button is what wanted it, and that patience is what paid.
+
+- **`portall.key`** is the new half: it replays one key into the browser
+  rendering the page. What crosses the wire is the HID usage the device itself
+  reported, and this sender turns it into the browser's own name for that key
+  -- one table, here, correctable by rebuilding this image rather than by
+  reflashing every panel in the house.
+
 ## 4.9.0
 
 - **`portall.home` is removed.** It was added so the way back could be
