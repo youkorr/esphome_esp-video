@@ -313,10 +313,9 @@ void PortallBT::note_keyboard_keys_(const uint8_t *now) {
 
 void PortallBT::feed_hid_descriptor(const uint8_t *desc, uint16_t len, uint16_t vendor,
                                     uint16_t product) {
-  /* One parse per connection, and the log line is the diagnostic that the
-     last two rounds of this both needed and did not have: it says whether
-     this device can be driven at all, before anybody presses anything. */
-  this->hid_map_.clear();
+  /* Every arrival resets what is REMEMBERED about the device's buttons -- a
+     controller that hung up and came back is not still holding whatever it
+     was holding, and a stale hat position would swallow the first press. */
   this->pad_dpad_ = 0xFF;
   this->pad_buttons_ = 0;
   this->pad_said_ = 0;
@@ -324,19 +323,71 @@ void PortallBT::feed_hid_descriptor(const uint8_t *desc, uint16_t len, uint16_t 
   this->said_no_descriptor_ = false;
   memset(this->held_, 0, sizeof(this->held_));
 
+  /* THE SAME DESCRIPTOR AGAIN IS NOT NEWS, and on this hardware it is the
+     common case: a panel's own log shows a Shield reconnecting every eleven
+     seconds, which would otherwise re-parse 379 bytes and print the same two
+     lines each time, burying whatever else was being looked for. */
+  uint32_t sum = 0;
+  for (uint16_t i = 0; i < len; i++)
+    sum = sum * 31u + desc[i];
+  if (len != 0 && len == this->desc_seen_len_ && sum == this->desc_seen_sum_ &&
+      this->hid_map_.ready())
+    return;
+  this->desc_seen_len_ = len;
+  this->desc_seen_sum_ = sum;
+
+  this->hid_map_.clear();
   if (!this->hid_map_.parse(desc, len)) {
     ESP_LOGW(TAG,
              "input device %04x:%04x sent a %u-byte report descriptor this "
              "could not read, so its buttons reach on_hid_report and go no "
              "further",
              (unsigned) vendor, (unsigned) product, (unsigned) len);
+    this->say_descriptor_(desc, len);
     return;
   }
-  ESP_LOGI(TAG,
-           "input device %04x:%04x described itself: %u bytes, %u fields%s",
-           (unsigned) vendor, (unsigned) product, (unsigned) len,
-           (unsigned) this->hid_map_.field_count(),
-           this->hid_map_.truncated() ? " (and more than this can hold)" : "");
+  if (this->hid_map_.truncated()) {
+    /* Named with BOTH numbers, because a limit that only says it was reached
+       leaves the next person guessing at what to raise it to -- which is
+       exactly what the line this replaces did, at the cost of a round. */
+    ESP_LOGW(TAG,
+             "input device %04x:%04x described itself in %u bytes and %u "
+             "fields, of which only %u fit -- buttons past that one are not "
+             "decoded",
+             (unsigned) vendor, (unsigned) product, (unsigned) len,
+             (unsigned) this->hid_map_.wanted_fields(),
+             (unsigned) this->hid_map_.field_count());
+  } else {
+    ESP_LOGI(TAG, "input device %04x:%04x described itself: %u bytes, %u fields",
+             (unsigned) vendor, (unsigned) product, (unsigned) len,
+             (unsigned) this->hid_map_.field_count());
+  }
+  this->say_descriptor_(desc, len);
+}
+
+void PortallBT::say_descriptor_(const uint8_t *desc, uint16_t len) {
+  /* THE WHOLE DESCRIPTOR, under `show_reports:`, and the reason it is all of
+   * it rather than a taste is that a descriptor is only useful entire: it is
+   * a stream of items where every one shifts the meaning of what follows, so
+   * the first thirty-two bytes of it say nothing at all about where a button
+   * is. A previous version printed thirty-two, which was decoration.
+   *
+   * This is also the one thing this repository has never had. Every gamepad
+   * round so far has been worked from a measurement of reports, because the
+   * descriptor those reports are laid out by was never in anybody's hands --
+   * it goes straight from Bluedroid into the parse. One flash with this on
+   * and it is a fixture, and then a controller nobody here owns can be
+   * decoded on a workstation. */
+  if (!this->show_reports_ || len == 0)
+    return;
+  char line[3 * 16 + 1];
+  for (uint16_t at = 0; at < len; at += 16) {
+    size_t put = 0;
+    for (uint16_t i = at; i < len && i < (uint16_t)(at + 16); i++)
+      put += (size_t) snprintf(line + put, sizeof(line) - put, "%02x ", desc[i]);
+    line[put] = '\0';
+    ESP_LOGI(TAG, "  descriptor %3u: %s", (unsigned) at, line);
+  }
 }
 
 void PortallBT::feed_hid_usage(uint16_t page, uint16_t usage, int32_t value,

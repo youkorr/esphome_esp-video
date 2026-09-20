@@ -359,12 +359,13 @@ int main() {
        !map.decode(cut, sizeof(cut), [](const HidField &, int32_t) {}));
   }
   {
-    // More fields than this can hold. It keeps what fits and SAYS so -- a
-    // truncated map decodes its own fields perfectly and never mentions the
-    // rest, which is exactly the silent half-answer this repository keeps
-    // having to dig out of a log.
+    // THE CAP, and the case is the one a real controller hit. An NVIDIA
+    // Shield's descriptor is 379 bytes and declares more input fields than the
+    // first version of this could hold, so whatever fell past it did not
+    // exist -- and the log could only say "more than this can hold", which
+    // tells the next person nothing about what to raise it to.
     std::vector<uint8_t> big = {0x05, 0x09, 0x15, 0x00, 0x25, 0x01, 0x75, 0x01};
-    for (int i = 0; i < 20; i++) {
+    for (int i = 0; i < 40; i++) {
       big.insert(big.end(), {0x19, 0x01, 0x29, 0x08, 0x95, 0x08, 0x81, 0x02});
     }
     HidReportMap map;
@@ -372,6 +373,22 @@ int main() {
     ok("a descriptor past the limit keeps what fits",
        map.field_count() == HidReportMap::MAX_FIELDS);
     ok("and says it was truncated", map.truncated());
+    // The number that makes the cap raisable: what the descriptor ASKED for.
+    ok("and how far short it fell", map.wanted_fields() == 40 * 8);
+  }
+  {
+    // And the size that mattered: a descriptor of a shape a real gamepad has
+    // -- well over the sixty-four that were on offer -- now fits whole.
+    std::vector<uint8_t> big = {0x05, 0x09, 0x15, 0x00, 0x25, 0x01, 0x75, 0x01};
+    for (int i = 0; i < 15; i++) {
+      big.insert(big.end(), {0x19, 0x01, 0x29, 0x08, 0x95, 0x08, 0x81, 0x02});
+    }
+    HidReportMap map;
+    map.parse(big.data(), (uint16_t) big.size());
+    ok("a hundred and twenty fields fit, where sixty-four did not",
+       map.field_count() == 15 * 8 && !map.truncated());
+    ok("and wanted matches kept when nothing was dropped",
+       map.wanted_fields() == map.field_count());
   }
 
   if (failures != 0)

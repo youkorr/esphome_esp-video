@@ -5724,6 +5724,161 @@ Sources: ricardoquesada/bluepad32 `parser/uni_hid_parser.c`,
 `parser/uni_hid_parser_android.c`; espressif/esp-idf v5.5.5
 `esp_hidh_api.h`; USB HID 1.11 section 6.2.2.
 
+## "up cree des probleme" was the launcher, and the Bluetooth log proves it
+
+**Reported after the descriptor work went in: *"c'est mieux mais up cree des
+probleme regarde les logs"*, with a panel log.** The logs are the useful half,
+and what they say is that the d-pad is not the fault at all:
+
+    gamepad: right / down / left / left / left / up / right / right / down ...
+
+Every direction decoded, each one once per press, from a controller whose own
+descriptor is being read. So `up` crosses the wire correctly and the trouble
+is wherever it LANDS -- which is the launcher page, whose log this is not.
+
+**And the fault was there, in the line that decides whether to swallow the
+key.**
+
+```js
+var next = nearest(from, way, all);
+if (next) { next.focus(); e.preventDefault(); }
+```
+
+`preventDefault()` only when a tile was FOUND in that direction. So an arrow
+at the EDGE of the grid -- up from the top row, down from the bottom, left
+from the first column -- fell through to the browser, which scrolls. From the
+glass that is the launcher jumping away from the tile somebody had just
+chosen, with the focus ring left somewhere off-screen, and the next press
+moving a selection nobody can see.
+
+**Up is where it shows first for a structural reason**: a launcher opens on
+its top row, and up is the one direction the top row has nothing in. Left has
+the same hole and is reached less often; down and right only at the very end
+of the list. So "up creates problems" is precisely what this defect looks
+like from a sofa.
+
+It is swallowed before anything else now. The arrows belong to the grid on
+that page and there is nothing else on it to scroll to -- and a key this does
+not handle (PageDown was the one measured) still reaches the browser
+untouched, which is what a careless `preventDefault()` at the top would have
+broken.
+
+**The first arrow also chose the wrong tile**, which is smaller and was worth
+fixing beside it: it always took `all[0]`, so up and down did the same thing
+from a cold page. Down or right reaches for the first tile now, up or left for
+the last, the way a menu does.
+
+### The test passed against the broken code, and the ruler is why
+
+The first version of the browser case pressed up with the page **already at
+the top** -- where a browser cannot scroll up either. It passed against the
+shipped launcher and proved nothing. An unswallowed arrow needs somewhere to
+go, so the page has to be SCROLLED first, which is exactly the state a panel
+is in after somebody has moved around the grid.
+
+Measured on `window.scrollY` in the shipped Chromium at 800x420, against the
+real launcher served by its own server: with the page scrolled to 80 px and
+the top-left tile focused, up leaves it at 80 and keeps the focus. Against
+`git show HEAD:portall/launcher.py` in a worktree beside it, **`up on the top
+row does not scroll the page` fails** -- the user's report reproduced, which
+is the only reason to trust the fix. Nine cases, including that moving still
+works, which a half-fix would break.
+
+`tools/checkarrows.py` is that check, kept: it needs Playwright and a
+Chromium, the way `tools/checkyaml.py` needs an esphome, and it is the only
+thing in this repository that can see what a key does to a page.
+
+This file already records "the test's ruler was wrong before the code was"
+for this same script, over which tile is below which. That was about the
+layout; this one is about the STATE the page is in when the key arrives, and
+both times the fixture was built from the same assumption as the code.
+
+## The same log said the field limit was too small, in its own words
+
+    input device 0955:7214 described itself: 379 bytes, 64 fields
+    (and more than this can hold)
+
+**That is the descriptor path working and reporting its own shortfall on the
+first real device it met.** `MAX_FIELDS = 64` was sized for "two sticks, two
+triggers, a hat and sixteen buttons with room over" -- which covers a
+gamepad's first collection and nothing else. A Shield declares a consumer
+report, a battery, NVIDIA's own host-command channel and more besides in 379
+bytes, so whatever fell past the cap **did not exist**: a report made only of
+dropped fields decodes to nothing and reads, from outside, as a device
+sending something unreadable.
+
+192 now, which is under four kilobytes, with report ids at 16 and local
+usages at 64.
+
+**And the line could not say what to raise it to.** "More than this can hold"
+is a number-free complaint about a number, so the next person guesses -- which
+is the round this replaces. `wanted_fields()` counts every input field the
+descriptor declares whether or not it is kept, and the warning prints both:
+`described itself in 379 bytes and N fields, of which only 192 fit`. The test
+asserts the count as well as the cap, and a second case asserts that a
+hundred and twenty fields now fit where sixty-four did not.
+
+**`show_reports:` prints the WHOLE descriptor**, sixteen bytes to a line, and
+the reason it is all of it rather than a taste is that a descriptor is only
+useful entire: it is a stream of items where every one shifts the meaning of
+what follows, so the first thirty-two bytes say nothing about where a button
+is. The previous version printed thirty-two, which was decoration.
+
+This is also the one fixture this repository has never had. Every gamepad
+round so far worked from measurements of REPORTS, because the descriptor they
+are laid out by went straight from Bluedroid into the parse and was never in
+anybody's hands. One flash with `show_reports: true` makes it a fixture, and
+then a controller nobody here owns can be decoded on a workstation.
+
+**A descriptor that has not changed is no longer re-parsed or re-announced**,
+which matters on this hardware rather than in principle: see below.
+
+## The Shield drops the link every eleven seconds, and it is not the buttons
+
+The same log, with the timings lined up:
+
+| | connected | dropped | presses in between |
+|---|---|---|---|
+| 1 | 00:51:28 | 00:51:39 | thirteen |
+| 2 | 00:51:40 | 00:51:51 | **none at all** |
+| 3 | 00:51:51 | -- | one |
+
+**Eleven seconds each time, and the second window had no button pressed in
+it.** So the drop is periodic and has nothing to do with `up` or with any
+other key -- which is worth writing down because the report arrived attached
+to a key.
+
+What the log says about the mechanism, read rather than guessed:
+
+- `hcif disc complete: hdl 0xd, rsn 0x13` -- **0x13 is Remote User Terminated
+  Connection**. The controller hangs up; the panel does not.
+- `hcif mode change: mode 2, intv 18` about two seconds after each connect is
+  the link entering SNIFF at 11.25 ms. The teardown follows roughly nine
+  seconds later.
+- `HID-Host - Rcvd CTL L2CAP conn ind, wrong state: 1` and `opcode=0x0405,
+  status= 0b: Conn Exists` are a paging COLLISION: the Shield pages back the
+  instant it has hung up, while Bluedroid is already paging it.
+
+**Nothing in this component runs on an eleven-second cadence**, which was
+checked rather than assumed: the only long constants here are
+`RECONNECT_FIRST_MS` 2000, `RECONNECT_MAX_MS` 60000 and `NOTHING_ARRIVED_MS`
+10000, and `hid_reconnect_()` returns at its first line while `hid_open_` is
+true. So the page requests in that log are Bluedroid's own, not ours.
+
+**It is NOT diagnosed**, and saying otherwise would be the guess-dressed-as-a-
+recipe this file has paid for repeatedly. What has been done is to stop it
+drowning the evidence: a reconnection re-sends the same descriptor, so parsing
+379 bytes and printing the same two lines every eleven seconds buried whatever
+else the log was trying to say. The bytes are summed and an identical
+descriptor is skipped -- the edge-detection state is still reset, because a
+controller that hung up is not still holding what it was holding.
+
+What would settle it is the next log with `show_reports: true`: whether the
+controller sends anything at all in the seconds before it hangs up, and
+whether the same eleven seconds appear with the panel's Wi-Fi quiet. The
+dongle's antenna is centimetres from the C6's, and this file already records
+an inquiry taking the Wi-Fi down for exactly as long as it runs.
+
 ## Repository conventions
 
 - Work on branch `claude/esphome-pr-outdated-mdq36w`, then merge into `main`

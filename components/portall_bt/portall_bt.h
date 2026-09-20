@@ -67,17 +67,34 @@ struct HidField {
 /// silently half-read.
 class HidReportMap {
  public:
-  static constexpr uint8_t MAX_FIELDS = 64;
-  static constexpr uint8_t MAX_REPORT_IDS = 8;
-  static constexpr uint8_t MAX_LOCAL_USAGES = 32;
+  /* SIXTY-FOUR WAS NOT ENOUGH, AND A REAL CONTROLLER SAID SO IN ONE LINE:
+     "input device 0955:7214 described itself: 379 bytes, 64 fields (and more
+     than this can hold)". An NVIDIA Shield declares a gamepad, a consumer
+     report, a battery, NVIDIA's own host-command channel and more besides, so
+     a number chosen to cover "two sticks, two triggers, a hat and sixteen
+     buttons" covered the first collection and silently dropped the rest.
+     Whatever fell past the cap simply did not exist, which on a report this
+     has no fields for reads as a device sending something unreadable.
+
+     192 costs under four kilobytes and covers that descriptor with room over.
+     It is still a cap, so `wanted` counts what the descriptor really declared
+     and the log prints both -- a limit that cannot say how far short it fell
+     is a limit nobody can raise correctly, which is what the first version of
+     this line was. */
+  static constexpr uint16_t MAX_FIELDS = 192;
+  static constexpr uint8_t MAX_REPORT_IDS = 16;
+  static constexpr uint8_t MAX_LOCAL_USAGES = 64;
 
   /// Walk a report descriptor. True when it yielded at least one field.
   bool parse(const uint8_t *desc, uint16_t len);
   void clear();
 
   bool ready() const { return this->count_ > 0; }
-  uint8_t field_count() const { return this->count_; }
-  const HidField &field(uint8_t n) const { return this->fields_[n]; }
+  uint16_t field_count() const { return this->count_; }
+  /// How many input fields the descriptor declared, which is what field_count
+  /// would be if nothing had been dropped.
+  uint16_t wanted_fields() const { return this->wanted_; }
+  const HidField &field(uint16_t n) const { return this->fields_[n]; }
   /// Whether the descriptor was bigger than this could hold. Worth saying out
   /// loud: a truncated map decodes the fields it kept perfectly and simply
   /// never mentions the rest, which is exactly the silent half-answer this
@@ -96,7 +113,8 @@ class HidReportMap {
 
  protected:
   HidField fields_[MAX_FIELDS]{};
-  uint8_t count_{0};
+  uint16_t count_{0};
+  uint16_t wanted_{0};
   bool ids_{false};
   bool truncated_{false};
 };
@@ -413,6 +431,14 @@ class PortallBT : public Component {
      says which bits are its hat and which are its buttons, which is the only
      version of this that can work for a device nobody here owns. */
   HidReportMap hid_map_;
+  /* Which descriptor is already in there -- its length and a plain sum of its
+     bytes. A controller that reconnects sends the same one again, and this
+     panel's own log shows a Shield reconnecting every eleven seconds, so
+     re-parsing and re-announcing it each time buries whatever else the log is
+     trying to say. Same descriptor: reset the edge-detection state, keep the
+     map, say nothing. */
+  uint16_t desc_seen_len_{0};
+  uint32_t desc_seen_sum_{0};
   bool said_no_descriptor_{false};
   /* The d-pad's last position, as the eight compass points HID's Hat Switch
      uses, with 0xFF for centred. A thumb resting on it sends the same report
@@ -429,6 +455,8 @@ class PortallBT : public Component {
      the descriptor path and the plain boot-keyboard fallback, because a
      key held down is a key held down either way. */
   void note_keyboard_keys_(const uint8_t *now);
+  /* Every byte of the report descriptor, under `show_reports:`. */
+  void say_descriptor_(const uint8_t *desc, uint16_t len);
   void say_unreadable_report_(const uint8_t *data, uint16_t len);
   /* The report SHAPES already named -- length in the high byte, report id in
      the low one.
