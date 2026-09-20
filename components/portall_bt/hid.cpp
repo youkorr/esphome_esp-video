@@ -153,6 +153,22 @@ static void gap_cb(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *param) {
 #ifdef CONFIG_BT_HID_HOST_ENABLED
         esp_bt_hid_host_connect(param->disc_res.bda);
 #endif
+      } else if (major == ESP_BT_COD_MAJOR_DEV_AV) {
+        /* Heard, recognised, and passed over -- which without these two lines
+         * is indistinguishable from not being heard at all.
+         *
+         * `audio:` and `hid:` both default to FALSE, and they are what
+         * wants_speaker() and wants_input() return. So a panel built with one
+         * of them on skips every device of the other kind IN SILENCE: the
+         * device appears on the line above, nothing connects, and the scan
+         * ends saying it heard something. Reported as input devices being
+         * "taken for audio ones", which is the natural reading when a speaker
+         * in the same room IS taken and a gamepad beside it is not. Nothing
+         * is mis-sorted; the other half was never compiled in. */
+        ESP_LOGW(TAG, "  that is a speaker, and this panel has `audio: true` off -- skipping it");
+      } else if (major == ESP_BT_COD_MAJOR_DEV_PERIPHERAL) {
+        ESP_LOGW(TAG, "  that is an input device (gamepad, keyboard, mouse, remote), and this panel "
+                      "has `hid: true` off -- skipping it. Add `hid: true` under portall_bt: to pair it.");
       }
       break;
     }
