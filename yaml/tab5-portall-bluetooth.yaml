@@ -382,38 +382,24 @@ portall_bt:
 
   device_name: "Tab5"
 
+  # The buttons of every input device this component can read go to the panel,
+  # and that is the whole configuration. A television remote's arrows, its OK
+  # and its Back arrive over AVRCP as SELECT, UP, DOWN, LEFT, RIGHT and EXIT --
+  # the specification's own commands -- and a Bluetooth keyboard's arrive as
+  # HID usages. Neither needs anything written here, because neither needs
+  # anything guessed.
+  #
+  # A gamepad is NOT covered: its report layout differs per device and is only
+  # knowable from its own report descriptor. Its bytes still reach
+  # `on_hid_report` below.
+  keys: panel
+
   on_media_key:
-    # The car receiver's steering wheel, or the button on an earcup -- and the
-    # one remote that needs NOTHING guessed, because AVRCP's key codes are a
-    # fixed enumeration rather than a per-device report layout.
-    #
-    # This is what drives the launcher's tiles: portall.key replays a press
-    # into the browser rendering the page, which is the only way a panel with
-    # no keys can move around an interface built for arrows.
     - lambda: |-
+        // Still here, and it is a different question: this is every button
+        // including play, pause and next, which mean what they say rather than
+        // meaning "move down a tile".
         ESP_LOGI("panel", "button %02x %s", code, pressed ? "down" : "up");
-    - if:
-        condition:
-          lambda: 'return pressed && code == ESP_AVRC_PT_CMD_FORWARD;'
-        then:
-          - portall.key: down
-    - if:
-        condition:
-          lambda: 'return pressed && code == ESP_AVRC_PT_CMD_BACKWARD;'
-        then:
-          - portall.key: up
-    - if:
-        condition:
-          lambda: 'return pressed && code == ESP_AVRC_PT_CMD_PLAY;'
-        then:
-          - portall.key: ok
-    - if:
-        condition:
-          lambda: 'return pressed && code == ESP_AVRC_PT_CMD_STOP;'
-        then:
-          # Back to this panel's own page. Not a key at all: it is the 'H'
-          # message, which every sender has understood for releases.
-          - portall.home: panel
 
   on_media_volume:
     - lambda: |-

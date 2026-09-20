@@ -419,6 +419,11 @@ void PortallBT::drain_reports_() {
     }
     for (auto *trigger : this->hid_report_triggers_)
       trigger->trigger(bytes);
+    /* A keyboard or a television remote speaking HID. keys.cpp decides
+       whether these bytes are a boot-protocol keyboard report at all, and
+       says out loud what it made of them; a gamepad is not covered and does
+       not pretend to be. */
+    this->feed_hid_keys(slot.data, slot.len);
     this->report_tail_ = (uint8_t) ((this->report_tail_ + 1) % REPORTS);
   }
   if (this->reports_lost_ != 0) {

@@ -286,6 +286,10 @@ void PortallBT::drain_media_() {
              key.pressed ? "pressed" : "released");
     for (auto *trigger : this->media_key_triggers_)
       trigger->trigger(key.code, key.pressed);
+    /* On the press only. AVRCP sends a PRESSED and a RELEASED for every
+       button, and a tile moved twice per press is a remote nobody can aim. */
+    if (key.pressed)
+      this->feed_avrc_key(key.code);
   }
   if (this->media_volume_fresh_) {
     this->media_volume_fresh_ = false;

@@ -4,6 +4,7 @@
 #include "esphome/core/automation.h"
 #include "esphome/core/preferences.h"
 
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -115,6 +116,32 @@ class PortallBT : public Component {
   void set_device_name(const char *name) { this->device_name_ = name; }
   void set_pair_seconds(uint16_t seconds) { this->pair_seconds_ = seconds; }
   void set_show_reports(bool wanted) { this->show_reports_ = wanted; }
+
+  /* Where a decoded key goes -- portall, so it reaches the page the panel is
+     showing.
+   *
+   * A std::function AND NOT A POINTER TO Portall, which is the whole reason
+   * this compiles: portall_bt alone is a whole firmware and a board carrying
+   * only it must still build, so this component includes portall's header
+   * nowhere. Codegen emits the lambda into main.cpp, where both components'
+   * headers are already in scope, and only when a YAML actually names one.
+   *
+   * What crosses is a HID usage page and usage, because that is what portall's
+   * own wire message carries and one definition is worth more than a tidier
+   * pair. */
+  using KeySink = std::function<void(uint16_t, uint16_t)>;
+  void set_key_sink(KeySink sink) { this->key_sink_ = std::move(sink); }
+
+  /* The one place that decides what an input device's button MEANS.
+   *
+   * Asked for as "le comportement du bluetooth doit gerer toutes les
+   * peripherique qu'il dispose", after a first version put the mapping in a
+   * household's YAML as a lambda over AVRCP command codes. That was wrong
+   * twice: nobody should have to write ESP_AVRC_PT_CMD_FORWARD, and mapping
+   * FORWARD to "down" was an INVENTION -- AVRCP has real UP, DOWN, LEFT,
+   * RIGHT, SELECT and EXIT commands, so there was never anything to decide. */
+  void feed_avrc_key(uint8_t code);
+  void feed_hid_keys(const uint8_t *data, uint16_t len);
   void add_hid_report_trigger(Trigger<std::vector<uint8_t>> *trigger) {
     this->hid_report_triggers_.push_back(trigger);
   }
@@ -263,6 +290,11 @@ class PortallBT : public Component {
   float media_volume_{1.0f};
   bool media_volume_fresh_{false};
   std::vector<Trigger<uint8_t, bool> *> media_key_triggers_;
+  KeySink key_sink_{};
+  /* The six keycodes a boot-protocol keyboard report carries, as they were
+     last time: a key still held is in every report, and sending it again on
+     each one would repeat it fifty times a second. Only what is NEW counts. */
+  uint8_t held_[6]{};
   std::vector<Trigger<float> *> media_volume_triggers_;
   bool profiles_up_{false};
   // When the next reconnection attempt is due, and how long to wait after the

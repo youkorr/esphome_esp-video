@@ -186,6 +186,13 @@ def run_tests() -> bool:
                 # time somebody added a file.
                 str(ROOT / "components" / "portall_bt" / "hid.cpp"),
                 str(ROOT / "components" / "portall_bt" / "a2dp.cpp"),
+                # keys.cpp turns an AVRCP command or a HID keyboard report
+                # into a key. Both drains call into it, so nothing links
+                # without it -- which is the LINKER doing the job this whole
+                # arrangement exists for: the tests build against the real
+                # sources so a declaration that stopped matching its
+                # definition is caught here rather than on somebody's board.
+                str(ROOT / "components" / "portall_bt" / "keys.cpp"),
                 str(ROOT / "components" / "portall_bt" / "speaker" / "portall_bt_speaker.cpp"),
             ],
             capture_output=True,
