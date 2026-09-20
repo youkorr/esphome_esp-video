@@ -1041,6 +1041,34 @@ signed in.
 One directory per panel is not a choice: Chromium locks a profile, and a second
 browser pointed at the same one refuses to start.
 
+### What a profile costs, and what is done about it
+
+A profile is a browser's whole home -- what it is signed into, and the cache it
+fills by itself. The add-on says how big each one is at startup, so the
+question never needs a shell inside the container:
+
+```
+the browser profile of "salon" is 142 MB
+```
+
+Two things keep that figure from running away, and both arrived in 4.11.0
+after an add-on was reported at **2.1 GB**:
+
+- **A panel you remove takes its profile with it.** The panels in your
+  configuration keep theirs; anything else under the add-on's profile folder
+  is removed at startup, and the log says what went. A panel **renamed** counts
+  as removed -- its new name is a new profile, so it starts signed out. Nothing
+  at all is swept when no panels are configured.
+- **The browser's cache is capped at 150 MB per panel.** Left alone Chromium
+  sizes its cache from the free space it can see, which here is the whole disk
+  Home Assistant is on, and a panel that has been up for months uses it. The
+  cap applies as soon as the add-on restarts; nothing has to be deleted by
+  hand.
+
+Neither touches what you are signed into. If you want a panel's profile gone
+deliberately, take the panel out of the list, start the add-on, and put it
+back.
+
 ### YouTube: television mode, and the phone as its remote
 
 **This is the only arrangement that works, and it works completely.** Use it as

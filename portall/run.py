@@ -573,6 +573,20 @@ def load_panels():
 PROFILES = "/data/profiles"
 
 
+def profile_name(panel):
+    """The directory name this panel's profile has, kept or not.
+
+    Separate from profile_for because the sweep below has to ask a different
+    question: not "does this panel want a profile" but "whose is this folder".
+    A panel with keep_profile off still OWNS the name -- turning the option off
+    should not make the sweep treat what is there as somebody else's and
+    delete it.
+    """
+    who = str(panel.get("name") or panel.get("host") or "panel")
+    safe = "".join(c if c.isalnum() or c in "-_" else "-" for c in who)
+    return safe or "panel"
+
+
 def profile_for(panel):
     """This panel's profile directory, or None if it is not to keep one.
 
@@ -583,9 +597,74 @@ def profile_for(panel):
     """
     if str(panel.get("keep_profile", True)).lower() in ("false", "no", "0"):
         return None
-    who = str(panel.get("name") or panel.get("host") or "panel")
-    safe = "".join(c if c.isalnum() or c in "-_" else "-" for c in who)
-    return os.path.join(PROFILES, safe or "panel")
+    return os.path.join(PROFILES, profile_name(panel))
+
+
+def folder_size(path):
+    """How many bytes are under here. Unreadable files count as nothing."""
+    total = 0
+    for root, _dirs, files in os.walk(path):
+        for name in files:
+            try:
+                total += os.path.getsize(os.path.join(root, name))
+            except OSError:
+                pass
+    return total
+
+
+def sweep_profiles(panels):
+    """Remove the profiles of panels that are no longer configured.
+
+    A profile is a browser's whole home -- cookies, local storage, and several
+    hundred megabytes of cache it fills on its own -- and nothing ever removed
+    one. A panel renamed or taken out of the list left its folder behind for
+    good, so /data grew by a browser's worth every time somebody tried a name
+    and changed their mind. Reported from a real add-on at 2.1 GB, of which
+    two thirds belonged to panels that did not exist any more.
+
+    The list is the only thing that knows, which is why this lives here and
+    not in the sender. Three guards, and the first is the one that matters:
+
+    - Nothing is swept when no panels are configured. main() refuses to run in
+      that state anyway, but a configuration that failed to load must never
+      be read as "this house has no panels, delete everything".
+    - Only direct children of PROFILES, and only directories. A file sitting
+      there is somebody's, not ours.
+    - A panel owns its name whether or not it keeps a profile, so switching
+      keep_profile off does not hand the folder to the sweep.
+    """
+    if not panels:
+        return
+    if not os.path.isdir(PROFILES):
+        return
+    keep = {profile_name(panel) for panel in panels}
+    for name in sorted(os.listdir(PROFILES)):
+        if name in keep:
+            continue
+        path = os.path.join(PROFILES, name)
+        if not os.path.isdir(path) or os.path.islink(path):
+            continue
+        freed = folder_size(path)
+        try:
+            shutil.rmtree(path)
+        except OSError as err:
+            say(f"could not remove the profile of \"{name}\", which is not a "
+                f"panel any more ({err})")
+            continue
+        say(f"removed the browser profile of \"{name}\", which is not a panel "
+            f"any more -- {freed / 1e6:.0f} MB")
+
+    # And say what the ones being kept cost, because otherwise nobody finds
+    # out until /data is full. A browser's cache is bounded now, so a figure
+    # that keeps climbing past a few hundred megabytes is a bug rather than a
+    # panel that has been running a long time -- and this is the line that
+    # makes that visible without a shell inside the container. It is a walk of
+    # the tree at startup, which is stat calls rather than reads.
+    for name in sorted(keep):
+        path = os.path.join(PROFILES, name)
+        if os.path.isdir(path):
+            say(f"the browser profile of \"{name}\" is "
+                f"{folder_size(path) / 1e6:.0f} MB")
 
 
 def command_for(panel):
@@ -761,6 +840,10 @@ def main():
         say("No panels configured. Set them in the add-on options, or point "
             "$UDISP_CONFIG at a JSON file, or set HOST, URL and TOKEN.")
         return 1
+
+    # Before anything is started, and after the list is known to be a real
+    # one: a browser holding a profile open is not a folder to be removing.
+    sweep_profiles(panels)
 
     # Before the check below, because a panel asking for the launcher has no
     # url of its own until this has given it one.

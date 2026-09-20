@@ -1,5 +1,39 @@
 # Changelog
 
+## 4.11.0
+
+- **The profile of a panel you removed is removed too.** Reported from a real
+  add-on whose `/data` had reached **2.1 GB**: three browser profiles on
+  disk, of which one belonged to the only panel still configured. Nothing had
+  ever removed one, so a panel renamed or taken out of the list left a whole
+  browser's home behind for good. The panels you have configured keep theirs;
+  everything else under `/data/profiles` goes at startup, and the log says
+  what went and how much it freed.
+
+  Nothing is swept when no panels are configured -- a configuration that
+  failed to load must never be read as a house with no panels -- and turning
+  `keep_profile` off does not hand that panel's folder to the sweep.
+
+- **A panel's browser no longer fills the disk with cache.** Chromium sizes
+  its own cache from the free space it can see, which inside an add-on is the
+  whole host disk, so the one panel still configured above held **1.2 GB** on
+  its own with a single cache entry of 76 MB in it. It is capped at 150 MB
+  now, and the number was measured rather than picked. The same setting
+  governs the compiled-code cache, and your add-on's four biggest entries
+  there were 13.4 MB each -- Home Assistant's own bundle, on the page a panel
+  shows all day. At 150 MB that is still cached, to the byte; at 60 it is
+  refused outright. So the cap costs nothing and a tidier-looking number
+  would have made every page load slower.
+
+  Chrome's machine-learning accessories are turned off with it. They download
+  a model and keep it in the profile -- 46 MB of it in every profile above --
+  for a browser whose whole job is to paint a dashboard.
+
+- **The log says what each profile costs**, at startup, so nobody has to open
+  a shell inside the container to find out. A figure that keeps climbing past
+  a few hundred megabytes is now a bug rather than a panel that has been
+  running a long time.
+
 ## 4.10.1
 
 - **An arrow at the edge of the tile grid no longer scrolls the page away.**
