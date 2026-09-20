@@ -216,9 +216,66 @@ BROWSER_ARGS = [
     "--disable-backgrounding-occluded-windows",
     "--disable-renderer-backgrounding",
     "--disable-background-timer-throttling",
-    # There is no window manager here to ask, and the answer it guesses is
-    # "covered", which costs the page its updates.
-    "--disable-features=CalculateNativeWinOcclusion",
+    # How much of a profile the browser may spend on cache, in bytes.
+    #
+    # Chromium sizes its own disk cache from the free space it can see, and
+    # inside a Home Assistant add-on that is the whole host disk -- so a panel
+    # is handed an allowance of several hundred megabytes and, over months,
+    # uses it. Reported from a real add-on: /data at 2.1 GB, of which the one
+    # panel still configured held 1.2 GB, a single cache entry of 76 MB in it.
+    #
+    # The number is NOT free to choose, because the same switch governs the
+    # COMPILED CODE cache as well, and a share of it too small for a script
+    # turns that cache off for it rather than trimming it. Measured on a site
+    # built to fill both, three loads each, 900 KB scripts:
+    #
+    #   --disk-cache-size   HTTP cache   compiled code
+    #   (none)                 48.9 MB       31.5 MB      <- the fixture's own
+    #   200 MB                 48.9          31.5            ceiling, not the
+    #   100 MB                 48.9          31.5            browser's
+    #   60 MB                  48.9          31.5
+    #   40 MB                  36.0           4.4
+    #   30 MB                  27.0           0.0         <- the directory is
+    #   20 MB                  18.9           0.0            there and empty
+    #
+    # So the HTTP cache lands near 90% of the number. What decides the number
+    # is the other column, and the add-on above is what it has to be measured
+    # against: four of its Code Cache entries were 13.4 MB each, which is Home
+    # Assistant's own bundle compiled -- the one page a panel shows all day.
+    # Scripts of 0.5, 2, 6 and 13 MB, three loads each, and what was kept:
+    #
+    #   no cap     15.5 MB, 5.1 MB, 1.3 MB
+    #   150 MB     15.5 MB, 5.1 MB, 1.3 MB   <- the same, to the byte
+    #   60 MB              5.1 MB, 1.3 MB    <- the frontend refused
+    #
+    # 150 therefore costs the code cache nothing at all, and holds a panel to
+    # an eighth of what one was measured at. 60 -- which is the number a
+    # reading of the first table alone would reach for, since the code cache
+    # was still full there -- would have turned the cache off for exactly the
+    # page this is for. The first fixture's scripts were too small to see it.
+    "--disk-cache-size=157286400",
+    # ONE --disable-features, deliberately: everything Chromium is to be told
+    # not to do has to be in a single flag, because a second one is at best
+    # redundant and at worst replaces the first. Whether a repeat merges was
+    # NOT established here -- two attempts to measure it picked features that
+    # turned out not to be gated by the switch at all -- and putting them
+    # together means the answer is not needed.
+    #
+    # CalculateNativeWinOcclusion: there is no window manager here to ask, and
+    # the answer it guesses is "covered", which costs the page its updates.
+    #
+    # The rest are Chrome's own machine-learning accessories, which download a
+    # model and keep it in the profile: 46 MB of optimization_guide_model_
+    # store in EVERY profile of the add-on above, for a browser whose entire
+    # job is to paint a dashboard. NOT VERIFIED that this stops the download
+    # -- there is no route to Google's services from where this was written,
+    # so what is checked is only that the browser starts and paints the same
+    # picture with the flag as without it. The next look at a profile settles
+    # the rest, and the sender says how big one is at startup so that look
+    # costs nothing.
+    "--disable-features=CalculateNativeWinOcclusion,OptimizationHints,"
+    "OptimizationGuideModelDownloading,OptimizationTargetPrediction,"
+    "TextSafetyClassifier,SegmentationPlatform",
 ]
 # The way back to the page the panel was pointed at.
 #

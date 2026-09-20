@@ -5958,6 +5958,107 @@ remembered_.hid` and `speaker ? a2dp_open_ : hid_open_`, both branches
 correct. A slot nothing has ever exercised is exactly where a copy-paste
 reads the wrong member.
 
+## /data reached 2.1 GB, and it is two faults that look like one
+
+**Reported as *"super ont avance bien mais je voudrais qu'ont s'occupe de
+l'addon 2,1G est enorme"*, with the listing that splits it:**
+
+    2.1G  /data/profiles
+    1.2G  /data/profiles/salon        <- the only panel configured
+    750M  /data/profiles/Tab5         <- gone
+    239M  /data/profiles/salon2       <- gone
+     46M  .../optimization_guide_model_store   (in EACH of the three)
+
+The first reading was that this is orphaned profiles, because that is what
+the user said first -- *"il conseve tous les profiles ce qu'il sont supprime
+alors que mon profile et juste salon"*. It is half of it. The panel they are
+KEEPING is the biggest one, so a sweep alone would have left 1.2 GB and the
+complaint standing.
+
+**Nothing ever removed a profile, and the panel list is the only thing that
+knows.** `sweep_profiles()` in `run.py`, called from `main()` before anything
+is started. Three guards, and the first is the only one that can cost
+somebody something irreversible:
+
+- **Nothing is swept when no panels are configured.** `main()` refuses to run
+  in that state anyway, but a configuration that failed to load looks exactly
+  like a house with no panels, and reading it that way deletes everything.
+- Only direct children, only directories, never through a link.
+- **A panel owns its folder name whether or not it keeps a profile.**
+  `profile_name()` is split out from `profile_for()` for exactly this: they
+  answer different questions, and turning `keep_profile` off must not hand
+  that panel's folder to the sweep.
+
+**And Chromium sizes its own cache from the free space it can see**, which
+inside an add-on is the whole disk Home Assistant is on. That is why the live
+panel is the biggest: nobody set anything, and a browser that has been up for
+months uses what it was offered. A single cache entry in it was 76 MB.
+
+**The cap is one switch and the NUMBER is the whole of the work, because the
+same switch governs the compiled-code cache.** Measured on a site built to
+fill both, three loads each, 900 KB scripts:
+
+| `--disk-cache-size` | HTTP cache | compiled code |
+|---|---|---|
+| none / 200M / 100M / 60M | 48.9 MB | 31.5 MB |
+| 40 MB | 36.0 | 4.4 |
+| 30 MB | 27.0 | **0.0** |
+| 20 MB | 18.9 | **0.0** |
+
+The first three rows are the fixture's own ceiling rather than the browser's.
+The HTTP cache lands near 90% of the number, and below about 40 MB the code
+cache stops storing anything.
+
+**Reading that table alone gives the wrong answer, and the second measurement
+is what caught it.** 60 MB looks safe there -- the code cache is still full.
+But the add-on's four biggest Code Cache entries were **13.4 MB each**, which
+is Home Assistant's own bundle compiled, on the page a panel shows all day,
+and the fixture's scripts were far too small to say anything about an entry
+that size. Scripts of 0.5, 2, 6 and 13 MB, three loads each, what was kept:
+
+| | kept |
+|---|---|
+| no cap | 15.5 MB, 5.1 MB, 1.3 MB |
+| **150 MB (shipping)** | 15.5 MB, 5.1 MB, 1.3 MB -- the same, to the byte |
+| 60 MB | 5.1 MB, 1.3 MB -- **the frontend refused** |
+
+So 150 costs the code cache nothing and holds a panel to an eighth of what
+one was measured at, and 60 would have turned the cache off for precisely the
+page this exists to show. **A fixture built from convenient sizes measures the
+fixture.** The first table is true and it is not about the user's case.
+
+**`--disable-features` is ONE flag now and that is deliberate.** The ML
+accessories -- 46 MB of `optimization_guide_model_store` in every profile,
+for a browser whose whole job is to paint a dashboard -- go in beside
+`CalculateNativeWinOcclusion` rather than in a second flag, because a second
+one is at best redundant and at worst replaces the first. **Whether a repeat
+merges was not established**: two attempts to measure it picked features
+(WebGPU, UserAgentClientHint) that turned out not to be gated by the switch
+at all on this build. Putting them together means the answer is not needed,
+which is the right shape for a question that resisted two measurements.
+
+**Whether the model stops being downloaded is NOT verified** -- there is no
+route to Google's services from here, and a feature name Chromium does not
+recognise is ignored in silence, which is this file's most-recorded fault
+shape. What is verified is that the browser starts and paints the identical
+picture with the flags as without. So `sweep_profiles()` also prints what
+each KEPT profile costs, at startup: the next `du` settles it, and it settles
+it from the add-on's own log rather than from a shell inside the container.
+
+**A measurement trap worth keeping, and it cost two runs.** `python3 x.py |
+tail -8` buffers the whole run, so a script printing a line per case looks
+stalled from outside for as long as it takes. One of them was killed on that
+evidence and had been working the entire time. Worse, `pkill -f cost.py` run
+inside a backgrounded shell **matches that shell's own command line** and
+kills the job before it starts -- three background tasks died at once of
+exactly that. Watch a run by its process, not by a pipeline's output.
+
+`tools/checkprofiles.py` runs the shipped `sweep_profiles` against real
+directories: the reported three-folder case, the empty list, `keep_profile`
+off, a panel filed under its address, a file and a link beside the profiles,
+and no profiles directory at all. It fails against the old code, though
+trivially -- the function did not exist, because the fault was an absence.
+
 ## Repository conventions
 
 - Work on branch `claude/esphome-pr-outdated-mdq36w`, then merge into `main`
