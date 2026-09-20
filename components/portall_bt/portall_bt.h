@@ -132,6 +132,20 @@ class PortallBT : public Component {
   using KeySink = std::function<void(uint16_t, uint16_t)>;
   void set_key_sink(KeySink sink) { this->key_sink_ = std::move(sink); }
 
+  /* Where the way OUT of a link goes -- portall's own ask_home().
+   *
+   * A second sink rather than one more usage through the first, because this
+   * is not a key at all: no page is told anything, the browser is navigated
+   * back to the panel's own url. A remote's Menu button is the only thing on
+   * it that can leave a link -- until now the way home was a finger on the
+   * top-left corner of the glass, which is no use to somebody sitting down
+   * with a remote in their hand.
+   *
+   * Same std::function reasoning as above: this component includes portall's
+   * header nowhere, and codegen emits the lambda where both are in scope. */
+  using HomeSink = std::function<void()>;
+  void set_home_sink(HomeSink sink) { this->home_sink_ = std::move(sink); }
+
   /* The one place that decides what an input device's button MEANS.
    *
    * Asked for as "le comportement du bluetooth doit gerer toutes les
@@ -291,6 +305,7 @@ class PortallBT : public Component {
   bool media_volume_fresh_{false};
   std::vector<Trigger<uint8_t, bool> *> media_key_triggers_;
   KeySink key_sink_{};
+  HomeSink home_sink_{};
   /* The six keycodes a boot-protocol keyboard report carries, as they were
      last time: a key still held is in every report, and sending it again on
      each one would repeat it fifty times a second. Only what is NEW counts. */
