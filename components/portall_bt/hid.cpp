@@ -430,7 +430,7 @@ void PortallBT::drain_reports_() {
 
 void PortallBT::reconnect_tick_() {
 #ifdef CONFIG_BT_BLUEDROID_ENABLED
-  if (!this->profiles_up_)
+  if (!this->profiles_up_ || this->bt_off_)
     return;
   const uint32_t at = now_ms_();
   if ((int32_t) (at - this->reconnect_due_ms_) < 0 || this->reconnect_backoff_ms_ == 0)
@@ -466,6 +466,13 @@ void PortallBT::pair() {
 #ifdef CONFIG_BT_BLUEDROID_ENABLED
   if (!this->profiles_up_) {
     ESP_LOGW(TAG, "nothing to pair with yet -- no dongle has answered");
+    return;
+  }
+  /* Refused rather than run, because a scan that pairs something and then
+   * hangs it straight back up is worse than no scan: it costs the Wi-Fi for
+   * ten seconds and leaves a bond nobody asked for. */
+  if (this->bt_off_) {
+    ESP_LOGW(TAG, "Bluetooth is switched off on this panel -- turn it on before pairing");
     return;
   }
   /* AN INQUIRY CANNOT FIND A DEVICE THAT IS ALREADY TALKING TO THIS PANEL,
@@ -583,6 +590,96 @@ void PortallBT::resume_reconnect() {
   // back where it was.
   this->reconnect_backoff_ms_ = RECONNECT_FIRST_MS;
   this->reconnect_due_ms_ = now_ms_() + RECONNECT_FIRST_MS;
+#endif
+}
+
+void PortallBT::set_bt_enabled(bool on) {
+  if (this->bt_off_ != !on)
+    return;  // already where it is being asked to go
+  this->bt_off_ = !on;
+  if (!on) {
+    ESP_LOGI(TAG, "Bluetooth off: hanging up and no longer paging for paired devices");
+    this->drop_links_();
+#ifdef CONFIG_BT_BLUEDROID_ENABLED
+    this->reconnect_backoff_ms_ = 0;
+#endif
+    return;
+  }
+  ESP_LOGI(TAG, "Bluetooth on: looking for the remembered device(s) again");
+#ifdef CONFIG_BT_BLUEDROID_ENABLED
+  // From the short end, so a speaker in the room comes back at once rather
+  // than after whatever the backoff had grown to before it was switched off.
+  this->reconnect_backoff_ms_ = RECONNECT_FIRST_MS;
+  this->reconnect_due_ms_ = now_ms_() + RECONNECT_FIRST_MS;
+#endif
+}
+
+std::string PortallBT::describe_role(bool speaker) const {
+#ifdef CONFIG_BT_BLUEDROID_ENABLED
+  const bool has = speaker ? this->remembered_.has_sink : this->remembered_.has_hid;
+  if (!has)
+    return "none";
+  char text[18];
+  say_addr(text, speaker ? this->remembered_.sink : this->remembered_.hid);
+  const bool open = speaker ? this->a2dp_open_ : this->hid_open_;
+  std::string out(text);
+  if (this->bt_off_)
+    return out + " (Bluetooth off)";
+  return out + (open ? " connected" : " paired, away");
+#else
+  (void) speaker;
+  return "none";
+#endif
+}
+
+void PortallBT::forget_one(bool speaker) {
+#ifdef CONFIG_BT_BLUEDROID_ENABLED
+  if (!this->profiles_up_) {
+    ESP_LOGW(TAG, "nothing to forget yet -- no dongle has answered");
+    return;
+  }
+  const bool has = speaker ? this->remembered_.has_sink : this->remembered_.has_hid;
+  if (!has) {
+    ESP_LOGW(TAG, "no %s is remembered, so there is nothing to forget",
+             speaker ? "speaker" : "input device");
+    return;
+  }
+  const uint8_t *addr = speaker ? this->remembered_.sink : this->remembered_.hid;
+  char text[18];
+  say_addr(text, addr);
+
+  /* Hang up this one FIRST, for the reason forget() records: removing a bond
+   * under a live ACL leaves the device connected with its key gone, so the
+   * next scan cannot see it AND it can no longer come back on its own. */
+  esp_bd_addr_t target;
+  memcpy(target, addr, 6);
+  if (speaker) {
+#ifdef CONFIG_BT_A2DP_ENABLE
+    if (this->a2dp_open_)
+      esp_a2d_source_disconnect(target);
+#endif
+  } else {
+#ifdef CONFIG_BT_HID_HOST_ENABLED
+    if (this->hid_open_)
+      esp_bt_hid_host_disconnect(target);
+#endif
+  }
+  esp_bt_gap_remove_bond_device(target);
+
+  if (speaker) {
+    this->remembered_.has_sink = false;
+    memset(this->remembered_.sink, 0, 6);
+  } else {
+    this->remembered_.has_hid = false;
+    memset(this->remembered_.hid, 0, 6);
+    this->hid_open_ = false;
+    memset(this->open_hid_, 0, 6);
+  }
+  this->remembered_pref_.save(&this->remembered_);
+  ESP_LOGI(TAG, "forgot the %s %s -- link key and role both", speaker ? "speaker" : "input device",
+           text);
+#else
+  (void) speaker;
 #endif
 }
 

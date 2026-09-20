@@ -81,6 +81,28 @@ CONFIGURATIONS = [
             "-DUSE_SPEAKER",
         ],
     ),
+    # And one each for the two platforms added with the Bluetooth switch, for
+    # exactly the reason the speaker pass exists: behind USE_SWITCH and
+    # USE_TEXT_SENSOR they compile to empty translation units, and this tool
+    # would print ok about a file it had never read a line of.
+    (
+        "switch: - platform: portall_bt",
+        [
+            "-DCONFIG_BT_BLUEDROID_ENABLED=1",
+            "-DCONFIG_BT_A2DP_ENABLE=1",
+            "-DCONFIG_BT_HID_HOST_ENABLED=1",
+            "-DUSE_SWITCH",
+        ],
+    ),
+    (
+        "text_sensor: - platform: portall_bt",
+        [
+            "-DCONFIG_BT_BLUEDROID_ENABLED=1",
+            "-DCONFIG_BT_A2DP_ENABLE=1",
+            "-DCONFIG_BT_HID_HOST_ENABLED=1",
+            "-DUSE_TEXT_SENSOR",
+        ],
+    ),
 ]
 
 

@@ -12,4 +12,16 @@ template<typename T> class Parented {
  protected:
   T *parent_{nullptr};
 };
+// Enough optional<> for the switch platform's restore path.
+template<typename T> class optional {
+ public:
+  optional() = default;
+  optional(T value) : value_(value), set_(true) {}
+  bool has_value() const { return set_; }
+  T value_or(T fallback) const { return set_ ? value_ : fallback; }
+
+ private:
+  T value_{};
+  bool set_{false};
+};
 }  // namespace esphome
