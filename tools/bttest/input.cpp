@@ -43,10 +43,15 @@ static void ok(const char *what, bool passed) {
 // What the sink was handed, so a test asks what CROSSED rather than what the
 // component thought about it.
 static std::vector<uint16_t> g_sent;
+// And how many times the way home was asked for, which is a different question
+// from which key crossed: going home tells the page nothing at all.
+static int g_home = 0;
 
 static PortallBT *fresh() {
   auto *bt = new PortallBT();
   g_sent.clear();
+  g_home = 0;
+  bt->set_home_sink([]() { g_home++; });
   bt->set_key_sink([](uint16_t page, uint16_t usage) {
     // The page is checked here rather than collected: every key this component
     // produces is on HID's Keyboard/Keypad page, and one that was not would be
@@ -103,6 +108,39 @@ int main() {
     // reaches the page the invention is back.
     ok("play, pause, stop, next, previous and volume move nothing",
        g_sent.empty());
+    delete bt;
+  }
+
+  std::printf("MENU is the way out of a link, and Back is not\n");
+  {
+    PortallBT *bt = fresh();
+    bt->feed_avrc_key(ESP_AVRC_PT_CMD_ROOT_MENU);
+    // THE fix. Both of these were Escape, so a remote could move around inside
+    // a link and never leave one: the only way back to the launcher was a
+    // finger held in the corner of the glass, which is exactly what somebody
+    // sitting down with a remote does not have.
+    ok("MENU goes home", g_home == 1);
+    ok("and tells the page nothing at all", g_sent.empty());
+    delete bt;
+  }
+  {
+    PortallBT *bt = fresh();
+    bt->feed_avrc_key(ESP_AVRC_PT_CMD_EXIT);
+    // Back stays back: WITHIN the page, which is what Jellyfin's television
+    // layout and YouTube's television interface both do with Escape. Two
+    // buttons that both leave the page would be one button wasted.
+    ok("Back is still Escape into the page, not home",
+       only(0x29) && g_home == 0);
+    delete bt;
+  }
+  {
+    // A panel whose YAML never set `keys:` has no home sink either, and MENU
+    // must cost it a log line rather than a crash.
+    auto *bt = new PortallBT();
+    g_home = 0;
+    bt->feed_avrc_key(ESP_AVRC_PT_CMD_ROOT_MENU);
+    ok("with no `keys:` set, MENU does nothing and does not crash",
+       g_home == 0);
     delete bt;
   }
 

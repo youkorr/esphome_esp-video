@@ -389,6 +389,12 @@ portall_bt:
   # HID usages. Neither needs anything written here, because neither needs
   # anything guessed.
   #
+  # And its MENU button leaves the page altogether, back to this panel's own
+  # url:. That is the only button on a remote that can, and without it the way
+  # out of an open link was a finger held in the corner of the glass -- which
+  # is no use to somebody sitting down with a remote in their hand. Back stays
+  # Escape, which is back WITHIN the page.
+  #
   # A gamepad is NOT covered: its report layout differs per device and is only
   # knowable from its own report descriptor. Its bytes still reach
   # `on_hid_report` below.

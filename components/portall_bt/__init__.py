@@ -488,6 +488,15 @@ async def to_code(config):
                 )
             )
         )
+        # And the way back OUT of a link, from the same one setting. A remote's
+        # MENU button is the only thing on it that can leave a page, and asking
+        # somebody to configure that separately would be the mechanism this
+        # option was written to remove.
+        cg.add(
+            var.set_home_sink(
+                cg.RawExpression(f"[]() {{ {panel}->ask_home(); }}")
+            )
+        )
     for conf in config.get(CONF_ON_HID_REPORT, []):
         trigger = cg.new_Pvariable(conf[CONF_TRIGGER_ID])
         cg.add(var.add_hid_report_trigger(trigger))

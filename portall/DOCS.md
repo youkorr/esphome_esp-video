@@ -328,6 +328,70 @@ Home: back to http://127.0.0.1:8099/ -- held 1.0s, opened in 0.3s
 Home: first picture 0.0s after the page opened
 ```
 
+### A Bluetooth remote, and what it does inside a link
+
+A panel can drive a USB Bluetooth dongle, and a remote or a keyboard paired to
+it reaches whatever page the panel is showing. That is the board's half, and
+it is one line in the panel's own ESPHome YAML:
+
+```yaml
+portall_bt:
+  id: dongle
+  host_stack: bluedroid
+  hid: true        # a Bluetooth keyboard or remote
+  audio: true      # an AVRCP remote, e.g. the buttons on a car kit or headset
+  keys: true       # send what it presses to the page
+```
+
+`keys: true` finds the panel's own `portall:` block by itself -- there is only
+one per board -- so nothing has to be named. The board sends the key up the
+same socket the touches use, and the add-on replays it into the browser.
+
+**What each button does:**
+
+| on the remote | in the page |
+|---|---|
+| arrows | ArrowUp / ArrowDown / ArrowLeft / ArrowRight |
+| OK / Enter | Enter |
+| Back / Exit | Escape -- back *within* the page |
+| **Menu** | **leaves the link and goes back to your launcher** |
+| page up / page down | PageUp / PageDown |
+| play, pause, next, previous, volume | nothing here -- those stay media keys |
+
+Menu is the one worth knowing about: before it existed, once a link was open
+the only way back was the corner gesture on the glass, which is no use to
+somebody sitting down with a remote in their hand. It is the same destination
+the corner reaches -- the panel's own `url:`.
+
+**A Bluetooth keyboard sends everything**, not only those: letters, Tab,
+Backspace and the rest go straight into whatever the page has focused, which
+is what a sign-in form wants.
+
+#### And whether the arrows do anything depends on the page
+
+This is the part to read before deciding a remote is broken. A browser does
+**not** move focus between links with the arrow keys -- only Tab does. So a
+page that wants to be driven by a remote has to say so, and each one answers
+differently:
+
+| | arrows | what it needs |
+|---|---|---|
+| **the launcher** | yes, moves between tiles | nothing -- built in |
+| **YouTube `/tv`** | yes | the television user agent on that link, as below |
+| **Jellyfin** | yes, **once its layout is TV** | Settings > Display > Layout: **TV** |
+| **Home Assistant** | no -- **Tab** moves between cards, Enter opens | nothing to set |
+| **anything else** | arrows scroll the page, Tab moves focus | -- |
+
+The Jellyfin row is its own source rather than a guess:
+`src/scripts/keyboardNavigation.js` drops every navigation key unless
+`layoutManager.tv` is set, and the same file makes Escape mean Back only
+there. Set the layout once, per user, in Jellyfin itself.
+
+Home Assistant's frontend has no arrow-key navigation of its own, so a remote
+there is Tab, Enter and the Menu button -- which is enough to reach a card and
+press it, and not enough to drive a dashboard comfortably. A finger is still
+the better answer on that one.
+
 **`quality` on a link is the cheapest saving here.** A film wants far fewer
 bytes than a dashboard and does not show the difference, so it is said on the
 link rather than on the panel: the panel does not know what it is showing, and
@@ -960,6 +1024,12 @@ subscriptions are, and send the video to the panel.
 
 So the panel is the screen and the phone is everything else. To leave YouTube
 entirely, hold the top-left corner for a second, or swipe sideways out of it.
+
+**Or pair a real remote**, which is the other answer and needs no phone at
+all: with `hid: true` and `keys: true` on the board, a Bluetooth remote's
+arrows, OK and Back drive the television interface directly, and its Menu
+button brings the panel back to your launcher. See *A Bluetooth remote, and
+what it does inside a link* above.
 
 #### Why `fps: 15`, and why quality alone did not fix it
 

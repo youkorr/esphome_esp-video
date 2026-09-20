@@ -5371,6 +5371,85 @@ A gamepad still needs the descriptor route. And whether a given remote speaks
 AVRCP navigation or HID at all is the device's choice, not this component's --
 the log says which it decoded, once per press, so the next run settles it.
 
+## No button on a remote could leave a link, and the question is what found it
+
+**Asked as *"pour l'addon avec les link tu n'a pas expliquer comment je peux
+utiliser une telecommande, une manette dans les link?"*.** A fair question
+about documentation, and answering it honestly meant looking at what a remote
+really does inside each kind of page -- which is where the hole was.
+
+**EXIT and ROOT_MENU both mapped to Escape.** Two buttons doing one thing, and
+no button doing the one a remote most needs: once a tile is open, the ONLY way
+back to the launcher was the corner gesture on the glass -- a finger held in
+the top-left corner for a second. That is a gesture for somebody standing at
+the panel, and a remote is for somebody who is not. Nothing on a remote
+reached `portall.home`.
+
+So the two part company the way a television's do. **EXIT/Back stays Escape**,
+which is back WITHIN the page; **MENU leaves the page**, to the panel's own
+`url:`. `HomeSink` is a second `std::function` beside `KeySink`, emitted from
+the SAME `keys:` option -- asking a household to configure the way home
+separately would be the mechanism that option was written to remove.
+
+**And it cost no sender change at all.** portall's `'H'` message and the
+sender's half of it have both been in place since 4.9.0, when the board half
+was removed and the sender's was deliberately kept. That is the second time
+this file's tolerance rule has been collected on, and it is the same rule:
+**the end that cannot be updated together with the other should be the
+tolerant one.**
+
+### What the arrows actually do, page by page, read rather than assumed
+
+A browser does NOT move focus between links with the arrows -- only Tab does
+-- which this file already records as the fault that would have shipped with
+the launcher. So each page answers for itself:
+
+| | arrows | what it needs |
+|---|---|---|
+| the launcher | yes | nothing -- `KEYS_JS` does it geometrically |
+| YouTube `/tv` | yes | the television user agent on that link |
+| **Jellyfin** | yes, **only in TV layout** | Settings > Display > Layout: TV |
+| Home Assistant | **no** -- Tab moves, Enter opens | nothing to set |
+| anything else | arrows scroll, Tab moves focus | -- |
+
+**The Jellyfin row is their source, not a guess.** `src/scripts/
+keyboardNavigation.js` at `jellyfin/jellyfin-web`:
+
+```js
+if (!layoutManager.tv && isNavigationKey(key)) { return; }
+...
+case 'Escape': if (layoutManager.tv) { inputManager.handleCommand('back'); }
+```
+
+Every arrow is dropped and Escape means nothing outside TV layout, and
+`layoutManager` takes that from a saved user setting. So a remote on Jellyfin
+does nothing at all until somebody changes one dropdown -- which reads exactly
+like a broken remote, and is one line of documentation instead.
+
+Home Assistant's frontend has no arrow navigation of its own, so a remote
+there is Tab, Enter and Menu. Said plainly rather than implied: a finger is
+still the better answer on a dashboard.
+
+### What is verified
+
+The test drives the SHIPPED `feed_avrc_key()` through a recording HOME sink as
+well as a key sink, and **fails against the old mapping** -- reverted in a
+copy, `MENU goes home` and `and tells the page nothing at all` both fail,
+which is the only reason to trust it. The codegen was read off
+`generate_cpp_contents` at 2026.8.2 rather than from the validator's opinion:
+`keys: true` and a named id both emit `set_key_sink` AND `set_home_sink`,
+`keys: false` emits neither.
+
+**No bump.** The add-on change is `DOCS.md` only, which the Supervisor reads
+from the repository -- `tools/checkaddon.py` is the arbiter and it agrees.
+
+**What is NOT done.** No C++ compiled by a real toolchain, and nothing driven
+from an actual remote: whether a given device speaks AVRCP navigation or HID
+is its own choice, and the log says which it decoded. A HID keyboard has no
+home key to map -- the Keyboard/Keypad page has none, and a consumer-control
+report cannot be parsed without the device's descriptor -- so on a keyboard
+the corner gesture is still the way out.
+
 ## Repository conventions
 
 - Work on branch `claude/esphome-pr-outdated-mdq36w`, then merge into `main`

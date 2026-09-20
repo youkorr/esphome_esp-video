@@ -78,7 +78,6 @@ constexpr AvrcNav AVRC_NAV[] = {
     {ESP_AVRC_PT_CMD_RIGHT, KEY_RIGHT},
     {ESP_AVRC_PT_CMD_ENTER, KEY_ENTER},
     {ESP_AVRC_PT_CMD_EXIT, KEY_ESCAPE},
-    {ESP_AVRC_PT_CMD_ROOT_MENU, KEY_ESCAPE},
     {ESP_AVRC_PT_CMD_PAGE_UP, KEY_PAGE_UP},
     {ESP_AVRC_PT_CMD_PAGE_DOWN, KEY_PAGE_DOWN},
 #endif
@@ -125,6 +124,33 @@ bool looks_like_keyboard(const uint8_t *data, uint16_t len, uint16_t *at) {
 }  // namespace
 
 void PortallBT::feed_avrc_key(uint8_t code) {
+#ifdef CONFIG_BT_BLUEDROID_ENABLED
+  /* MENU is the way OUT of a link, and nothing else on a remote is.
+   *
+   * It used to be one more Escape beside EXIT, which is two buttons doing the
+   * same thing and no button doing the thing somebody with a remote actually
+   * needs: once a tile is open, the only way back to the launcher was a finger
+   * held in the top-left corner of the glass. That is a gesture for somebody
+   * standing at the panel, and a remote is for somebody who is not.
+   *
+   * So the two part company the way a television's do. EXIT/Back stays Escape
+   * -- back WITHIN the page, which is what Jellyfin and YouTube's television
+   * interface both do with it. MENU leaves the page entirely.
+   *
+   * This costs no sender change at all: portall's 'H' message and the
+   * sender's half of it have both been in place since 4.9.0, when the board
+   * half was removed and the sender's was deliberately kept. */
+  if (code == ESP_AVRC_PT_CMD_ROOT_MENU) {
+    if (this->home_sink_) {
+      ESP_LOGI(TAG, "remote: menu -- back to this panel's own page");
+      this->home_sink_();
+    } else {
+      ESP_LOGW(TAG, "remote: menu pressed, but 'keys:' is not set, so there is "
+                    "nowhere to go home to");
+    }
+    return;
+  }
+#endif
   if (!this->key_sink_)
     return;
   for (const auto &entry : AVRC_NAV) {
