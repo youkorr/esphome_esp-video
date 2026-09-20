@@ -262,6 +262,18 @@ static void hid_cb(esp_hidh_cb_event_t event, esp_hidh_cb_param_t *param) {
     case ESP_HIDH_DATA_IND_EVT:
       g_bt->on_hid_report(param->data_ind.data, param->data_ind.len);
       break;
+    /* THE DEVICE SAYING WHERE ITS OWN BUTTONS ARE.
+     *
+     * Bluedroid reads the report descriptor out of the device's SDP record
+     * and hands it over whole, with the vendor and product ids beside it. It
+     * was going unread for the whole life of this component, while keys.cpp
+     * carried byte offsets somebody had measured off one controller -- and a
+     * panel proved two of those three wrong. This event is the answer to
+     * "handle every device", and it was already arriving. */
+    case ESP_HIDH_GET_DSCP_EVT:
+      g_bt->on_hid_descriptor(param->dscp.dsc_list, param->dscp.dl_len,
+                              param->dscp.vendor_id, param->dscp.product_id);
+      break;
     default:
       break;
   }
@@ -401,21 +413,92 @@ void PortallBT::on_hid_report(const uint8_t *data, uint16_t len) {
   this->report_head_ = next;
 }
 
+void PortallBT::on_hid_descriptor(const uint8_t *desc, uint16_t len, uint16_t vendor,
+                                  uint16_t product) {
+  /* Copied here and parsed in loop(), because this runs on Bluedroid's task
+     and the parsed map is read on ESPHome's. Nothing is logged from here for
+     the same reason. */
+  if (desc == nullptr || len == 0)
+    return;
+  this->pending_desc_len_ = len > MAX_DESC ? MAX_DESC : len;
+  memcpy(this->pending_desc_, desc, this->pending_desc_len_);
+  this->pending_desc_vendor_ = vendor;
+  this->pending_desc_product_ = product;
+  this->desc_pending_ = true;
+}
+
 void PortallBT::drain_reports_() {
+  if (this->desc_pending_) {
+    this->desc_pending_ = false;
+    if (this->show_reports_) {
+      /* The descriptor itself, under the same flag as the reports, because it
+         is the other half of the same question -- and because a device this
+         cannot read is one somebody will have to send the bytes of. */
+      char hex[3 * 32 + 1];
+      size_t at = 0;
+      const uint16_t show = this->pending_desc_len_ < 32 ? this->pending_desc_len_ : 32;
+      for (uint16_t i = 0; i < show && at + 3 < sizeof(hex); i++)
+        at += (size_t) snprintf(hex + at, sizeof(hex) - at, "%02x ",
+                                this->pending_desc_[i]);
+      hex[at] = '\0';
+      ESP_LOGI(TAG, "report descriptor, %u bytes, starting %s",
+               (unsigned) this->pending_desc_len_, hex);
+    }
+    this->feed_hid_descriptor(this->pending_desc_, this->pending_desc_len_,
+                              this->pending_desc_vendor_, this->pending_desc_product_);
+  }
   while (this->report_tail_ != this->report_head_) {
     const HidReport &slot = this->reports_[this->report_tail_];
     std::vector<uint8_t> bytes(slot.data, slot.data + slot.len);
     if (this->show_reports_) {
-      // What every mapping has to be written against, and there is no way to
-      // guess it: a report descriptor differs per device, so the bytes are the
-      // specification. Printed under a flag because a moving thumbstick sends
-      // these at a hundred a second.
-      char hex[3 * sizeof(slot.data) + 1];
-      size_t at = 0;
-      for (uint8_t i = 0; i < slot.len && at + 3 < sizeof(hex); i++)
-        at += (size_t) snprintf(hex + at, sizeof(hex) - at, "%02x ", slot.data[i]);
-      hex[at] = '\0';
-      ESP_LOGI(TAG, "report, %u bytes: %s", (unsigned) slot.len, hex);
+      /* What every mapping has to be written against, and there is no way to
+       * guess it: a report descriptor differs per device, so the bytes are
+       * the specification.
+       *
+       * ONLY WHEN THEY CHANGE. A controller at rest repeats one report about
+       * a hundred times a second, so printing every one buries the handful of
+       * lines somebody is hunting for under thousands that say nothing -- and
+       * this option exists precisely for somebody who is hunting. A change IS
+       * the press, so the filter and the question are the same thing. */
+      const bool same = slot.len == this->last_shown_len_ &&
+                        memcmp(slot.data, this->last_shown_, slot.len) == 0;
+      if (same) {
+        if (this->shown_repeats_ < 0xFFFF)
+          this->shown_repeats_++;
+      } else {
+        char hex[3 * sizeof(slot.data) + 1];
+        size_t at = 0;
+        for (uint8_t i = 0; i < slot.len && at + 3 < sizeof(hex); i++)
+          at += (size_t) snprintf(hex + at, sizeof(hex) - at, "%02x ", slot.data[i]);
+        hex[at] = '\0';
+
+        /* And WHICH bytes moved, because that is the answer rather than the
+           raw material for it: comparing two 33-byte lines by eye is what
+           this is here to save. A press usually moves one byte, and that byte
+           with its bits is the mapping. */
+        char moved[96];
+        size_t at2 = 0;
+        moved[0] = '\0';
+        if (this->last_shown_len_ == slot.len) {
+          for (uint8_t i = 0; i < slot.len && at2 + 24 < sizeof(moved); i++) {
+            if (slot.data[i] == this->last_shown_[i])
+              continue;
+            at2 += (size_t) snprintf(moved + at2, sizeof(moved) - at2,
+                                     "%sbyte %u %02x->%02x", at2 == 0 ? "" : ", ",
+                                     (unsigned) i, this->last_shown_[i], slot.data[i]);
+          }
+        }
+
+        if (this->shown_repeats_ != 0) {
+          ESP_LOGI(TAG, "  (the one before repeated %u times)",
+                   (unsigned) this->shown_repeats_);
+          this->shown_repeats_ = 0;
+        }
+        ESP_LOGI(TAG, "report, %u bytes: %s%s%s", (unsigned) slot.len, hex,
+                 moved[0] != '\0' ? " -- changed: " : "", moved);
+        memcpy(this->last_shown_, slot.data, slot.len);
+        this->last_shown_len_ = slot.len;
+      }
     }
     for (auto *trigger : this->hid_report_triggers_)
       trigger->trigger(bytes);

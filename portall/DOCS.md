@@ -375,36 +375,51 @@ with `hid: true`:
 | d-pad | the four arrows |
 | A | Enter |
 | B | Escape |
+| Back | Escape |
+| Home | leaves the link, back to the panel's own `url:` |
 | everything else | nothing yet -- see below |
 
-The d-pad's four directions are HID's own Hat Switch encoding, so this is not
-one controller's quirk; a diagonal deliberately moves nothing, because a grid
-of tiles has no diagonal and a cleaner press is the answer.
+**Nothing in that table is a guess about your controller.** Every HID device
+carries a *report descriptor* saying which bits of which report mean what, the
+panel reads it when the controller connects, and the mapping is applied to
+what the device says about itself. An earlier version instead carried byte
+offsets measured off one NVIDIA Shield, and on a real panel it put `up` under
+every direction while X and Y did nothing at all -- which is what a fixed
+table does the moment it meets a controller it was not written against.
 
-**The other face buttons name themselves in the log, once each**, because
-what X or Start should mean in a page is not something this can know:
+The line to look for at boot says whether yours was read:
 
 ```
-gamepad: button bit 2 of byte 3 is pressed and is not mapped
+input device 0955:7214 described itself: 96 bytes, 23 fields
 ```
 
-**Home is not one of them**, and it is worth knowing why before you go
-hunting for it. On a Shield, Home, Back, Search, Play/Pause and the volume
-keys are not gamepad buttons at all -- they are HID *consumer* keys (Linux's
-own `hid-nvidia-shield.c` maps Home as usage `0x223`), so they arrive on a
-separate report and never touch the button byte. That report gets its own
-line instead:
+A diagonal on the d-pad deliberately moves nothing: a grid of tiles has no
+diagonal, and a cleaner press is the answer.
+
+**The other buttons name themselves in the log, once each**, because what X or
+Start should mean in a page is not something this can know:
+
+```
+gamepad: button 4 is pressed and has no meaning in a page
+```
+
+Send that line saying which button it was and it can be given one.
+
+**Home and Back are not gamepad buttons**, and it is worth knowing why. On a
+Shield, Home, Back, Search, Play/Pause and the volume keys are HID *consumer*
+keys (Linux's own `hid-nvidia-shield.c` maps Home as usage `0x223`), so they
+arrive on a separate report entirely and never touch the button bits. The
+descriptor names them, so Home and Back work without anything further -- but a
+controller that sends its media keys some other way will show up as a report
+shape instead:
 
 ```
 a report this cannot read: 3 bytes, id 0x08, starting 08 23 02
 ```
 
-One line per report shape, so the Home report gets named even though the
-sticks are sending a different one constantly. Send that line saying which
-button you pressed and it can be mapped.
-
-Until then the way out of a link from a controller is B (Escape, within the
-page) or the corner gesture on the glass.
+One line per report shape, so a report that only appears when you press one
+button still gets named. `show_reports: true` prints the descriptor and every
+report that changes, which is what to turn on if a button does nothing.
 
 #### And whether the arrows do anything depends on the page
 

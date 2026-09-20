@@ -22,22 +22,27 @@
  * one from esp_avrc_api.h, and the HID one from the Keyboard/Keypad usage
  * page, which is what a boot-protocol keyboard report carries by definition.
  *
- * A GAMEPAD is here now, and the same rule held. This file used to say a
- * gamepad "cannot be" covered because its layout is only knowable from its
- * own report descriptor -- true, and it stopped being the obstacle the moment
- * somebody read one off a real device. The layout below is the USER'S OWN,
- * measured from an NVIDIA Shield controller against this component's
- * `show_reports:`. It reached this file by way of a `universal_hid.h` they
- * wrote and this repository carried, included by nothing, while a panel
- * reported that no button did anything; that file is gone now, because two
- * copies of one mapping drift the moment anybody adds a device.
+ * A GAMEPAD is here too, and getting it right took one more round than it
+ * should have. The version before this one decoded an NVIDIA Shield from
+ * FIXED BYTE OFFSETS measured on a real one -- the hat in the high nibble of
+ * byte 2, the face buttons in byte 3. The panel reported back that two of the
+ * three were wrong: every direction printed `up`, and X and Y printed nothing
+ * at all. A hand-written table is only ever right about the device it was
+ * written against, and here being wrong is worse than being absent, because
+ * it does not fail quietly -- it MOVES THE FOCUS to the wrong tile.
  *
- * And it corroborates itself, which is what made it safe to take. Their hat
- * values -- 0 up, 2 right, 4 down, 6 left, 8 at rest -- are not arbitrary:
- * they are HID's own Hat Switch encoding, eight compass points clockwise from
- * north with one past the last meaning centred. So this is the specification
- * arriving by way of a measurement rather than one device's quirk, and a
- * second gamepad laying its hat out the same way is the normal case.
+ * So there are no byte offsets in this file. hid_descriptor.cpp walks the
+ * device's OWN report descriptor and this maps the usages that come out of
+ * it, which is the only shape that answers what was actually asked for: "le
+ * comportement du bluetooth doit gerer toutes les peripherique".
+ *
+ * THE MAPPING FOLLOWS bluepad32's uni_hid_parser_android.c (Apache 2.0,
+ * Ricardo Quesada), which the user pointed at. Their Button-page numbering --
+ * 1 is A, 2 is B, 4 is X, 5 is Y, with 3 and 6 skipped -- is Android's
+ * convention rather than anything the HID specification fixes, and it is what
+ * a controller built for an Android device reports. The hat handling is the
+ * specification: eight compass points clockwise from north, one past the last
+ * meaning centred.
  */
 #include "portall_bt.h"
 
@@ -123,21 +128,45 @@ const char *usage_name(uint16_t usage) {
  * A gamepad's report can be eight bytes too. That is precisely why a gamepad
  * needs its own report descriptor read, and why this does not pretend to
  * cover one. */
-/* The NVIDIA Shield controller's report, measured by the user against a real
-   one. 33 bytes behind report id 0x01; the hat in the HIGH nibble of byte 2,
-   the face buttons in byte 3. The id AND the length are both checked, which
-   is a far tighter test than the boot-keyboard one -- a report that is 33
-   bytes long and announces itself as id 1 is not something another kind of
-   device produces by accident. */
-constexpr uint16_t PAD_LEN = 33;
-constexpr uint8_t PAD_REPORT_ID = 0x01;
-constexpr uint16_t PAD_HAT_BYTE = 2;
-constexpr uint16_t PAD_BUTTON_BYTE = 3;
-constexpr uint8_t PAD_A = 0x01;
-constexpr uint8_t PAD_B = 0x02;
+/* The usage pages and usages this maps, all of them from the HID usage
+   tables rather than from any one device. */
+constexpr uint16_t PAGE_DESKTOP = 0x01;
+constexpr uint16_t PAGE_BUTTON = 0x09;
+constexpr uint16_t PAGE_CONSUMER = 0x0C;
 
-bool looks_like_shield_pad(const uint8_t *data, uint16_t len) {
-  return len == PAD_LEN && data[0] == PAD_REPORT_ID;
+constexpr uint16_t DESKTOP_HAT = 0x39;
+constexpr uint16_t DESKTOP_DPAD_UP = 0x90;
+constexpr uint16_t DESKTOP_DPAD_DOWN = 0x91;
+constexpr uint16_t DESKTOP_DPAD_RIGHT = 0x92;
+constexpr uint16_t DESKTOP_DPAD_LEFT = 0x93;
+
+/* AC Home and AC Back on the Consumer page.
+   These are where a Shield's Home and Back buttons really live, and it took
+   reading Linux's hid-nvidia-shield.c to find out: its android_input_mapping()
+   returns early unless the page is Consumer, then maps AC Home 0x223 and AC
+   Back 0x224. A reader told to press Home and watch a gamepad button byte
+   would have watched for ever, which is what the release before this one
+   asked them to do. */
+constexpr uint16_t CONSUMER_HOME = 0x223;
+constexpr uint16_t CONSUMER_BACK = 0x224;
+
+/* bluepad32's Android button numbering, which is a convention rather than a
+   rule: 3 and 6 are skipped because Android's own mapping has no C or Z. */
+constexpr uint16_t BUTTON_A = 1;
+constexpr uint16_t BUTTON_B = 2;
+
+/* The eight compass points a Hat Switch reports, clockwise from north. Only
+   the four cardinals reach the page: a grid of tiles has no diagonal, and
+   choosing one of a diagonal's two axes for the caller would be exactly the
+   invention this file exists to keep out. */
+uint16_t hat_usage(uint8_t hat) {
+  switch (hat) {
+    case 0: return KEY_UP;
+    case 2: return KEY_RIGHT;
+    case 4: return KEY_DOWN;
+    case 6: return KEY_LEFT;
+    default: return 0;
+  }
 }
 
 bool looks_like_keyboard(const uint8_t *data, uint16_t len, uint16_t *at) {
@@ -208,12 +237,49 @@ void PortallBT::feed_hid_keys(const uint8_t *data, uint16_t len) {
     }
     return;
   }
-  uint16_t at = 0;
-  if (!looks_like_keyboard(data, len, &at)) {
-    if (looks_like_shield_pad(data, len)) {
-      this->feed_pad_report(data, len);
+  /* THE DESCRIPTOR FIRST, whenever there is one, because it is the only
+     answer that can be right about a device nobody here owns. Everything
+     below it is the fallback for a device whose descriptor never arrived. */
+  if (this->hid_map_.ready()) {
+    uint8_t keys_now[6] = {};
+    uint8_t key_count = 0;
+    bool decoded = this->hid_map_.decode(
+        data, len, [&](const HidField &f, int32_t value) {
+          /* A keyboard's keycodes arrive as an ARRAY, several instances of
+             one field each holding a usage rather than a value, so they are
+             gathered here and compared against the last report in one go --
+             a key still held is in every report a keyboard sends. */
+          if (f.array && f.usage_page == PAGE_KEYBOARD) {
+            if (value >= f.logical_min && value <= f.logical_max) {
+              const uint16_t usage = (uint16_t)(f.usage + (value - f.logical_min));
+              if (usage > 1 && key_count < 6)
+                keys_now[key_count++] = (uint8_t) usage;
+            }
+            return;
+          }
+          if (f.array)
+            return;
+          this->feed_hid_usage(f.usage_page, f.usage, value, f.logical_min, f.logical_max);
+        });
+    if (decoded) {
+      this->note_keyboard_keys_(keys_now);
       return;
     }
+    /* A report the descriptor has no fields for is not a failure of this
+       code, and saying so by shape is what turns "the controller does
+       nothing" into one readable line. */
+    this->say_unreadable_report_(data, len);
+    return;
+  }
+
+  if (!this->said_no_descriptor_) {
+    this->said_no_descriptor_ = true;
+    ESP_LOGI(TAG, "this device sent no report descriptor, so only a plain "
+                  "keyboard report can be read from it");
+  }
+
+  uint16_t at = 0;
+  if (!looks_like_keyboard(data, len, &at)) {
     this->say_unreadable_report_(data, len);
     return;
   }
@@ -221,7 +287,10 @@ void PortallBT::feed_hid_keys(const uint8_t *data, uint16_t len) {
   uint8_t now[6] = {};
   const uint16_t count = (uint16_t) (len - at) < 6 ? (uint16_t) (len - at) : 6;
   memcpy(now, data + at, count);
+  this->note_keyboard_keys_(now);
+}
 
+void PortallBT::note_keyboard_keys_(const uint8_t *now) {
   /* Only what is NEW. A key still held down is in every report a keyboard
      sends, so comparing against the last one is what stops one press becoming
      fifty -- the same reason portall dedupes a finger resting on the glass. */
@@ -239,74 +308,143 @@ void PortallBT::feed_hid_keys(const uint8_t *data, uint16_t len) {
              name);
     this->key_sink_(PAGE_KEYBOARD, code);
   }
-  memcpy(this->held_, now, sizeof(this->held_));
+  memcpy(this->held_, now, 6);
 }
 
-void PortallBT::feed_pad_report(const uint8_t *data, uint16_t len) {
-  /* The hat, which is what drives a grid of tiles.
-   *
-   * HID's Hat Switch runs clockwise from north, so the four this panel can
-   * use are the even values and the odd ones are diagonals. A diagonal sends
-   * NOTHING: a grid of tiles has no diagonal, and picking one of the two
-   * axes for the caller would be exactly the invention this file exists to
-   * keep out. A cleaner press is the answer, and it is the one the user's own
-   * notes reached independently -- they listed four directions, not eight. */
-  const uint8_t hat = (uint8_t) ((data[PAD_HAT_BYTE] >> 4) & 0x0F);
-  if (hat != this->pad_hat_) {
-    this->pad_hat_ = hat;
-    uint16_t usage = 0;
-    switch (hat) {
-      case 0: usage = KEY_UP; break;
-      case 2: usage = KEY_RIGHT; break;
-      case 4: usage = KEY_DOWN; break;
-      case 6: usage = KEY_LEFT; break;
-      default: break;  // a diagonal, or 8 for the hat coming back to rest
+void PortallBT::feed_hid_descriptor(const uint8_t *desc, uint16_t len, uint16_t vendor,
+                                    uint16_t product) {
+  /* One parse per connection, and the log line is the diagnostic that the
+     last two rounds of this both needed and did not have: it says whether
+     this device can be driven at all, before anybody presses anything. */
+  this->hid_map_.clear();
+  this->pad_dpad_ = 0xFF;
+  this->pad_buttons_ = 0;
+  this->pad_said_ = 0;
+  this->consumer_held_ = 0;
+  this->said_no_descriptor_ = false;
+  memset(this->held_, 0, sizeof(this->held_));
+
+  if (!this->hid_map_.parse(desc, len)) {
+    ESP_LOGW(TAG,
+             "input device %04x:%04x sent a %u-byte report descriptor this "
+             "could not read, so its buttons reach on_hid_report and go no "
+             "further",
+             (unsigned) vendor, (unsigned) product, (unsigned) len);
+    return;
+  }
+  ESP_LOGI(TAG,
+           "input device %04x:%04x described itself: %u bytes, %u fields%s",
+           (unsigned) vendor, (unsigned) product, (unsigned) len,
+           (unsigned) this->hid_map_.field_count(),
+           this->hid_map_.truncated() ? " (and more than this can hold)" : "");
+}
+
+void PortallBT::feed_hid_usage(uint16_t page, uint16_t usage, int32_t value,
+                               int32_t logical_min, int32_t logical_max) {
+  if (!this->key_sink_)
+    return;
+
+  if (page == PAGE_DESKTOP && usage == DESKTOP_HAT) {
+    /* The hat's own zero is its logical minimum, which is 0 on some devices
+       and 1 on others, and anything outside the declared range is the null
+       value meaning centred. Both of those come from the descriptor rather
+       than from a table, which is the whole point of this path. */
+    uint8_t hat = 0xFF;
+    if (value >= logical_min && value <= logical_max)
+      hat = (uint8_t)(value - logical_min);
+    if (hat == this->pad_dpad_)
+      return;
+    this->pad_dpad_ = hat;
+    const uint16_t key = hat_usage(hat);
+    if (key == 0)
+      return;
+    ESP_LOGI(TAG, "gamepad: %s", usage_name(key));
+    this->key_sink_(PAGE_KEYBOARD, key);
+    return;
+  }
+
+  /* Some controllers declare four separate d-pad bits instead of a hat. One
+     bit each, so each is its own edge. */
+  if (page == PAGE_DESKTOP && usage >= DESKTOP_DPAD_UP && usage <= DESKTOP_DPAD_LEFT) {
+    const uint8_t bit = (uint8_t)(usage - DESKTOP_DPAD_UP);
+    const uint8_t mask = (uint8_t)(1u << bit);
+    const bool down = value != 0;
+    const bool was = (this->consumer_held_ & mask) != 0;
+    if (down == was)
+      return;
+    this->consumer_held_ = (uint8_t)(down ? (this->consumer_held_ | mask)
+                                          : (this->consumer_held_ & ~mask));
+    if (!down)
+      return;
+    uint16_t key = 0;
+    switch (usage) {
+      case DESKTOP_DPAD_UP: key = KEY_UP; break;
+      case DESKTOP_DPAD_DOWN: key = KEY_DOWN; break;
+      case DESKTOP_DPAD_RIGHT: key = KEY_RIGHT; break;
+      default: key = KEY_LEFT; break;
     }
-    if (usage != 0) {
-      ESP_LOGI(TAG, "gamepad: %s", usage_name(usage));
-      this->key_sink_(PAGE_KEYBOARD, usage);
+    ESP_LOGI(TAG, "gamepad: %s", usage_name(key));
+    this->key_sink_(PAGE_KEYBOARD, key);
+    return;
+  }
+
+  if (page == PAGE_BUTTON && usage >= 1 && usage <= 32) {
+    const uint32_t mask = (uint32_t) 1 << (usage - 1);
+    const bool down = value != 0;
+    const bool was = (this->pad_buttons_ & mask) != 0;
+    if (down == was)
+      return;
+    this->pad_buttons_ = down ? (this->pad_buttons_ | mask) : (this->pad_buttons_ & ~mask);
+    if (!down)
+      return;
+    if (usage == BUTTON_A) {
+      ESP_LOGI(TAG, "gamepad: A -- ok");
+      this->key_sink_(PAGE_KEYBOARD, KEY_ENTER);
+      return;
     }
-  }
-
-  /* The buttons, edge-triggered against the last report for the reason the
-     keyboard path already documents: a thumb held down is in every report. */
-  const uint8_t buttons = data[PAD_BUTTON_BYTE];
-  const uint8_t pressed = (uint8_t) (buttons & ~this->pad_buttons_);
-  this->pad_buttons_ = buttons;
-
-  if ((pressed & PAD_A) != 0) {
-    ESP_LOGI(TAG, "gamepad: A -- ok");
-    this->key_sink_(PAGE_KEYBOARD, KEY_ENTER);
-  }
-  if ((pressed & PAD_B) != 0) {
-    ESP_LOGI(TAG, "gamepad: B -- back");
-    this->key_sink_(PAGE_KEYBOARD, KEY_ESCAPE);
-  }
-
-  /* EVERY OTHER BUTTON NAMES ITSELF, ONCE.
-   *
-   * X, Y and whatever else this byte carries have no agreed meaning in a page,
-   * so an unmapped bit says which bit it is the first time it is pressed and
-   * never again -- enough to map it from one line of somebody's log.
-   *
-   * IT IS NOT WHERE HOME IS, and this comment said it was for one release.
-   * Linux's own hid-nvidia-shield.c settles it: the Shield's Home, Back,
-   * Search, Play/Pause and volume keys are CONSUMER page usages -- AC Home is
-   * 0x223 -- routed through android_input_mapping, which means they arrive on
-   * a different report entirely and never touch this byte. A reader told to
-   * press Home and watch for a bit here would have watched for ever. That is
-   * what say_unreadable_report_ is for, and why it reports per SHAPE. */
-  const uint8_t unnamed = (uint8_t) (pressed & ~(PAD_A | PAD_B) & ~this->pad_said_);
-  if (unnamed != 0) {
-    this->pad_said_ = (uint8_t) (this->pad_said_ | unnamed);
-    for (uint8_t bit = 0; bit < 8; bit++) {
-      if ((unnamed & (1 << bit)) == 0)
-        continue;
+    if (usage == BUTTON_B) {
+      ESP_LOGI(TAG, "gamepad: B -- back");
+      this->key_sink_(PAGE_KEYBOARD, KEY_ESCAPE);
+      return;
+    }
+    /* EVERY OTHER BUTTON NAMES ITSELF, ONCE. X, Y, the shoulders and the
+       stick clicks have no agreed meaning in a page, so an unmapped one says
+       which usage it is the first time it is pressed and never again --
+       enough to map it from one line of somebody's log, and cheap enough that
+       a controller with sixteen buttons costs sixteen lines in total. */
+    if ((this->pad_said_ & mask) == 0) {
+      this->pad_said_ |= mask;
       ESP_LOGI(TAG,
-               "gamepad: button bit %u of byte %u is pressed and is not mapped "
-               "-- say which button that is and it can be",
-               (unsigned) bit, (unsigned) PAD_BUTTON_BYTE);
+               "gamepad: button %u is pressed and has no meaning in a page -- "
+               "say which button that is and it can be given one",
+               (unsigned) usage);
     }
+    return;
+  }
+
+  if (page == PAGE_CONSUMER && (usage == CONSUMER_HOME || usage == CONSUMER_BACK)) {
+    const uint8_t mask = (uint8_t)(usage == CONSUMER_HOME ? 0x10 : 0x20);
+    const bool down = value != 0;
+    const bool was = (this->consumer_held_ & mask) != 0;
+    if (down == was)
+      return;
+    this->consumer_held_ = (uint8_t)(down ? (this->consumer_held_ | mask)
+                                          : (this->consumer_held_ & ~mask));
+    if (!down)
+      return;
+    if (usage == CONSUMER_BACK) {
+      ESP_LOGI(TAG, "gamepad: back");
+      this->key_sink_(PAGE_KEYBOARD, KEY_ESCAPE);
+      return;
+    }
+    /* Home LEAVES the link, which is the one thing a remote most needs and
+       the one thing no button could do two releases ago. Same sink AVRCP's
+       Menu uses, for the same reason: there is one notion of home. */
+    if (this->home_sink_) {
+      ESP_LOGI(TAG, "gamepad: home -- back to this panel's own page");
+      this->home_sink_();
+    }
+    return;
   }
 }
 

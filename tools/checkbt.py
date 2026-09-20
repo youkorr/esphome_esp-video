@@ -193,6 +193,12 @@ def run_tests() -> bool:
                 # sources so a declaration that stopped matching its
                 # definition is caught here rather than on somebody's board.
                 str(ROOT / "components" / "portall_bt" / "keys.cpp"),
+                # hid_descriptor.cpp walks a device's own report descriptor,
+                # which is what keys.cpp reads instead of the byte offsets it
+                # used to carry. It is pure arithmetic behind no #ifdef at
+                # all, which is precisely why it is worth linking and running
+                # rather than only compiling.
+                str(ROOT / "components" / "portall_bt" / "hid_descriptor.cpp"),
                 str(ROOT / "components" / "portall_bt" / "speaker" / "portall_bt_speaker.cpp"),
             ],
             capture_output=True,
