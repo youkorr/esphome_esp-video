@@ -25,6 +25,7 @@
 #undef main
 
 #include <cstdio>
+#include <cstring>
 #include <string>
 #include <vector>
 
@@ -75,6 +76,12 @@ static char g_capture_path[] = "/tmp/portall_bt_capture.XXXXXX";
 
 static void capture_begin() {
   std::fflush(stdout);
+  /* mkstemp REWRITES its template in place, so the second call would be
+     handed a path with no XXXXXX left in it, fail, and leave stdout NULL --
+     which is a segfault in whichever test happened to print next, with
+     nothing wrong in the component at all. The template is restored every
+     time rather than declared once. */
+  std::strcpy(g_capture_path, "/tmp/portall_bt_capture.XXXXXX");
   int fd = mkstemp(g_capture_path);
   g_old_stdout = stdout;
   stdout = fdopen(fd, "w+");
@@ -225,12 +232,93 @@ int main() {
     delete bt;
   }
 
-  std::printf("a gamepad, from the layout measured on a real Shield\n");
+  std::printf("a gamepad, decoded from its OWN report descriptor\n");
+  // WHY THIS SECTION WAS REWRITTEN. It used to feed 33-byte reports laid out
+  // from a measurement of one NVIDIA Shield -- hat in the high nibble of byte
+  // 2, face buttons in byte 3 -- and it PASSED, because the test and the code
+  // shared the same wrong table. The panel is what failed: every direction
+  // printed `up` and X and Y printed nothing. A test written against the same
+  // assumption as the code can only ever confirm it.
+  //
+  // So the fixture is now a real report descriptor, in the item encoding of
+  // HID 1.11 section 6.2.2, and NOTHING below says which byte anything is in.
+  // The component works the offsets out of the descriptor, the way it will on
+  // a device nobody here owns.
+  static const uint8_t PAD_DESC[] = {
+      0x05, 0x01,        // Usage Page (Generic Desktop)
+      0x09, 0x05,        // Usage (Game Pad)
+      0xA1, 0x01,        // Collection (Application)
+      0x85, 0x01,        //   Report ID (1)
+      0x09, 0x01,        //   Usage (Pointer)
+      0xA1, 0x00,        //   Collection (Physical)
+      0x09, 0x30,        //     Usage (X)
+      0x09, 0x31,        //     Usage (Y)
+      0x09, 0x32,        //     Usage (Z)
+      0x09, 0x35,        //     Usage (Rz)
+      0x15, 0x00,        //     Logical Minimum (0)
+      0x26, 0xFF, 0x00,  //     Logical Maximum (255)
+      0x75, 0x08,        //     Report Size (8)
+      0x95, 0x04,        //     Report Count (4)
+      0x81, 0x02,        //     Input (Data,Var,Abs)
+      0xC0,              //   End Collection
+      0x09, 0x39,        //   Usage (Hat switch)
+      0x15, 0x00,        //   Logical Minimum (0)
+      0x25, 0x07,        //   Logical Maximum (7)
+      0x75, 0x04,        //   Report Size (4)
+      0x95, 0x01,        //   Report Count (1)
+      0x81, 0x42,        //   Input (Data,Var,Abs,Null State)
+      0x75, 0x04,        //   Report Size (4)
+      0x95, 0x01,        //   Report Count (1)
+      0x81, 0x03,        //   Input (Const,Var,Abs)  -- padding, no field
+      0x05, 0x09,        //   Usage Page (Button)
+      0x19, 0x01,        //   Usage Minimum (Button 1)
+      0x29, 0x10,        //   Usage Maximum (Button 16)
+      0x15, 0x00,        //   Logical Minimum (0)
+      0x25, 0x01,        //   Logical Maximum (1)
+      0x75, 0x01,        //   Report Size (1)
+      0x95, 0x10,        //   Report Count (16)
+      0x81, 0x02,        //   Input (Data,Var,Abs)
+      0xC0,              // End Collection
+      0x05, 0x0C,        // Usage Page (Consumer)
+      0x09, 0x01,        // Usage (Consumer Control)
+      0xA1, 0x01,        // Collection (Application)
+      0x85, 0x02,        //   Report ID (2)
+      0x15, 0x00,        //   Logical Minimum (0)
+      0x25, 0x01,        //   Logical Maximum (1)
+      0x75, 0x01,        //   Report Size (1)
+      0x95, 0x02,        //   Report Count (2)
+      0x0A, 0x23, 0x02,  //   Usage (AC Home)     -- four-byte form, own page
+      0x0A, 0x24, 0x02,  //   Usage (AC Back)
+      0x81, 0x02,        //   Input (Data,Var,Abs)
+      0x95, 0x06,        //   Report Count (6)
+      0x81, 0x03,        //   Input (Const,Var,Abs)
+      0xC0,              // End Collection
+  };
+  // The report this descriptor describes: id, four axes, hat + padding, two
+  // button bytes. Built by a helper that takes the hat and the buttons by
+  // MEANING, so the test states what was pressed and the component works out
+  // where that landed.
+  auto pad_report = [](uint8_t hat, uint16_t buttons, uint8_t *out) {
+    std::memset(out, 0, 8);
+    out[0] = 0x01;
+    out[1] = out[2] = out[3] = out[4] = 0x80;  // sticks centred
+    out[5] = (uint8_t) (hat & 0x0F);
+    out[6] = (uint8_t) (buttons & 0xFF);
+    out[7] = (uint8_t) (buttons >> 8);
+  };
+  auto with_descriptor = [&]() {
+    PortallBT *bt = fresh();
+    bt->feed_hid_descriptor(PAD_DESC, sizeof(PAD_DESC), 0x0955, 0x7214);
+    return bt;
+  };
   {
-    // 33 bytes behind report id 0x01; the hat in the HIGH nibble of byte 2,
-    // the face buttons in byte 3. THE FAULT: every one of these used to be
-    // dropped without a word -- a controller paired, connected, and every
-    // button doing nothing.
+    PortallBT *bt = with_descriptor();
+    ok("the descriptor parses into fields", bt->hid_map_.ready());
+    ok("and it says the reports carry ids", bt->hid_map_.uses_ids());
+    ok("and it fits, so nothing was dropped", !bt->hid_map_.truncated());
+    delete bt;
+  }
+  {
     struct { uint8_t hat; uint16_t usage; const char *name; } hats[] = {
         {0x0, 0x52, "hat north -> up"},
         {0x2, 0x4F, "hat east  -> right"},
@@ -238,79 +326,147 @@ int main() {
         {0x6, 0x50, "hat west  -> left"},
     };
     for (const auto &one : hats) {
-      PortallBT *bt = fresh();
-      uint8_t pad[33] = {};
-      pad[0] = 0x01;
-      pad[2] = (uint8_t) (one.hat << 4);
-      bt->feed_pad_report(pad, sizeof(pad));
+      PortallBT *bt = with_descriptor();
+      uint8_t pad[8];
+      pad_report(one.hat, 0, pad);
+      bt->feed_hid_keys(pad, sizeof(pad));
       ok(one.name, only(one.usage));
       delete bt;
     }
   }
   {
-    PortallBT *bt = fresh();
-    uint8_t pad[33] = {};
-    pad[0] = 0x01;
-    pad[2] = 0x80;   // hat at rest
-    pad[3] = 0x01;   // A
-    bt->feed_pad_report(pad, sizeof(pad));
-    ok("A is ok", only(0x28));
+    PortallBT *bt = with_descriptor();
+    uint8_t pad[8];
+    pad_report(0x08, 0x0001, pad);   // hat centred (the null value), button 1
+    bt->feed_hid_keys(pad, sizeof(pad));
+    ok("button 1 is A, which is ok", only(0x28));
     delete bt;
   }
   {
-    PortallBT *bt = fresh();
-    uint8_t pad[33] = {};
-    pad[0] = 0x01;
-    pad[2] = 0x80;
-    pad[3] = 0x02;   // B
-    bt->feed_pad_report(pad, sizeof(pad));
-    ok("B is back", only(0x29));
+    PortallBT *bt = with_descriptor();
+    uint8_t pad[8];
+    pad_report(0x08, 0x0002, pad);   // button 2
+    bt->feed_hid_keys(pad, sizeof(pad));
+    ok("button 2 is B, which is back", only(0x29));
     delete bt;
   }
   {
-    PortallBT *bt = fresh();
-    uint8_t pad[33] = {};
-    pad[0] = 0x01;
-    pad[2] = 0x10;   // a diagonal: north-east
-    bt->feed_pad_report(pad, sizeof(pad));
+    PortallBT *bt = with_descriptor();
+    uint8_t pad[8];
+    pad_report(0x01, 0, pad);        // north-east
+    bt->feed_hid_keys(pad, sizeof(pad));
     // A grid of tiles has no diagonal, and choosing one of the two axes for
     // the caller would be the invention this file exists to keep out.
     ok("a diagonal on the hat moves nothing", g_sent.empty());
     delete bt;
   }
   {
-    PortallBT *bt = fresh();
-    uint8_t pad[33] = {};
-    pad[0] = 0x01;
-    pad[2] = 0x80;
-    pad[3] = 0x01;
-    bt->feed_pad_report(pad, sizeof(pad));
-    bt->feed_pad_report(pad, sizeof(pad));
-    bt->feed_pad_report(pad, sizeof(pad));
+    PortallBT *bt = with_descriptor();
+    uint8_t pad[8];
+    pad_report(0x08, 0x0001, pad);
+    bt->feed_hid_keys(pad, sizeof(pad));
+    bt->feed_hid_keys(pad, sizeof(pad));
+    bt->feed_hid_keys(pad, sizeof(pad));
     // A thumb held on a button is in EVERY report, exactly as a key is.
     ok("a button held down is sent once, not once per report", only(0x28));
     delete bt;
   }
   {
-    PortallBT *bt = fresh();
-    uint8_t pad[33] = {};
-    pad[0] = 0x01;
-    pad[2] = 0x80;
+    PortallBT *bt = with_descriptor();
+    uint8_t pad[8];
+    pad_report(0x08, 0, pad);
     for (int i = 0; i < 4; i++)
-      bt->feed_pad_report(pad, sizeof(pad));   // hat resting, nothing pressed
+      bt->feed_hid_keys(pad, sizeof(pad));
     ok("a resting controller sends nothing at all", g_sent.empty());
     delete bt;
   }
   {
-    PortallBT *bt = fresh();
-    uint8_t pad[33] = {};
-    pad[0] = 0x01;
-    pad[2] = 0x80;
-    pad[3] = 0x04;   // X, which has no agreed meaning in a page
-    bt->feed_pad_report(pad, sizeof(pad));
+    PortallBT *bt = with_descriptor();
+    uint8_t pad[8];
+    pad_report(0x08, 0x0008, pad);   // button 4 -- X, no meaning in a page
+    capture_begin();
+    bt->feed_hid_keys(pad, sizeof(pad));
+    const std::string said = capture_end();
     ok("an unmapped button reaches the page as nothing", g_sent.empty());
+    // AND IT SAYS WHICH ONE. The release this replaces printed nothing at all
+    // for X and Y, which is how two wrong guesses stayed indistinguishable
+    // from a device that was not sending anything.
+    ok("but it names itself in the log", said.find("button 4") != std::string::npos);
     delete bt;
   }
+  {
+    // HOME IS A CONSUMER USAGE ON ITS OWN REPORT, which is the finding that
+    // cost this thread a round: Linux's hid-nvidia-shield.c maps AC Home
+    // 0x223 through the consumer path, so it never touches a gamepad button
+    // byte. A reader told to press Home and watch for a button bit would have
+    // watched for ever.
+    PortallBT *bt = with_descriptor();
+    const uint8_t home[2] = {0x02, 0x01};
+    bt->feed_hid_keys(home, sizeof(home));
+    ok("AC Home leaves the link", g_home == 1 && g_sent.empty());
+    delete bt;
+  }
+  {
+    PortallBT *bt = with_descriptor();
+    const uint8_t back[2] = {0x02, 0x02};
+    bt->feed_hid_keys(back, sizeof(back));
+    ok("AC Back is Escape, which is back WITHIN the page",
+       only(0x29) && g_home == 0);
+    delete bt;
+  }
+  {
+    // The four-byte Usage form carries its page in the high half, and a
+    // parser that ignores it would have put AC Home on the Generic Desktop
+    // page -- where this component's mapping has nothing for it, so the one
+    // button somebody most wants would silently do nothing.
+    PortallBT *bt = with_descriptor();
+    bool found = false;
+    for (uint8_t n = 0; n < bt->hid_map_.field_count(); n++) {
+      const auto &f = bt->hid_map_.field(n);
+      found = found || (f.usage_page == 0x0C && f.usage == 0x223);
+    }
+    ok("a four-byte Usage keeps its own page", found);
+    delete bt;
+  }
+  {
+    // A KEYBOARD THROUGH THE SAME PATH, because the descriptor route has to
+    // serve one too -- its keycodes are an ARRAY field, six instances each
+    // holding a usage rather than a bit per key.
+    static const uint8_t KBD_DESC[] = {
+        0x05, 0x01,        // Usage Page (Generic Desktop)
+        0x09, 0x06,        // Usage (Keyboard)
+        0xA1, 0x01,        // Collection (Application)
+        0x05, 0x07,        //   Usage Page (Keyboard)
+        0x19, 0xE0,        //   Usage Minimum (LeftControl)
+        0x29, 0xE7,        //   Usage Maximum (Right GUI)
+        0x15, 0x00,        //   Logical Minimum (0)
+        0x25, 0x01,        //   Logical Maximum (1)
+        0x75, 0x01,        //   Report Size (1)
+        0x95, 0x08,        //   Report Count (8)
+        0x81, 0x02,        //   Input (Data,Var,Abs)
+        0x95, 0x01,        //   Report Count (1)
+        0x75, 0x08,        //   Report Size (8)
+        0x81, 0x03,        //   Input (Const,Var,Abs)  -- the reserved byte
+        0x95, 0x06,        //   Report Count (6)
+        0x75, 0x08,        //   Report Size (8)
+        0x15, 0x00,        //   Logical Minimum (0)
+        0x26, 0xFF, 0x00,  //   Logical Maximum (255)
+        0x19, 0x00,        //   Usage Minimum (0)
+        0x2A, 0xFF, 0x00,  //   Usage Maximum (255)
+        0x81, 0x00,        //   Input (Data,Array,Abs)
+        0xC0,              // End Collection
+    };
+    PortallBT *bt = fresh();
+    bt->feed_hid_descriptor(KBD_DESC, sizeof(KBD_DESC), 0x0000, 0x0000);
+    ok("a keyboard descriptor declares no report id", !bt->hid_map_.uses_ids());
+    const uint8_t down[8] = {0, 0, 0x51, 0, 0, 0, 0, 0};
+    bt->feed_hid_keys(down, sizeof(down));
+    ok("and its arrow arrives as the usage it is", only(0x51));
+    bt->feed_hid_keys(down, sizeof(down));
+    ok("and a key still held is not sent again", only(0x51));
+    delete bt;
+  }
+
   {
     // A SHAPE THIS CANNOT READ NAMES ITSELF -- once per shape, not once in
     // total. THE FIX: the Shield carries its Home button on a different
@@ -336,16 +492,20 @@ int main() {
     delete bt;
   }
   {
-    // THE WHOLE ROUTE, as a panel really has it: through feed_hid_keys,
-    // which is what drain_reports_ calls. The 33-byte report used to be
-    // dropped by looks_like_keyboard and that was the end of it.
+    // AND WITHOUT A DESCRIPTOR nothing is guessed at. A device whose
+    // descriptor never arrived gets the plain boot-keyboard reading and
+    // nothing else -- the byte offsets that used to stand in for one are what
+    // put `up` under every direction on a real panel.
     PortallBT *bt = fresh();
     uint8_t pad[33] = {};
     pad[0] = 0x01;
-    pad[2] = 0x40;   // hat south
+    pad[2] = 0x40;
+    capture_begin();
     bt->feed_hid_keys(pad, sizeof(pad));
-    ok("and it arrives through feed_hid_keys, which is the real path",
-       only(0x51));
+    const std::string said = capture_end();
+    ok("with no descriptor, a gamepad report moves nothing", g_sent.empty());
+    ok("and the log says that is why",
+       said.find("no report descriptor") != std::string::npos);
     delete bt;
   }
   {

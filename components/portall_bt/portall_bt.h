@@ -34,6 +34,73 @@ struct HidReport {
   uint8_t data[63];
 };
 
+/// One field of one HID input report: which bits, and what they mean.
+///
+/// Built by walking the device's own report descriptor, so nothing here is a
+/// byte offset anybody typed. The previous version of this component DID type
+/// them -- a hat at the high nibble of byte 2, face buttons at byte 3, from a
+/// measurement of one controller -- and a panel reported back that two of the
+/// three were wrong. See the head of hid_descriptor.cpp.
+struct HidField {
+  uint16_t usage_page;
+  uint16_t usage;      ///< for an array field, the FIRST usage of its range
+  uint16_t usage_max;  ///< the last, for an array; equal to usage otherwise
+  uint16_t bit_offset; ///< within the payload, after any report-id byte
+  uint8_t report_id;   ///< 0 when the descriptor declares none
+  uint8_t bit_size;
+  int32_t logical_min;
+  int32_t logical_max;
+  /// An array field holds an INDEX into its usage range rather than a value --
+  /// how a keyboard sends six keys in six bytes instead of a bit per key.
+  bool array;
+};
+
+/// A device's report descriptor, parsed once, and the decode that follows.
+///
+/// Bluedroid hands the descriptor over whole on ESP_HIDH_GET_DSCP_EVT, so this
+/// costs one parse per connection and a walk of a small table per report.
+///
+/// The limits are flat arrays rather than allocations because this is read
+/// from Bluedroid's own task: sixty-four fields covers a gamepad with two
+/// sticks, two triggers, a hat and sixteen buttons with room over, and a
+/// descriptor larger than that is TRUNCATED and says so rather than being
+/// silently half-read.
+class HidReportMap {
+ public:
+  static constexpr uint8_t MAX_FIELDS = 64;
+  static constexpr uint8_t MAX_REPORT_IDS = 8;
+  static constexpr uint8_t MAX_LOCAL_USAGES = 32;
+
+  /// Walk a report descriptor. True when it yielded at least one field.
+  bool parse(const uint8_t *desc, uint16_t len);
+  void clear();
+
+  bool ready() const { return this->count_ > 0; }
+  uint8_t field_count() const { return this->count_; }
+  const HidField &field(uint8_t n) const { return this->fields_[n]; }
+  /// Whether the descriptor was bigger than this could hold. Worth saying out
+  /// loud: a truncated map decodes the fields it kept perfectly and simply
+  /// never mentions the rest, which is exactly the silent half-answer this
+  /// repository keeps having to dig out of a log.
+  bool truncated() const { return this->truncated_; }
+  /// Whether the descriptor declared report ids at all -- which decides
+  /// whether a report's first byte is an id or the first field's bits.
+  bool uses_ids() const { return this->ids_; }
+
+  /// Hand every field of this report to fn, with the value it carries.
+  bool decode(const uint8_t *report, uint16_t len,
+              const std::function<void(const HidField &, int32_t)> &fn) const;
+
+  static bool field_value(const HidField &f, const uint8_t *payload, uint16_t len,
+                          int32_t *out);
+
+ protected:
+  HidField fields_[MAX_FIELDS]{};
+  uint8_t count_{0};
+  bool ids_{false};
+  bool truncated_{false};
+};
+
 /// One button press from the speaker, on its way to the ESPHome loop.
 ///
 /// A car receiver's steering-wheel buttons, a headphone's play/pause, a
@@ -156,10 +223,16 @@ class PortallBT : public Component {
    * RIGHT, SELECT and EXIT commands, so there was never anything to decide. */
   void feed_avrc_key(uint8_t code);
   void feed_hid_keys(const uint8_t *data, uint16_t len);
-  /* A gamepad, from a layout measured on a real one rather than guessed --
-     see the head of keys.cpp. Public beside the other two so the same test
-     can drive it directly. */
-  void feed_pad_report(const uint8_t *data, uint16_t len);
+  /* The device's own report descriptor, which is what lets a gamepad work
+     without anybody typing a byte offset. Bluedroid hands it over on
+     ESP_HIDH_GET_DSCP_EVT; this is public beside the feeds so a test can put
+     a real descriptor in and press real buttons at it. */
+  void feed_hid_descriptor(const uint8_t *desc, uint16_t len, uint16_t vendor,
+                           uint16_t product);
+  /* One decoded field of one report, on its way to a key. Public for the same
+     reason. */
+  void feed_hid_usage(uint16_t page, uint16_t usage, int32_t value, int32_t logical_min,
+                      int32_t logical_max);
   void add_hid_report_trigger(Trigger<std::vector<uint8_t>> *trigger) {
     this->hid_report_triggers_.push_back(trigger);
   }
@@ -176,6 +249,10 @@ class PortallBT : public Component {
   void on_hid_open(const uint8_t *addr);
   void on_hid_closed();
   void on_hid_report(const uint8_t *data, uint16_t len);
+  /// The device's report descriptor, straight off Bluedroid's own task.
+  /// Copied and parsed later, for the reason the report queue exists.
+  void on_hid_descriptor(const uint8_t *desc, uint16_t len, uint16_t vendor,
+                         uint16_t product);
 
   /// Look for something to pair with, once, because somebody asked.
   ///
@@ -318,11 +395,40 @@ class PortallBT : public Component {
      thumb resting on the d-pad sends the same report a hundred times a
      second, and only a CHANGE is a press. 0x0F is not a hat position, so the
      first real report always counts as a change. */
-  uint8_t pad_hat_{0x0F};
-  uint8_t pad_buttons_{0};
-  /* Which unmapped button bits have already been named, so a gamepad with
-     twelve buttons costs twelve lines in total and not twelve a second. */
-  uint8_t pad_said_{0};
+  /* The descriptor as Bluedroid handed it over, waiting for loop().
+     Bluedroid's callback runs on its own BTC task and the map is read from
+     drain_reports_ on ESPHome's, so the bytes are COPIED there and parsed
+     here -- the same split every other thing this component takes off that
+     task already makes. 512 is generous for a gamepad and a descriptor past
+     it is refused out loud rather than half-read. */
+  static constexpr uint16_t MAX_DESC = 512;
+  uint8_t pending_desc_[MAX_DESC]{};
+  uint16_t pending_desc_len_{0};
+  uint16_t pending_desc_vendor_{0};
+  uint16_t pending_desc_product_{0};
+  bool desc_pending_{false};
+
+  /* The device's report descriptor, parsed once when it connects. With one
+     of these there are no byte offsets in this component at all: the device
+     says which bits are its hat and which are its buttons, which is the only
+     version of this that can work for a device nobody here owns. */
+  HidReportMap hid_map_;
+  bool said_no_descriptor_{false};
+  /* The d-pad's last position, as the eight compass points HID's Hat Switch
+     uses, with 0xFF for centred. A thumb resting on it sends the same report
+     a hundred times a second, so only a CHANGE is a press -- the same rule
+     the keyboard path above lives under, and the same one portall's touch
+     queue had to learn. */
+  uint8_t pad_dpad_{0xFF};
+  /* Buttons already down, one bit per Button-page usage 1..32, and which of
+     them have already named themselves in the log. */
+  uint32_t pad_buttons_{0};
+  uint32_t pad_said_{0};
+  uint8_t consumer_held_{0};
+  /* Six keycodes from one report, compared against the last six. Shared by
+     the descriptor path and the plain boot-keyboard fallback, because a
+     key held down is a key held down either way. */
+  void note_keyboard_keys_(const uint8_t *now);
   void say_unreadable_report_(const uint8_t *data, uint16_t len);
   /* The report SHAPES already named -- length in the high byte, report id in
      the low one.
@@ -335,6 +441,15 @@ class PortallBT : public Component {
   static constexpr uint8_t SHAPES = 6;
   uint16_t said_shapes_[SHAPES]{};
   uint8_t said_shape_count_{0};
+  /* The last report `show_reports:` actually printed, and how many identical
+     ones have been swallowed since.
+     A CONTROLLER AT REST REPEATS ONE REPORT ABOUT A HUNDRED TIMES A SECOND,
+     so printing every one buries the four lines somebody is hunting for
+     under thousands that say nothing. What a reader needs is the moments the
+     bytes CHANGED, which is exactly what a button is. */
+  uint8_t last_shown_[63]{};
+  uint8_t last_shown_len_{0};
+  uint16_t shown_repeats_{0};
   std::vector<Trigger<float> *> media_volume_triggers_;
   bool profiles_up_{false};
   // When the next reconnection attempt is due, and how long to wait after the

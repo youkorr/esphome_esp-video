@@ -77,6 +77,25 @@ typedef union {
     uint16_t len;
     uint8_t *data;
   } data_ind;
+
+  /* ESP_HIDH_GET_DSCP_EVT -- the device's own report descriptor, which is
+     what lets this component drive a gamepad nobody here owns. Copied field
+     for field from ESP-IDF v5.5.5, like the rest of this file: an invented
+     field here would let code that cannot build pass the only C++ check this
+     repository has, which is a fault it has already recorded once. */
+  struct hidh_get_dscp_evt_param {
+    esp_hidh_status_t status;
+    uint8_t handle;
+    bool added;
+    uint16_t vendor_id;
+    uint16_t product_id;
+    uint16_t version;
+    uint16_t ssr_max_latency;
+    uint16_t ssr_min_tout;
+    uint8_t ctry_code;
+    uint16_t dl_len;
+    uint8_t *dsc_list;
+  } dscp;
 } esp_hidh_cb_param_t;
 
 typedef void (*esp_hh_cb_t)(esp_hidh_cb_event_t event, esp_hidh_cb_param_t *param);

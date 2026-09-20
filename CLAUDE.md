@@ -5523,6 +5523,14 @@ maintenance trap and somebody else's file is still somebody else's.
 from an actual controller: the layout is the user's measurement, not this
 session's.
 
+**CORRECTED by the panel, one round later.** Two of those three offsets were
+wrong -- every d-pad direction printed `up` and X and Y printed nothing -- and
+the byte offsets are gone entirely. The device's own report descriptor is read
+instead; see **The device says where its own buttons are** below. The lesson
+the correction adds is not that the measurement was bad, it is that a
+measurement of one device is a table about one device, and the test written
+from the same table could not tell.
+
 ## "Cherche sur internet, c'est plus simple ?" -- yes, and it found a defect
 
 **Asked as exactly that, about the round trip the previous section had just
@@ -5573,6 +5581,14 @@ Switch encoding is still what makes it trustworthy. The consumer report's
 layout -- its id, and whether it carries a bitmap or a 16-bit usage -- is not
 in that driver either, which is why it is a diagnostic here and not a table.
 
+**And the sentence above contains the answer it says it does not have.** "The
+kernel driver leaves face buttons and the hat to the generic HID layer,
+reading the device's own report descriptor" was written as the limit of the
+search, and it is the whole method: the descriptor is where the answer is, we
+already receive it, and reading it needs nothing from Linux or from the user.
+It took one more round and one more wrong table to notice, which is worth
+recording because the sentence was sitting right here.
+
 **The lesson is narrow and it is not "always search".** It is that a
 component talking to a mass-market device is talking to something somebody
 else has already written a driver for, and that driver is a measurement
@@ -5585,6 +5601,128 @@ Reproduced against the shipped one-line-in-total version first, where `and a
 SECOND shape gets its own line` fails.
 
 Sources: torvalds/linux `drivers/hid/hid-nvidia-shield.c`.
+
+## The device says where its own buttons are, and bluepad32 is why
+
+**Pointed at by the user, twice, and the second time plainly: *"je te comprend
+pas dans ce lien tu dispose de tous les elements
+https://github.com/ricardoquesada/bluepad32/tree/main"*.** They were right, and
+reading it settled in an hour a question two rounds of guessing had not.
+
+The round before this one shipped a gamepad mapping made of FIXED BYTE
+OFFSETS -- an NVIDIA Shield's hat in the high nibble of byte 2 of a 33-byte
+report, its face buttons in byte 3 -- taken from the user's own measurement
+and corroborated by the hat values being HID's Hat Switch encoding. It reached
+a panel and two of the three were wrong:
+
+    gamepad: up      (every direction, all four of them)
+    gamepad: A -- ok
+    gamepad: B -- back
+    (x and y: nothing at all, not even the unmapped-bit line)
+
+**And the test passed the whole time**, because the test fed reports laid out
+from the same table the code read them with. A check written against the
+code's own assumption can only ever confirm it -- which is this file's
+most-recorded shape in a costume it had not worn yet.
+
+### What is in that link, and the one piece that is not
+
+bluepad32 was read rather than remembered, and it splits exactly in half:
+
+| | where it lives | licence |
+|---|---|---|
+| the MAPPING -- (usage page, usage) to a gamepad | `uni_hid_parser_android.c` | Apache 2.0, bluepad32's own |
+| the WALK -- report bytes to those usages | `btstack_hid_parser_init/_has_more/_get_field` | BlueKitchen's BTstack |
+
+`uni_hid_parse_input_report` is four lines long and every one of them calls
+BTstack. There is no `uni_hid_parser_nvidia.c`; a Shield lands on the ANDROID
+parser, and that parser never sees a byte -- it is handed `(usage_page, usage,
+value)` already decoded. So the link does carry everything a mapping needs,
+and the reason this project could not use it is that the thing underneath it
+belongs to a different repository with a non-commercial clause.
+
+**That piece is now ours.** `components/portall_bt/hid_descriptor.cpp` walks a
+report descriptor -- HID 1.11 section 6.2.2, the item encoding -- into a flat
+table of fields, and decodes a report against it. Written from the
+specification rather than copied, which is the same standard every table in
+`keys.cpp` already meets.
+
+### And the descriptor was already arriving, unread
+
+`ESP_HIDH_GET_DSCP_EVT` carries `dsc_list`, `dl_len`, `vendor_id` and
+`product_id`. CLAUDE.md has recorded that event as the opening for a
+descriptor-driven route for two sections, while `keys.cpp` carried byte
+offsets and a panel reported that no button worked. **The event was in the
+switch's `default:` case.** Nothing was missing; nothing was reading it.
+
+So the whole change is: stage the descriptor on Bluedroid's task, parse it in
+`loop()` (the same split the report queue already makes), and map usages
+instead of bytes. There is now **no byte offset and no vendor id anywhere in
+this component's input path**, deliberately: the moment one appears the fault
+above is back.
+
+The mapping follows bluepad32's Android numbering, which is a convention
+rather than a rule and is worth writing down as such: Button page usage 1 is
+A, 2 is B, 4 is X, 5 is Y, with **3 and 6 skipped** because Android's own
+mapping has no C or Z. The hat is the specification: eight compass points
+clockwise from north, one past the last meaning centred, and the null value
+and the offset both come out of the descriptor rather than a table -- some
+devices number a hat from 0 and some from 1.
+
+**Home now works without anybody pressing anything and reporting back.** The
+previous round established from Linux's `hid-nvidia-shield.c` that a Shield's
+Home is CONSUMER usage 0x223 on its own report, and concluded that mapping it
+needed the user's log. It did not: the descriptor names that usage, on that
+report, with its page carried in a **four-byte Usage item** whose high half is
+the page. A walker that ignores that half puts AC Home on the Generic Desktop
+page, where nothing maps it -- the one button somebody most wants, silently
+doing nothing. There is a test for exactly that.
+
+### What is verified, and how the old fault is kept
+
+`tools/bttest/descriptor.cpp` links the shipped walker and runs it against
+descriptors whose answers are stated independently of it:
+
+- **the boot mouse of the specification's own appendix E.10**, which is
+  published rather than derived here: three buttons in bits 0-2, five bits of
+  padding, then two signed eight-bit axes -- and X at **bit 8**, which is what
+  proves a constant item still moves the cursor.
+- two report ids, where report 2's first field must start at **bit 0 of its
+  own payload**. One shared cursor is the classic way to land a second
+  report's fields a byte out, and here it would have made Home unpressable.
+- a sixteen-bit field at bit 4, little-endian, reading 0x1234 and then
+  -32768 from its own top bit.
+- a logical maximum written 0xFF meaning 255, which the specification does not
+  sanction and real devices do anyway.
+- Push and Pop, an array field, a short report, a descriptor cut off
+  mid-item, and one past the field limit, which keeps what fits and **says**
+  it was truncated.
+
+**And the reported fault is reproduced as arithmetic**: over the four
+directions, the old rule -- the high nibble of byte 2 -- returns the SAME
+value every time, because with the hat where the descriptor really puts it
+that nibble is a stick axis. One loop, and it is what the panel saw.
+
+**Two faults were in the tests and neither was in the code**, which is the
+usual proportion:
+
+- `mkstemp` REWRITES its template in place, so the second stdout capture was
+  handed a path with no `XXXXXX` left, failed, and left `stdout` NULL -- a
+  segfault in whichever test printed next, with nothing wrong in the
+  component. The template is restored per call now.
+- a test asserting a negative value set bit 7 of the last byte when the
+  field's own top bit is bit 3 of it. The ruler, again.
+
+**What is NOT done.** No C++ here has been compiled by a real toolchain, and
+**the Shield's real descriptor has never been seen** -- the fixtures are
+descriptors built to the specification, not that device's. What settles it is
+one flash, and this time the failure mode is different in kind: a device whose
+descriptor cannot be read now says so in a line naming its size, rather than
+answering confidently and wrongly.
+
+Sources: ricardoquesada/bluepad32 `parser/uni_hid_parser.c`,
+`parser/uni_hid_parser_android.c`; espressif/esp-idf v5.5.5
+`esp_hidh_api.h`; USB HID 1.11 section 6.2.2.
 
 ## Repository conventions
 
