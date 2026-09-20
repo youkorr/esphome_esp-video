@@ -156,6 +156,10 @@ class PortallBT : public Component {
    * RIGHT, SELECT and EXIT commands, so there was never anything to decide. */
   void feed_avrc_key(uint8_t code);
   void feed_hid_keys(const uint8_t *data, uint16_t len);
+  /* A gamepad, from a layout measured on a real one rather than guessed --
+     see the head of keys.cpp. Public beside the other two so the same test
+     can drive it directly. */
+  void feed_pad_report(const uint8_t *data, uint16_t len);
   void add_hid_report_trigger(Trigger<std::vector<uint8_t>> *trigger) {
     this->hid_report_triggers_.push_back(trigger);
   }
@@ -310,6 +314,19 @@ class PortallBT : public Component {
      last time: a key still held is in every report, and sending it again on
      each one would repeat it fifty times a second. Only what is NEW counts. */
   uint8_t held_[6]{};
+  /* A gamepad's last hat position and button byte, for the same reason: a
+     thumb resting on the d-pad sends the same report a hundred times a
+     second, and only a CHANGE is a press. 0x0F is not a hat position, so the
+     first real report always counts as a change. */
+  uint8_t pad_hat_{0x0F};
+  uint8_t pad_buttons_{0};
+  /* Which unmapped button bits have already been named, so a gamepad with
+     twelve buttons costs twelve lines in total and not twelve a second. */
+  uint8_t pad_said_{0};
+  void say_unreadable_report_(const uint8_t *data, uint16_t len);
+  /* Whether the "this report means nothing to me" line has been said. Once:
+     a device that sends something unreadable sends it for ever. */
+  bool said_unreadable_{false};
   std::vector<Trigger<float> *> media_volume_triggers_;
   bool profiles_up_{false};
   // When the next reconnection attempt is due, and how long to wait after the

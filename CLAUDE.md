@@ -5450,6 +5450,75 @@ home key to map -- the Keyboard/Keypad page has none, and a consumer-control
 report cannot be parsed without the device's descriptor -- so on a keyboard
 the corner gesture is still the way out.
 
+## A gamepad was connected, every button pressed, and the log said nothing
+
+**Reported as *"j'ai appuyer sur toutes les touche de la manette rien ne
+fonctionne sur les link jellifyn,youtube etc"*, with a log that is perfect
+right up to the point it goes quiet:**
+
+    paired with 00:04:4B:93:A9:B2 "NVIDIA Controller v01.04"
+    input device 00:04:4B:93:A9:B2 is connected
+    (nothing, ever)
+
+Paired, bonded, connected, and then not one line however many buttons were
+pressed. **Two faults, and the second is the one this file keeps recording.**
+
+**The mapping was sitting in this repository, written by the user, included
+by nothing.** `components/portall_bt/universal_hid.h` decodes a Shield
+controller's report -- 33 bytes behind report id 0x01, the hat in the HIGH
+nibble of byte 2, the face buttons in byte 3 -- and CLAUDE.md has recorded it
+as "included by nothing" for several sections without anybody drawing the
+conclusion. Meanwhile keys.cpp said a gamepad "cannot be" covered because its
+layout is only knowable from its own report descriptor. Both statements were
+in the file at the same time, and the second stopped being true the moment
+somebody read a descriptor off a real device -- which they had.
+
+**And their numbers corroborate themselves, which is what made it safe to
+take rather than merely available.** The hat values they measured -- 0 up, 2
+right, 4 down, 6 left, 8 at rest -- are HID's own **Hat Switch** encoding,
+eight compass points clockwise from north with one past the last meaning
+centred. So it is the specification arriving by way of a measurement, not one
+device's quirk, and a second gamepad laying its hat out the same way is the
+normal case rather than luck. A diagonal sends NOTHING: a grid of tiles has
+no diagonal, and picking one of its two axes for the caller would be the
+invention this file exists to keep out -- which their own notes reached
+independently, listing four directions and not eight.
+
+**The second fault is that a dropped report was silent**, and it is the shape
+this file has now recorded a dozen times in a dozen costumes. `feed_hid_keys`
+tested for a boot-protocol keyboard and returned on anything else, so a
+controller sending thirty-three bytes a hundred times a second produced
+exactly as much log as a controller that was not there. From outside, "the
+mapping does not cover this device", "`keys:` is not set" and "the dongle
+died" were one silence.
+
+Three lines now separate them, each said ONCE because a device that sends
+something unreadable sends it for ever:
+
+- `keys:` unset -- names the setting.
+- a shape this cannot read -- prints its length and first bytes, and names
+  `show_reports:`.
+- **an unmapped BUTTON BIT names its own bit.** That is the useful one: which
+  bit is a given controller's Home is not knowable here, and guessing it
+  would be the recipe-dressed-as-a-guess this file has paid for. One press of
+  that button in a log is now the whole of what is needed to map it, against
+  a round trip that would otherwise begin "please turn show_reports on".
+
+**What is verified.** The test drives the SHIPPED `feed_pad_report()` and, for
+the real path, `feed_hid_keys()`, through a recording sink: four hat
+directions, A, B, a diagonal moving nothing, a held button sent once, a
+resting controller sending nothing at all, and an unmapped button reaching
+the page as nothing. It **fails against the old code** -- with the routing
+reverted, `and it arrives through feed_hid_keys, which is the real path`
+fails, which is the user's report reproduced exactly.
+
+**What is NOT done.** No C++ compiled by a real toolchain, and nothing driven
+from an actual controller: the layout is the user's measurement, not this
+session's. `universal_hid.h` is now a SECOND copy of a shipped mapping and
+should go -- left in place only because deleting somebody's file was not
+asked for, and flagged to them instead. Two copies drift the moment anybody
+adds a device, which is this file's own rule.
+
 ## Repository conventions
 
 - Work on branch `claude/esphome-pr-outdated-mdq36w`, then merge into `main`
