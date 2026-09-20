@@ -5512,12 +5512,16 @@ the page as nothing. It **fails against the old code** -- with the routing
 reverted, `and it arrives through feed_hid_keys, which is the real path`
 fails, which is the user's report reproduced exactly.
 
+**`universal_hid.h` is gone**, on the user's own say-so once it was flagged
+to them -- it had become a second copy of a mapping that now ships, and two
+copies drift the moment anybody adds a device. Its content and the credit for
+it live at the head of `keys.cpp`, which is the only place that decides. The
+file was theirs, so it was not deleted until they said to: a dead file is a
+maintenance trap and somebody else's file is still somebody else's.
+
 **What is NOT done.** No C++ compiled by a real toolchain, and nothing driven
 from an actual controller: the layout is the user's measurement, not this
-session's. `universal_hid.h` is now a SECOND copy of a shipped mapping and
-should go -- left in place only because deleting somebody's file was not
-asked for, and flagged to them instead. Two copies drift the moment anybody
-adds a device, which is this file's own rule.
+session's.
 
 ## Repository conventions
 
