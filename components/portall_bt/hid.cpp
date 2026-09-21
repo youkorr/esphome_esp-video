@@ -879,6 +879,7 @@ void PortallBT::pair() {
   this->skipped_known_ = 0;
   this->pair_took_ = false;
   memset(this->pair_target_, 0, 6);
+  this->note_links_for_scan_();
 
   // Discoverable only while this runs, so the panel is not in every phone's
   // Bluetooth list for the rest of its life for the sake of one pairing.
@@ -959,6 +960,38 @@ void PortallBT::drop_links_() {
 #endif
 }
 
+void PortallBT::note_links_for_scan_() {
+  this->pair_links_[0] = '\0';
+  this->pair_link_count_ = 0;
+#ifdef CONFIG_BT_BLUEDROID_ENABLED
+  // The NAME where there is one, for the same reason describe_role prefers it:
+  // "UGREEN-90748" is what somebody recognises, and the address is what a
+  // Forget button acts on.
+  auto append = [this](const uint8_t *addr, const char *name) {
+    char text[18];
+    say_addr(text, addr);
+    const size_t used = strlen(this->pair_links_);
+    const size_t room = sizeof(this->pair_links_) - used;
+    if (room <= 4) {
+      this->pair_link_count_++;
+      return;
+    }
+    snprintf(this->pair_links_ + used, room, "%s%s%s%s%s", used != 0 ? ", " : "",
+             name[0] != '\0' ? name : "", name[0] != '\0' ? " (" : "", text,
+             name[0] != '\0' ? ")" : "");
+    this->pair_link_count_++;
+  };
+#ifdef CONFIG_BT_A2DP_ENABLE
+  if (this->a2dp_open_ && addr_set(this->open_sink_))
+    append(this->open_sink_, this->sink_name_);
+#endif
+  for (uint8_t i = 0; i < MAX_INPUTS; i++) {
+    if (this->inputs_[i].open)
+      append(this->inputs_[i].addr, this->inputs_[i].name);
+  }
+#endif
+}
+
 void PortallBT::say_pairing_later() {
   // Defined here rather than inline in the header, and the reason is narrower
   // than it first looked: now_ms_() is a free `static` function in THIS file,
@@ -1006,6 +1039,20 @@ void PortallBT::pair_report_tick_() {
     ESP_LOGW(TAG, "pairing finished and nothing answered the scan. Put the device in PAIRING "
                   "mode and press the button again; a speaker already connected to a telephone "
                   "or a car does not answer.");
+    /* AND SAY WHAT THIS PANEL ITSELF WAS DOING AT THE TIME, because that is
+       the other half and the log could not say it. Nothing heard has two
+       causes with different next steps -- the device was not discoverable, or
+       this panel's radio was busy -- and only the second is ours. An inquiry
+       and an established link share one controller. Two runs of this line,
+       one with something connected and one without, settle it. */
+    if (this->pair_link_count_ != 0)
+      ESP_LOGW(TAG, "  this panel was connected to %u device(s) while it scanned: %s. An inquiry "
+                    "and a live link share one radio -- if this keeps happening, press Forget "
+                    "first and scan with nothing connected.",
+               (unsigned) this->pair_link_count_, this->pair_links_);
+    else
+      ESP_LOGW(TAG, "  and nothing was connected to this panel while it scanned, so the radio "
+                    "was free -- the device itself did not answer.");
   } else if (this->skipped_known_ == this->heard_) {
     /* Everything it heard, it already had. Without this the line below says
        "none of them connected", which reads as a fault and sends somebody to
