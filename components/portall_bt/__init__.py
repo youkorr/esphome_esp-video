@@ -378,21 +378,36 @@ def _one_controller_each(config):
     )
 
 
+# The firmware this component carries, beside its own source. A Realtek
+# controller runs a ROM that answers every HCI command and does almost nothing
+# on the air -- which is why a panel reported its speaker and its gamepad both
+# sitting beside it and neither connecting, on a dongle whose stack had
+# started perfectly.
+#
+# It lives HERE rather than in a household's configuration directory, and that
+# is the whole point. `external_components` clones this repository and installs
+# a meta finder over it -- it copies nothing and filters nothing -- so every
+# file beside this one is on disk at build time for every user, with nothing
+# to download and no path to get right. The first version took a path, and a
+# panel reported exactly what that is worth:
+#
+#     Could not find file '/config/esphome/rtl8761bu_fw.bin'
+#
+# because `cv.file_` resolves against the CONFIG's directory and the files were
+# in the repository. A fix the reader cannot reach from where they are standing
+# has not been delivered, which this project has now recorded six times.
+CARRIED_FIRMWARE = Path(__file__).parent / "firmware"
+
+
 def _firmware(value):
-    """A Realtek patch file, read and prepared HERE rather than on the board.
+    """Where to take the Realtek patch from: carried, none, or a file.
 
-    A Realtek controller runs a ROM that answers every HCI command and does
-    almost nothing on the air -- which is why a panel reported its speaker and
-    its gamepad both sitting beside it and neither connecting, on a dongle
-    whose stack had started perfectly. Linux uploads about thirty kilobytes
-    before it calls one a working controller, and so must this.
-
-    The file is NOT in this repository. It is Realtek's, linux-firmware
-    redistributes it under Realtek's own licence, and a household downloads it
-    once -- so the option is a path and the licence question never arrives
-    here. The parse is tools/rtlfw.py, which can be run against the real file
-    on a workstation; the board is handed bytes and a length.
+    The parse is tools/rtlfw.py, which can be run against the real file on a
+    workstation; the board is handed bytes and a length and never sees the
+    format.
     """
+    if isinstance(value, str) and value.strip().lower() in ("none", "off", "no"):
+        return None
     path = cv.file_(value)
     try:
         with open(path, "rb") as handle:
@@ -499,7 +514,23 @@ async def to_code(config):
     cg.add(var.set_pair_seconds(config[CONF_PAIR_SECONDS].total_seconds))
     cg.add(var.set_show_reports(config[CONF_SHOW_REPORTS]))
 
-    if CONF_FIRMWARE in config:
+    # Which patch to build in, and the DEFAULT is the one carried beside this
+    # file: a household that plugs in a Realtek dongle should not have to know
+    # that it needs a patch, let alone find one. `firmware: none` turns it off
+    # for a board that will only ever see a Broadcom, which needs none; a path
+    # names a different chip's pair.
+    blob = config.get(CONF_FIRMWARE, "carried")
+    conf = config.get(CONF_FIRMWARE_CONFIG, "carried")
+    if blob == "carried":
+        carried = CARRIED_FIRMWARE / "rtl8761bu_fw.bin"
+        blob = carried.read_bytes() if carried.is_file() else None
+    if conf == "carried":
+        carried = CARRIED_FIRMWARE / "rtl8761bu_config.bin"
+        conf = carried.read_bytes() if carried.is_file() else b""
+    if conf is None:
+        conf = b""
+
+    if blob is not None:
         # Parsed at BUILD time, so the board never carries the format. Errors
         # here name the file rather than reaching a panel as silence on the
         # air, which is the failure this whole option exists to end.
@@ -509,9 +540,7 @@ async def to_code(config):
         import rtlfw
 
         try:
-            images, version, lmp, which = rtlfw.images(
-                config[CONF_FIRMWARE], config.get(CONF_FIRMWARE_CONFIG, b"")
-            )
+            images, version, lmp, which = rtlfw.images(blob, conf)
         except rtlfw.NotFirmware as err:
             raise cv.Invalid(f"{CONF_FIRMWARE}: {err}")
         if len(images) > 4:
