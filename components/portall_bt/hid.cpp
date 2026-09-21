@@ -118,6 +118,9 @@ static void gap_cb(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *param) {
   switch (event) {
     case ESP_BT_GAP_DISC_RES_EVT: {
       // Only ever reached during pair(), because nothing else here inquires.
+      // This pulls the two fields out of the property list and hands them
+      // over; what to DO with the device is heard_device(), which is a member
+      // so that a test can drive it.
       uint32_t cod = 0;
       const char *name = nullptr;
       for (int i = 0; i < param->disc_res.num_prop; i++) {
@@ -127,63 +130,7 @@ static void gap_cb(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *param) {
         else if (prop.type == ESP_BT_GAP_DEV_PROP_BDNAME)
           name = (const char *) prop.val;
       }
-      say_addr(addr, param->disc_res.bda);
-      const uint32_t major = esp_bt_gap_get_cod_major_dev(cod);
-      // Bits 2-7 of the Class of Device, whose meaning depends on the major
-      // class above. Within AUDIO/VIDEO, 0x12 is Gaming/Toy -- a gamepad
-      // with a headphone jack, not a speaker.
-      const uint32_t minor = (cod >> 2) & 0x3F;
-      g_bt->note_heard();
-      ESP_LOGI(TAG, "  heard %s  class %06X  major %u minor %u%s%s", addr, (unsigned) cod,
-               (unsigned) major, (unsigned) minor, name != nullptr ? "  " : "",
-               name != nullptr ? name : "");
-      // PERIPHERAL is tested FIRST. A gamepad, a keyboard, a mouse or a
-      // remote all say PERIPHERAL, and that answer is unambiguous -- so it
-      // takes priority over the AUDIO/VIDEO check below. Putting audio first
-      // is what let a controller with a headphone jack (NVIDIA Shield, among
-      // others) be mistaken for a speaker: it reports AUDIO/VIDEO because of
-      // the jack, and `wants_speaker()` was tested before the minor class
-      // could say otherwise.
-      if (major == ESP_BT_COD_MAJOR_DEV_PERIPHERAL && g_bt->wants_input()) {
-        ESP_LOGI(TAG, "  that is an input device -- stopping the scan and pairing with it");
-        esp_bt_gap_cancel_discovery();
-#ifdef CONFIG_BT_HID_HOST_ENABLED
-        esp_bt_hid_host_connect(param->disc_res.bda);
-#endif
-      } else if (major == ESP_BT_COD_MAJOR_DEV_AV && minor == 0x12 && g_bt->wants_input()) {
-        // Gaming/Toy within Audio/Video: a gamepad that reports audio
-        // capabilities because it carries a headphone jack or a microphone.
-        // The NVIDIA Shield controller is one. Pairing it via A2DP makes the
-        // panel stream audio to a thumbstick and ignore its buttons, which is
-        // the fault this block exists to prevent.
-        ESP_LOGI(TAG, "  that is a gaming device (A/V class, minor 0x12) -- pairing as input");
-        esp_bt_gap_cancel_discovery();
-#ifdef CONFIG_BT_HID_HOST_ENABLED
-        esp_bt_hid_host_connect(param->disc_res.bda);
-#endif
-      } else if (major == ESP_BT_COD_MAJOR_DEV_AV && g_bt->wants_speaker()) {
-        ESP_LOGI(TAG, "  that is a speaker -- stopping the scan and pairing with it");
-        esp_bt_gap_cancel_discovery();
-#ifdef CONFIG_BT_A2DP_ENABLE
-        esp_a2d_source_connect(param->disc_res.bda);
-#endif
-      } else if (major == ESP_BT_COD_MAJOR_DEV_PERIPHERAL || major == ESP_BT_COD_MAJOR_DEV_AV) {
-        /* Heard, recognised, and passed over -- which without this line is
-         * indistinguishable from not being heard at all.
-         *
-         * `audio:` and `hid:` both default to FALSE, and they are what
-         * wants_speaker() and wants_input() return. So a panel built with one
-         * of them on skips every device of the other kind IN SILENCE: the
-         * device appears on the line above, nothing connects, and the scan
-         * ends saying it heard something. That silence is the other half of
-         * the mis-detection above -- with `hid:` off, a controller is skipped
-         * whatever its class says, and the speaker beside it is taken. */
-        const bool input_kind =
-            major == ESP_BT_COD_MAJOR_DEV_PERIPHERAL || minor == 0x12;
-        ESP_LOGW(TAG, "  that is %s, and this panel has `%s: true` off -- skipping it",
-                 input_kind ? "an input device (gamepad, keyboard, mouse, remote)" : "a speaker",
-                 input_kind ? "hid" : "audio");
-      }
+      g_bt->heard_device(param->disc_res.bda, cod, name);
       break;
     }
 
@@ -767,6 +714,112 @@ void PortallBT::hid_reconnect_() {
 #endif
 }
 
+void PortallBT::heard_device(const uint8_t *addr, uint32_t cod, const char *name) {
+#ifdef CONFIG_BT_BLUEDROID_ENABLED
+  char text[18];
+  say_addr(text, addr);
+  const uint32_t major = esp_bt_gap_get_cod_major_dev(cod);
+  // Bits 2-7 of the Class of Device, whose meaning depends on the major
+  // class above. Within AUDIO/VIDEO, 0x12 is Gaming/Toy -- a gamepad
+  // with a headphone jack, not a speaker.
+  const uint32_t minor = (cod >> 2) & 0x3F;
+  this->heard_++;
+  ESP_LOGI(TAG, "  heard %s  class %06X  major %u minor %u%s%s", text, (unsigned) cod,
+           (unsigned) major, (unsigned) minor, name != nullptr ? "  " : "",
+           name != nullptr ? name : "");
+
+  /* A DEVICE THIS PANEL ALREADY HAS IS NOT WHAT PAIRING IS FOR, and taking it
+   * is what made adding a second device so hard.
+   *
+   * Reported as "pour faire un appareillage c'est contraignant je suis
+   * obliger d'appuis sur forget meme si il y a 0 paire". The scan stops at the
+   * FIRST device of a wanted kind, and the devices most likely to answer
+   * quickly are the ones already in the room and already paired -- so every
+   * Pair run walked off to the speaker that was already working, announced
+   * success, and the new remote never got a turn. The only way through was to
+   * Forget everything first, which is exactly what was being reported.
+   *
+   * So Pair means ADD. Replacing a device that is already here is what the
+   * Forget buttons are for, and the line below names the right one rather
+   * than leaving somebody to work it out. */
+  bool known_speaker = false;
+  (void) known_speaker;
+#ifdef CONFIG_BT_A2DP_ENABLE
+  known_speaker = this->remembered_.has_sink && memcmp(addr, this->remembered_.sink, 6) == 0;
+#endif
+  const bool known_input = this->remembered_input_(addr);
+  if (known_speaker || known_input) {
+    this->skipped_known_++;
+    ESP_LOGI(TAG,
+             "  this panel already has %s -- skipping it, because pairing is for adding "
+             "something new. To replace it, press %s first.",
+             known_speaker ? "that speaker" : "that input device",
+             known_speaker ? "Forget Bluetooth speaker" : "Forget Bluetooth controllers");
+    return;
+  }
+
+  // PERIPHERAL is tested FIRST. A gamepad, a keyboard, a mouse or a
+  // remote all say PERIPHERAL, and that answer is unambiguous -- so it
+  // takes priority over the AUDIO/VIDEO check below. Putting audio first
+  // is what let a controller with a headphone jack (NVIDIA Shield, among
+  // others) be mistaken for a speaker: it reports AUDIO/VIDEO because of
+  // the jack, and `wants_speaker()` was tested before the minor class
+  // could say otherwise.
+  esp_bd_addr_t target;
+  memcpy(target, addr, 6);
+  const bool wanted = (major == ESP_BT_COD_MAJOR_DEV_PERIPHERAL && this->wants_input()) ||
+                      (major == ESP_BT_COD_MAJOR_DEV_AV && minor == 0x12 && this->wants_input()) ||
+                      (major == ESP_BT_COD_MAJOR_DEV_AV && this->wants_speaker());
+  if (wanted) {
+    memcpy(this->pair_target_, addr, 6);
+    this->pair_took_ = true;
+  }
+  if (major == ESP_BT_COD_MAJOR_DEV_PERIPHERAL && this->wants_input()) {
+    ESP_LOGI(TAG, "  that is an input device -- stopping the scan and pairing with it");
+    esp_bt_gap_cancel_discovery();
+#ifdef CONFIG_BT_HID_HOST_ENABLED
+    esp_bt_hid_host_connect(target);
+#endif
+  } else if (major == ESP_BT_COD_MAJOR_DEV_AV && minor == 0x12 && this->wants_input()) {
+    // Gaming/Toy within Audio/Video: a gamepad that reports audio
+    // capabilities because it carries a headphone jack or a microphone.
+    // The NVIDIA Shield controller is one. Pairing it via A2DP makes the
+    // panel stream audio to a thumbstick and ignore its buttons, which is
+    // the fault this block exists to prevent.
+    ESP_LOGI(TAG, "  that is a gaming device (A/V class, minor 0x12) -- pairing as input");
+    esp_bt_gap_cancel_discovery();
+#ifdef CONFIG_BT_HID_HOST_ENABLED
+    esp_bt_hid_host_connect(target);
+#endif
+  } else if (major == ESP_BT_COD_MAJOR_DEV_AV && this->wants_speaker()) {
+    ESP_LOGI(TAG, "  that is a speaker -- stopping the scan and pairing with it");
+    esp_bt_gap_cancel_discovery();
+#ifdef CONFIG_BT_A2DP_ENABLE
+    esp_a2d_source_connect(target);
+#endif
+  } else if (major == ESP_BT_COD_MAJOR_DEV_PERIPHERAL || major == ESP_BT_COD_MAJOR_DEV_AV) {
+    /* Heard, recognised, and passed over -- which without this line is
+     * indistinguishable from not being heard at all.
+     *
+     * `audio:` and `hid:` both default to FALSE, and they are what
+     * wants_speaker() and wants_input() return. So a panel built with one
+     * of them on skips every device of the other kind IN SILENCE: the
+     * device appears on the line above, nothing connects, and the scan
+     * ends saying it heard something. That silence is the other half of
+     * the mis-detection above -- with `hid:` off, a controller is skipped
+     * whatever its class says, and the speaker beside it is taken. */
+    const bool input_kind = major == ESP_BT_COD_MAJOR_DEV_PERIPHERAL || minor == 0x12;
+    ESP_LOGW(TAG, "  that is %s, and this panel has `%s: true` off -- skipping it",
+             input_kind ? "an input device (gamepad, keyboard, mouse, remote)" : "a speaker",
+             input_kind ? "hid" : "audio");
+  }
+#else
+  (void) addr;
+  (void) cod;
+  (void) name;
+#endif
+}
+
 void PortallBT::pair() {
 #ifdef CONFIG_BT_BLUEDROID_ENABLED
   if (!this->profiles_up_) {
@@ -791,12 +844,25 @@ void PortallBT::pair() {
    * panel whose boot inquiry had heard that same speaker at -45 dBm six
    * seconds earlier, which is what rules out the radio and the distance.
    *
-   * So pairing begins by getting out of the way: stop paging for the length of
-   * the scan, and hang up what is already up. */
+   * So pairing stops PAGING for the length of the scan -- an inquiry and a
+   * page compete for one radio, and this component has already had a panel
+   * page without pause while somebody tried to pair.
+   *
+   * WHAT IT NO LONGER DOES IS HANG EVERYTHING UP. It used to, and that was
+   * the wrong half of the answer: a device that is connected to this panel is
+   * one this panel already HAS, and heard_device now passes those over rather
+   * than re-pairing them -- so there is nothing to be gained by dropping
+   * them, and a great deal to lose. Reported as "pour faire un appareillage
+   * c'est contraignant": pressing Pair stopped the music, dropped the
+   * gamepad, and then paired the speaker that was already working. Replacing
+   * a device that is already here is what Forget is for, and forget() still
+   * hangs up first -- which is the case that fix was really written for. */
   this->reconnect_paused_ = true;
   this->reconnect_backoff_ms_ = 0;
-  this->drop_links_();
   this->heard_ = 0;
+  this->skipped_known_ = 0;
+  this->pair_took_ = false;
+  memset(this->pair_target_, 0, 6);
 
   // Discoverable only while this runs, so the panel is not in every phone's
   // Bluetooth list for the rest of its life for the sake of one pairing.
@@ -865,6 +931,20 @@ void PortallBT::say_pairing_later() {
   this->pair_report_due_ms_ = now_ms_() + 3000;
 }
 
+bool PortallBT::is_open_(const uint8_t *addr) const {
+#ifdef CONFIG_BT_BLUEDROID_ENABLED
+#ifdef CONFIG_BT_A2DP_ENABLE
+  if (this->a2dp_open_ && memcmp(this->open_sink_, addr, 6) == 0)
+    return true;
+#endif
+  const int8_t slot = this->slot_for_addr_(addr);
+  return slot >= 0 && this->inputs_[slot].open;
+#else
+  (void) addr;
+  return false;
+#endif
+}
+
 void PortallBT::pair_report_tick_() {
 #ifdef CONFIG_BT_BLUEDROID_ENABLED
   if (this->pair_report_due_ms_ == 0)
@@ -873,13 +953,31 @@ void PortallBT::pair_report_tick_() {
     return;
   this->pair_report_due_ms_ = 0;
 
-  if (this->a2dp_open_ || this->any_input_open_()) {
-    ESP_LOGI(TAG, "pairing finished: a device is connected. Nothing will scan again -- from now "
-                  "on this panel reconnects by address.");
+  char text[18];
+  if (this->pair_took_ && this->is_open_(this->pair_target_)) {
+    say_addr(text, this->pair_target_);
+    ESP_LOGI(TAG, "pairing finished: %s is connected. Nothing will scan again -- from now on "
+                  "this panel reconnects by address.", text);
+  } else if (this->pair_took_) {
+    /* It found something and the connection did not come up. Said apart from
+       the two below, because the next step is different: the device answered
+       the scan, so it is there and awake -- what failed is the pairing. */
+    say_addr(text, this->pair_target_);
+    ESP_LOGW(TAG, "pairing finished: %s answered the scan but has not connected. Put it back "
+                  "in pairing mode and press the button again.", text);
   } else if (this->heard_ == 0) {
     ESP_LOGW(TAG, "pairing finished and nothing answered the scan. Put the device in PAIRING "
                   "mode and press the button again; a speaker already connected to a telephone "
                   "or a car does not answer.");
+  } else if (this->skipped_known_ == this->heard_) {
+    /* Everything it heard, it already had. Without this the line below says
+       "none of them connected", which reads as a fault and sends somebody to
+       look at the class of device -- when the panel was in fact doing exactly
+       what it should and the next step is a different button entirely. */
+    ESP_LOGI(TAG, "pairing finished: the %u device(s) heard are ones this panel already has, so "
+                  "nothing was changed. Put the NEW device in pairing mode, or press a Forget "
+                  "button to replace one of these.",
+             (unsigned) this->heard_);
   } else {
     ESP_LOGW(TAG, "pairing finished: %u device(s) heard, none of them connected. Only a speaker "
                   "or an input device is taken, and only if this panel was asked for that kind.",

@@ -410,6 +410,22 @@ class PortallBT : public Component {
 
   void pair();
 
+  /* One device an inquiry heard, sorted into what to do with it.
+   *
+   * A member rather than the body of the GAP callback so a test can hand it
+   * devices: the decision this makes -- take it, skip it, or say which option
+   * is off -- is the whole of what pressing Pair does, and it used to live in
+   * a `static` function no test could reach.
+   *
+   * `cod` is the Class of Device as the controller reported it; `name` may be
+   * null, because a device that publishes no extended inquiry response has
+   * none to give. */
+  void heard_device(const uint8_t *addr, uint32_t cod, const char *name);
+  /// How many of the devices heard were passed over because this panel
+  /// already has them. Zero and non-zero need different next steps, which is
+  /// why it is counted rather than inferred.
+  uint16_t skipped_known() const { return this->skipped_known_; }
+
   /* Bluetooth off and on, as one switch a household can reach.
    *
    * WHAT "OFF" MEANS HERE, because the honest answer is narrower than the
@@ -471,9 +487,9 @@ class PortallBT : public Component {
   /// Hang up whatever is connected. An inquiry cannot find a device that is
   /// already talking to this panel, so pairing and forgetting both start here.
   void drop_links_();
-  /// Count a device heard during a pair scan, so the end of one can say
-  /// whether it heard anything at all.
-  void note_heard() { this->heard_++; }
+  /// How many devices a pair scan heard, so the end of one can say whether it
+  /// heard anything at all. Counted in heard_device, which is the only thing
+  /// an inquiry result reaches.
   uint16_t heard() const { return this->heard_; }
   /// Put the reconnection clock back after a pair scan.
   void resume_reconnect();
@@ -703,6 +719,16 @@ class PortallBT : public Component {
   /// See set_bt_enabled: a flag, because the clock is re-armed elsewhere.
   bool bt_off_{false};
   uint16_t heard_{0};
+  uint16_t skipped_known_{0};
+  /* WHICH device this pairing run actually reached for, and whether it
+     reached for one at all.
+     Needed the moment pairing stopped hanging everything up: "a device is
+     connected" was true of the speaker that had been playing all along, so a
+     run that found nothing new would have announced success. What somebody
+     pressing Pair wants to know is whether the NEW thing arrived. */
+  uint8_t pair_target_[6]{};
+  bool pair_took_{false};
+  bool is_open_(const uint8_t *addr) const;
   uint32_t pair_report_due_ms_{0};
   Remembered remembered_{};
   ESPPreferenceObject remembered_pref_;
