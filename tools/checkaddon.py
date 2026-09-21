@@ -237,6 +237,11 @@ def check_reaches_sender(folder):
         "import_profile",
         # A switch that WITHHOLDS the links' tokens rather than adding a flag.
         "home_assistant",
+        # This one starts a HomeKit accessory HERE; what it adds to the
+        # sender's line is --control, which is wider than the option and so
+        # is not named after it. tools/checkhomekit.py runs command_for and
+        # requires that flag, so it is checked somewhere rather than nowhere.
+        "homekit",
     }
 
     def leaves(spec, path=()):

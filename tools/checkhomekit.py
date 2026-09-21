@@ -1,0 +1,347 @@
+#!/usr/bin/env python3
+"""The HomeKit remote, driven the way an iPhone drives it.
+
+What this exists to catch is the JOIN. Three shipped pieces sit between the
+widget in somebody's Control Centre and a tile moving on the glass, and they
+are in two files and two processes:
+
+    pyhap's RemoteKey  ->  homekit.Television.remote_key
+                       ->  run.Remote.send        (a line down a pipe)
+                       ->  ha_send.Control        (the same pairs the loop
+                                                   already acts on)
+
+Every fault this repository keeps recording lives exactly there: two ends
+that are each correct and a middle nobody ran. So the accessory is BUILT with
+the real pyhap, the key is pressed through the real characteristic, and the
+line that comes out is fed to the real Control.
+
+Needs HAP-python:  pip install "HAP-python[QRCode]"
+"""
+
+import io
+import json
+import os
+import pathlib
+import sys
+import tempfile
+
+HERE = pathlib.Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(HERE / "portall"))
+sys.path.insert(0, str(HERE / "components" / "portall"))
+
+import homekit  # noqa: E402
+import run  # noqa: E402
+from udisp_send import BROWSER_KEYS  # noqa: E402
+from ha_send import Control  # noqa: E402
+
+
+# What each HomeKit key is FOR, stated here rather than read out of the table
+# being checked. The first version of this file took its expectation from
+# homekit.ACTIONS itself, so folding Exit onto Escape -- the exact fault this
+# project already made once, where EXIT and ROOT_MENU both meant Escape and no
+# button went home -- passed every case. A test that restates the thing it
+# checks proves only that it can copy.
+#
+# The split is the television one: Back goes back WITHIN the page, the TV
+# button leaves it for the panel's own url.
+WANT = {
+    "ArrowUp": ("key", "ArrowUp"),
+    "ArrowDown": ("key", "ArrowDown"),
+    "ArrowLeft": ("key", "ArrowLeft"),
+    "ArrowRight": ("key", "ArrowRight"),
+    "Select": ("key", "Enter"),
+    "Back": ("key", "Escape"),
+    "Exit": ("home", True),
+    "PlayPause": ("key", "MediaPlayPause"),
+    "NextTrack": ("key", "MediaTrackNext"),
+    "PreviousTrack": ("key", "MediaTrackPrevious"),
+}
+
+faults = []
+
+
+def check(what, ok):
+    print(("  ok     " if ok else "  ECHEC  ") + what)
+    if not ok:
+        faults.append(what)
+
+
+class FakeProcess:
+    """Something with a stdin, standing in for a sender."""
+
+    def __init__(self):
+        self.stdin = io.StringIO()
+        self.closed = False
+
+    def close(self):
+        self.closed = True
+        self.stdin.close()
+
+
+def quiet(*_args, **_kwargs):
+    pass
+
+
+def spoken():
+    lines = []
+    return lines, lambda text: lines.append(text)
+
+
+# -- the accessory, built with the real pyhap ----------------------------
+
+def accessory_cases():
+    try:
+        import pyhap  # noqa: F401
+    except ImportError:
+        print("  --     HAP-python is not installed, so the accessory itself "
+              "was not built. pip install \"HAP-python[QRCode]\"")
+        return
+
+    table = homekit.valid_values()
+    folder = tempfile.mkdtemp()
+    seen = []
+    said, say = spoken()
+    television = homekit.Television(
+        "Salon", lambda kind, body: seen.append((kind, body)), say,
+        homekit.FIRST_PORT, folder)
+    driver = homekit._driver(homekit.FIRST_PORT,
+                             os.path.join(folder, "salon.state"),
+                             os.path.join(folder, "salon.pin"))
+    accessory = homekit._accessory(driver, television)
+
+    service = accessory.get_service("Television")
+    char = service.get_characteristic("RemoteKey")
+
+    # The category is what puts it in the remote list rather than in the
+    # Home app as a nameless box.
+    from pyhap.const import CATEGORY_TELEVISION
+    check("the accessory is a Television, which is what the widget lists",
+          accessory.category == CATEGORY_TELEVISION)
+
+    # Home Assistant's own Television accessory adds no InputSource at all
+    # when the player cannot select one, so this matches a shipped shape.
+    present = sorted(c.display_name for c in service.characteristics)
+    check("it carries RemoteKey and the four required characteristics",
+          present == ["Active", "ActiveIdentifier", "ConfiguredName",
+                      "RemoteKey", "SleepDiscoveryMode"])
+    check("and no input sources, like Home Assistant's own when there are none",
+          not any(s.display_name == "InputSource" for s in accessory.services))
+
+    # Every key, pressed through the real characteristic, against what this
+    # file says it is for.
+    for name, want in WANT.items():
+        seen.clear()
+        char.client_update_value(table[name])
+        check(f"HomeKit {name} reaches the panel as {want}", seen == [want])
+    check("and it maps exactly those, no more",
+          set(homekit.ACTIONS) == set(WANT))
+    check("with Back and the TV button doing DIFFERENT things",
+          WANT["Back"] != WANT["Exit"]
+          and homekit.ACTIONS["Back"] != homekit.ACTIONS["Exit"])
+
+    # And one it does not map. Rewind has nowhere sensible to go on a page.
+    seen.clear()
+    said.clear()
+    char.client_update_value(table["Rewind"])
+    check("an unmapped key sends nothing", seen == [])
+    check("and says so once", len(said) == 1 and "Rewind" not in said[0])
+    said.clear()
+    char.client_update_value(table["Rewind"])
+    check("and not twice", said == [])
+
+    # Active is recorded and reaches no panel: a remote turning a screen off
+    # is the BOARD's decision, in its own YAML.
+    seen.clear()
+    service.get_characteristic("Active").client_update_value(0)
+    check("HomeKit's on/off touches no panel", seen == [])
+
+
+def pin_cases():
+    try:
+        import pyhap  # noqa: F401
+    except ImportError:
+        return
+    folder = tempfile.mkdtemp()
+    path = os.path.join(folder, "salon.pin")
+    from pyhap.state import State
+    first = homekit.read_pin(path, lambda: State().pincode)
+    second = homekit.read_pin(path, lambda: State().pincode)
+    # pyhap's encoder persists the MAC, the keys and the paired clients and
+    # NOT the pincode, so without this the code in the log is a different one
+    # after every restart -- which is exactly the minutes somebody is reading
+    # it off the screen and typing it in.
+    check("the pairing code is the same after a restart", first == second)
+    other = homekit.read_pin(os.path.join(folder, "cuisine.pin"),
+                             lambda: State().pincode)
+    check("and a second panel gets one of its own", other != first)
+
+
+# -- the join with the sender --------------------------------------------
+
+def name_cases():
+    """The names this produces have to be names the sender can press.
+
+    Derived rather than listed: a browser key name is either one the board's
+    own table already uses, or a media key, which the browser's keyboard
+    answers for itself and says so in one line if it cannot.
+    """
+    known = set(BROWSER_KEYS.values())
+    stray = [body for kind, body in homekit.ACTIONS.values()
+             if kind == "key" and body not in known
+             and not body.startswith("Media")]
+    check("every key name it sends is one the sender already knows",
+          stray == [])
+    check("and the arrows are among them",
+          {("key", "ArrowUp"), ("key", "ArrowLeft")} <= set(homekit.ACTIONS.values()))
+    check("the shipped table is what this file says it should be",
+          homekit.ACTIONS == WANT)
+
+
+def round_trip_cases():
+    """From the accessory's own callback to the pairs the loop acts on.
+
+    This is the whole point of the file: three shipped pieces, two files, one
+    pipe, and the answer read out of the last one rather than asserted at
+    each end.
+    """
+    if not _has_pyhap():
+        return
+    numbers = homekit.valid_values()
+    table = homekit.actions_by_number()
+    process = FakeProcess()
+    remote = run.Remote("Salon")
+    remote.set_process(process)
+    television = homekit.Television("Salon", remote.send, quiet,
+                                    homekit.FIRST_PORT, tempfile.mkdtemp())
+
+    pressed = ("ArrowUp", "ArrowLeft", "Select", "Back", "Exit")
+    for name in pressed:
+        television.remote_key(numbers[name], table)
+    want = [WANT[name] for name in pressed]
+
+    control = Control(io.StringIO(process.stdin.getvalue()))
+    control._thread.join(timeout=2)
+    got = control.drain()
+    check("what the accessory pressed is what the send loop is handed",
+          got == want)
+    check("and home crosses as its own kind, not as a key named home",
+          ("home", True) in got and ("key", "home") not in got)
+
+
+def _has_pyhap():
+    try:
+        import pyhap  # noqa: F401
+    except ImportError:
+        return False
+    return True
+
+
+def control_cases():
+    control = Control(io.StringIO("key ArrowDown\nhome\nnonsense\n\nkey Enter\n"))
+    control._thread.join(timeout=2)
+    got = control.drain()
+    check("stdin yields exactly the pairs the return channel yields",
+          got == [("key", "ArrowDown"), ("home", True), ("key", "Enter")])
+    check("and draining twice does not repeat them", control.drain() == [])
+
+
+# -- the restart, which is the fault a naive version would have ----------
+
+def restart_cases():
+    first = FakeProcess()
+    remote = run.Remote("Salon")
+    remote.set_process(first)
+    remote.send("key", "ArrowUp")
+
+    # The sender dies and is started again on the backoff, which is ordinary.
+    first.close()
+    remote.set_process(None)
+    second = FakeProcess()
+    remote.set_process(second)
+    remote.send("key", "ArrowDown")
+
+    check("a press after the sender restarted reaches the NEW one",
+          second.stdin.getvalue() == "key ArrowDown\n")
+
+    # The version this is not: a remote that grabbed the pipe once. Written
+    # out rather than described, because the point is that it FAILS.
+    naive_pipe = first.stdin
+    try:
+        naive_pipe.write("key ArrowDown\n")
+        naive_ok = True
+    except ValueError:
+        naive_ok = False
+    check("where holding the first pipe would have written into a dead one",
+          not naive_ok)
+
+
+def nothing_running_cases():
+    said, say = spoken()
+    remote = run.Remote("Salon")
+    saved = run.say
+    run.say = say
+    try:
+        ok = remote.send("key", "ArrowUp")
+        again = remote.send("key", "ArrowUp")
+    finally:
+        run.say = saved
+    check("a press with no sender running is dropped rather than raising",
+          ok is False and again is False)
+    check("and said once, not on every press", len(said) == 1)
+
+
+# -- the add-on's own line ------------------------------------------------
+
+def command_cases():
+    """homekit: true has to put --control on the sender's line.
+
+    This one is not generic: checkaddon's option sweep passes over `homekit`
+    because it emits a flag of another name, so the thing it emits is checked
+    here instead of nowhere.
+    """
+    def line(options):
+        handle, path = tempfile.mkstemp(suffix=".json")
+        os.close(handle)
+        pathlib.Path(path).write_text(json.dumps(options))
+        previous = os.environ.get("UDISP_CONFIG")
+        os.environ["UDISP_CONFIG"] = path
+        try:
+            run._config = {}
+            panels = run.load_panels()
+            return run.command_for(panels[0]) if panels else []
+        finally:
+            os.unlink(path)
+            if previous is None:
+                os.environ.pop("UDISP_CONFIG", None)
+            else:
+                os.environ["UDISP_CONFIG"] = previous
+
+    panel = {"name": "salon", "host": "1.2.3.4", "url": "http://x/",
+             "width": 800, "height": 1280}
+    on = line({"panels": [dict(panel)], "defaults": {"homekit": True}})
+    off = line({"panels": [dict(panel)], "defaults": {"homekit": False}})
+    check("homekit: true opens the sender's control channel",
+          "--control" in on)
+    check("and a panel that did not ask for one is untouched",
+          "--control" not in off)
+
+
+def main():
+    print("The HomeKit remote:")
+    accessory_cases()
+    pin_cases()
+    name_cases()
+    control_cases()
+    round_trip_cases()
+    restart_cases()
+    nothing_running_cases()
+    command_cases()
+    if faults:
+        print(f"\n{len(faults)} problem(s).")
+        return 1
+    print("\nAll good.")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

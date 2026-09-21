@@ -1,5 +1,5 @@
 name: Portall
-version: "4.14.0"
+version: "4.15.0"
 # Home Assistant identifies an add-on by its slug, so this one moving from
 # usb_display_panel to portall makes the Supervisor see a NEW add-on: options
 # are not carried over and /data starts empty, which means the browser
@@ -34,6 +34,17 @@ map:
   - media:ro
 boot: auto
 init: false
+# The HomeKit remote needs the house's own network, and nothing else here
+# does. An accessory is found over mDNS, which does not cross from the
+# Supervisor's bridge to the LAN, and the iPhone has to reach its port
+# directly -- which is why Home Assistant's own HomeKit works: its container
+# is on the host network too.
+#
+# What it changes for everything else: the launcher still binds 127.0.0.1
+# only, so it is the HOST's loopback now rather than a container's. Nothing
+# on the LAN can reach it either way. The one thing to know is that port 8099
+# must be free on the Home Assistant machine.
+host_network: true
 options:
   # The panels first, because they are the one thing that must be filled in
   # for anything at all to appear. Everything under them has a working
@@ -231,6 +242,17 @@ options:
     # language whatever the household speaks, and it reports a language tag no
     # real browser produces.
     locale: en-US
+    # A remote for every panel, in the iPhone's own Control Centre -- the
+    # widget built for an Apple TV drives any HomeKit accessory of the
+    # Television kind, and this makes each panel one. Turn it on, open the
+    # add-on's log, and scan the code that appears with the Home app. After
+    # that the panel is in the remote list beside any Apple TV, the pad
+    # moves between the launcher's tiles, and the TV button brings it home.
+    #
+    # Nothing is paired to the panel itself and no Bluetooth is involved: the
+    # press arrives here, where the page is rendered. Unpair from the Home
+    # app like any other accessory.
+    homekit: false
   # All off. Turn one on only while something is already wrong: each
   # writes to the add-on's log and nothing else.
   debug:
@@ -334,6 +356,7 @@ schema:
     keyboard: list(off|qwerty|azerty)?
     keep_profile: bool?
     locale: str?
+    homekit: bool?
   debug:
     stats: bool?
     show_media: bool?

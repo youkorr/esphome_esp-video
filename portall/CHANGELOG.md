@@ -1,5 +1,31 @@
 # Changelog
 
+## 4.15.0
+
+- **The iPhone's own remote drives a panel now.** Turn on `homekit` under
+  *Defaults*, restart, and each panel appears as a television in the Home app
+  and in the remote widget of the iPhone's Control Centre -- the one built for
+  an Apple TV. The pad moves between the launcher's tiles, its centre opens
+  one, Back is Escape and the TV button brings the panel home.
+
+  Pairing is the Home app's own: the add-on's log prints a QR code to point a
+  camera at, and a code to type if you would rather. Unpairing is removing the
+  accessory. Nothing is paired to the panel itself and no Bluetooth is
+  involved -- the press arrives at the add-on, where the page is rendered.
+
+  It replaces a recipe that was three things to configure: a `universal`
+  media player pretending to be a television, a HomeKit bridge in accessory
+  mode, and an automation to carry each key across. That is a mechanism to
+  operate rather than a thing that exists, which is not what anybody asked
+  for.
+
+- **This add-on now runs on the house's own network.** A HomeKit accessory is
+  found over mDNS, which does not reach the LAN from the Supervisor's private
+  network, and the iPhone has to reach its port directly -- the same reason
+  Home Assistant's own HomeKit works that way. The launcher still binds to
+  `127.0.0.1` only and is reachable from nowhere else; the one consequence is
+  that **port 8099 must be free** on the Home Assistant machine.
+
 ## 4.14.0
 
 - **Every site's own press effect works now, not just the launcher's.**

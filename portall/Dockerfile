@@ -23,7 +23,7 @@ WORKDIR /app
 # update really does fetch a current Playwright, a current Chromium and current
 # senders. It costs the browser download on each update, which is the price of
 # not running a year-old browser without knowing it.
-ARG BUNDLE=4.14.0
+ARG BUNDLE=4.15.0
 RUN echo "${BUNDLE}" > /app/BUNDLE
 
 # --no-shell, and it is worth 323 MB of image.
@@ -43,6 +43,16 @@ RUN echo "${BUNDLE}" > /app/BUNDLE
 #
 # Written to degrade rather than fail: an older Playwright that has never heard
 # of --no-shell installs both, exactly as before.
+# HAP-python is what Home Assistant's own HomeKit bridge is built on, so
+# the accessory this serves is the same library talking to the same iPhone.
+# The [QRCode] extra is not decoration: it prints a scannable code into the
+# add-on's log, which turns pairing into pointing a camera at the screen
+# instead of typing eight digits found in a wall of text.
+#
+# Allowed to fail, like the second browser below: a panel that shows a
+# dashboard is worth more than one that can be driven from a telephone, and
+# run.py steps over a missing homekit module and says so.
+RUN pip install --no-cache-dir "HAP-python[QRCode]" ; true
 RUN pip install --no-cache-dir --upgrade playwright pillow numpy \
     && (playwright install --with-deps chromium --no-shell \
         || playwright install --with-deps chromium) \
@@ -108,6 +118,10 @@ ADD ${RAW}/ha_send.py /app/ha_send.py
 COPY run.py /app/run.py
 COPY launcher.py /app/launcher.py
 COPY logos.py /app/logos.py
+# The image has to be told about every file, which is not the same as the
+# repository having one -- launcher.py was written, imported and tested
+# and the add-on died on ModuleNotFoundError before serving a panel.
+COPY homekit.py /app/homekit.py
 
 WORKDIR /app
 # Unbuffered, or the add-on log stays empty until something goes wrong.
