@@ -44,13 +44,23 @@ from ha_send import Control  # noqa: E402
 #
 # The split is the television one: Back goes back WITHIN the page, the TV
 # button leaves it for the panel's own url.
+# The keys the iOS Control Centre remote can actually SEND to a HomeKit
+# television, which is not the same as the keys HomeKit defines. Five
+# buttons: the pad, Select, Back, Play/Pause and the ⓘ. Stated here because
+# it is the fact the mapping has to satisfy -- the first version put the way
+# home on Exit, which is in HomeKit's table and on no button of this widget,
+# so a panel could not leave a link.
+WIDGET = {"ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Select",
+          "Back", "PlayPause", "Information"}
+
 WANT = {
     "ArrowUp": ("key", "ArrowUp"),
     "ArrowDown": ("key", "ArrowDown"),
     "ArrowLeft": ("key", "ArrowLeft"),
     "ArrowRight": ("key", "ArrowRight"),
     "Select": ("key", "Enter"),
-    "Back": ("key", "Escape"),
+    "Back": ("home", True),
+    "Information": ("key", "Escape"),
     "Exit": ("home", True),
     "PlayPause": ("key", "MediaPlayPause"),
     "NextTrack": ("key", "MediaTrackNext"),
@@ -135,9 +145,17 @@ def accessory_cases():
         check(f"HomeKit {name} reaches the panel as {want}", seen == [want])
     check("and it maps exactly those, no more",
           set(homekit.ACTIONS) == set(WANT))
-    check("with Back and the TV button doing DIFFERENT things",
-          WANT["Back"] != WANT["Exit"]
-          and homekit.ACTIONS["Back"] != homekit.ACTIONS["Exit"])
+    # THE case this round exists for. A panel's one indispensable remote
+    # action is getting back to its own page, and it has to sit on a button
+    # the widget owns.
+    reachable = [name for name in WIDGET
+                 if homekit.ACTIONS.get(name, (None,))[0] == "home"]
+    check("a button the widget REALLY HAS goes home", reachable != [])
+    check("and the pad and Select are not it",
+          not ({"ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Select"}
+               & set(reachable)))
+    check("every key this maps is one HomeKit defines",
+          set(homekit.ACTIONS) <= set(table))
 
     # And one it does not map. Rewind has nowhere sensible to go on a page.
     seen.clear()

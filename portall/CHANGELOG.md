@@ -1,5 +1,22 @@
 # Changelog
 
+## 4.15.1
+
+- **The Back button of the iPhone's remote now brings a panel home.** Reported
+  from a panel: inside any link there was no way back to the launcher, while
+  the same thing worked from a paired controller and from the `Remote home`
+  button in Home Assistant.
+
+  The way home was mapped onto HomeKit's `Exit` key -- which is in HomeKit's
+  own table and **on no button of the Control Centre remote**. That widget
+  gives a television exactly five: the pad, Select, Back, Play/Pause and ⓘ.
+  So the one action a panel cannot do without sat where nobody could press it.
+
+  Back goes home now, and Escape moves to the ⓘ button. It is the opposite
+  split from a Bluetooth remote, deliberately: that one has both a Back and a
+  Menu, and this one does not. Escape can afford the obscure button because
+  it does nothing on nearly every page a panel shows.
+
 ## 4.15.0
 
 - **The iPhone's own remote drives a panel now.** Turn on `homekit` under

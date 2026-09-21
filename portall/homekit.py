@@ -50,7 +50,26 @@ ACTIONS = {
     "ArrowLeft": ("key", "ArrowLeft"),
     "ArrowRight": ("key", "ArrowRight"),
     "Select": ("key", "Enter"),
-    "Back": ("key", "Escape"),
+    # Back goes HOME, and Escape sits on the ⓘ button. That is the opposite
+    # of the split this project made for a Bluetooth remote, and the reason
+    # is that the two devices do not have the same buttons.
+    #
+    # The iOS Control Centre remote gives a HomeKit television exactly five:
+    # the pad, Select, Back, Play/Pause and ⓘ. There is NO button that sends
+    # Exit -- so mapping the way home onto Exit put it somewhere nobody could
+    # press, which is this project's most-recorded fault in a fresh costume:
+    # a fix the reader cannot reach from where they are standing. Reported
+    # from a panel as being unable to leave a link.
+    #
+    # Of the two, Back is the one somebody reaches for to leave a page, and
+    # on a panel leaving the page IS the launcher. Escape can afford the
+    # obscure button because it does nothing at all on nearly every page one
+    # of these shows -- Home Assistant has no use for it, the launcher has
+    # none, and Jellyfin only listens in its TV layout.
+    "Back": ("home", True),
+    "Information": ("key", "Escape"),
+    # Kept although this widget never sends it: another HomeKit controller
+    # may, and a television's Exit means the same thing as its Back here.
     "Exit": ("home", True),
     # Worth attempting rather than leaving out: a panel showing a film is what
     # these are for. The sender presses them through the browser's keyboard,

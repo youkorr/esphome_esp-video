@@ -7615,6 +7615,78 @@ Sources: home-assistant/core `homekit/accessories.py`, `type_remotes.py`,
 `type_media_players.py`, `const.py`; home-assistant.io `homekit.markdown`;
 HAP-python 5.0.0.
 
+## The way home sat on a button the widget does not have
+
+**Reported from a panel: *"le button retour surement le button home? quant je
+suis dans n'importe quelle link"* -- with the control that makes it a
+diagnosis rather than a complaint: the same action works from the paired
+Shield and from `Remote home` in Home Assistant.** So `ask_home()`, the
+sender's home branch and `open_page()` are all fine, and the fault is
+upstream of them on the HomeKit path only.
+
+**The sender was checked first and cleared.** Its home branch has no
+condition on which page is open -- it calls `open_page(page, args)` and
+prints `Home: back to <url>` -- so if `("home", True)` had ever reached the
+loop the log would say so. It did not.
+
+**And the cause is that `Exit` is a key the widget cannot send.** The iOS
+Control Centre remote gives a HomeKit television exactly five buttons: the
+pad, Select, Back, Play/Pause and **ⓘ**. `Exit` is in HomeKit's own RemoteKey
+table, which is where it was taken from, and it is on no button of that
+widget. So the one action a panel cannot do without was mapped somewhere
+nobody could press.
+
+That is **this file's most-recorded shape, for the eighth time**: a
+capability that exists and is not reachable from where the reader is
+standing has not been delivered. The invisible keyboard, the add-on option
+that never reached `command_for()`, the command that was never named, the
+command that had to be typed in a window nobody could find, the firmware
+path under a config directory, the diagnostic that told somebody to press
+Home and watch for a line that could never appear -- and now a remote action
+on a phantom button.
+
+**It was also flagged as unknown in this file and shipped anyway**, which is
+the part worth keeping. The previous section ends: *"The one thing that
+could not be found written down anywhere is which button of the widget sends
+`Exit` and which sends `Information`"* -- and the answer to that was
+fifteen minutes of searching, which is what this round spent. An unknown
+named honestly in a comment is not the same as an unknown resolved, and a
+mapping built on one should not have gone out without the search.
+
+### Back goes home, Escape moves to ⓘ
+
+The opposite split from the Bluetooth remote, and deliberately: **the two
+devices do not have the same buttons.** An AVRCP remote has a Back AND a
+Menu, so Back can stay "back within the page" and Menu can leave it. This
+widget has Back and ⓘ.
+
+Of the two, Back is the one somebody reaches for to leave a page, and on a
+panel leaving the page IS the launcher. Escape can afford the obscure button
+because it does **nothing at all** on nearly every page one of these shows --
+this file's own table says so: Home Assistant has no use for it, the
+launcher has none, and Jellyfin listens only in its TV layout. `Exit` stays
+mapped to home beside Back, since another HomeKit controller may send it and
+a television's Exit means the same thing.
+
+### The check now carries the widget's real button set
+
+`WIDGET` in `tools/checkhomekit.py` is the eight key names that widget can
+produce, and the case is **"a button the widget REALLY HAS goes home"** --
+plus one asserting the pad and Select are not it. That states the FINDING
+rather than the fix, so the same mistake cannot be made again by moving home
+onto another key HomeKit defines and iOS never sends.
+
+Reproduced against the shipped mapping before the fix was believed: **six
+failures**, that case among them, which is the panel's report exactly.
+
+**What is NOT verified**: no iPhone here, so which of Back and ⓘ the
+household finds more natural is theirs to say. What is verified is that the
+key the widget sends for Back now reaches `("home", True)` and comes out of
+the real `Control` at the far end.
+
+Sources: nikf86/homekit-tv-remote README (the widget's five buttons);
+home-assistant.io `homekit.markdown`; HAP-python 5.0.0 RemoteKey ValidValues.
+
 ## Repository conventions
 
 - Work on branch `claude/esphome-pr-outdated-mdq36w`, then merge into `main`
