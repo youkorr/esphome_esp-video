@@ -29,6 +29,7 @@
 #include <string>
 #include <vector>
 
+#include "descfixtures.h"
 #include "linkstubs.h"
 
 using esphome::portall_bt::PortallBT;
@@ -244,56 +245,7 @@ int main() {
   // HID 1.11 section 6.2.2, and NOTHING below says which byte anything is in.
   // The component works the offsets out of the descriptor, the way it will on
   // a device nobody here owns.
-  static const uint8_t PAD_DESC[] = {
-      0x05, 0x01,        // Usage Page (Generic Desktop)
-      0x09, 0x05,        // Usage (Game Pad)
-      0xA1, 0x01,        // Collection (Application)
-      0x85, 0x01,        //   Report ID (1)
-      0x09, 0x01,        //   Usage (Pointer)
-      0xA1, 0x00,        //   Collection (Physical)
-      0x09, 0x30,        //     Usage (X)
-      0x09, 0x31,        //     Usage (Y)
-      0x09, 0x32,        //     Usage (Z)
-      0x09, 0x35,        //     Usage (Rz)
-      0x15, 0x00,        //     Logical Minimum (0)
-      0x26, 0xFF, 0x00,  //     Logical Maximum (255)
-      0x75, 0x08,        //     Report Size (8)
-      0x95, 0x04,        //     Report Count (4)
-      0x81, 0x02,        //     Input (Data,Var,Abs)
-      0xC0,              //   End Collection
-      0x09, 0x39,        //   Usage (Hat switch)
-      0x15, 0x00,        //   Logical Minimum (0)
-      0x25, 0x07,        //   Logical Maximum (7)
-      0x75, 0x04,        //   Report Size (4)
-      0x95, 0x01,        //   Report Count (1)
-      0x81, 0x42,        //   Input (Data,Var,Abs,Null State)
-      0x75, 0x04,        //   Report Size (4)
-      0x95, 0x01,        //   Report Count (1)
-      0x81, 0x03,        //   Input (Const,Var,Abs)  -- padding, no field
-      0x05, 0x09,        //   Usage Page (Button)
-      0x19, 0x01,        //   Usage Minimum (Button 1)
-      0x29, 0x10,        //   Usage Maximum (Button 16)
-      0x15, 0x00,        //   Logical Minimum (0)
-      0x25, 0x01,        //   Logical Maximum (1)
-      0x75, 0x01,        //   Report Size (1)
-      0x95, 0x10,        //   Report Count (16)
-      0x81, 0x02,        //   Input (Data,Var,Abs)
-      0xC0,              // End Collection
-      0x05, 0x0C,        // Usage Page (Consumer)
-      0x09, 0x01,        // Usage (Consumer Control)
-      0xA1, 0x01,        // Collection (Application)
-      0x85, 0x02,        //   Report ID (2)
-      0x15, 0x00,        //   Logical Minimum (0)
-      0x25, 0x01,        //   Logical Maximum (1)
-      0x75, 0x01,        //   Report Size (1)
-      0x95, 0x02,        //   Report Count (2)
-      0x0A, 0x23, 0x02,  //   Usage (AC Home)     -- four-byte form, own page
-      0x0A, 0x24, 0x02,  //   Usage (AC Back)
-      0x81, 0x02,        //   Input (Data,Var,Abs)
-      0x95, 0x06,        //   Report Count (6)
-      0x81, 0x03,        //   Input (Const,Var,Abs)
-      0xC0,              // End Collection
-  };
+
   // The report this descriptor describes: id, four axes, hat + padding, two
   // button bytes. Built by a helper that takes the hat and the buttons by
   // MEANING, so the test states what was pressed and the component works out
@@ -325,9 +277,9 @@ int main() {
   };
   {
     PortallBT *bt = with_descriptor();
-    ok("the descriptor parses into fields", bt->hid_map_.ready());
-    ok("and it says the reports carry ids", bt->hid_map_.uses_ids());
-    ok("and it fits, so nothing was dropped", !bt->hid_map_.truncated());
+    ok("the descriptor parses into fields", bt->map_()->ready());
+    ok("and it says the reports carry ids", bt->map_()->uses_ids());
+    ok("and it fits, so nothing was dropped", !bt->map_()->truncated());
     delete bt;
   }
   {
@@ -433,8 +385,8 @@ int main() {
     // button somebody most wants would silently do nothing.
     PortallBT *bt = with_descriptor();
     bool found = false;
-    for (uint8_t n = 0; n < bt->hid_map_.field_count(); n++) {
-      const auto &f = bt->hid_map_.field(n);
+    for (uint8_t n = 0; n < bt->map_()->field_count(); n++) {
+      const auto &f = bt->map_()->field(n);
       found = found || (f.usage_page == 0x0C && f.usage == 0x223);
     }
     ok("a four-byte Usage keeps its own page", found);
@@ -444,33 +396,10 @@ int main() {
     // A KEYBOARD THROUGH THE SAME PATH, because the descriptor route has to
     // serve one too -- its keycodes are an ARRAY field, six instances each
     // holding a usage rather than a bit per key.
-    static const uint8_t KBD_DESC[] = {
-        0x05, 0x01,        // Usage Page (Generic Desktop)
-        0x09, 0x06,        // Usage (Keyboard)
-        0xA1, 0x01,        // Collection (Application)
-        0x05, 0x07,        //   Usage Page (Keyboard)
-        0x19, 0xE0,        //   Usage Minimum (LeftControl)
-        0x29, 0xE7,        //   Usage Maximum (Right GUI)
-        0x15, 0x00,        //   Logical Minimum (0)
-        0x25, 0x01,        //   Logical Maximum (1)
-        0x75, 0x01,        //   Report Size (1)
-        0x95, 0x08,        //   Report Count (8)
-        0x81, 0x02,        //   Input (Data,Var,Abs)
-        0x95, 0x01,        //   Report Count (1)
-        0x75, 0x08,        //   Report Size (8)
-        0x81, 0x03,        //   Input (Const,Var,Abs)  -- the reserved byte
-        0x95, 0x06,        //   Report Count (6)
-        0x75, 0x08,        //   Report Size (8)
-        0x15, 0x00,        //   Logical Minimum (0)
-        0x26, 0xFF, 0x00,  //   Logical Maximum (255)
-        0x19, 0x00,        //   Usage Minimum (0)
-        0x2A, 0xFF, 0x00,  //   Usage Maximum (255)
-        0x81, 0x00,        //   Input (Data,Array,Abs)
-        0xC0,              // End Collection
-    };
+
     PortallBT *bt = fresh();
     bt->feed_hid_descriptor(KBD_DESC, sizeof(KBD_DESC), 0x0000, 0x0000);
-    ok("a keyboard descriptor declares no report id", !bt->hid_map_.uses_ids());
+    ok("a keyboard descriptor declares no report id", !bt->map_()->uses_ids());
     const uint8_t down[8] = {0, 0, 0x51, 0, 0, 0, 0, 0};
     bt->feed_hid_keys(down, sizeof(down));
     ok("and its arrow arrives as the usage it is", only(0x51));

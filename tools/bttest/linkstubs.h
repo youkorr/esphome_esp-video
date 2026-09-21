@@ -16,10 +16,15 @@
  * lets a test make the stack refuse, which is the state a panel reported and
  * which no amount of reading could have produced.
  */
+#include <cstdio>
 #include <string>
 #include <vector>
 
 static std::vector<std::string> g_calls;
+/// Every address a HID connection was asked for, in order. A test that only
+/// knows a page HAPPENED cannot tell four devices being asked at once from
+/// each taking its turn, which is the whole of what the reconnection does.
+static std::vector<std::string> g_hid_connects;
 static esp_err_t g_discovery_result = ESP_OK;
 /// How many devices the stack's own NVS claims to remember.
 static int g_bonded = 0;
@@ -75,7 +80,17 @@ namespace esphome {
 // behaviour is what it does as time passes.
 uint32_t g_now_ms = 0;
 uint32_t millis() { return g_now_ms; }
-uint32_t fnv1_hash(const char *) { return 0; }
+// The real one, because the preference store here is keyed by it: a stub
+// returning 0 for everything would file two different records under one key
+// and the migration this is meant to exercise could never be seen.
+uint32_t fnv1_hash(const char *name) {
+  uint32_t hash = 2166136261UL;
+  for (const char *p = name; *p != '\0'; p++) {
+    hash *= 16777619UL;
+    hash ^= (uint32_t) (unsigned char) *p;
+  }
+  return hash;
+}
 static ESPPreferences preferences_stub;
 ESPPreferences *global_preferences = &preferences_stub;
 }  // namespace esphome
@@ -99,7 +114,14 @@ esp_err_t esp_bt_gap_pin_reply(esp_bd_addr_t, bool, uint8_t, esp_bt_pin_code_t) 
 esp_err_t esp_bt_hid_host_register_callback(esp_hh_cb_t) { return ESP_OK; }
 esp_err_t esp_bt_hid_host_init(void) { return ESP_OK; }
 esp_err_t esp_bt_hid_host_deinit(void) { return ESP_OK; }
-esp_err_t esp_bt_hid_host_connect(esp_bd_addr_t) { return ESP_OK; }
+esp_err_t esp_bt_hid_host_connect(esp_bd_addr_t addr) {
+  note_call("esp_bt_hid_host_connect");
+  char text[18];
+  snprintf(text, sizeof(text), "%02X:%02X:%02X:%02X:%02X:%02X", addr[0], addr[1], addr[2],
+           addr[3], addr[4], addr[5]);
+  g_hid_connects.push_back(text);
+  return ESP_OK;
+}
 esp_err_t esp_bt_hid_host_disconnect(esp_bd_addr_t) { note_call("esp_bt_hid_host_disconnect"); return ESP_OK; }
 esp_err_t esp_bt_hid_host_virtual_cable_unplug(esp_bd_addr_t) { return ESP_OK; }
 

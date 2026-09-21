@@ -1,36 +1,45 @@
 """text_sensor: - platform: portall_bt -- what this panel has paired.
 
-ONE BLOCK, BOTH DEVICES, which is the "all in one place" this exists for:
+ONE BLOCK, BOTH KINDS, which is the "all in one place" this exists for:
 
     text_sensor:
       - platform: portall_bt
         speaker:
           name: "Bluetooth speaker"
         input:
-          name: "Bluetooth controller"
+          name: "Bluetooth controllers"
 
-There are exactly two and that is structural rather than a shortcut.
-`Remembered` in portall_bt.h holds one address for a speaker and one for an
-input device, because reconnecting BY ADDRESS is what lets this component come
-back without an inquiry -- and an inquiry is what takes the panel's own Wi-Fi
-down for as long as it runs. So there is no list to page through; there is a
-speaker slot and an input slot.
+TWO ENTRIES AND NOT A LIST OF DEVICES, which was asked about directly -- "si
+je dispose de plus peripherique bluetooth ... comment les text_sensor alors
+qu'il que que deux text_sensor". The panel holds up to four input devices now
+and `input:` names all of them on one line, separated by commas:
 
-Each reports what the device calls itself, its address and whether it is
-connected -- or `none`:
+    Orange TV remote (A4:C1:38:9E:22:07) connected, NVIDIA Controller
+    v01.04 (00:04:4B:93:A9:B2) paired, away
 
-    Orange TV remote (A4:C1:38:9E:22:07) connected
+rather than one entity per slot. A slot is not a thing a household chose --
+it is wherever a device happened to land -- so an entity per slot would put
+three empty cards on a device page for every panel with one gamepad, which is
+the dark entity this component already had to take out once.
+
+The SPEAKER is one device and that is structural: A2DP source is a single
+stream with one encoder, and a second would mean mixing and lip-syncing two.
+
+Each entry reports what the device calls itself, its address and whether it is
+connected -- or `none` when nothing of that kind is paired.
 
 A REMOTE IS AN INPUT DEVICE, so `input:` is its slot. A Bluetooth remote pairs
-over HID exactly as a gamepad does, which is why there is no third entry here
-for one; if a panel has both, the slot holds whichever was paired last.
+over HID exactly as a gamepad does, which is why there is no third entry for
+one -- and with several slots a panel can now hold both at once rather than
+the last one paired replacing the other.
 
-The name is held in RAM, not in NVS. `Remembered` stores six bytes per role
-and is deliberately left alone -- it is already in the NVS of every panel that
-has ever paired, and an ESPHome preference is found by a hash AND a size, so
-growing it would make each of them forget what it is paired to. The cost of
-keeping the name in RAM is that a panel which has just restarted shows the
-address alone until the device connects and answers a Remote Name Request.
+The name is held in RAM, not in NVS. The stored record is six bytes per
+device and is deliberately kept that small -- an ESPHome preference is found
+by a hash AND a size, so growing the older one would have made every panel
+that has ever paired forget what it is paired to, which is why the input list
+is a record of its own under its own key. The cost of keeping the name in RAM
+is that a panel which has just restarted shows the address alone until the
+device connects and answers a Remote Name Request.
 """
 
 import esphome.codegen as cg

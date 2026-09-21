@@ -143,7 +143,7 @@ constexpr uint16_t DESKTOP_DPAD_LEFT = 0x93;
 /* The analog sticks. X and Y are the left one and Z and Rz are the right,
    which is bluepad32's Android parser -- the same source this file's button
    numbering comes from. Rx and Ry are absent on purpose: see the note on
-   pad_axis_live_ in the header. */
+   InputDevice::axis_live in the header. */
 constexpr uint16_t DESKTOP_X = 0x30;
 constexpr uint16_t DESKTOP_Y = 0x31;
 constexpr uint16_t DESKTOP_Z = 0x32;
@@ -265,8 +265,8 @@ void PortallBT::feed_hid_keys(const uint8_t *data, uint16_t len) {
        the exact shape of the report this whole path was rewritten for. The
        one setting that turns it on is named here rather than in a document
        somebody has to already know to look for. */
-    if (this->said_shape_count_ == 0) {
-      this->said_shape_count_ = 1;
+    if (!this->said_no_sink_) {
+      this->said_no_sink_ = true;
       ESP_LOGI(TAG, "this device is sending buttons, but 'keys:' is not set on "
                     "portall_bt, so nothing is decoded and nothing reaches the "
                     "page");
@@ -276,10 +276,11 @@ void PortallBT::feed_hid_keys(const uint8_t *data, uint16_t len) {
   /* THE DESCRIPTOR FIRST, whenever there is one, because it is the only
      answer that can be right about a device nobody here owns. Everything
      below it is the fallback for a device whose descriptor never arrived. */
-  if (this->hid_map_.ready()) {
+  InputDevice &d = this->dev_();
+  if (d.map != nullptr && d.map->ready()) {
     uint8_t keys_now[6] = {};
     uint8_t key_count = 0;
-    bool decoded = this->hid_map_.decode(
+    bool decoded = d.map->decode(
         data, len, [&](const HidField &f, int32_t value) {
           /* A keyboard's keycodes arrive as an ARRAY, several instances of
              one field each holding a usage rather than a value, so they are
@@ -308,8 +309,8 @@ void PortallBT::feed_hid_keys(const uint8_t *data, uint16_t len) {
     return;
   }
 
-  if (!this->said_no_descriptor_) {
-    this->said_no_descriptor_ = true;
+  if (!d.said_no_descriptor) {
+    d.said_no_descriptor = true;
     ESP_LOGI(TAG, "this device sent no report descriptor, so only a plain "
                   "keyboard report can be read from it");
   }
@@ -336,7 +337,7 @@ void PortallBT::note_keyboard_keys_(const uint8_t *now) {
       continue;
     bool was_held = false;
     for (uint16_t j = 0; j < 6; j++)
-      was_held = was_held || this->held_[j] == code;
+      was_held = was_held || this->dev_().held[j] == code;
     if (was_held)
       continue;
     const char *name = usage_name(code);
@@ -344,7 +345,7 @@ void PortallBT::note_keyboard_keys_(const uint8_t *now) {
              name);
     this->key_sink_(PAGE_KEYBOARD, code);
   }
-  memcpy(this->held_, now, 6);
+  memcpy(this->dev_().held, now, 6);
 }
 
 void PortallBT::feed_hid_descriptor(const uint8_t *desc, uint16_t len, uint16_t vendor,
@@ -352,17 +353,8 @@ void PortallBT::feed_hid_descriptor(const uint8_t *desc, uint16_t len, uint16_t 
   /* Every arrival resets what is REMEMBERED about the device's buttons -- a
      controller that hung up and came back is not still holding whatever it
      was holding, and a stale hat position would swallow the first press. */
-  this->pad_dpad_ = 0xFF;
-  this->pad_buttons_ = 0;
-  this->pad_said_ = 0;
-  this->consumer_held_ = 0;
-  memset(this->pad_axis_, 0, sizeof(this->pad_axis_));
-  memset(this->pad_axis_dir_, 0, sizeof(this->pad_axis_dir_));
-  /* Not live until centred again: a controller that has just come back has
-     not told this panel where its sticks are. */
-  this->pad_axis_live_ = 0;
-  this->said_no_descriptor_ = false;
-  memset(this->held_, 0, sizeof(this->held_));
+  InputDevice &d = this->dev_();
+  reset_decode_(d);
 
   /* THE SAME DESCRIPTOR AGAIN IS NOT NEWS, and on this hardware it is the
      common case: a panel's own log shows a Shield reconnecting every eleven
@@ -371,14 +363,17 @@ void PortallBT::feed_hid_descriptor(const uint8_t *desc, uint16_t len, uint16_t 
   uint32_t sum = 0;
   for (uint16_t i = 0; i < len; i++)
     sum = sum * 31u + desc[i];
-  if (len != 0 && len == this->desc_seen_len_ && sum == this->desc_seen_sum_ &&
-      this->hid_map_.ready())
+  if (len != 0 && len == d.desc_len && sum == d.desc_sum && d.map != nullptr &&
+      d.map->ready())
     return;
-  this->desc_seen_len_ = len;
-  this->desc_seen_sum_ = sum;
+  d.desc_len = len;
+  d.desc_sum = sum;
 
-  this->hid_map_.clear();
-  if (!this->hid_map_.parse(desc, len)) {
+  HidReportMap *map = this->map_();
+  if (map == nullptr)
+    return;
+  map->clear();
+  if (!map->parse(desc, len)) {
     ESP_LOGW(TAG,
              "input device %04x:%04x sent a %u-byte report descriptor this "
              "could not read, so its buttons reach on_hid_report and go no "
@@ -387,7 +382,7 @@ void PortallBT::feed_hid_descriptor(const uint8_t *desc, uint16_t len, uint16_t 
     this->say_descriptor_(desc, len);
     return;
   }
-  if (this->hid_map_.truncated()) {
+  if (map->truncated()) {
     /* Named with BOTH numbers, because a limit that only says it was reached
        leaves the next person guessing at what to raise it to -- which is
        exactly what the line this replaces did, at the cost of a round. */
@@ -396,12 +391,11 @@ void PortallBT::feed_hid_descriptor(const uint8_t *desc, uint16_t len, uint16_t 
              "fields, of which only %u fit -- buttons past that one are not "
              "decoded",
              (unsigned) vendor, (unsigned) product, (unsigned) len,
-             (unsigned) this->hid_map_.wanted_fields(),
-             (unsigned) this->hid_map_.field_count());
+             (unsigned) map->wanted_fields(), (unsigned) map->field_count());
   } else {
     ESP_LOGI(TAG, "input device %04x:%04x described itself: %u bytes, %u fields",
              (unsigned) vendor, (unsigned) product, (unsigned) len,
-             (unsigned) this->hid_map_.field_count());
+             (unsigned) map->field_count());
   }
   this->say_descriptor_(desc, len);
 }
@@ -435,6 +429,11 @@ void PortallBT::feed_hid_usage(uint16_t page, uint16_t usage, int32_t value,
                                int32_t logical_min, int32_t logical_max) {
   if (!this->key_sink_)
     return;
+  /* Everything below belongs to ONE device -- which hat position, which
+     buttons are down, where its sticks are -- and with more than one paired
+     they must not share. drain_reports_ has already pointed cur_input_ at
+     whichever handle this report arrived on. */
+  InputDevice &d = this->dev_();
 
   if (page == PAGE_DESKTOP && usage == DESKTOP_HAT) {
     /* The hat's own zero is its logical minimum, which is 0 on some devices
@@ -444,9 +443,9 @@ void PortallBT::feed_hid_usage(uint16_t page, uint16_t usage, int32_t value,
     uint8_t hat = 0xFF;
     if (value >= logical_min && value <= logical_max)
       hat = (uint8_t)(value - logical_min);
-    if (hat == this->pad_dpad_)
+    if (hat == d.dpad)
       return;
-    this->pad_dpad_ = hat;
+    d.dpad = hat;
     const uint16_t key = hat_usage(hat);
     if (key == 0)
       return;
@@ -481,15 +480,15 @@ void PortallBT::feed_hid_usage(uint16_t page, uint16_t usage, int32_t value,
       /* Home. This is also the ONLY place an axis earns the right to steer
          anything: a trigger declared on one of these usages sits at an end
          of its range for ever and therefore never reaches this line. */
-      this->pad_axis_live_ |= live;
-      this->pad_axis_dir_[idx] = 0;
-      this->pad_axis_[idx] = (int8_t) pct;
+      d.axis_live |= live;
+      d.axis_dir[idx] = 0;
+      d.axis[idx] = (int8_t) pct;
       return;
     }
 
     const uint8_t want = (uint8_t)(pct < 0 ? 1 : 2);
-    const bool crossing = (this->pad_axis_dir_[idx] != want) &&
-                          (this->pad_axis_live_ & live) != 0 &&
+    const bool crossing = (d.axis_dir[idx] != want) &&
+                          (d.axis_live & live) != 0 &&
                           away >= STICK_PUSH_PCT;
     /* The other half of this stick, so a diagonal moves along ONE axis
        rather than both. A grid of tiles has no diagonal, and firing both
@@ -507,12 +506,11 @@ void PortallBT::feed_hid_usage(uint16_t page, uint16_t usage, int32_t value,
        reaching for it would mean holding every axis back until the end of a
        report for a case that does not occur. */
     const int partner = idx ^ 1;
-    const int32_t other = this->pad_axis_[partner] < 0 ? -this->pad_axis_[partner]
-                                                       : this->pad_axis_[partner];
-    this->pad_axis_[idx] = (int8_t) pct;
+    const int32_t other = d.axis[partner] < 0 ? -d.axis[partner] : d.axis[partner];
+    d.axis[idx] = (int8_t) pct;
     if (!crossing)
       return;
-    this->pad_axis_dir_[idx] = want;
+    d.axis_dir[idx] = want;
     if (away <= other)
       return;
     /* HID counts Y downwards, so a stick pushed away from the person is
@@ -536,11 +534,10 @@ void PortallBT::feed_hid_usage(uint16_t page, uint16_t usage, int32_t value,
     const uint8_t bit = (uint8_t)(usage - DESKTOP_DPAD_UP);
     const uint8_t mask = (uint8_t)(1u << bit);
     const bool down = value != 0;
-    const bool was = (this->consumer_held_ & mask) != 0;
+    const bool was = (d.consumer & mask) != 0;
     if (down == was)
       return;
-    this->consumer_held_ = (uint8_t)(down ? (this->consumer_held_ | mask)
-                                          : (this->consumer_held_ & ~mask));
+    d.consumer = (uint8_t)(down ? (d.consumer | mask) : (d.consumer & ~mask));
     if (!down)
       return;
     uint16_t key = 0;
@@ -558,10 +555,10 @@ void PortallBT::feed_hid_usage(uint16_t page, uint16_t usage, int32_t value,
   if (page == PAGE_BUTTON && usage >= 1 && usage <= 32) {
     const uint32_t mask = (uint32_t) 1 << (usage - 1);
     const bool down = value != 0;
-    const bool was = (this->pad_buttons_ & mask) != 0;
+    const bool was = (d.buttons & mask) != 0;
     if (down == was)
       return;
-    this->pad_buttons_ = down ? (this->pad_buttons_ | mask) : (this->pad_buttons_ & ~mask);
+    d.buttons = down ? (d.buttons | mask) : (d.buttons & ~mask);
     if (!down)
       return;
     if (usage == BUTTON_A) {
@@ -579,8 +576,8 @@ void PortallBT::feed_hid_usage(uint16_t page, uint16_t usage, int32_t value,
        which usage it is the first time it is pressed and never again --
        enough to map it from one line of somebody's log, and cheap enough that
        a controller with sixteen buttons costs sixteen lines in total. */
-    if ((this->pad_said_ & mask) == 0) {
-      this->pad_said_ |= mask;
+    if ((d.said & mask) == 0) {
+      d.said |= mask;
       ESP_LOGI(TAG,
                "gamepad: button %u is pressed and has no meaning in a page -- "
                "say which button that is and it can be given one",
@@ -592,11 +589,10 @@ void PortallBT::feed_hid_usage(uint16_t page, uint16_t usage, int32_t value,
   if (page == PAGE_CONSUMER && (usage == CONSUMER_HOME || usage == CONSUMER_BACK)) {
     const uint8_t mask = (uint8_t)(usage == CONSUMER_HOME ? 0x10 : 0x20);
     const bool down = value != 0;
-    const bool was = (this->consumer_held_ & mask) != 0;
+    const bool was = (d.consumer & mask) != 0;
     if (down == was)
       return;
-    this->consumer_held_ = (uint8_t)(down ? (this->consumer_held_ | mask)
-                                          : (this->consumer_held_ & ~mask));
+    d.consumer = (uint8_t)(down ? (d.consumer | mask) : (d.consumer & ~mask));
     if (!down)
       return;
     if (usage == CONSUMER_BACK) {
@@ -633,12 +629,13 @@ void PortallBT::say_unreadable_report_(const uint8_t *data, uint16_t len) {
      whichever arrived first would have spent the only line and Home would
      have stayed as silent as before. See the note in the header. */
   const uint16_t shape = (uint16_t) ((len << 8) | data[0]);
-  for (uint8_t i = 0; i < this->said_shape_count_; i++)
-    if (this->said_shapes_[i] == shape)
+  InputDevice &d = this->dev_();
+  for (uint8_t i = 0; i < d.said_shape_count; i++)
+    if (d.said_shapes[i] == shape)
       return;
-  if (this->said_shape_count_ >= SHAPES)
+  if (d.said_shape_count >= SHAPES)
     return;
-  this->said_shapes_[this->said_shape_count_++] = shape;
+  d.said_shapes[d.said_shape_count++] = shape;
 
   char hex[3 * 12 + 1];
   size_t at = 0;

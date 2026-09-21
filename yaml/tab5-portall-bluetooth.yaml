@@ -428,21 +428,27 @@ portall_bt:
         id(panel_volume).make_call().set_value(volume * 100.0f).perform();
 
 # ---------------------------------------------------------------------------
-# What this panel has paired, in one place. There is a speaker slot and an
-# input slot and no list to page through, and that is structural: this
-# component reconnects BY ADDRESS, which is what lets it come back without an
-# inquiry -- and an inquiry takes this panel's own Wi-Fi down for as long as it
-# runs, measured twice on this board.
+# What this panel has paired, in one place. Two entries -- a speaker and the
+# input devices -- and the second one is a LIST on one line rather than an
+# entity per slot: a slot is not something a household chose, so one card per
+# slot would put three empty ones on this device page for every panel with a
+# single gamepad.
 #
-# BOTH SLOTS, because `hid: true` above. This block carried only `speaker:`
+# The speaker stays at one device and that is structural: A2DP source is a
+# single stream with one encoder. Up to four input devices are remembered, and
+# every one of them reconnects BY ADDRESS -- which is what lets this component
+# come back without an inquiry, and an inquiry takes this panel's own Wi-Fi
+# down for as long as it runs, measured twice on this board.
+#
+# BOTH ENTRIES, because `hid: true` above. This block carried only `speaker:`
 # while hid was off, on the rule that an entity which can only ever read
 # `none` is worse than no entity -- so if this panel will only have a speaker,
 # take `input:` back out along with `hid:`.
 #
-# Each reads the ADDRESS and whether it is connected: `none`, `<addr>
-# connected`, `<addr> paired, away`, or `<addr> (Bluetooth off)`. The address
-# rather than the name, because what is kept across a restart is six bytes and
-# nothing else.
+# Each device reads as its NAME, its address and whether it is connected:
+# `none`, `<name> (<addr>) connected`, `... paired, away`, or `(Bluetooth
+# off)`. The name lives in RAM, so a panel that has just restarted shows the
+# address alone until the device comes back and answers a name request.
 # ---------------------------------------------------------------------------
 text_sensor:
   - platform: portall_bt
@@ -450,11 +456,13 @@ text_sensor:
       name: "Bluetooth speaker"
       icon: mdi:speaker-bluetooth
     # A REMOTE LANDS HERE TOO. A Bluetooth remote pairs over HID exactly as a
-    # gamepad does, so this one slot is both and there is no third entry to
-    # add for one. It reads the device's own name now, not only its address:
-    #   Orange TV remote (A4:C1:38:9E:22:07) connected
+    # gamepad does, so this one entry is both and there is no third to add for
+    # one -- and a panel can now hold both at once rather than the last one
+    # paired replacing the other:
+    #   Orange TV remote (A4:C1:38:9E:22:07) connected,
+    #   NVIDIA Controller v01.04 (00:04:4B:93:A9:B2) paired, away
     input:
-      name: "Bluetooth remote or controller"
+      name: "Bluetooth remotes and controllers"
       icon: mdi:remote
 
 button:
@@ -471,8 +479,11 @@ button:
     on_press:
       - portall_bt.pair: dongle
 
-  # One device at a time, which is what somebody looking at the entity above
-  # actually wants: the speaker has been replaced, the gamepad has not.
+  # One KIND at a time, which is what somebody looking at the entity above
+  # actually wants: the speaker has been replaced, the controllers have not.
+  # There is no per-device button and that is deliberate -- one would need an
+  # index a household has no way to read, and the way to make room when all
+  # four input slots are full is to clear them and pair again.
   - platform: template
     name: "Forget Bluetooth speaker"
     entity_category: config
@@ -480,7 +491,7 @@ button:
       - portall_bt.forget_speaker: dongle
 
   - platform: template
-    name: "Forget Bluetooth controller"
+    name: "Forget Bluetooth controllers"
     entity_category: config
     on_press:
       - portall_bt.forget_input: dongle

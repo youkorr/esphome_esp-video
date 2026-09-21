@@ -173,6 +173,12 @@ def run_tests() -> bool:
                 # runs arithmetic needs the arithmetic compiled in, and the
                 # speaker's mono-to-stereo is behind both of these.
                 "-DCONFIG_BT_A2DP_ENABLE=1",
+                # And the HID host, for the same reason one step further on.
+                # Without it hid_reconnect_(), the per-device routing and
+                # forget_one's hang-up are all behind an #ifdef no RUN pass
+                # ever opened -- the newest code, exercised nowhere, which is
+                # the shape this tool exists to catch and had grown itself.
+                "-DCONFIG_BT_HID_HOST_ENABLED=1",
                 "-DUSE_SPEAKER",
                 f"-I{ROOT / 'tools' / 'btstub'}",
                 f"-I{ROOT / 'components' / 'portall_bt'}",
