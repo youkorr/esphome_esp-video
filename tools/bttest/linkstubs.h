@@ -117,7 +117,13 @@ esp_err_t esp_a2d_source_init(void) { return ESP_OK; }
 esp_err_t esp_a2d_source_deinit(void) { return ESP_OK; }
 esp_err_t esp_a2d_source_connect(esp_bd_addr_t) { note_call("esp_a2d_source_connect"); return ESP_OK; }
 esp_err_t esp_a2d_source_disconnect(esp_bd_addr_t) { note_call("esp_a2d_source_disconnect"); return ESP_OK; }
-esp_err_t esp_a2d_media_ctrl(esp_a2d_media_ctrl_t) { return ESP_OK; }
+/// Which media controls were asked for, so a test can see a stream being
+/// started and suspended rather than guessing from a flag.
+static std::vector<int> g_media_ctrl;
+esp_err_t esp_a2d_media_ctrl(esp_a2d_media_ctrl_t what) {
+  g_media_ctrl.push_back((int) what);
+  return ESP_OK;
+}
 esp_err_t esp_avrc_tg_init(void) { return ESP_OK; }
 esp_err_t esp_avrc_tg_deinit(void) { return ESP_OK; }
 esp_err_t esp_avrc_tg_register_callback(esp_avrc_tg_cb_t) { return ESP_OK; }

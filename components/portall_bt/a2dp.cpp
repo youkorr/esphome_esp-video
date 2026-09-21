@@ -394,6 +394,59 @@ uint32_t PortallBT::fill_pcm(uint8_t *buf, uint32_t len) {
 #endif
 }
 
+/* Stop streaming at a speaker that is being sent nothing, and start again
+ * when there is something.
+ *
+ * The stream used to begin the moment a sink connected and never end. With
+ * nothing feeding it, fill_pcm answers every request with SILENCE -- so a
+ * panel encoded and transmitted 44.1 kHz stereo SBC of digital nothing, for
+ * ever, at a car receiver. That is precisely the fault this project already
+ * recorded on the network path, where a still page was sending "93.8 KiB/s of
+ * digital silence" and the fix was to drop a block that is exactly zero.
+ *
+ * Here it costs more than bandwidth, and a panel's log is what showed it:
+ *
+ *     E BT_L2CAP: l2cab is_cong_cback_context     (eight times a second)
+ *
+ * which is not an error whatever its level. Bluedroid's own comment at
+ * l2c_link.c:1167 says what it is -- "If this is called from uncongested
+ * callback context break recursive calling" -- so the sequence is: the A2DP
+ * channel fills its transmit quota, drains to half, gets told it may send
+ * again, sends again from inside that callback, and hits the recursion guard.
+ * It is a CONGESTED channel reporting itself, eight times a second, on a
+ * dongle that was also carrying a gamepad's reports.
+ *
+ * So the quiet is what gets fixed, not the message. A test tone is a
+ * deliberate exception: somebody asking for one wants it to keep playing. */
+void PortallBT::a2dp_idle_tick_() {
+#if defined(CONFIG_BT_BLUEDROID_ENABLED) && defined(CONFIG_BT_A2DP_ENABLE)
+  if (!this->a2dp_open_ || this->test_tone_hz_ != 0)
+    return;
+  const uint32_t at = millis();
+  const bool quiet = (uint32_t) (at - this->pcm_fed_at_) > A2DP_IDLE_MS;
+  /* Asked ONCE and not again until the stack has answered. a2dp_playing_ only
+   * moves when ESP_A2D_AUDIO_STATE_EVT comes back, so a loop keyed on it
+   * alone asks every turn until then -- which is a line a second in the log
+   * at best, and a command a second at a stack that has stopped answering at
+   * worst. The test asserts the count rather than that it happened at all. */
+  if (this->a2dp_ctrl_asked_)
+    return;
+  if (this->a2dp_playing_ && quiet) {
+    this->a2dp_ctrl_asked_ = true;
+    ESP_LOGI(TAG, "nothing has been played for %us, so the stream to the speaker is "
+                  "suspended; it starts again by itself when there is sound",
+             (unsigned) (A2DP_IDLE_MS / 1000));
+    esp_a2d_media_ctrl(ESP_A2D_MEDIA_CTRL_SUSPEND);
+  } else if (!this->a2dp_playing_ && !quiet) {
+    // Something arrived while the stream was down. CHECK_SRC_RDY rather than
+    // START, which is the same door the first start goes through and the one
+    // the callback is written against.
+    this->a2dp_ctrl_asked_ = true;
+    esp_a2d_media_ctrl(ESP_A2D_MEDIA_CTRL_CHECK_SRC_RDY);
+  }
+#endif
+}
+
 void PortallBT::feed_audio(const uint8_t *data, uint32_t len) {
 #if defined(CONFIG_BT_BLUEDROID_ENABLED) && defined(CONFIG_BT_A2DP_ENABLE)
   /* Whole frames only, on the way in as well as on the way out. A caller
@@ -422,6 +475,8 @@ void PortallBT::feed_audio(const uint8_t *data, uint32_t len) {
     head = (head + run) % PCM_RING;
   }
   g_pcm_head = head;
+  if (done != 0)
+    this->pcm_fed_at_ = millis();
 #else
   (void) data;
   (void) len;
@@ -498,6 +553,7 @@ void PortallBT::on_a2dp_audio(bool started) {
   if (started == this->a2dp_playing_)
     return;
   this->a2dp_playing_ = started;
+  this->a2dp_ctrl_asked_ = false;
   ESP_LOGI(TAG, "audio stream %s", started ? "started" : "suspended");
   if (!started && this->pcm_starved_ != 0) {
     ESP_LOGW(TAG, "  %u bytes of silence were sent for want of anything to play",
