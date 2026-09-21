@@ -1,5 +1,5 @@
 name: Portall
-version: "4.12.0"
+version: "4.13.0"
 # Home Assistant identifies an add-on by its slug, so this one moving from
 # usb_display_panel to portall makes the Supervisor see a NEW add-on: options
 # are not carried over and /data starts empty, which means the browser
@@ -234,7 +234,23 @@ options:
   # All off. Turn one on only while something is already wrong: each
   # writes to the add-on's log and nothing else.
   debug:
-    stats: true
+    # OFF, and it shipped as `true` under that "all off" comment for a long
+    # time -- the line directly above it said what the intention was and
+    # nobody re-asked the value. It prints one line every five seconds, per
+    # panel, for ever: 17 280 lines a day for one panel and twice that for
+    # two, which buries every line worth reading and is why the log feels
+    # impossible to manage. Home Assistant offers no way to clear an add-on's
+    # log, so a log nobody wanted is one nobody can get rid of.
+    #
+    # It stays a good diagnostic and it is one line to turn on: pictures a
+    # second, bytes, how long the panel made the sender wait, and the worst
+    # gap. Turn it on while something is wrong and off again afterwards.
+    #
+    # CHANGING THIS DEFAULT DOES NOT REACH AN EXISTING INSTALL. The Supervisor
+    # writes these defaults once, when the add-on is installed, and a stored
+    # value is the household's from then on -- so anybody who has been running
+    # it has `stats: true` saved and has to turn it off themselves.
+    stats: false
     # A diagnostic, off by default: while a video plays it prints the playhead
     # and how many seconds are buffered IN FRONT of it, every two seconds. The
     # ordinary media lines only appear when something has already gone wrong,

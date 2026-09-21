@@ -456,7 +456,31 @@ PAGE = """<!doctype html>
    /* A finger has no hover, and a tap that lights nothing looks ignored. */
    -webkit-tap-highlight-color: transparent;
  }
- a.tile:active { border-color: var(--accent); transform: scale(.985); }
+ /* WHAT A PRESS LOOKS LIKE, and why it is a class and not only :active.
+ 
+    Reported from a panel as the tiles having no press effect "comme un button
+    lvgl". The `:active` rule was already here and was already being applied --
+    and it lasted a MEDIAN OF 2.3 ms, measured by replaying a tap the way the
+    sender does and timing mousedown to mouseup in the page. The sender holds a
+    contact back until the finger LIFTS, so that a drag can become a wheel
+    instead of a click, and then dispatches down and up together. A frame at
+    --fps 25 is 40 ms, so the pressed state occupied 6%% of one frame interval:
+    the panel receives JPEG rectangles, and a state shorter than a frame is one
+    no frame can contain. It was not missing, it was unphotographable.
+ 
+    So `.press` is held by PRESS_JS for long enough to be caught, and the
+    effect is made readable across a room -- 1.5%% of scale is 5 px on a tile
+    and nobody sees it. No animation: this appears on a press and goes, which
+    is two rectangles, rather than pulsing, which is a rectangle for as long as
+    the panel is awake. */
+ a.tile:active, a.tile.press {
+   border-color: var(--accent);
+   transform: scale(.96);
+   /* --edge is already the accent at 30%% over the card, against --card's 14%%,
+      so a pressed tile is the accent stronger rather than a fourth colour to
+      keep in step with the palette. */
+   background: var(--edge);
+ }
  /* Where a remote is pointing. A panel driven by arrow keys has nothing else
     to say which tile is chosen -- there is no pointer and no hover -- so this
     is the whole of the feedback. Thick enough to read across a room, and NOT
@@ -811,6 +835,53 @@ KEYS_JS = """<script>
 })();
 </script>"""
 
+PRESS_JS = """<script>
+(function () {
+  /* HOLD THE PRESSED LOOK LONG ENOUGH FOR A FRAME TO CONTAIN IT.
+   *
+   * The `:active` rule in the stylesheet is correct and is applied -- and on
+   * this path it lasts a MEASURED median of 2.3 ms, because the sender holds
+   * a contact back until the finger lifts and then dispatches mousedown and
+   * mouseup together. The panel sees JPEG rectangles at `fps`, so 2.3 ms is
+   * 6% of one frame at 25 and the press is almost never photographed.
+   *
+   * 200 ms is chosen against the rate the panel is really running at when
+   * this happens: a contact lifts the limit to `urgent_fps` for two seconds,
+   * which is 30 by default, so this is about six frames -- and still two at a
+   * link capped to 10. It is a timeout rather than an animation, so it costs
+   * the two rectangles a press is worth and nothing while the panel idles.
+   *
+   * Nothing here calls preventDefault: the tap must still reach the link, and
+   * a listener that swallowed it would turn a slow tile into a dead one. */
+  var HELD_MS = 200;
+  function flash(tile) {
+    if (!tile) return;
+    tile.classList.add('press');
+    if (tile.__off) clearTimeout(tile.__off);
+    tile.__off = setTimeout(function () {
+      tile.classList.remove('press');
+      tile.__off = 0;
+    }, HELD_MS);
+  }
+  /* pointerdown rather than mousedown, because it is the unified path and
+     fires for a replayed contact and a real finger alike -- and it is the
+     FIRST of the four a press produces, so the look starts as early as it
+     can. Capture phase, so a page that stops the event later cannot take the
+     feedback with it. */
+  document.addEventListener('pointerdown', function (e) {
+    flash(e.target.closest && e.target.closest('a.tile'));
+  }, true);
+  /* And the remote, which produces no pointer event at all: OK on a chosen
+     tile is a press too, and a panel driven from the sofa is exactly where
+     "did that do anything?" is hardest to answer. */
+  document.addEventListener('keydown', function (e) {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    var on = document.activeElement;
+    if (on && on.classList && on.classList.contains('tile')) flash(on);
+  }, true);
+})();
+</script>"""
+
 TILE = ('<a class="tile" href="%(url)s">'
         '<span class="icon%(icon_long)s">%(icon)s</span>'
         '<span class="text"><span class="name">%(name)s</span>%(desc)s</span>'
@@ -1114,7 +1185,7 @@ def render(links, title="", subtitle="", theme="dark",
     # key nobody presses unless there is a remote, and an option for it would
     # be one more thing to read past -- which this add-on has already had to
     # take five settings off the form for.
-    scripts = KEYS_JS + (CLOCK_JS if clock else "") + (
+    scripts = KEYS_JS + PRESS_JS + (CLOCK_JS if clock else "") + (
         WEATHER_JS % {"path": WEATHER_PATH} if weather is not None else "")
 
     # The bar's own rules, after the sheet above and before nothing: there is

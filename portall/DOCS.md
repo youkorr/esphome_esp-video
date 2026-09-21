@@ -199,9 +199,27 @@ Assistant dashboard to appear; without one it does neither.
 | `import_profile` | A browser profile signed in by hand elsewhere, to start this panel from. **Per panel only** -- it does not belong to a house. See below |
 | `user_agent` | What the browser says it is. Empty is right for nearly everything -- it is here for YouTube's television interface. **Per panel or per link only**, because a panel told to say it is a television says it to Home Assistant too. See below |
 | `locale` | The language pages are asked for -- `fr-FR`, `de-DE`, `en-GB`. Not cosmetic: without it the browser sends no `Accept-Language` at all and every site serves its own default |
-| `stats` | Print what is being sent every five seconds |
+| `stats` | Print what is being sent every five seconds. **Off**, and worth leaving off -- see the note under the table |
 | `show_touches` | Print every contact, where it lands on the page, and what the corner gesture makes of it. Noisy -- for diagnosing a panel that does not react as expected |
 | `show_media` | While a video plays, print its playhead and how many seconds are buffered ahead of it. Off by default -- turn it on to diagnose a video that stops |
+
+**On `stats`, and on clearing the log.** Reported from a panel as not being
+able to erase the add-on's log -- and the useful half of that is what was
+filling it. `stats` shipped **on**, under a comment in the configuration that
+said the debug switches were all off, and it prints one line every five
+seconds per panel: **17 280 lines a day** for one panel and twice that for
+two. Every line worth reading sits somewhere in that.
+
+It is off from 4.13.0. **An existing install keeps what it has**, because the
+Supervisor writes these defaults only when an add-on is first installed and a
+stored value is yours from then on -- so turn it off under **debug** if you
+have been running it.
+
+Home Assistant itself offers no way to clear an add-on's log: the Supervisor
+owns that buffer, an add-on only writes to its own output, and there is no
+button and no setting for it here or anywhere else. Restarting the add-on
+starts a new container but does not erase what came before. So the only real
+lever is how much goes in, which is what the paragraph above is about.
 
 That is the whole form, on purpose. `ha_send.py` has a dozen more settings --
 `capture_quality`, `urgent_fps`, `urgent_window`, `browser`, `browser_arg`,
