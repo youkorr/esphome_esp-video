@@ -1022,6 +1022,63 @@ def _agent_metadata(page, version, agent=None):
     }
 
 
+class Control:
+    """Keys handed to this sender on stdin by whatever started it.
+
+    The board's own return channel carries a remote or a gamepad paired to the
+    PANEL. This is the same keys arriving from the other side: something
+    running beside this process, which is the add-on's HomeKit accessory, so a
+    telephone's own television remote drives the page with nothing paired to
+    the board at all and no Bluetooth anywhere in the path.
+
+    It yields exactly the pairs `parse_messages` yields -- ("key", name) and
+    ("home", True) -- so the loop keeps ONE place that acts on a key. Two
+    places would drift the moment either gained a behaviour, which is the
+    hand-copied pair this project keeps paying for.
+
+    A thread, because reading stdin blocks and this loop must never: a control
+    channel that stopped the picture would be the accessory costing the very
+    thing it is an accessory to.
+
+    The queue drops the OLDEST, like the board's touch queue and for the same
+    reason: a button pressed ten seconds ago is not what somebody is waiting
+    to see happen.
+    """
+
+    def __init__(self, stream=None):
+        self._queue = collections.deque(maxlen=64)
+        self._stream = sys.stdin if stream is None else stream
+        self._thread = threading.Thread(target=self._read, daemon=True)
+        self._thread.start()
+
+    def _read(self):
+        try:
+            for line in self._stream:
+                word, _, rest = line.strip().partition(" ")
+                if word == "key" and rest:
+                    self._queue.append(("key", rest))
+                elif word == "home":
+                    self._queue.append(("home", True))
+                elif word:
+                    # Never silently. A control line nobody acts on is the
+                    # exact silence this project keeps having to break, and
+                    # the line is short enough to print whole.
+                    print(f"Control: {line.strip()!r} is not a line this "
+                          f"sender knows")
+        except (OSError, ValueError):
+            # The far end closed, or the stream went away with the process
+            # that owned it. Nothing to do and nothing to say: the picture is
+            # not this channel's business.
+            pass
+
+    def drain(self):
+        """Everything said since the last call. Never blocks."""
+        out = []
+        while self._queue:
+            out.append(self._queue.popleft())
+        return out
+
+
 def present_browser(session, page, keyboard_wanted, wanted_agent):
     """Name the browser, warn if it is too old, and settle what it says it is.
 
@@ -3821,6 +3878,14 @@ def main():
         "--no-touch", action="store_true", help="do not replay the panel's contacts"
     )
     parser.add_argument(
+        "--control",
+        action="store_true",
+        help="read keys from stdin, one per line: \"key ArrowUp\" or "
+        "\"home\". This is how the add-on hands over a press from a "
+        "telephone's own television remote, which reaches this sender rather "
+        "than the board and so needs nothing paired to the panel",
+    )
+    parser.add_argument(
         "--show-touches",
         action="store_true",
         help="print every contact: where it landed on the panel, where that is "
@@ -4344,6 +4409,10 @@ def main():
         # Set when the corner has just brought the panel home, cleared by the
         # first picture that goes out afterwards.
         home_pending = None
+        # Whatever started this sender can press a key too. Only when asked
+        # for: without the option stdin is left exactly as it was, so a hand
+        # run in a terminal is untouched.
+        control = Control() if args.control else None
         # Set when that picture has been handed to the writer, cleared when the
         # writer says it has gone. Everything up to here is this machine; past
         # here is the wire and the board.
@@ -4654,7 +4723,13 @@ def main():
 
                     reports = []
                     keys = []
-                    for kind, body in endpoint.read_messages():
+                    # The panel's own return channel and the control
+                    # channel are read into one list, so a key means the same
+                    # thing whichever side it arrived from.
+                    said = endpoint.read_messages()
+                    if control is not None:
+                        said = said + control.drain()
+                    for kind, body in said:
                         if kind == "touch":
                             reports.append(body)
                             continue

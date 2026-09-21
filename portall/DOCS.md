@@ -199,6 +199,7 @@ Assistant dashboard to appear; without one it does neither.
 | `import_profile` | A browser profile signed in by hand elsewhere, to start this panel from. **Per panel only** -- it does not belong to a house. See below |
 | `user_agent` | What the browser says it is. Empty is right for nearly everything -- it is here for YouTube's television interface. **Per panel or per link only**, because a panel told to say it is a television says it to Home Assistant too. See below |
 | `locale` | The language pages are asked for -- `fr-FR`, `de-DE`, `en-GB`. Not cosmetic: without it the browser sends no `Accept-Language` at all and every site serves its own default |
+| `homekit` | Put each panel in the iPhone's own Control Centre remote -- the widget built for an Apple TV. Off by default; pair it once from the Home app. See *The remote in the iPhone's Control Centre* |
 | `stats` | Print what is being sent every five seconds. **Off**, and worth leaving off -- see the note under the table |
 | `show_touches` | Print every contact, where it lands on the page, and what the corner gesture makes of it. Noisy -- for diagnosing a panel that does not react as expected |
 | `show_media` | While a video plays, print its playhead and how many seconds are buffered ahead of it. Off by default -- turn it on to diagnose a video that stops |
@@ -469,10 +470,15 @@ one.** Two devices people already own cannot be paired to a panel at all:
 A button in Home Assistant needs neither. It also needs no line of sight and
 no batteries, which is most of what a remote is for.
 
-**What it does not do:** it drives the page the panel is showing. It is not an
-Apple TV remote, and it is not the Control Centre widget -- that one speaks
-Apple's own Companion Link over the network, paired and encrypted the way
-HomeKit is, which would mean this panel impersonating an Apple TV.
+**And the iPhone's own remote widget drives it too** -- the one in Control
+Centre, built for an Apple TV. That is `homekit: true` in this add-on's
+options rather than anything on the board; see **The remote in the iPhone's
+Control Centre** below.
+
+What it is NOT is an Apple TV. The widget lists Apple TVs, which speak Apple's
+own Companion Link, *and* HomeKit accessories of the Television kind, which
+speak an open protocol. This add-on is the second, and never pretends to be
+the first.
 
 **Home and Back are not gamepad buttons**, and it is worth knowing why. On a
 Shield, Home, Back, Search, Play/Pause and the volume keys are HID *consumer*
@@ -489,6 +495,65 @@ a report this cannot read: 3 bytes, id 0x08, starting 08 23 02
 One line per report shape, so a report that only appears when you press one
 button still gets named. `show_reports: true` prints the descriptor and every
 report that changes, which is what to turn on if a button does nothing.
+
+### The remote in the iPhone's Control Centre
+
+Turn on **`homekit`** in this add-on's options, under *Defaults*. Each panel
+then appears as a television in the Home app, and in the remote widget of the
+iPhone's Control Centre -- the one built for an Apple TV -- beside whatever
+else is listed there.
+
+```
+Defaults
+  homekit: true
+```
+
+Restart the add-on and read its log. Each panel prints a line and a QR code:
+
+```
+[salon] HomeKit remote "salon" is waiting to be paired on port 21180 --
+        open the Home app on the iPhone, Add Accessory, More options, and
+        enter 856-43-076
+```
+
+Point the iPhone's camera at the QR code in the log, or type the eight digits
+in the Home app. That is the whole of it. **Unpairing** is removing the
+accessory in the Home app, exactly like any other.
+
+What the widget's buttons do:
+
+| button | what the panel does |
+|---|---|
+| the pad, and its swipes | up, down, left, right between the launcher's tiles |
+| the centre of the pad | Enter -- opens the tile |
+| Back | Escape -- back *within* the page |
+| the TV button | back to this panel's own page, the launcher |
+| play/pause, next, previous | the browser's own media keys |
+
+The pairing code is kept, so it is the same one after a restart. Each panel
+gets a code of its own, on a port of its own, starting at 21180.
+
+**Nothing is paired to the panel and no Bluetooth is involved.** The press
+arrives here, where the page is rendered, and goes straight into the browser
+-- which is also why it works on a panel whose board has no dongle at all.
+
+Two things to know:
+
+- **This add-on now runs on the house's own network** (`host_network`). A
+  HomeKit accessory is found over mDNS, which does not cross from the
+  Supervisor's private network to the LAN, and the iPhone has to reach the
+  accessory's port directly. It is why Home Assistant's own HomeKit works the
+  same way. The launcher still binds to `127.0.0.1` only and is reachable
+  from nowhere else; the one consequence is that **port 8099 must be free**
+  on the Home Assistant machine.
+- **It is not the same as the seven buttons** above. Those are entities in
+  Home Assistant, so they work from any telephone, a dashboard card, an
+  automation or a voice command. This is the iPhone's own remote, with a pad
+  under the thumb and no app to open. Turn on either, or both.
+
+If a panel shows no such line, the log says which of the two it is: a build
+without HAP-python in it, or a port that would not open. Neither stops the
+panels rendering.
 
 #### And whether the arrows do anything depends on the page
 

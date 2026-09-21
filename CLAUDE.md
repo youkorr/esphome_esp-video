@@ -7480,6 +7480,141 @@ from a component's own `to_code` rather than from a platform block.
 **No add-on bump**: `DOCS.md` is read by the Supervisor from the repository,
 and `tools/checkaddon.py` agrees.
 
+## The iPhone's own remote drives a panel, and the widget is not only for Apple TVs
+
+**Asked three times, and the third time plainly: *"c'etait pas plus de
+l'integre dans le code seulement ? et surtout beaucoup plus simple ... ce
+qu'il veulent est d'appareille et desappareiller et que cela fonctionne"*.**
+That is the **eighth** time this user has asked for a named thing over a
+mechanism somebody has to operate, after the quality, the user agent, the
+frame limit, the stylesheet, the token and `keys: true`. They have been right
+every time.
+
+**And the round before it was a wrong answer stated confidently.** Asked
+whether the iPhone's Apple TV remote could drive a panel, the reply was that
+the Control Centre widget speaks Apple's **Companion Link** -- HAP-paired,
+encrypted, `pyatv` is a client only -- so it would mean impersonating an
+Apple TV, which is a line rather than a difficulty. Every fact in that is
+true **about Apple TVs**, and it is not the whole list of what the widget
+drives.
+
+**It also drives any HomeKit accessory of the Television category.** Read in
+Home Assistant's own source rather than remembered:
+
+  * `accessories.py:350-353` -- a `media_player` with `device_class: tv`
+    becomes a `TelevisionMediaPlayer`.
+  * `type_remotes.py:115-121` -- that accessory always carries the
+    **RemoteKey** characteristic.
+  * `type_media_players.py:381-385` -- an unhandled key is fired onto the
+    event bus, with the comment *"Unhandled keys can be handled by listening
+    to the event bus"*.
+  * and their documentation says it in words: *"Entities exposed as
+    TelevisionMediaPlayer ... are controllable within the Apple Remote widget
+    in Control Center."*
+
+So the protocol is open, it is HAP rather than Companion Link, and nothing
+has to pretend to be an Apple TV. The shape of the earlier mistake is one
+this file already names twice: **a correct fact with a wrong conclusion
+attached**, because re-reading it confirms the fact and never re-asks the
+conclusion.
+
+### The first answer was a recipe, which is the thing that was objected to
+
+What was offered next was the route above as a *configuration*: a `universal`
+media player with `device_class: tv`, a HomeKit bridge in **accessory mode**
+(their docs require it -- a Television may not be bridged), and an
+automation on `homekit_tv_remote_key_pressed` mapping thirteen key names onto
+seven buttons. Every line of it is right and it is three things to configure,
+in two files, for one result. That is a mechanism, and the objection landed
+on it immediately.
+
+`homekit: true` is the whole of it now.
+
+### It belongs to the ADD-ON, and that does not contradict the Bluetooth ruling
+
+This file already records a firm no to putting Bluetooth controls in the
+add-on: there is no control channel on the udisp socket, and the ESPHome API
+already publishes that state correctly, so two places to look would be worse
+than one. None of that applies here, and the reason is where the key has to
+land. **A press has to reach the thing that renders the page**, which is the
+sender -- not the board. Routing it through the panel would be a new message
+type, a board round trip and a longer path to the same browser.
+
+So `portall/homekit.py` serves one accessory per panel with **HAP-python**,
+which is the library Home Assistant's own bridge is built on. Two readings
+decided its shape and both are somebody else's shipped code rather than a
+guess:
+
+- **One accessory, one driver, one port, one pairing code PER PANEL.** A
+  Television may not be bridged; HA's own documentation says `mode` must be
+  `accessory` with a single entity.
+- **A Television with NO input sources at all is a shipped configuration.**
+  `RemoteInputSelectAccessory` returns before adding a single InputSource
+  when the player cannot select one. A panel has no inputs, so an accessory
+  that is a remote and nothing else is ordinary rather than a stunt.
+
+**pyhap does not persist the pincode**, which is not obvious and bites in
+exactly the minutes it can: its encoder writes the MAC, the keys, the paired
+clients and the config version, and nothing else, so a code left to it is a
+fresh one after every restart -- while somebody is reading the old one off
+the screen. `read_pin()` keeps it under `/data/homekit`.
+
+**The accessory outlives the sender, so it holds a `Remote` and not a pipe.**
+A sender is a child process that dies and comes back on a 5 -> 120 s backoff;
+an accessory is paired once and lives for ever. A version that grabbed
+`process.stdin` would write into a closed pipe from the first crash onward --
+from the sofa, a remote that simply stopped. There is a case for it, and the
+naive version is written out in the test so that it FAILS.
+
+**`host_network: true` is the cost, and it is unconditional.** mDNS does not
+cross from the Supervisor's private network to the LAN and the iPhone must
+reach the accessory's port directly -- which is why HA's own HomeKit works
+this way. The launcher still binds `127.0.0.1` only, so nothing new is
+exposed; what changes is that **port 8099 must be free on the host**.
+
+### The check read its expectation out of the table it was checking
+
+The first version of `tools/checkhomekit.py` asserted
+`seen == homekit.ACTIONS[name]` -- and then the reproduction run was clean.
+Folding **Exit onto Escape**, which is the exact fault this file already
+records (EXIT and ROOT_MENU both meaning Escape, and no button going home),
+**passed every case**, because the test and the code were reading the same
+dictionary.
+
+`WANT` is now stated in the test as what each HomeKit key is *for*, and three
+cases hang off it: each key through the real characteristic, that Back and
+the TV button do different things, and that the shipped table equals it.
+Against the broken copy it is **five failures** instead of one.
+
+That is this file's most-recorded shape appearing inside the tool written to
+prevent it, for the fourth time -- after `checkbt` globbing `*.cpp`,
+`importcheck` never opening a platform, and `descriptor.cpp` building its
+fixture from the constant it was testing.
+
+### What is verified
+
+Thirty-two cases, offline, with the real pyhap: the accessory is built by the
+shipped code and every key is pressed through the real **RemoteKey**
+characteristic, the line that comes out goes down a real `Remote` into the
+shipped `Control`, and what the send loop is handed is read out of the far
+end rather than asserted at each one. Also: a press after the sender
+restarted reaches the NEW one, a press with no sender is dropped and said
+once, the pairing code survives a restart and differs per panel, and
+`homekit: true` really puts `--control` on the sender's line -- which
+`checkaddon`'s generic sweep passes over, since the flag is deliberately not
+named after the option.
+
+**What is NOT verified**: nothing has been paired. There is no iPhone, no
+Home app, no mDNS and no LAN here, so whether the widget lists a panel is one
+restart away. The one thing that could not be found written down anywhere is
+**which button of the widget sends `Exit` and which sends `Information`** --
+so the log names each key the first time it arrives, which settles it from a
+panel instead of from a guess.
+
+Sources: home-assistant/core `homekit/accessories.py`, `type_remotes.py`,
+`type_media_players.py`, `const.py`; home-assistant.io `homekit.markdown`;
+HAP-python 5.0.0.
+
 ## Repository conventions
 
 - Work on branch `claude/esphome-pr-outdated-mdq36w`, then merge into `main`

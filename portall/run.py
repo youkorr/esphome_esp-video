@@ -38,6 +38,17 @@ try:
 except ImportError:  # the image was built without it
     launcher = None
 
+# Same rule, same reason: a panel that wants no remote must not be stopped by
+# the absence of one.
+try:
+    import homekit
+except ImportError:  # the image was built without it
+    homekit = None
+
+# Its own folder under the add-on's persistent volume, so a pairing survives
+# a restart and an update.
+HOMEKIT_DIR = "/data/homekit"
+
 # One literal, used only when there is no module to ask.
 LAUNCHER_KEYWORD = getattr(launcher, "KEYWORD", "launcher")
 
@@ -98,6 +109,7 @@ SHARED_KEYS = (
     "stats",
     "show_media",
     "show_touches",
+    "homekit",
 )
 
 
@@ -445,7 +457,7 @@ _GROUPED = {
     # These two carry the same names on both sides: they are grouped for the
     # eye, not renamed.
     "defaults": {k: k for k in ("port", "fps", "quality", "keyboard",
-                                "keep_profile", "locale")},
+                                "keep_profile", "locale", "homekit")},
     "debug": {k: k for k in ("stats", "show_media", "show_touches")},
 }
 # A panel's own two groups. Everything in advanced: keeps its own name, so it
@@ -759,6 +771,11 @@ def command_for(panel):
         value = panel.get(key)
         if value is True or str(value).lower() in ("true", "yes", "1"):
             argv.append(f"--{key.replace('_', '-')}")
+    # Not named after the option, because it is wider than the option: it
+    # opens the sender's stdin to whatever started it. The HomeKit accessory
+    # is the only thing that uses it today.
+    if str(panel.get("homekit", "")).strip().lower() in ("true", "yes", "1"):
+        argv.append("--control")
     return argv
 
 
@@ -808,7 +825,54 @@ def seed_profile(panel, name):
     say(f"[{name}] started its browser profile from {source}")
 
 
-def serve(panel, name, stop):
+class Remote:
+    """A way in to one panel's sender that survives the sender restarting.
+
+    The HomeKit accessory is started once and lives for as long as the
+    add-on; a sender is a child process that dies and is started again on a
+    backoff. So the accessory holds one of these rather than a pipe, and this
+    carries whichever process is current -- otherwise the first crash would
+    leave a paired remote writing into a closed pipe for ever, which from the
+    sofa is a remote that simply stopped.
+
+    A press for a panel whose sender is down is DROPPED, deliberately, and
+    said once. Queueing it would replay a button somewhere in the next
+    minute, at a moment nobody asked for.
+    """
+
+    def __init__(self, name):
+        self.name = name
+        self._process = None
+        self._lock = threading.Lock()
+        self._complained = False
+
+    def set_process(self, process):
+        with self._lock:
+            self._process = process
+            if process is not None:
+                self._complained = False
+
+    def send(self, kind, body):
+        line = "home\n" if kind == "home" else f"key {body}\n"
+        with self._lock:
+            process = self._process
+            if process is None or process.stdin is None:
+                if not self._complained:
+                    self._complained = True
+                    say(f"[{self.name}] a remote pressed a key while this "
+                        f"panel's sender was not running -- dropped")
+                return False
+            try:
+                process.stdin.write(line)
+                process.stdin.flush()
+            except (OSError, ValueError):
+                # The child went away between the check and the write. Not
+                # worth a line of its own: the restart says so already.
+                return False
+        return True
+
+
+def serve(panel, name, stop, remote=None):
     """Run one panel's sender, restarting it until asked to stop."""
     seed_profile(panel, name)
     delay = RESTART_DELAY_S
@@ -818,6 +882,7 @@ def serve(panel, name, stop):
         try:
             process = subprocess.Popen(
                 command_for(panel),
+                stdin=subprocess.PIPE if remote is not None else None,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
@@ -830,11 +895,15 @@ def serve(panel, name, stop):
 
         with _running_lock:
             _running.append(process)
+        if remote is not None:
+            remote.set_process(process)
         # Prefix every line, so one log can carry several panels and still be
         # read.
         for line in process.stdout:
             say(f"[{name}] {line.rstrip()}")
         process.wait()
+        if remote is not None:
+            remote.set_process(None)
         with _running_lock:
             if process in _running:
                 _running.remove(process)
@@ -972,16 +1041,37 @@ def main():
     # and a second server nobody wanted.
     start_pulseaudio()
     threads = []
+    remotes = []
     for index, panel in enumerate(panels, start=1):
         name = panel.get("name") or panel.get("host") or f"panel {index}"
-        thread = threading.Thread(target=serve, args=(panel, name, stop), daemon=True)
+        wants = str(panel.get("homekit", "")).strip().lower() in ("true", "yes", "1")
+        remote = Remote(name) if wants else None
+        if remote is not None:
+            remotes.append((name, remote))
+        thread = threading.Thread(target=serve, args=(panel, name, stop, remote),
+                                  daemon=True)
         thread.start()
         threads.append(thread)
     say(f"Serving {len(threads)} panel(s)")
 
+    # After the senders, so a press cannot arrive before there is anything to
+    # hand it to -- and because the accessory is the accessory here: the
+    # panels are the point and this must never be what delays them.
+    televisions = []
+    if remotes:
+        if homekit is None:
+            say("homekit is on but this build has no homekit.py in it. "
+                "The panels are unaffected.")
+        else:
+            televisions = homekit.start(
+                [(name, remote.send) for name, remote in remotes],
+                HOMEKIT_DIR, say)
+
     # The container lives as long as the panels do.
     while not stop.is_set():
         stop.wait(1)
+    for television in televisions:
+        television.stop()
     for thread in threads:
         thread.join(timeout=5)
     # Anything still up had its chance to leave politely.
