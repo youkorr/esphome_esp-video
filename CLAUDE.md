@@ -6059,6 +6059,114 @@ off, a panel filed under its address, a file and a link beside the profiles,
 and no profiles directory at all. It fails against the old code, though
 trivially -- the function did not exist, because the fault was an absence.
 
+## The iPhone cannot see the panel, and the dongle's version is not why
+
+**Asked as *"je voudrais qu'ont fasse fonctionner le dongle Bluetooth 5 de
+tplink bien plus performant que le Bluetooth 4 car je voulais me connecter
+avec mon iPhone mais il ne vois pas ce Bluetooth 4"*.** The premise is
+reasonable and it is wrong, and three readings settle it without a board.
+
+**The panel is not discoverable.** `hid.cpp` sets `ESP_BT_CONNECTABLE,
+ESP_BT_NON_DISCOVERABLE` at startup and turns discoverability on only for the
+length of `pair()`. That is deliberate and documented above -- a panel in
+every telephone's Bluetooth list for ever, for one pairing. So outside those
+ten seconds no phone can see it whatever controller is plugged in.
+
+**And the roles are the mirror of what a telephone connects to.** This panel
+registers A2DP **SOURCE**, AVRCP **TARGET** and HID **HOST**. An iPhone is
+itself an A2DP source looking for sinks, and it cannot be a HID device. Two
+sources have nothing to say to each other, so even inside the pair window iOS
+has no reason to list it.
+
+**Both roles cannot run at once, and that is structural rather than a
+Kconfig.** Read in ESP-IDF v5.5.5 rather than assumed --
+`btc_av.c`'s `btc_a2d_src_init()` and `btc_a2d_sink_init()` both call
+`btc_av_init(service_id)`, and that function does its work only
+`if (btc_av_cb.sm_handle == NULL)`. One control block, one `service_id`, one
+state machine: whichever role is initialised second falls through to
+`av_init_fail` and returns `BT_STATUS_FAIL`.
+
+**The sink code is already in the binary**, which is the useful half.
+`bt_target.h` sets `BTC_AV_SINK_INCLUDED` and `BTC_AV_SRC_INCLUDED` together
+off `UC_BT_A2DP_ENABLED`, so `audio: true` already compiles both. Making the
+panel a Bluetooth speaker is `esp_a2d_sink_init()` instead of
+`esp_a2d_source_init()`, a data callback, and a Class of Device saying
+loudspeaker -- not a new dependency. **Not built**: asked what the iPhone
+should do, the answer was *"pour l'instant je sais pas mais l'ajout du
+Bluetooth 5 voir plus tard Bluetooth 6"*, so the role stays source and this
+paragraph is the note for whoever picks it up.
+
+### The log could not have settled it either way
+
+    HCI version 6, LMP version 6, manufacturer 15
+
+Three numbers, and the question being asked was whether this dongle is modern
+enough for a telephone. `manufacturer 15` is Broadcom and `LMP version 6` is
+Bluetooth 4.0, and nothing in that line says so. Worse, the event carries five
+fields and this read three: **`hci_rev` and `lmp_subver` were thrown away**,
+and those two are exactly what identifies a Realtek part and whether it is
+patched -- so the line meant to say what the dongle is could not have said it.
+
+It now names the maker, the Bluetooth release, and for a Realtek the part and
+whether it is running its ROM. All three tables are transcribed rather than
+remembered: the releases from the Core Specification's assigned numbers, the
+makers from the SIG's company identifiers (15 Broadcom, 93 Realtek, 10
+Qualcomm/CSR, 741 Espressif), and the parts from **`ic_id_table` in Linux's
+`drivers/bluetooth/btrtl.c`**, extracted by script from the file rather than
+typed.
+
+**Matching that table IS the statement "no firmware is loaded"**, and that is
+why it is the right table to carry. btrtl.c matches on the values a chip
+reports while running its ROM, in order to choose the patch to download; after
+a download the controller reports the firmware's own version and matches
+nothing. So a hit is not a lookup, it is a diagnosis. The TP-Link UB500 is
+`lmp_subver 0x8761, hci_rev 0x000B, hci_ver 10` -- **RTL8761BU, Bluetooth
+5.1**, not the 5.0 on the box.
+
+`HCI_RTL_READ_ROM_VERSION = 0xFC6D` is sent only to a Realtek, from
+`rtl_read_rom_version()` in that same driver: no parameters, status and one
+version byte.
+
+### What is NOT done, and why the loader was not written
+
+Linux uploads `rtl8761bu_fw.bin` + `rtl8761bu_config.bin` -- about 30 KB --
+through vendor opcode `0xFC20`, 252 bytes at a time behind an index byte whose
+top bit marks the last fragment (`rtl_download_firmware`, `RTL_FRAG_LEN 252`).
+That is a bounded piece of work and it is **not written**, for two reasons and
+only one of them is technical:
+
+- **Nobody has measured what the ROM cannot do.** This file already records
+  the TP-Link answering all thirty-three of Bluedroid's startup commands in
+  ROM mode and bringing the host up. Writing a loader before knowing what it
+  buys is the defensible-argument-instead-of-a-measurement shape this file
+  records more often than any other. The line above is what settles it, in
+  one flash, from the panel's own log.
+- **The blob cannot be fetched from here.** `git.kernel.org` is refused by
+  this container's proxy and the GitHub mirrors tried returned 404, so the
+  firmware would have had to be invented -- which for a binary is silent
+  corruption rather than a compile error.
+
+`tools/bttest/identify.cpp` links the shipped `bluetooth_release()`,
+`maker_name()` and `realtek_rom_part()`. Its Broadcom row is a measurement --
+manufacturer 15 and LMP 6 are from the first panel log in this repository --
+and the rest guards the transcription: a patched controller must match
+nothing, a near miss on the revision must match nothing, both ends of the
+table must survive, and a release past the end must be a null rather than a
+read off the end of the array. **Reproduced against a shifted table before it
+was believed**: dropping one row from the release list fails three cases,
+including Bluetooth 6, which is the next thing that was asked for.
+
+### And `keep_profile: off` leaves a folder nobody opens
+
+A consequence of the sweep's own third guard, met the day after it shipped. A
+panel with the option off still OWNS its folder name, so the sweep leaves it
+alone -- right, because turning the option back on should find what was signed
+into -- and `profile_for()` returns None, so nothing ever opens it again.
+Somebody who turned the option off to save space would have watched a
+gigabyte not move with no way to learn why. `sweep_profiles()` names that
+state and gives both ways out, and `tools/checkprofiles.py` asserts the plain
+line is NOT printed for a panel that does keep one.
+
 ## Repository conventions
 
 - Work on branch `claude/esphome-pr-outdated-mdq36w`, then merge into `main`

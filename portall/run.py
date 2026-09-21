@@ -660,11 +660,30 @@ def sweep_profiles(panels):
     # panel that has been running a long time -- and this is the line that
     # makes that visible without a shell inside the container. It is a walk of
     # the tree at startup, which is stat calls rather than reads.
+    #
+    # A panel with keep_profile off is the case the guard above creates and
+    # nothing else would report: it still owns its folder, so the sweep leaves
+    # it alone, and it no longer opens it, so the folder sits there for ever
+    # with nobody reading it. That is right -- switching the option back on
+    # should find what was there -- but it must not be silent, or somebody who
+    # turned the option off to save space watches a gigabyte not move and has
+    # no way to learn why.
+    wants = {panel_name: profile_for(panel) is not None
+             for panel in panels
+             for panel_name in (profile_name(panel),)}
     for name in sorted(keep):
         path = os.path.join(PROFILES, name)
-        if os.path.isdir(path):
-            say(f"the browser profile of \"{name}\" is "
-                f"{folder_size(path) / 1e6:.0f} MB")
+        if not os.path.isdir(path):
+            continue
+        size = folder_size(path) / 1e6
+        if wants.get(name, True):
+            say(f"the browser profile of \"{name}\" is {size:.0f} MB")
+        else:
+            say(f"\"{name}\" has keep_profile off, so it starts a fresh "
+                f"browser every time and the {size:.0f} MB already under "
+                f"{PROFILES}/{name} is kept but never opened. Turn "
+                f"keep_profile back on to use it again, or remove that panel "
+                f"from the list once to have this sweep take it away.")
 
 
 def command_for(panel):

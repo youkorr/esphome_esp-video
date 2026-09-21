@@ -98,6 +98,28 @@ def main():
         check("and the orphan is still gone", "gone" not in left)
         shutil.rmtree(elsewhere)
 
+        # keep_profile off: the folder stays (the guard above) and nothing
+        # opens it again, which is the one state that would otherwise be
+        # invisible -- a gigabyte that never moves and no line saying why.
+        shutil.rmtree(root)
+        os.makedirs(root)
+        make(root, "salon")
+        import io
+        import contextlib
+        said = io.StringIO()
+        with contextlib.redirect_stdout(said):
+            sweep(root, [{"name": "salon", "keep_profile": False}])
+        check("a profile kept but no longer opened says so",
+              "keep_profile off" in said.getvalue()
+              and "never opened" in said.getvalue())
+        check("and it is still there", os.path.isdir(os.path.join(root, "salon")))
+        said = io.StringIO()
+        with contextlib.redirect_stdout(said):
+            sweep(root, [{"name": "salon"}])
+        check("while a panel that does keep one gets the plain line",
+              "keep_profile off" not in said.getvalue()
+              and "browser profile of \"salon\" is" in said.getvalue())
+
         # Nothing at all there yet is the first start of a new add-on.
         shutil.rmtree(root)
         run.PROFILES = root
