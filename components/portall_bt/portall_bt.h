@@ -454,6 +454,16 @@ class PortallBT : public Component {
   uint16_t desc_seen_len_{0};
   uint32_t desc_seen_sum_{0};
   bool said_no_descriptor_{false};
+  /// When sound was last put into the ring, and the quiet a stream is allowed
+  /// before it is suspended. Ten seconds rather than the half second a mixer
+  /// source defaults to: restarting costs an AVDTP round trip, so consecutive
+  /// announcements should stay in one stream, and what this is for is the
+  /// stream that would otherwise run for ever.
+  static constexpr uint32_t A2DP_IDLE_MS = 10000;
+  uint32_t pcm_fed_at_{0};
+  bool a2dp_ctrl_asked_{false};
+  void a2dp_idle_tick_();
+
   RealtekImage rtl_images_[MAX_RTL_IMAGES]{};
   uint8_t rtl_image_count_{0};
   bool send_realtek_firmware_(struct usbh_hubport *hport, uint8_t intf,

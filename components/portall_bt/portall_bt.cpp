@@ -164,6 +164,10 @@ void PortallBT::loop() {
   this->drain_reports_();
   this->drain_media_();
   this->reconnect_tick_();
+  // Asked from the loop rather than from feed_audio: esp_a2d_media_ctrl posts
+  // to Bluedroid's own task, and the speaker platform's play() can be called
+  // from an audio task with no business starting or stopping a stream.
+  this->a2dp_idle_tick_();
   this->pair_report_tick_();
 }
 

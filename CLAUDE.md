@@ -6375,6 +6375,69 @@ short. What settles it is one flash, and the log now says which dongle it is,
 whether it is on its ROM, how many fragments went out, and what version it
 reports afterwards.
 
+## The firmware worked, and the "errors" left behind were a stream of silence
+
+**Reported as *"il reconnais les peripherique ugreen et la manette nvdia
+shield mais il indique dans les logs des erreur"*.** The first half closes the
+Realtek thread: both devices connect on the TP-Link, which is what the patch
+bought. The second half is a real finding wearing somebody else's log level.
+
+    E BT_L2CAP: l2cab is_cong_cback_context      (about eight times a second)
+
+**It is not an error, and Bluedroid's own comment says what it is.** Read
+rather than guessed -- `stack/l2cap/l2c_link.c` at the line above it: *"If
+this is called from uncongested callback context break recursive calling.
+This LCB will be served when receiving number of completed packet event."*
+And the other half, in `l2c_utils.c`: a channel that was congested and has
+drained to half its quota gets the profile's un-congestion callback, with
+`is_cong_cback_context` set around the call.
+
+So each line is one full cycle: **the A2DP channel filled its transmit quota,
+drained to half, was told it could send again, sent again from inside that
+callback, and hit the recursion guard.** Eight times a second, on a dongle
+also carrying a gamepad's reports. The message is harmless; what it reports is
+a channel that is permanently congested.
+
+**And the congestion was ours.** `on_a2dp_open` asks for `CHECK_SRC_RDY`,
+whose acknowledgement asks for `START` -- and the file contained **zero**
+occurrences of `SUSPEND`. Nothing ever stopped a stream. With nothing feeding
+it, `fill_pcm` fills every request with silence, so from the moment a speaker
+connected a panel encoded and transmitted 44.1 kHz stereo SBC of digital
+nothing, for ever.
+
+**That is this file's own fault in a new costume**, and the earlier one is
+recorded a few sections up: *"Fifty blocks a second is the whole stream, and
+the page was playing nothing -- so that is 93.8 KiB/s of digital silence, sent
+for ever."* There the fix was `take()` dropping a block that is exactly zero.
+Here the same blindness reached a different transport, and cost more than
+bandwidth: it congested an L2CAP shared with a HID device.
+
+`a2dp_idle_tick_()` suspends after `A2DP_IDLE_MS` of nothing being FED -- fed
+rather than silent, because digital silence arriving from a resampler is the
+household's pipeline and not this component's business. **Ten seconds rather
+than the half second a mixer source defaults to**: restarting costs an AVDTP
+round trip, so two announcements a moment apart must stay in one stream, and
+what this is for is the stream that would otherwise never stop. A test tone is
+exempt: somebody who asked for one wants it to keep playing.
+
+**Asked ONCE, which is the part a first version got wrong.** `a2dp_playing_`
+only moves when `ESP_A2D_AUDIO_STATE_EVT` comes back, so a tick keyed on it
+alone asks on every turn of the loop until then -- four lines in the test's
+own output before anybody looked, and on a stack that had stopped answering it
+would be a command a second for ever. `a2dp_ctrl_asked_` is cleared where the
+stack answers. The test asserts the COUNT rather than that it happened.
+
+`tools/bttest/idle.cpp` drives the shipped `loop()` against a movable clock
+with the media controls recorded. **Reproduced against the old behaviour** --
+nothing ever suspending -- where three of its six cases fail, including
+`a stream nobody feeds is suspended`. The two that still pass are the ones
+that should: a fed stream is left alone, and a panel with nothing connected
+asks the stack for nothing at all.
+
+**Not measured on hardware**: whether those L2CAP lines stop is what the next
+log says. The mechanism is read from Espressif's source and the cause is
+demonstrated in the component, which is as far as this can go without a board.
+
 ## Repository conventions
 
 - Work on branch `claude/esphome-pr-outdated-mdq36w`, then merge into `main`
