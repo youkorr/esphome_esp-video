@@ -207,9 +207,23 @@ static void gap_cb(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *param) {
       if (param->auth_cmpl.stat == ESP_BT_STATUS_SUCCESS) {
         ESP_LOGI(TAG, "paired with %s \"%s\" -- Bluedroid has the link key in NVS now", addr,
                  (const char *) param->auth_cmpl.device_name);
+        // Free: this event carries the name and it was being logged and
+        // dropped, which is why the entity could only ever show a MAC.
+        g_bt->note_remote_name(param->auth_cmpl.bda,
+                               (const char *) param->auth_cmpl.device_name);
       } else {
         ESP_LOGW(TAG, "pairing with %s failed (status %d)", addr, (int) param->auth_cmpl.stat);
       }
+      break;
+
+    case ESP_BT_GAP_READ_REMOTE_NAME_EVT:
+      // Asked for when a device connects, because a RECONNECT does not pair
+      // and ESP_HIDH_OPEN_EVT carries no name at all. A failure is not worth a
+      // line: the entity falls back to the address, which is what it showed
+      // before any of this existed.
+      if (param->read_rmt_name.stat == ESP_BT_STATUS_SUCCESS)
+        g_bt->note_remote_name(param->read_rmt_name.bda,
+                               (const char *) param->read_rmt_name.rmt_name);
       break;
 
     case ESP_BT_GAP_PIN_REQ_EVT: {
@@ -382,6 +396,9 @@ void PortallBT::on_hid_open(const uint8_t *addr) {
   memcpy(this->open_hid_, addr, 6);
   this->reconnect_backoff_ms_ = RECONNECT_FIRST_MS;
   this->remember_hid_(addr);
+  // AFTER remember_hid_, because the name is filed by address against a
+  // remembered slot and there would be no slot to put it in yet.
+  this->ask_remote_name_(addr);
 #else
   (void) addr;
 #endif
@@ -697,6 +714,54 @@ void PortallBT::set_bt_enabled(bool on) {
 #endif
 }
 
+void PortallBT::note_remote_name(const uint8_t *addr, const char *name) {
+#ifdef CONFIG_BT_BLUEDROID_ENABLED
+  if (addr == nullptr || name == nullptr)
+    return;
+  // Which slot this belongs to is decided by the ADDRESS, not by which event
+  // carried it: a pairing and a name request can both arrive for either role,
+  // and a device this panel does not remember has no slot to go in.
+  char *slot = nullptr;
+  if (this->remembered_.has_hid && memcmp(addr, this->remembered_.hid, 6) == 0)
+    slot = this->hid_name_;
+  else if (this->remembered_.has_sink &&
+           memcmp(addr, this->remembered_.sink, 6) == 0)
+    slot = this->sink_name_;
+  if (slot == nullptr)
+    return;
+
+  // The printable run, and no further. A device does not have to terminate a
+  // fixed-width field -- a TP-Link dongle padded its own with something else
+  // and printed "TP-Link UB5A Adapter????????????????" on a panel, which this
+  // component has already been caught by once.
+  size_t take = 0;
+  while (take < MAX_REMOTE_NAME && name[take] != '\0') {
+    const unsigned char c = (unsigned char) name[take];
+    if (c < 0x20 || c > 0x7E)
+      break;
+    take++;
+  }
+  memcpy(slot, name, take);
+  slot[take] = '\0';
+#else
+  (void) addr;
+  (void) name;
+#endif
+}
+
+void PortallBT::ask_remote_name_(const uint8_t *addr) {
+#ifdef CONFIG_BT_BLUEDROID_ENABLED
+  if (addr == nullptr)
+    return;
+  // Over a link that is already open, so this pages nobody and sweeps nothing.
+  // The answer comes back as ESP_BT_GAP_READ_REMOTE_NAME_EVT, or not at all --
+  // which costs the name and never the connection.
+  esp_bt_gap_read_remote_name((uint8_t *) addr);
+#else
+  (void) addr;
+#endif
+}
+
 std::string PortallBT::describe_role(bool speaker) const {
 #ifdef CONFIG_BT_BLUEDROID_ENABLED
   const bool has = speaker ? this->remembered_.has_sink : this->remembered_.has_hid;
@@ -705,7 +770,16 @@ std::string PortallBT::describe_role(bool speaker) const {
   char text[18];
   say_addr(text, speaker ? this->remembered_.sink : this->remembered_.hid);
   const bool open = speaker ? this->a2dp_open_ : this->hid_open_;
-  std::string out(text);
+  // The NAME first when there is one, because that is what somebody reading a
+  // card is looking for -- "Orange TV remote" rather than A4:C1:38:9E:22:07.
+  // The address stays beside it: two remotes of the same model are the same
+  // name, and it is the address that a pair or forget action works on.
+  const char *name = speaker ? this->sink_name_ : this->hid_name_;
+  std::string out;
+  if (name[0] != '\0')
+    out = std::string(name) + " (" + text + ")";
+  else
+    out = text;
   if (this->bt_off_)
     return out + " (Bluetooth off)";
   return out + (open ? " connected" : " paired, away");
@@ -752,9 +826,11 @@ void PortallBT::forget_one(bool speaker) {
   if (speaker) {
     this->remembered_.has_sink = false;
     memset(this->remembered_.sink, 0, 6);
+    this->sink_name_[0] = '\0';
   } else {
     this->remembered_.has_hid = false;
     memset(this->remembered_.hid, 0, 6);
+    this->hid_name_[0] = '\0';
     this->hid_open_ = false;
     memset(this->open_hid_, 0, 6);
   }
@@ -791,6 +867,10 @@ void PortallBT::forget() {
   // a key for, for ever, on a backoff.
   this->remembered_ = Remembered{};
   this->remembered_pref_.save(&this->remembered_);
+  // The names go with them. A name left beside an address that has changed
+  // reads as correct, which is worse than showing no name at all.
+  this->sink_name_[0] = '\0';
+  this->hid_name_[0] = '\0';
   this->hid_open_ = false;
   memset(this->open_hid_, 0, 6);
   ESP_LOGI(TAG, "forgot %d paired device(s), link keys and roles both", bonded);

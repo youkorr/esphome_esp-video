@@ -84,6 +84,7 @@ esp_err_t esp_bt_gap_set_scan_mode(esp_bt_connection_mode_t, esp_bt_discovery_mo
 esp_err_t esp_bt_gap_start_discovery(esp_bt_inq_mode_t, uint8_t, uint8_t) { note_call("esp_bt_gap_start_discovery"); return g_discovery_result; }
 esp_err_t esp_bt_gap_cancel_discovery(void) { note_call("esp_bt_gap_cancel_discovery"); return ESP_OK; }
 esp_err_t esp_bt_gap_set_device_name(const char *) { return ESP_OK; }
+esp_err_t esp_bt_gap_read_remote_name(esp_bd_addr_t) { note_call("esp_bt_gap_read_remote_name"); return ESP_OK; }
 esp_err_t esp_bt_gap_remove_bond_device(esp_bd_addr_t) { note_call("esp_bt_gap_remove_bond_device"); return ESP_OK; }
 int esp_bt_gap_get_bond_device_num(void) { return g_bonded; }
 esp_err_t esp_bt_gap_get_bond_device_list(int *dev_num, esp_bd_addr_t *list) {

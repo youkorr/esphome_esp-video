@@ -6623,6 +6623,95 @@ that says "this does not work" is a question nobody has asked yet.** It had
 been true since the day it was written, it was documented honestly, and one
 flag turned it over.
 
+## "Un text sensor pour une telecommande" -- it existed, and it was unreadable
+
+**Asked as *"je te propose que tu cree un text sensor pour une telecommande"*,
+and when the two readings were put to them, answered in two words: *"son
+apparaillage"*.** So: show me the remote's pairing.
+
+**The entity already did that, and saying so was the first half of the
+answer.** A Bluetooth remote pairs over **HID**, exactly as a gamepad does, so
+the `input:` slot of `text_sensor: - platform: portall_bt` is a remote's slot
+and there was nothing to build. Asking first was worth it: the other reading
+-- a third `remote:` entry beside `speaker:` and `input:` -- would have meant
+growing `Remembered`, and an ESPHome preference is found by a hash AND a size,
+so every panel that has ever paired would have forgotten what it is paired to.
+A question is cheaper than that.
+
+**What it could not do is say WHICH device**, and that is the half worth
+building. It published a bare MAC:
+
+    A4:C1:38:9E:22:07 connected
+
+On a panel carrying a gamepad AND a remote, that says nothing at all about
+which of them came back -- which is exactly what somebody testing a remote
+needs to read. It is now:
+
+    Orange TV remote (A4:C1:38:9E:22:07) connected
+
+The address stays beside the name deliberately: two remotes of one model share
+a name, and the address is what a pair or forget acts on.
+
+### The name is in RAM, and that is the design rather than a shortcut
+
+`Remembered` is six bytes per role and is **not touched** -- see above for what
+changing it would cost. So the name lives in RAM for as long as the panel is
+up, and a panel that has just restarted shows the address alone until the
+device connects. Two sources, reached differently:
+
+- **At pairing it is free.** `ESP_BT_GAP_AUTH_CMPL_EVT` carries
+  `device_name`, and it was already being LOGGED and thrown away -- the line
+  `paired with ... "NVIDIA Controller v01.04"` has been in every pairing log
+  this project has ever produced.
+- **On a RECONNECT there is no pairing at all**, and `ESP_HIDH_OPEN_EVT`
+  carries no name -- checked in the header rather than assumed: it has status,
+  conn_status, is_orig, handle and bd_addr, and nothing else. So the name is
+  asked for with **`esp_bt_gap_read_remote_name()`**, read out of ESP-IDF
+  v5.5.5's `esp_gap_bt_api.h` along with the event and the struct it answers
+  in, and copied into the stand-in header field for field.
+
+**It is a Remote Name Request over a link that is already open, not an
+inquiry** -- so it neither pages anybody nor sweeps the band, and does not take
+the panel's Wi-Fi down the way a scan does. That is reasoned from what the
+command is; it is not measured here.
+
+### Three things that are defects if they are missing
+
+- **The slot is chosen by ADDRESS, not by which event carried the name.** A
+  pairing and a name request can each arrive for either role, and a device
+  this panel does not remember has no slot and must not overwrite one in use.
+- **A name is not trusted to be terminated or printable.** The printable run
+  and no further, bounded at `MAX_REMOTE_NAME`. This component has already been
+  caught by a TP-Link dongle padding its own 248-byte name field with
+  something that was not a terminator -- `"TP-Link UB5A Adapter????????????????"`
+  on a panel -- and the same care applies to somebody else's name.
+- **Forgetting a device takes its name with it.** A stale name beside a NEW
+  address reads as correct, which is worse than no name: it is the only one of
+  the three that could mislead rather than merely look wrong.
+
+`tools/bttest/naming.cpp` links the shipped `note_remote_name`,
+`describe_role`, `forget_one` and `on_hid_open`. **Reproduced against the old
+behaviour before it was believed**, both halves: with the name taken out of
+`describe_role` six cases fail, and with the clear-on-forget removed the case
+named `a different device in that slot does not inherit the old name` fails on
+its own.
+
+### And it found a comment I had stacked on top of another one
+
+`MAX_FIELDS` carried TWO comment blocks -- the superseded 192 paragraph sitting
+directly above the 384 one that replaced it, both written in this session. The
+first read as current to anybody arriving at it. One block now, carrying what
+both said. A stale comment is the shape this file records most often; leaving
+two of them stacked is the version of it that reads as deliberate.
+
+**What is NOT done.** No C++ here has been compiled by a real toolchain, and
+**nothing has paired with an actual remote** -- the input slot has still never
+held one. What a remote will really do is the one thing a panel settles: if
+its Class of Device reports Audio/Video rather than Peripheral, which a device
+carrying a microphone for voice search plausibly does, it would be sorted as a
+speaker. The log already says which kind it heard and why, so that is one run
+rather than a round trip.
+
 ## Repository conventions
 
 - Work on branch `claude/esphome-pr-outdated-mdq36w`, then merge into `main`

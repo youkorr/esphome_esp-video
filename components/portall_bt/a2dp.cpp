@@ -522,6 +522,9 @@ void PortallBT::on_a2dp_open(const uint8_t *addr) {
   this->a2dp_ctrl_asked_ = false;
   memcpy(this->open_sink_, addr, 6);
   this->remember_sink_(addr);
+  // After remember_sink_, for the reason on_hid_open gives: the name is filed
+  // against a remembered slot, so the slot has to exist first.
+  this->ask_remote_name_(addr);
   // Ask before starting. The reply comes back as ESP_A2D_MEDIA_CTRL_ACK_EVT.
   esp_a2d_media_ctrl(ESP_A2D_MEDIA_CTRL_CHECK_SRC_RDY);
 #else
