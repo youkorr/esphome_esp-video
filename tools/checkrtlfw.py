@@ -110,8 +110,11 @@ def main():
             build([(1, body_a)])[:-7] + bytes((0xFF, 1, 0xFF)) + rtlfw.EXTENSION_SIG)
 
     print("\nRealtek's own file, if it is here")
-    real = os.environ.get("RTL_FW")
-    cfg = os.environ.get("RTL_CFG")
+    # The component carries its own, so this needs no setting up. RTL_FW
+    # overrides it for a different chip's pair.
+    carried = os.path.join(os.path.dirname(HERE), "components", "portall_bt", "firmware")
+    real = os.environ.get("RTL_FW", os.path.join(carried, "rtl8761bu_fw.bin"))
+    cfg = os.environ.get("RTL_CFG", os.path.join(carried, "rtl8761bu_config.bin"))
     if not real or not os.path.exists(real):
         print("  --   set RTL_FW (and RTL_CFG) to check against the real thing.")
         print("       linux-firmware carries rtl_bt/rtl8761bu_fw.bin and _config.bin.")

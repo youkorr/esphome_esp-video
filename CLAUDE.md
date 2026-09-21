@@ -6279,16 +6279,45 @@ and the last length is `len % 252`, which is zero when the image divides
 exactly -- and it is sent anyway, because the 0x80 in the index is what ends
 the patch rather than the bytes. A tidier loop would have dropped it.
 
-### The files ARE in this repository now, and the licence is what made that fine
+### A path into the household's config was the wrong place, and a panel said so
 
-Written here first as "the blobs are Realtek's ... a household downloads them
-once, so the question never arrives here" -- and the user simply uploaded them
-to `yaml/`, which is the better answer and needed one thing rather than an
-argument. Realtek's own licence permits **redistribution in binary form
-without modification** provided the copyright notice travels with them, so
-`yaml/LICENCE.rtlwifi_firmware.txt` sits beside them and `yaml/rtl_bt.md` says
-where they came from and what they are for. They are unmodified; `rtlfw.py`
-prepares what a dongle is SENT at build time and changes neither file.
+The first version took a PATH, on the reasoning that the blobs are Realtek's
+and a household downloads them once. The user simply uploaded them to `yaml/`
+instead -- the better answer -- and the next build said:
+
+    Could not find file '/config/esphome/rtl8761bu_fw.bin'
+
+`cv.file_` resolves against the CONFIG's directory. Their config is in
+`/config/esphome/` and the files were in a repository ESPHome had cloned
+somewhere else, so a relative path could never have met them. **This file's
+most-recorded shape, for the sixth time**: a fix the reader cannot reach from
+where they are standing has not been delivered.
+
+**And `external_components` is what makes the right answer possible.** Read
+rather than assumed: `_process_git_config` clones the repository and points at
+`repo_dir / "components"`, then `loader.install_meta_finder()` -- it **copies
+nothing and filters nothing**. So every file beside `__init__.py` is on disk
+at build time for every user, and `Path(__file__).parent / "firmware"` always
+finds it. A binary can travel inside an ESPHome component.
+
+So the patch is carried in `components/portall_bt/firmware/` and built in **by
+default**: nothing to download, no path to get right, and a household that
+plugs in a Realtek dongle never has to learn that it needs a patch at all.
+`firmware: none` gets the ~44 KB of flash back on a board that will only ever
+see a Broadcom, which needs none; a path names a different chip's pair.
+
+Proved by building the probe two ways and reading the generated C++: with **no
+option at all** and the files nowhere near the config, `rtl_firmware_0[14054]`
+and `rtl_firmware_1[30210]` are both emitted and wired; with `firmware: none`,
+neither is.
+
+### The licence is what made carrying them fine
+
+Realtek's own licence permits **redistribution in binary form without
+modification** provided the copyright notice travels with them, so
+`LICENCE.rtlwifi_firmware.txt` and a `README.md` saying where they came from
+sit in the same directory. They are unmodified; `rtlfw.py` prepares what a
+dongle is SENT at build time and changes neither file.
 
 Checked rather than assumed: both are **byte-for-byte identical** to
 linux-firmware's, by sha256.
