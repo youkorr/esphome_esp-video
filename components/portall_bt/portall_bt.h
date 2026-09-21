@@ -245,6 +245,20 @@ class PortallBT : public Component {
      without anybody typing a byte offset. Bluedroid hands it over on
      ESP_HIDH_GET_DSCP_EVT; this is public beside the feeds so a test can put
      a real descriptor in and press real buttons at it. */
+  /// One prepared Realtek patch: which ROM version it is for, and the bytes.
+  /// Prepared by tools/rtlfw.py at codegen, never parsed on the board -- see
+  /// send_realtek_firmware_ for why the split is there.
+  struct RealtekImage {
+    uint8_t rom_version;
+    const uint8_t *data;
+    uint32_t length;
+  };
+  static constexpr uint8_t MAX_RTL_IMAGES = 4;
+  void add_realtek_firmware(uint8_t rom_version, const uint8_t *data, uint32_t length) {
+    if (this->rtl_image_count_ < MAX_RTL_IMAGES)
+      this->rtl_images_[this->rtl_image_count_++] = {rom_version, data, length};
+  }
+
   void feed_hid_descriptor(const uint8_t *desc, uint16_t len, uint16_t vendor,
                            uint16_t product);
   /* One decoded field of one report, on its way to a key. Public for the same
@@ -440,6 +454,10 @@ class PortallBT : public Component {
   uint16_t desc_seen_len_{0};
   uint32_t desc_seen_sum_{0};
   bool said_no_descriptor_{false};
+  RealtekImage rtl_images_[MAX_RTL_IMAGES]{};
+  uint8_t rtl_image_count_{0};
+  bool send_realtek_firmware_(struct usbh_hubport *hport, uint8_t intf,
+                              struct usb_endpoint_descriptor *events, uint8_t rom_version);
   /* The d-pad's last position, as the eight compass points HID's Hat Switch
      uses, with 0xFF for centred. A thumb resting on it sends the same report
      a hundred times a second, so only a CHANGE is a press -- the same rule

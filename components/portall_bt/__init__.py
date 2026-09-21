@@ -131,6 +131,8 @@ that says nothing about why.
 import os
 
 import esphome.automation as automation
+from pathlib import Path
+
 import esphome.codegen as cg
 from esphome.components import esp32
 import esphome.config_validation as cv
@@ -154,6 +156,8 @@ CONF_TEST_TONE = "test_tone"
 CONF_DEVICE_NAME = "device_name"
 CONF_PAIR_SECONDS = "pair_seconds"
 CONF_SHOW_REPORTS = "show_reports"
+CONF_FIRMWARE = "firmware"
+CONF_FIRMWARE_CONFIG = "firmware_config"
 CONF_ON_HID_REPORT = "on_hid_report"
 CONF_ON_MEDIA_KEY = "on_media_key"
 CONF_ON_MEDIA_VOLUME = "on_media_volume"
@@ -374,6 +378,29 @@ def _one_controller_each(config):
     )
 
 
+def _firmware(value):
+    """A Realtek patch file, read and prepared HERE rather than on the board.
+
+    A Realtek controller runs a ROM that answers every HCI command and does
+    almost nothing on the air -- which is why a panel reported its speaker and
+    its gamepad both sitting beside it and neither connecting, on a dongle
+    whose stack had started perfectly. Linux uploads about thirty kilobytes
+    before it calls one a working controller, and so must this.
+
+    The file is NOT in this repository. It is Realtek's, linux-firmware
+    redistributes it under Realtek's own licence, and a household downloads it
+    once -- so the option is a path and the licence question never arrives
+    here. The parse is tools/rtlfw.py, which can be run against the real file
+    on a workstation; the board is handed bytes and a length.
+    """
+    path = cv.file_(value)
+    try:
+        with open(path, "rb") as handle:
+            return handle.read()
+    except OSError as err:
+        raise cv.Invalid(f"{value} could not be read ({err})")
+
+
 CONFIG_SCHEMA = cv.All(
     cv.Schema(
         {
@@ -414,6 +441,8 @@ CONFIG_SCHEMA = cv.All(
             # -- and a moving thumbstick sends a hundred a second, which is why
             # it is a flag rather than the default.
             cv.Optional(CONF_SHOW_REPORTS, default=False): cv.boolean,
+            cv.Optional(CONF_FIRMWARE): _firmware,
+            cv.Optional(CONF_FIRMWARE_CONFIG): _firmware,
             # Where the buttons of every input device this component can read
             # should go: the id of the `portall:` block, so they reach the page
             # the panel is showing.
@@ -469,6 +498,39 @@ async def to_code(config):
     cg.add(var.set_device_name(config[CONF_DEVICE_NAME]))
     cg.add(var.set_pair_seconds(config[CONF_PAIR_SECONDS].total_seconds))
     cg.add(var.set_show_reports(config[CONF_SHOW_REPORTS]))
+
+    if CONF_FIRMWARE in config:
+        # Parsed at BUILD time, so the board never carries the format. Errors
+        # here name the file rather than reaching a panel as silence on the
+        # air, which is the failure this whole option exists to end.
+        import sys
+
+        sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools"))
+        import rtlfw
+
+        try:
+            images, version, lmp, which = rtlfw.images(
+                config[CONF_FIRMWARE], config.get(CONF_FIRMWARE_CONFIG, b"")
+            )
+        except rtlfw.NotFirmware as err:
+            raise cv.Invalid(f"{CONF_FIRMWARE}: {err}")
+        if len(images) > 4:
+            raise cv.Invalid(
+                f"{CONF_FIRMWARE}: this file covers {len(images)} ROM versions "
+                f"and the board holds four"
+            )
+        for rom in sorted(images):
+            blob = images[rom]
+            name = f"rtl_firmware_{rom}"
+            # One line per array rather than per byte: a thirty-kilobyte
+            # literal is already a lot of generated source.
+            body = ",".join(str(b) for b in blob)
+            cg.add_global(
+                cg.RawExpression(
+                    f"static const uint8_t {name}[{len(blob)}] = {{{body}}}"
+                )
+            )
+            cg.add(var.add_realtek_firmware(rom, cg.RawExpression(name), len(blob)))
     keys = config.get(CONF_KEYS)
     if keys:
         # Already an id by now, named or not: _keys did that at validation
