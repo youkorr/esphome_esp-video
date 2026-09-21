@@ -487,6 +487,15 @@ class PortallBT : public Component {
   /// Hang up whatever is connected. An inquiry cannot find a device that is
   /// already talking to this panel, so pairing and forgetting both start here.
   void drop_links_();
+  /* Hang up ONE address, whatever this component believes about it.
+   *
+   * Gated on nothing: `a2dp_open_` and `InputDevice::open` are this
+   * component's OPINION of the link, and the stack's state is the fact. A
+   * disconnect for something that is not connected costs an error code
+   * nobody reads; a disconnect that was skipped because a flag said "not
+   * open" leaves a live ACL whose key has just been removed -- which is the
+   * "even Forget does not help" this component has already paid for once. */
+  void drop_link_to_(const uint8_t *addr, bool speaker);
   /// How many devices a pair scan heard, so the end of one can say whether it
   /// heard anything at all. Counted in heard_device, which is the only thing
   /// an inquiry result reaches.

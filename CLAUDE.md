@@ -7185,6 +7185,63 @@ unexplained: `hcif conn complete: hdl 0x4, st 0x4` -- a Page Timeout seven
 seconds after everything had connected, from a page this component did not
 make, since both reconnect paths return while their device is open.
 
+## Forget answered about the RECORD while the device went on playing
+
+**Reported as two things in one line: *"quant j'apparais un device Bluetooth
+et que je veux appareiller un autre device il deconnecte celui qui etait
+apparaille ensuite il ya des problemes sur Forget pour deconnecter le device
+ou speaker"*.** The first half was the round before this one. The second half
+is three separate faults, and the audit found a fourth nobody had reported.
+
+**`a2dp_open_` and `InputDevice::open` are this component's OPINION of a
+link; the stack's state is the fact — and Forget was gated on the opinion.**
+
+- **"Nothing to forget" was said at a device that was still connected.** The
+  record and the link can disagree, and every way they do is ordinary: a
+  blanket forget clears the record while the disconnection is still in
+  flight, a controller connects when all four slots are full and is never
+  remembered at all. In each case pressing Forget printed *no speaker is
+  remembered* and did nothing whatever, while the thing went on playing. From
+  a household's side that button means "get rid of that thing", and the
+  record is half of what that is. It hangs up what is CONNECTED now as well
+  as what is remembered, and only says there is nothing to forget when both
+  are empty.
+- **The disconnect was skipped whenever the flag was false.** So a flag that
+  lied by even a moment left a bond removed under a live ACL — which is
+  *exactly* the "even Forget does not help" this file already records, still
+  reachable by a different door. `drop_link_to_()` hangs up by address and
+  asks nothing: a disconnect for something not connected costs an error code
+  nobody reads, and a skipped one costs the device.
+- **The speaker's live state was never cleared, and the input side's always
+  was.** `forget_one(true)` and `forget()` both left `a2dp_open_` true and
+  waited for the event, so in between the panel believed it still had a
+  speaker — sound pushed into a ring for a device that had been forgotten,
+  and a second press of the button answering about a record rather than about
+  the link still up. Cleared where the record is, both paths, like the inputs.
+- **A controller connected with every slot full could be hung up by no button
+  in this component.** `forget_one(false)` and `drop_links_()` both walked
+  `used && remembered`, and that device is `used` without being remembered.
+  `used` alone now, with no key removed for one there was never a key for.
+
+**And one pairing still hangs something up, deliberately.** A panel drives
+ONE speaker — A2DP source is a single stream with one encoder and
+`Remembered` has one slot — so a speaker taken by a scan is not being added
+beside the old one, it is taking its place. Leaving the old link up asks the
+stack for a second sink it cannot carry. Input devices have four slots and
+are genuinely added, so nothing is dropped for them, and there is a case
+asserting that a second controller does not hang up the first.
+
+**Reproduced against the code the panel was running**, through the same
+seams: **eight of pairing.cpp's cases fail**, including "a connected speaker
+with no record is still hung up" and "and it is not answered with nothing to
+forget".
+
+**What is NOT settled.** No panel has run this. Whether a disconnect followed
+immediately by a connect to a different sink is ordered the way it reads is
+Bluedroid's business, not something a workstation can show — if the new
+speaker does not come up on the first press, that ordering is the first place
+to look.
+
 ## Repository conventions
 
 - Work on branch `claude/esphome-pr-outdated-mdq36w`, then merge into `main`

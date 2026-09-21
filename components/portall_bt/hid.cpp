@@ -795,6 +795,22 @@ void PortallBT::heard_device(const uint8_t *addr, uint32_t cod, const char *name
     ESP_LOGI(TAG, "  that is a speaker -- stopping the scan and pairing with it");
     esp_bt_gap_cancel_discovery();
 #ifdef CONFIG_BT_A2DP_ENABLE
+    /* THIS ONE REPLACES, so it is the one place a pairing still hangs
+     * something up -- and the only one.
+     *
+     * A panel drives ONE speaker: A2DP source is a single stream with one
+     * encoder, and `Remembered` has one slot for it. So a speaker taken here
+     * is not being added beside the old one, it is taking its place, and
+     * leaving the old link up would have the stack asked for a second sink it
+     * cannot carry. Input devices have four slots and are genuinely added, so
+     * nothing is dropped for them. */
+    if (this->a2dp_open_ && addr_set(this->open_sink_) &&
+        memcmp(this->open_sink_, addr, 6) != 0) {
+      char old_text[18];
+      say_addr(old_text, this->open_sink_);
+      ESP_LOGI(TAG, "  hanging up %s first -- this panel drives one speaker at a time", old_text);
+      this->drop_link_to_(this->open_sink_, true);
+    }
     esp_a2d_source_connect(target);
 #endif
   } else if (major == ESP_BT_COD_MAJOR_DEV_PERIPHERAL || major == ESP_BT_COD_MAJOR_DEV_AV) {
@@ -899,6 +915,27 @@ void PortallBT::pair() {
 #endif
 }
 
+void PortallBT::drop_link_to_(const uint8_t *addr, bool speaker) {
+#ifdef CONFIG_BT_BLUEDROID_ENABLED
+  if (!addr_set(addr))
+    return;
+  esp_bd_addr_t target;
+  memcpy(target, addr, 6);
+  if (speaker) {
+#ifdef CONFIG_BT_A2DP_ENABLE
+    esp_a2d_source_disconnect(target);
+#endif
+  } else {
+#ifdef CONFIG_BT_HID_HOST_ENABLED
+    esp_bt_hid_host_disconnect(target);
+#endif
+  }
+#else
+  (void) addr;
+  (void) speaker;
+#endif
+}
+
 void PortallBT::drop_links_() {
 #if defined(CONFIG_BT_A2DP_ENABLE)
   char text[18];
@@ -913,11 +950,11 @@ void PortallBT::drop_links_() {
   char hid_text[18];
   for (uint8_t i = 0; i < MAX_INPUTS; i++) {
     InputDevice &d = this->inputs_[i];
-    if (!d.open || !addr_set(d.addr))
+    if (!d.used || !addr_set(d.addr))
       continue;
     say_addr(hid_text, d.addr);
     ESP_LOGI(TAG, "  hanging up the input device %s first", hid_text);
-    esp_bt_hid_host_disconnect(d.addr);
+    this->drop_link_to_(d.addr, false);
   }
 #endif
 }
@@ -1130,26 +1167,52 @@ void PortallBT::forget_one(bool speaker) {
   char text[18];
 
   if (speaker) {
-    if (!this->remembered_.has_sink) {
-      ESP_LOGW(TAG, "no speaker is remembered, so there is nothing to forget");
+    /* A SPEAKER THAT IS CONNECTED BUT NOT REMEMBERED IS STILL SOMETHING TO
+     * FORGET, and saying "nothing to forget" at it is the fault that was
+     * reported.
+     *
+     * From a household's side this button means "get rid of that thing", and
+     * the stored record is only half of what that is. The two can disagree --
+     * a blanket forget clears the record and the disconnection lands a moment
+     * later, a device connects that this panel has no room to remember -- and
+     * every one of those states used to print "no speaker is remembered" and
+     * do nothing at all while the speaker went on playing. */
+    const bool connected = this->a2dp_open_ && addr_set(this->open_sink_);
+    if (!this->remembered_.has_sink && !connected) {
+      ESP_LOGW(TAG, "no speaker is remembered and none is connected, so there is nothing to "
+                    "forget");
       return;
     }
-    say_addr(text, this->remembered_.sink);
+
     /* Hang up FIRST, for the reason forget() records: removing a bond under a
      * live ACL leaves the device connected with its key gone, so the next scan
-     * cannot see it AND it can no longer come back on its own. */
-    esp_bd_addr_t target;
-    memcpy(target, this->remembered_.sink, 6);
-#ifdef CONFIG_BT_A2DP_ENABLE
-    if (this->a2dp_open_)
-      esp_a2d_source_disconnect(target);
-#endif
-    esp_bt_gap_remove_bond_device(target);
+     * cannot see it AND it can no longer come back on its own. Both addresses,
+     * because they need not be the same one. */
+    if (connected) {
+      say_addr(text, this->open_sink_);
+      ESP_LOGI(TAG, "hanging up the speaker %s", text);
+      this->drop_link_to_(this->open_sink_, true);
+    }
+    if (this->remembered_.has_sink) {
+      say_addr(text, this->remembered_.sink);
+      this->drop_link_to_(this->remembered_.sink, true);
+      esp_bd_addr_t target;
+      memcpy(target, this->remembered_.sink, 6);
+      esp_bt_gap_remove_bond_device(target);
+      ESP_LOGI(TAG, "forgot the speaker %s -- link key and role both", text);
+    }
+
+    /* CLEARED HERE rather than left to the disconnection event, and the input
+     * side has always done so. Waiting means this panel goes on believing it
+     * has a speaker -- so sound keeps being pushed into a ring for a device
+     * that has been forgotten, and a second press of this button answers
+     * "nothing to forget" about a link that is still up. */
     this->remembered_.has_sink = false;
     memset(this->remembered_.sink, 0, 6);
     this->sink_name_[0] = '\0';
+    this->a2dp_open_ = false;
+    memset(this->open_sink_, 0, 6);
     this->remembered_pref_.save(&this->remembered_);
-    ESP_LOGI(TAG, "forgot the speaker %s -- link key and role both", text);
     return;
   }
 
@@ -1159,17 +1222,21 @@ void PortallBT::forget_one(bool speaker) {
   uint8_t gone = 0;
   for (uint8_t i = 0; i < MAX_INPUTS; i++) {
     InputDevice &d = this->inputs_[i];
-    if (!d.used || !d.remembered)
+    /* `used` rather than `used && remembered`: a device that connected when
+       every slot was full holds a slot without being remembered, and it is
+       exactly as much "get rid of that thing" as the rest. It used to be
+       skipped here and by drop_links_ alike, so no button in this component
+       could hang it up. */
+    if (!d.used)
       continue;
     say_addr(text, d.addr);
     esp_bd_addr_t target;
     memcpy(target, d.addr, 6);
-#ifdef CONFIG_BT_HID_HOST_ENABLED
-    if (d.open)
-      esp_bt_hid_host_disconnect(target);
-#endif
-    esp_bt_gap_remove_bond_device(target);
-    ESP_LOGI(TAG, "forgot the input device %s -- link key and role both", text);
+    this->drop_link_to_(d.addr, false);
+    if (d.remembered)
+      esp_bt_gap_remove_bond_device(target);
+    ESP_LOGI(TAG, "forgot the input device %s -- %s", text,
+             d.remembered ? "link key and role both" : "it was connected without being remembered");
     /* The map is NOT freed with it. A slot that has held a device keeps its
        9 KiB for the next one, because releasing and retaking a block that
        size on a board's heap is how it gets fragmented. */
@@ -1181,7 +1248,8 @@ void PortallBT::forget_one(bool speaker) {
     gone++;
   }
   if (gone == 0) {
-    ESP_LOGW(TAG, "no input device is remembered, so there is nothing to forget");
+    ESP_LOGW(TAG, "no input device is remembered and none is connected, so there is nothing to "
+                  "forget");
     return;
   }
   this->save_inputs_();
@@ -1220,6 +1288,12 @@ void PortallBT::forget() {
   // The names go with them. A name left beside an address that has changed
   // reads as correct, which is worse than showing no name at all.
   this->sink_name_[0] = '\0';
+  // And the live state, for the reason forget_one records: leaving it to the
+  // disconnection event means this panel believes it still has a speaker in
+  // between, and the next press of a Forget button answers about a record
+  // rather than about the link that is still up.
+  this->a2dp_open_ = false;
+  memset(this->open_sink_, 0, 6);
   for (uint8_t i = 0; i < MAX_INPUTS; i++) {
     HidReportMap *keep = this->inputs_[i].map;
     this->inputs_[i] = InputDevice{};
