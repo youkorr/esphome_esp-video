@@ -276,6 +276,37 @@ BROWSER_ARGS = [
     "--disable-features=CalculateNativeWinOcclusion,OptimizationHints,"
     "OptimizationGuideModelDownloading,OptimizationTargetPrediction,"
     "TextSafetyClassifier,SegmentationPlatform",
+    # Arrow keys move the FOCUS on a page that does not move it itself.
+    #
+    # A browser does not navigate between links with the arrows -- only Tab
+    # does -- so a remote or a gamepad's d-pad only works on a site that
+    # implements spatial navigation for itself. YouTube's television
+    # interface does, Jellyfin does once its layout is TV, and the launcher
+    # here does. Everything else gets the browser's default, which is to
+    # SCROLL. Reported from a panel driving a gamepad: YouTube fine, and on
+    # Netflix, Orange TV and Jellyfin "il ya juste parfois le button up et
+    # down qui fonctionne mais difficillement" -- which is that scroll exactly,
+    # since up and down have somewhere to go and left and right have nothing.
+    #
+    # Measured on this build against a grid of links with no key handler of
+    # its own, which is the shape of those sites:
+    #
+    #                                  focus moved   what the arrows did
+    #   as it was                         0 of 4     up/down scrolled the page
+    #   --enable-spatial-navigation       3 of 4     moved between tiles
+    #
+    # The fourth is not a failure: a neighbour that is OFF SCREEN is scrolled
+    # into view by the first press and taken by the second, and the same press
+    # with that neighbour visible moves on the first. Enter still activates
+    # what is focused.
+    #
+    # It is safe to have on everywhere because it is a FALLBACK rather than an
+    # override, which is the one thing that had to be checked before adding it:
+    # against a page whose own handler calls preventDefault() and deliberately
+    # moves the opposite way, the PAGE won with the flag exactly as without it.
+    # So the launcher, YouTube /tv and Jellyfin in TV layout are untouched, and
+    # only the pages that do nothing today gain anything.
+    "--enable-spatial-navigation",
 ]
 # The way back to the page the panel was pointed at.
 #
