@@ -6894,6 +6894,102 @@ halves were visible at once on screen: a correct statement of intent, and code
 directly beneath it doing the opposite, with nobody re-asking the value
 because re-reading the comment confirms the intent.
 
+## The sticks did nothing because nothing read them
+
+**Reported as *"les joystiks ne sont pas fonctionnel"*, with two links** --
+`devmapal/nvidia-shield-controller-driver` and `stdll/shield-controller-ubuntu`.
+Both were read, and **neither carries an axis table**, which is the useful
+finding rather than a dead end: the first is four `ozwpan` kernel patches that
+carry the controller's traffic over Wi-Fi, and the second is pairing and udev.
+Each makes the Shield appear as an **ordinary HID device** and leaves the
+layout to Linux's generic HID layer, reading the device's own report
+descriptor -- which is exactly what this component already does.
+
+So the cause was an absence, and it was one line of grep away:
+`feed_hid_usage` handled the hat, the four separate d-pad bits, the Button
+page and the Consumer page, and **Generic Desktop X, Y, Z and Rz fell off the
+end of the function.** The walker decoded them correctly the whole time and
+nothing was listening.
+
+**bluepad32's Android parser is what says which axis is which**, and it is
+already the source this file's button numbering comes from: `HID_USAGE_AXIS_X`
+and `_Y` are the left stick, `_Z` and `_RZ` the right, and brake and throttle
+are on the **Simulation** page rather than Generic Desktop.
+
+### Rx and Ry are left out, and the guard is what makes that safe
+
+Plenty of controllers put their TRIGGERS on Rx and Ry, so those two are not
+mapped. But a rule that holds because of what most devices do is the
+guess-dressed-as-a-recipe this file has paid for repeatedly, so the real
+protection is a property rather than a list: **an axis is not steered with
+until it has been seen near its own centre.** A stick reports its centre
+constantly; a trigger rests at one END of its range for ever and never
+reaches that line. A trigger declared on Z would otherwise read as fully
+deflected from boot -- a direction nobody can let go of, on a panel whose
+focus would sit against one edge of the grid and stay there.
+
+### What comes from the descriptor and what is a judgement
+
+Everything about the arithmetic is the device's: the centre is
+`(logical_min + logical_max) / 2` and the deflection is a percentage of the
+declared span, so a stick running 0..255 and one running -32768..32767 are
+the same axis expressed twice. There is **no byte offset and no device id** in
+this path, which is the rule the previous gamepad round was corrected into.
+
+Two numbers are NOT transcriptions and the code says so, because nothing else
+in that file is a judgement: **half travel to push, a third to let go.** The
+specification fixes no deadzone -- it only says what the axis reports -- so
+the numbers answer what this is for, which is moving between tiles across a
+room. Half is a deliberate push rather than a thumb resting on the stick, and
+the gap between the two is hysteresis: one threshold for both chatters a whole
+list past somebody holding the stick near it.
+
+**A stick is a position and everything else here is an edge**, so the edge is
+made from the crossing. One push is one tile, exactly as the hat is, and the
+thumb has to come back below the release threshold before it counts again.
+No repeat: it would need a clock on this path, and nobody asked for one.
+
+### The diagonal guard is written down as what it IS, not what it would be nice to claim
+
+A diagonal fires the axis with the larger deflection, so one push moves one
+tile. The first version of that comment said a perfect forty-five degrees
+moves nothing -- **and the test proved it wrong before it shipped**: the axes
+arrive as separate `feed_hid_usage` calls in descriptor order, so on a stick
+slammed from dead centre to a perfect diagonal between two reports, whichever
+axis is listed first wins by having seen the other still centred.
+
+The comment says that now. It holds for a thumb, which ramps -- by the
+crossing report the other axis is already on its way -- and the case it does
+not cover is one no thumb produces. Reaching for it would mean holding every
+axis back until the end of a report.
+
+### Eleven of the fourteen cases fail against the shipped code
+
+`tools/bttest/input.cpp` drives the shipped `feed_hid_keys` against the same
+descriptor fixture the hat and the buttons already use -- which declares
+X/Y/Z/Rz at 0..255 and has done since the descriptor round, so the test
+needed no new fixture, only the reports. Streamed the way a controller sends
+them: centred, then pushed.
+
+Run in a worktree at HEAD: **11 failures**, every stick case among them. The
+three that pass are the ones that should, and that is worth saying rather
+than counting -- they assert that NOTHING happens (the trigger guard and the
+reconnection), which is trivially true of code that reads no axis at all.
+
+**No add-on bump**: this is `components/portall_bt/` only, which a panel gets
+by flashing. `tools/checkaddon.py` is the arbiter and it agrees.
+
+**What is NOT done.** No C++ here has been compiled by a real toolchain, and
+**no stick has moved a real tile** -- the fixture is a descriptor built to the
+specification, not the Shield's own. What the next flash settles is whether
+that controller declares its sticks on the usages bluepad32 says it does; if
+it puts them somewhere else, the log now says `gamepad: right (stick at
+100%)` with the percentage, so a wrong axis is visible rather than silent.
+
+Sources: ricardoquesada/bluepad32 `parser/uni_hid_parser_android.c`;
+devmapal/nvidia-shield-controller-driver and stdll/shield-controller-ubuntu,
+both read and both transport rather than HID mapping.
+
 ## Repository conventions
 
 - Work on branch `claude/esphome-pr-outdated-mdq36w`, then merge into `main`

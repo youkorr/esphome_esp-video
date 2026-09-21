@@ -515,6 +515,25 @@ class PortallBT : public Component {
   uint32_t pad_buttons_{0};
   uint32_t pad_said_{0};
   uint8_t consumer_held_{0};
+  /* THE ANALOG STICKS, which are four axes rather than four buttons.
+     Generic Desktop X and Y are the left stick and Z and Rz are the right
+     one -- bluepad32's Android parser, which the button numbering above
+     already follows. Rx and Ry are deliberately NOT here: they are where a
+     great many controllers put their TRIGGERS, and a trigger read as an axis
+     rests at one end of its range for ever, which is a direction nobody can
+     let go of.
+
+     Per axis: the deflection last seen as a percentage of full travel,
+     which way it is currently counted as pushed (0 none, 1 negative, 2
+     positive), and whether it has ever been seen near its own centre. That
+     last one is the guard that makes the Rx/Ry rule unnecessary rather than
+     merely likely to hold: a stick reports its centre constantly and a
+     trigger never does, so an axis that has not been centred is not steered
+     with. */
+  static constexpr uint8_t PAD_AXES = 4;
+  int8_t pad_axis_[PAD_AXES]{};
+  uint8_t pad_axis_dir_[PAD_AXES]{};
+  uint8_t pad_axis_live_{0};
   /* Six keycodes from one report, compared against the last six. Shared by
      the descriptor path and the plain boot-keyboard fallback, because a
      key held down is a key held down either way. */
