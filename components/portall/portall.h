@@ -10,6 +10,9 @@
 #ifdef USE_SPEAKER
 #include "esphome/components/speaker/speaker.h"
 #endif
+#ifdef USE_BUTTON
+#include "esphome/components/button/button.h"
+#endif
 
 #include <cstdint>
 
@@ -498,22 +501,6 @@ template<typename... Ts> class WakeAction final : public Action<Ts...>, public P
   void play(const Ts &...) override { this->parent_->set_awake(true); }
 };
 
-#ifdef USE_SPEAKER
-/* portall.set_volume, so a template number can own the volume.
- *
- * The component's own `number: platform: portall` follows whatever the sound
- * is currently at, which is right for a volume the host also controls and
- * wrong for the thing people actually want at boot: a slider with
- * restore_value and an initial_value, remembered across restarts. That is how
- * ESPHome does a setting, and a template number can only do it if it has
- * something to call.
- *
- * The value is a fraction, 0 to 1, like every other volume in ESPHome -- and
- * a slider is nearly always 0 to 100, so `!lambda 'return x / 100.0;'` is the
- * line this is written for. Anything outside the range is clamped rather than
- * refused: a volume is not worth failing a boot over, and set_audio_volume
- * says so once when it happens.
- */
 /* portall.key and portall.home, which is what a remote or a gamepad presses
    through. The KEY is resolved to its HID usage at codegen, so nothing on the
    board carries a table of names and a YAML never carries a number. */
@@ -535,6 +522,62 @@ template<typename... Ts> class HomeAction final : public Action<Ts...>, public P
   void play(const Ts &...) override { this->parent_->ask_home(); }
 };
 
+/* One button per direction, so a telephone is the remote.
+ *
+ * WHY THIS EXISTS RATHER THAN A ROW OF `button:` BLOCKS: there is exactly one
+ * portall per board and a remote is always the same seven buttons, so asking
+ * a household to write them out -- with an id each, and a usage each -- would
+ * be operating a mechanism instead of naming a thing. `remote: true` is the
+ * whole of it, and the names and icons come with it.
+ *
+ * It costs nothing on a panel that does not ask: the entities are built in
+ * the validator only when the option is on, so a panel without it carries no
+ * button at all.
+ *
+ * Home is its own flag rather than a reserved usage. A sentinel value inside
+ * the usage would be a number meaning two things, which is the shape this
+ * component has already been corrected out of once.
+ */
+#ifdef USE_BUTTON
+class RemoteButton final : public button::Button, public Parented<Portall> {
+ public:
+  void set_usage(uint16_t page, uint16_t usage) {
+    this->page_ = page;
+    this->usage_ = usage;
+  }
+  void set_home() { this->home_ = true; }
+
+ protected:
+  void press_action() override {
+    if (this->home_) {
+      this->parent_->ask_home();
+      return;
+    }
+    this->parent_->send_key(this->page_, this->usage_);
+  }
+
+  uint16_t page_{0};
+  uint16_t usage_{0};
+  bool home_{false};
+};
+#endif
+
+#ifdef USE_SPEAKER
+/* portall.set_volume, so a template number can own the volume.
+ *
+ * The component's own `number: platform: portall` follows whatever the sound
+ * is currently at, which is right for a volume the host also controls and
+ * wrong for the thing people actually want at boot: a slider with
+ * restore_value and an initial_value, remembered across restarts. That is how
+ * ESPHome does a setting, and a template number can only do it if it has
+ * something to call.
+ *
+ * The value is a fraction, 0 to 1, like every other volume in ESPHome -- and
+ * a slider is nearly always 0 to 100, so `!lambda 'return x / 100.0;'` is the
+ * line this is written for. Anything outside the range is clamped rather than
+ * refused: a volume is not worth failing a boot over, and set_audio_volume
+ * says so once when it happens.
+ */
 template<typename... Ts> class SetVolumeAction final : public Action<Ts...>, public Parented<Portall> {
  public:
   TEMPLATABLE_VALUE(float, volume)

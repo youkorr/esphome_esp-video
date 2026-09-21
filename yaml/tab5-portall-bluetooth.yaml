@@ -352,6 +352,17 @@ portall:
   # `port:` above, which is the only way in left.
   usb: false
 
+  # Seven buttons in Home Assistant -- up, down, left, right, OK, back and
+  # home -- so any telephone with the Home Assistant app is a remote for this
+  # panel. It is the same path the gamepad presses through: the button sends a
+  # HID usage on the socket and the sender replays it into the page.
+  #
+  # Worth having beside a paired controller rather than instead of it: an
+  # iPhone cannot be a Bluetooth HID device at all, and a recent Xbox pad
+  # speaks BLE, which this component does not host. A button in Home Assistant
+  # needs neither.
+  remote: true
+
   # The page's sound goes into its own mixer input, which is where a source
   # belongs -- not straight at a speaker. From there it is mixed with Home
   # Assistant's audio, resampled to 44100 and sent to the paired device.
