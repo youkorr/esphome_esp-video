@@ -7103,6 +7103,88 @@ that cannot connect reads "paired, away", which is the honest answer either
 way. The Shield's own report descriptor has still never been seen: both
 fixtures are built to the specification.
 
+## Pair re-paired what the panel already had, so Forget was the only way in
+
+**Reported after the four-slot work flashed: *"pour faire un appareillage
+c'est contraignant je suis obliger d'appuis sur forget meme si il y a 0 paire
+et essayer d'apparailler qui devient difficile"*, with a log that does the
+whole thing in three seconds:**
+
+    21:16:46  hanging up the input device 00:04:4B:93:A9:B2 first
+    21:16:46  scanning for about 10 seconds -- put the device in pairing mode now
+    21:16:46    heard 46:E8:1C:8A:88:DD  class 240404  major 4 minor 1
+    21:16:46    that is a speaker -- stopping the scan and pairing with it
+    21:16:47  paired with 46:E8:1C:8A:88:DD "UGREEN-90748"
+    21:16:48  asking 00:04:4B:93:A9:B2 to connect (no scan, by address)
+    21:16:49  pairing finished: a device is connected.
+
+**Read forwards that is a success, and every line of it is the fault.**
+Pressing Pair hung up the gamepad somebody was holding, ran a ten-second
+inquiry that took this panel's own Wi-Fi down with it, walked off to the
+speaker that had been working all along, re-paired it, and announced that a
+device is connected. The new device never got a turn.
+
+**The scan stops at the FIRST device of a wanted kind, and the devices
+quickest to answer are the ones already in the room and already paired.** So
+a household wanting to add a remote had exactly one way through: Forget
+everything first, which is what was being reported -- and pressing Forget
+when the entity reads none is somebody working around this without knowing
+what they are working around.
+
+**Pair means ADD now.** `heard_device()` passes over any address this panel
+already remembers and names the Forget button that would replace it. That is
+the whole fix for the report, and everything else follows from it.
+
+**And the hang-up went with it, which is the other half of "contraignant".**
+`pair()` dropped every link before scanning, on a reason this file records
+and which is real: *an inquiry cannot find a device that is already connected
+to this panel*. True -- and it only ever mattered for re-pairing THAT device,
+which is now not something Pair does at all. A device already here is skipped
+whether it is connected or not, so dropping it buys nothing and costs the
+music, the gamepad, and a reconnection afterwards. `forget()` still hangs up
+first; that is the case the original fix was really written for and it is
+untouched.
+
+**The fix would have shipped a false success, and the test is what caught
+it.** `pair_report_tick_()` asked `a2dp_open_ || any_input_open_()` -- which
+was a fair question only because pair() had just hung everything up. With
+nothing hung up, the speaker that had been playing all along answers it, so
+every failed pairing would have ended "a device is connected". It asks about
+the device THIS RUN reached for now (`pair_took_` + `pair_target_`), and has
+a third answer besides: found and did not connect, which is a different next
+step from heard-nothing and from already-have-it.
+
+### The decision lived where no test could reach it
+
+The sorting -- take it, skip it, or say which option is off -- was the body of
+`gap_cb`, a `static` function in hid.cpp. A test includes `portall_bt.cpp` and
+links `hid.cpp` as a second translation unit, so that function was not
+reachable from any of them: **the one thing pressing Pair does had never been
+driven by a check.** It is `PortallBT::heard_device(addr, cod, name)` now, and
+gap_cb is an extractor that pulls two fields out of the property list and
+hands them over.
+
+That is why the reproduction could not be built against the shipped commit at
+all -- there was no seam to call. The old behaviour is reverted through the
+new seam instead (the skip disabled, `drop_links_()` back in `pair()`, the
+report asking the loose question), where **ten of pairing.cpp's cases fail**,
+including "pairing leaves the connected speaker alone" and "and it does not
+call the speaker that was already here a success".
+
+**One fault was in the test and not in the code**, as usual: the case proving
+a new remote is taken did not clear `g_hid_connects` first, so it was really
+asserting that the step before it had connected to nothing. It failed against
+the old code for the right reason by accident, which is not a reason. Cleared,
+and it asserts the remote's own address.
+
+**What is NOT settled.** No panel has run this. The log will say
+`this panel already has that speaker -- skipping it` where it used to pair,
+and `pairing finished: ... answered the scan but has not connected` is a line
+nothing has ever printed. And one line of the reported log is still
+unexplained: `hcif conn complete: hdl 0x4, st 0x4` -- a Page Timeout seven
+seconds after everything had connected, from a page this component did not
+make, since both reconnect paths return while their device is open.
+
 ## Repository conventions
 
 - Work on branch `claude/esphome-pr-outdated-mdq36w`, then merge into `main`

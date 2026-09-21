@@ -474,6 +474,12 @@ button:
   #
   # It is named for neither device on purpose: ONE button finds both, and
   # offering two would be two ten-second Wi-Fi outages where one does.
+  #
+  # PAIR MEANS ADD. A device this panel already has is passed over during the
+  # scan and nothing connected is hung up -- so the music keeps playing and a
+  # gamepad stays in somebody's hands while a new remote is paired. Replacing
+  # one that is already here is what the Forget buttons below are for, and the
+  # log names the right one when it skips something.
   - platform: template
     name: "Pair a Bluetooth device"
     on_press:
