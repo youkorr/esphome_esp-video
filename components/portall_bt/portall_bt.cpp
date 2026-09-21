@@ -215,6 +215,12 @@ static constexpr uint16_t HCI_READ_LOCAL_NAME = 0x0C14;
 static constexpr uint16_t HCI_READ_LOCAL_VERSION = 0x1001;
 static constexpr uint16_t HCI_READ_BD_ADDR = 0x1009;
 
+// Realtek's own, and the one command that says whether a dongle is running
+// its ROM or a patch somebody loaded into it. No parameters; the answer is a
+// status and a version byte. Taken from Linux's rtl_read_rom_version() rather
+// than from anywhere else, which is also where the two tables below come from.
+static constexpr uint16_t HCI_RTL_READ_ROM_VERSION = 0xFC6D;
+
 static constexpr uint16_t HCI_INQUIRY = 0x0401;
 static constexpr uint16_t HCI_WRITE_INQUIRY_MODE = 0x0C45;
 
@@ -494,6 +500,69 @@ static int hci_await(struct usbh_hubport *hport, struct usb_endpoint_descriptor 
 // cost a round trip to a board to notice. That is the second time in this
 // file that a quiet failure has cost a round trip; there is no third path
 // out of this function that says nothing.
+/* What "HCI version 6" means, which is the half of that line a reader wants.
+ *
+ * These are the Core Specification's own assigned numbers for the LMP/PAL
+ * version field, and they are what decides whether a dongle is a Bluetooth 4
+ * or a Bluetooth 5 part -- not the box it came in. A panel that reported
+ * "LMP version 6" was being asked to prove it was modern enough for a
+ * telephone, and nobody reading that line could tell. */
+static const char *bluetooth_release(uint8_t lmp) {
+  static const char *const NAMES[] = {"1.0b", "1.1", "1.2", "2.0 + EDR", "2.1 + EDR",
+                                      "3.0 + HS", "4.0", "4.1", "4.2", "5.0",
+                                      "5.1", "5.2", "5.3", "5.4", "6.0", "6.1"};
+  return lmp < (sizeof(NAMES) / sizeof(NAMES[0])) ? NAMES[lmp] : nullptr;
+}
+
+/* The makers that actually turn up on a USB dongle, from the Bluetooth SIG's
+ * own company identifiers. 15 is the number the first dongle this project ever
+ * enumerated reported, and it read as a bare "manufacturer 15" for months. */
+static const char *maker_name(uint16_t id) {
+  switch (id) {
+    case 2: return "Intel";
+    case 10: return "Qualcomm/CSR";
+    case 13: return "Texas Instruments";
+    case 15: return "Broadcom";
+    case 70: return "MediaTek";
+    case 93: return "Realtek";
+    case 741: return "Espressif";
+    default: return nullptr;
+  }
+}
+
+/* Realtek's USB parts, by the three numbers Read Local Version answers with.
+ *
+ * Extracted from ic_id_table in Linux's drivers/bluetooth/btrtl.c rather than
+ * typed, because the point of it is precise: these are the values a chip
+ * reports while it is running its ROM, which is exactly how that driver
+ * decides which patch to load. So a dongle answering one of these has NOT had
+ * a firmware loaded into it -- after a download the version it reports is the
+ * firmware's own and matches nothing here. */
+struct RealtekPart {
+  uint16_t lmp_subver;
+  uint16_t hci_rev;
+  uint8_t hci_ver;
+  const char *name;
+};
+static const RealtekPart REALTEK_ROM[] = {
+    {0x1200, 0x000B, 6, "RTL8723AU"},  {0x8723, 0x000B, 6, "RTL8723BU"},
+    {0x8723, 0x000D, 8, "RTL8723DU"},  {0x8821, 0x000A, 6, "RTL8821AU"},
+    {0x8821, 0x000C, 8, "RTL8821CU"},  {0x8761, 0x000A, 6, "RTL8761AU"},
+    {0x8761, 0x000B, 10, "RTL8761BU"}, {0x8822, 0x000C, 10, "RTL8822CU"},
+    {0x8822, 0x000B, 7, "RTL8822BU"},  {0x8852, 0x000A, 11, "RTL8852AU"},
+    {0x8852, 0x000B, 11, "RTL8852BU"}, {0x8852, 0x000C, 12, "RTL8852CU"},
+    {0x8851, 0x000B, 12, "RTL8851BU"}, {0x8922, 0x000A, 12, "RTL8922AU"},
+    {0x8852, 0x0087, 12, "RTL8852BTU"},
+};
+
+static const char *realtek_rom_part(uint16_t lmp_subver, uint16_t hci_rev, uint8_t hci_ver) {
+  for (const RealtekPart &part : REALTEK_ROM) {
+    if (part.lmp_subver == lmp_subver && part.hci_rev == hci_rev && part.hci_ver == hci_ver)
+      return part.name;
+  }
+  return nullptr;
+}
+
 static int hci_ask(struct usbh_hubport *hport, uint8_t intf,
                    struct usb_endpoint_descriptor *events, uint16_t opcode, const char *what,
                    uint32_t patience_ms) {
@@ -1496,9 +1565,53 @@ void PortallBT::probe_hci(uint8_t hub_index, uint8_t hub_port, uint8_t intf_inde
   // dongle on a PC.
   len = hci_ask(hport, intf, events, HCI_READ_LOCAL_VERSION, "Read Local Version", 1500);
   if (len >= 14) {
+    /* The whole answer, not the third of it this used to print. Two of the
+     * fields it threw away -- hci_rev and lmp_subver -- are precisely what
+     * identifies a Realtek part and whether it is patched, so the line that
+     * was supposed to say what the dongle is could not have said it. */
+    const uint8_t hci_ver = g_hci_evt[6];
+    const uint16_t hci_rev = (uint16_t) (g_hci_evt[7] | (g_hci_evt[8] << 8));
+    const uint8_t lmp_ver = g_hci_evt[9];
     const uint16_t manufacturer = (uint16_t) (g_hci_evt[10] | (g_hci_evt[11] << 8));
-    ESP_LOGI(TAG, "  HCI version %u, LMP version %u, manufacturer %u", g_hci_evt[6], g_hci_evt[9],
-             manufacturer);
+    const uint16_t lmp_subver = (uint16_t) (g_hci_evt[12] | (g_hci_evt[13] << 8));
+
+    const char *release = bluetooth_release(lmp_ver);
+    const char *maker = maker_name(manufacturer);
+    // The raw numbers stay on the line. They are what anybody comparing this
+    // against the same dongle on a PC will have in front of them, and a name
+    // this table has never heard of must not hide them.
+    if (release != nullptr)
+      ESP_LOGI(TAG, "  a %s controller, Bluetooth %s", maker ? maker : "Bluetooth", release);
+    else
+      ESP_LOGI(TAG, "  a %s controller of an LMP version this does not name",
+               maker ? maker : "Bluetooth");
+    ESP_LOGI(TAG, "  manufacturer %u, LMP %u, HCI %u, revision %04x, subversion %04x",
+             manufacturer, lmp_ver, hci_ver, hci_rev, lmp_subver);
+
+    /* A Realtek reports its ROM's version until somebody downloads a patch
+     * into it, so matching the table is the same statement as "no firmware
+     * has been loaded". Worth saying out loud rather than leaving to be
+     * discovered: Linux loads about thirty kilobytes into one of these before
+     * it calls it a working controller, and this component loads nothing at
+     * all. What that costs has never been measured here -- the previous run
+     * of a TP-Link answered all of Bluedroid's startup in ROM mode -- so the
+     * line says what is true and stops. */
+    if (manufacturer == 93) {
+      const char *part = realtek_rom_part(lmp_subver, hci_rev, hci_ver);
+      if (part != nullptr) {
+        ESP_LOGW(TAG, "  this is a %s running its ROM -- no firmware patch has been loaded "
+                      "into it. Linux loads one; this component does not. Whether anything "
+                      "you need depends on it is what the rest of this log says.", part);
+      } else {
+        ESP_LOGI(TAG, "  a Realtek reporting a version this component does not recognise, "
+                      "which is what a patched controller looks like");
+      }
+      // One more command, and it is the maker's own. It costs nothing on a
+      // Realtek and is never sent to anything else.
+      if (hci_ask(hport, intf, events, HCI_RTL_READ_ROM_VERSION, "Realtek Read ROM Version",
+                  1500) >= 7)
+        ESP_LOGI(TAG, "  Realtek ROM version %u", g_hci_evt[6]);
+    }
   }
 
   len = hci_ask(hport, intf, events, HCI_READ_BD_ADDR, "Read BD Address", 1500);

@@ -1,5 +1,14 @@
 # Changelog
 
+## 4.11.1
+
+- **A panel with `keep_profile` off now says what its old profile is costing.**
+  Turning the option off leaves the folder where it is -- deliberately, so
+  turning it back on finds what you were signed into -- but nothing opens it
+  again, so somebody who switched it off to save space would have watched a
+  gigabyte not move with no way to learn why. The log names it and says both
+  ways out.
+
 ## 4.11.0
 
 - **The profile of a panel you removed is removed too.** Reported from a real
