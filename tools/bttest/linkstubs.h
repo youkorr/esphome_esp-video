@@ -70,7 +70,11 @@ const uint8_t *esp_bt_dev_get_address(void) { return nullptr; }
 // declaration that no longer matches its definition is exactly the fault this
 // whole tool was built to catch -- so the linker is asked the question too.
 namespace esphome {
-uint32_t millis() { return 0; }
+// A clock a test can move. It was a constant 0, which is fine for anything
+// that only reads it once -- and useless for the backoff, whose whole
+// behaviour is what it does as time passes.
+uint32_t g_now_ms = 0;
+uint32_t millis() { return g_now_ms; }
 uint32_t fnv1_hash(const char *) { return 0; }
 static ESPPreferences preferences_stub;
 ESPPreferences *global_preferences = &preferences_stub;
@@ -111,7 +115,7 @@ esp_err_t esp_a2d_register_callback(esp_a2d_cb_t) { return ESP_OK; }
 esp_err_t esp_a2d_source_register_data_callback(esp_a2d_source_data_cb_t) { return ESP_OK; }
 esp_err_t esp_a2d_source_init(void) { return ESP_OK; }
 esp_err_t esp_a2d_source_deinit(void) { return ESP_OK; }
-esp_err_t esp_a2d_source_connect(esp_bd_addr_t) { return ESP_OK; }
+esp_err_t esp_a2d_source_connect(esp_bd_addr_t) { note_call("esp_a2d_source_connect"); return ESP_OK; }
 esp_err_t esp_a2d_source_disconnect(esp_bd_addr_t) { note_call("esp_a2d_source_disconnect"); return ESP_OK; }
 esp_err_t esp_a2d_media_ctrl(esp_a2d_media_ctrl_t) { return ESP_OK; }
 esp_err_t esp_avrc_tg_init(void) { return ESP_OK; }

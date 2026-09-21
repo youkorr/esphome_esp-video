@@ -460,15 +460,38 @@ void PortallBT::on_a2dp_open(const uint8_t *addr) {
 }
 
 void PortallBT::on_a2dp_closed(bool abnormal) {
-  if (this->a2dp_open_) {
+  /* A FAILED ATTEMPT ARRIVES HERE TOO, and that is what made the backoff a
+   * fiction. Bluedroid reports a connection that never opened as a
+   * DISCONNECTED state -- `BTA_AV_OPEN_EVT::FAILED status: 2` in the log,
+   * under an HCI `conn complete ... st 0x4`, which is Page Timeout. So every
+   * time the panel paged a speaker that was not there, this ran and put the
+   * clock back to its shortest.
+   *
+   * The backoff could therefore never grow past one doubling. Measured from a
+   * panel whose speaker was switched off: `asking the speaker to connect` at
+   * 04:37:46, :50, :53, :57, 04:38:01, :05, :08, :12 -- every three or four
+   * seconds, for ever, where the design says 2 s growing to 60. A page's own
+   * timeout is 5.12 s by default, so those attempts OVERLAP: the controller
+   * was paging essentially without pause, beside a Wi-Fi radio whose antenna
+   * is centimetres away, and the one inquiry that household was trying to run
+   * heard nothing at all.
+   *
+   * So the short interval belongs to a real disconnection and only that. The
+   * reasoning for it is sound and unchanged -- a speaker that was just
+   * switched off is the one most likely to come back in a moment -- and it
+   * has nothing to say about an address that has not answered in a minute. */
+  const bool was_connected = this->a2dp_open_;
+  if (was_connected) {
     ESP_LOGI(TAG, "speaker disconnected%s; it will be asked for again by address, with no scan",
              abnormal ? " (signal lost)" : "");
   }
   this->a2dp_open_ = false;
   memset(this->open_sink_, 0, 6);
   this->a2dp_playing_ = false;
-  this->reconnect_backoff_ms_ = 2000;
-  this->reconnect_due_ms_ = millis() + 2000;
+  if (was_connected) {
+    this->reconnect_backoff_ms_ = 2000;
+    this->reconnect_due_ms_ = millis() + 2000;
+  }
 }
 
 void PortallBT::on_a2dp_audio(bool started) {

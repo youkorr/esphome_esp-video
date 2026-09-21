@@ -388,14 +388,23 @@ void PortallBT::on_hid_open(const uint8_t *addr) {
 }
 
 void PortallBT::on_hid_closed() {
-  if (this->hid_open_)
+  const bool was_connected = this->hid_open_;
+  if (was_connected)
     ESP_LOGI(TAG, "input device disconnected; it will be asked for again by address, with no scan");
   this->hid_open_ = false;
   memset(this->open_hid_, 0, 6);
   // Straight back to the short interval: a device that has just been switched
   // off is the one most likely to be switched on again in a moment.
-  this->reconnect_backoff_ms_ = RECONNECT_FIRST_MS;
-  this->reconnect_due_ms_ = now_ms_() + RECONNECT_FIRST_MS;
+  //
+  // Only for a device that WAS connected, though. A connection that never
+  // opened is reported here as well, so doing this unconditionally meant the
+  // backoff reset itself on its own failures and could never grow -- see the
+  // long note in a2dp.cpp's on_a2dp_closed, which is the same fault and is
+  // where a panel's log caught it.
+  if (was_connected) {
+    this->reconnect_backoff_ms_ = RECONNECT_FIRST_MS;
+    this->reconnect_due_ms_ = now_ms_() + RECONNECT_FIRST_MS;
+  }
 }
 
 void PortallBT::on_hid_report(const uint8_t *data, uint16_t len) {
