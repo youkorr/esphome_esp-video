@@ -526,8 +526,8 @@ What the widget's buttons do:
 |---|---|
 | the pad, and its swipes | up, down, left, right between the launcher's tiles |
 | the centre of the pad | Enter -- opens the tile |
-| Back | Escape -- back *within* the page |
-| the TV button | back to this panel's own page, the launcher |
+| **Retour / Back** | **back to this panel's own page, the launcher** |
+| ⓘ | Escape -- back *within* the page, where a page listens for it |
 | play/pause, next, previous | the browser's own media keys |
 
 The pairing code is kept, so it is the same one after a restart. Each panel
