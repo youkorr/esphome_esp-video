@@ -235,6 +235,102 @@ int main() {
           report.find("is connected") == std::string::npos);
   }
 
+  printf("\nForget acts on the LINK, not only on the record\n");
+  {
+    /* THE REPORTED CASE: "il ya des problemes sur Forget pour deconnecter le
+       device ou speaker". A speaker connected with nothing in the record --
+       which a blanket forget leaves behind for as long as the disconnection
+       takes to land -- used to be answered "no speaker is remembered" while
+       it went on playing. */
+    PortallBT bt;
+    with_a_speaker_connected(bt);
+    bt.remembered_.has_sink = false;   // the record gone, the link still up
+    memset(bt.remembered_.sink, 0, 6);
+    g_calls.clear();
+    const std::string said = say_run([&] { bt.forget_one(true); });
+
+    check("a connected speaker with no record is still hung up",
+          called("esp_a2d_source_disconnect"));
+    check("and it is not answered with nothing to forget",
+          said.find("nothing to forget") == std::string::npos);
+    check("and the panel stops believing it has one", !bt.speaker_connected());
+  }
+  {
+    // And the ordinary case must not have moved: hang up, then remove the key.
+    PortallBT bt;
+    with_a_speaker_connected(bt);
+    g_calls.clear();
+    say_run([&] { bt.forget_one(true); });
+    check("forgetting a remembered speaker still hangs up before the key goes",
+          called_before("esp_a2d_source_disconnect", "esp_bt_gap_remove_bond_device"));
+    check("and the live state goes with the record",
+          !bt.speaker_connected() && !bt.remembered_.has_sink);
+
+    // A second press must not claim there is something there.
+    g_calls.clear();
+    const std::string again = say_run([&] { bt.forget_one(true); });
+    check("and a second press says there is nothing left",
+          again.find("nothing to forget") != std::string::npos &&
+              !called("esp_bt_gap_remove_bond_device"));
+  }
+  {
+    /* THE DISCONNECT IS NOT GATED ON OUR OWN FLAG. `a2dp_open_` is this
+       component's opinion of the link; the stack's state is the fact, and a
+       bond removed under a live ACL is the fault this whole area was written
+       for. A spurious disconnect costs an error code nobody reads. */
+    PortallBT bt;
+    with_a_speaker_connected(bt);
+    bt.a2dp_open_ = false;  // the flag lies; the link is up
+    g_calls.clear();
+    say_run([&] { bt.forget_one(true); });
+    check("a remembered speaker is hung up even when the flag says otherwise",
+          called("esp_a2d_source_disconnect"));
+  }
+  {
+    // An input device connected with every slot full holds no record at all,
+    // and used to be reachable by no button in this component.
+    PortallBT bt;
+    esphome::global_preferences->wipe();
+    bt.set_hid_host(true);
+    bt.start_profiles_();
+    bt.on_hid_open(SHIELD, 3);
+    const int8_t slot = bt.slot_for_addr_(SHIELD);
+    bt.inputs_[slot].remembered = false;  // connected, never remembered
+    g_calls.clear();
+    const std::string said = say_run([&] { bt.forget_one(false); });
+    check("a connected controller with no record is hung up too",
+          called("esp_bt_hid_host_disconnect"));
+    check("and no key is removed for one there never was a key for",
+          !called("esp_bt_gap_remove_bond_device"));
+    check("and it is not answered with nothing to forget",
+          said.find("nothing to forget") == std::string::npos);
+  }
+
+  printf("\nand replacing a speaker is the one pairing that hangs one up\n");
+  {
+    PortallBT bt;
+    with_a_speaker_connected(bt);
+    g_calls.clear();
+    // A DIFFERENT speaker: this panel drives one, so the new one takes the
+    // old one's place rather than joining it.
+    say_run([&] { bt.heard_device(OTHER_SPEAKER, COD_SPEAKER, "a new one"); });
+    check("the old speaker is hung up before the new one is asked for",
+          called_before("esp_a2d_source_disconnect", "esp_a2d_source_connect"));
+  }
+  {
+    PortallBT bt;
+    esphome::global_preferences->wipe();
+    bt.set_hid_host(true);
+    bt.start_profiles_();
+    bt.on_hid_open(SHIELD, 3);
+    g_calls.clear();
+    g_hid_connects.clear();
+    // A SECOND controller is added beside the first, not in its place.
+    say_run([&] { bt.heard_device(REMOTE, COD_INPUT, "Orange TV remote"); });
+    check("but a second controller does not hang up the first",
+          !called("esp_bt_hid_host_disconnect") && g_hid_connects.size() == 1);
+  }
+
   printf("\nthe faults the first report was about, which must still hold\n");
   {
     // The stack refusing, which is what the panel's silence looked like.
