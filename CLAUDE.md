@@ -6279,14 +6279,36 @@ and the last length is `len % 252`, which is zero when the image divides
 exactly -- and it is sent anyway, because the 0x80 in the index is what ends
 the patch rather than the bytes. A tidier loop would have dropped it.
 
-### The files are not in this repository, and that is a licence rather than a preference
+### The files ARE in this repository now, and the licence is what made that fine
 
-`firmware:` and `firmware_config:` take PATHS. The blobs are Realtek's,
-linux-firmware redistributes them under Realtek's own terms, and a household
-downloads them once -- so the question never arrives here. `git.kernel.org` is
-refused by this container's proxy and every GitHub mirror tried returned 404;
-**gitlab.com/kernel-firmware/linux-firmware** is the one that answers, which
-is worth recording so the next session does not repeat the search.
+Written here first as "the blobs are Realtek's ... a household downloads them
+once, so the question never arrives here" -- and the user simply uploaded them
+to `yaml/`, which is the better answer and needed one thing rather than an
+argument. Realtek's own licence permits **redistribution in binary form
+without modification** provided the copyright notice travels with them, so
+`yaml/LICENCE.rtlwifi_firmware.txt` sits beside them and `yaml/rtl_bt.md` says
+where they came from and what they are for. They are unmodified; `rtlfw.py`
+prepares what a dongle is SENT at build time and changes neither file.
+
+Checked rather than assumed: both are **byte-for-byte identical** to
+linux-firmware's, by sha256.
+
+`git.kernel.org` is refused by this container's proxy and every GitHub mirror
+tried returned 404; **gitlab.com/kernel-firmware/linux-firmware** is the one
+that answers, and the licence lives at `LICENSES/LICENCE.rtlwifi_firmware.txt`
+rather than at the root. Worth recording so the next session does not repeat
+the search.
+
+**And having them in the tree found a blind spot in two checkers.**
+`cv.file_` resolves a relative path against the YAML's OWN directory, so
+`firmware: rtl8761bu_fw.bin` is correct for a panel -- and `checkcodegen.py`
+and `checkyaml.py` both stage a config into a temp directory and left its
+siblings behind, so they called a perfectly good file broken. That is the
+worst way round for a check to be wrong. `carry_siblings()` copies any
+non-YAML file in the directory whose name appears in the text -- by NAME
+rather than by parsing the config, because the names have to be known before
+the config can be read at all, since it is the reading that fails without
+them.
 
 ### What is tested, and the one thing that is not
 
@@ -6308,10 +6330,13 @@ the loop: a counter has nowhere for a test to look. **Reproduced against the
 natural wrong reading** -- wrapping to zero instead of one -- where it parts
 company at fragment 128 and fails four cases.
 
-The codegen was read rather than trusted: with the real files, ESPHome emits
-`static const uint8_t rtl_firmware_0[14054]` and `rtl_firmware_1[30210]`, both
-wired through `add_realtek_firmware`, and the first bytes of the image are
-patch data rather than the file's `Realtech` header.
+The codegen was read rather than trusted, and then checked rather than read:
+with the repository's own files ESPHome emits `static const uint8_t
+rtl_firmware_0[14054]` and `rtl_firmware_1[30210]`, both wired through
+`add_realtek_firmware` -- and the emitted array is **byte-for-byte identical**
+to what `rtlfw.py` produces from those files, compared element by element
+rather than by length. A literal of thirty thousand numbers is exactly where a
+transcription would go wrong invisibly.
 
 **What is NOT tested is the download itself.** No C++ here has been compiled
 by a real toolchain and nothing has sent a fragment to a controller. The loop

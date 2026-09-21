@@ -86,6 +86,25 @@ def github_reachable():
 github_reachable.answer = None
 
 
+
+def carry_siblings(source, text, into):
+    """Copy the files a YAML names beside itself into the staging directory.
+
+    A config may point at a file next to it -- `cv.file_` resolves a relative
+    path against the YAML's OWN directory -- and staging the YAML somewhere
+    else leaves those behind. A Realtek firmware blob is what found this: the
+    file validated perfectly for a panel and this checker called it broken,
+    which is the worst way round for a check to be wrong.
+
+    Deliberately by NAME rather than by parsing the config: the names have to
+    be known before the config can be read, since it is the reading that
+    fails without them.
+    """
+    for item in source.iterdir():
+        if item.is_file() and item.suffix not in (".yaml", ".yml") and item.name in text:
+            shutil.copy(item, into / item.name)
+
+
 def check(path, esphome):
     text = pathlib.Path(path).read_text()
     with tempfile.TemporaryDirectory() as tmp:
@@ -100,6 +119,7 @@ def check(path, esphome):
         )
         target = tmp / pathlib.Path(path).name
         target.write_text(staged)
+        carry_siblings(pathlib.Path(path).parent, text, tmp)
         run = subprocess.run(
             [esphome, "config", str(target)],
             capture_output=True, text=True, cwd=tmp,
