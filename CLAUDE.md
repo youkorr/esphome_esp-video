@@ -6712,6 +6712,104 @@ carrying a microphone for voice search plausibly does, it would be sorted as a
 speaker. The log already says which kind it heard and why, so that is one run
 rather than a round trip.
 
+## The press effect existed, and lasted 2.3 ms
+
+**Reported as the link tiles having no effect *"comme un button lvgl"*.** The
+natural reading is that nothing was written. `a.tile:active { border-color:
+var(--accent); transform: scale(.985); }` had been in the stylesheet all
+along, and measuring it is what turned the question over.
+
+Replaying a tap the way the sender does -- `mouse.down()` then `mouse.up()`,
+which is what `Injector` sends on a LIFT so that a drag can become a wheel
+instead of a click -- and timing mousedown to mouseup inside the page:
+
+| | |
+|---|---|
+| transform at mousedown | `matrix(0.985, 0, 0, 0.985, 0, 0)` |
+| transform at mouseup | `none` |
+| how long that lasted | **2.0, 2.1, 2.3, 2.5, 4.3 ms** |
+
+**A frame at `--fps 25` is 40 ms, so the pressed state occupied 6% of one
+frame interval.** The panel sees the page as JPEG rectangles at a frame rate;
+a state shorter than a frame is one no frame can contain. It was not missing,
+it was *unphotographable* -- and even caught, 1.5% of scale is 5 px on a
+350 px tile, which nobody reads across a room.
+
+So two independent faults, and the fix is one of each: `PRESS_JS` holds a
+`.press` class for **200 ms**, and the look is made legible -- `scale(.96)`,
+the accent border, and `var(--edge)` as the background, which is the accent at
+30% against `--card`'s 14% and so needs no fourth colour in the palette.
+
+200 is chosen against the rate the panel is really at during a press: a
+contact lifts the limit to `urgent_fps` for two seconds, 30 by default, so it
+is about six frames -- and still two on a link capped to 10. A timeout rather
+than an animation, so it costs the two rectangles a press is worth and nothing
+while the panel idles, which is the rule `HomeHint` already lives under.
+
+`pointerdown` in the CAPTURE phase, because it is the unified path and fires
+for a replayed contact and a real finger alike, and it is the first of the
+four events a press produces. **Nothing calls preventDefault**: a listener
+that swallowed the tap would turn a slow tile into a dead one, which is worse
+than no effect, and there is a case asserting the tile still navigates.
+
+### Four faults in the ruler, none in the code
+
+`tools/checkpress.py` reads the pixels and the duration. Every failure it
+reported on the way was its own:
+
+- **`evaluate_handle` AWAITS a promise.** Starting the watcher that way
+  blocked for its full 3 s timeout and the press happened afterwards, so every
+  duration read -1. The promise is parked on `window` and collected after.
+- **The PNG decoder assumed RGBA.** A PNG says which it is in IHDR, and
+  reading four bytes out of a three-byte row lands on somebody else's channel
+  -- every sample came back black.
+- **50%/50% of a tile is where its NAME is.** The sample was a white glyph
+  that does not change, on both sides. It is the top strip now, which is
+  padding -- and deliberately at 12%, because the pressed tile's top edge sits
+  at 2% of the unpressed box, so the point stays INSIDE the tile in both
+  states. Sampling nearer the edge would have shown a difference that was the
+  page showing through, which is CLAUDE.md's "sample against a background you
+  chose" in a new costume.
+- **`wait_for_load_state()` resolves at once when no navigation has started**,
+  so it read the address before the click had gone anywhere.
+
+**Reproduced against the reported state before it was believed**: with
+`:active` alone and `scale(.985)` back, six of the seven cases fail and the
+one that passes is the navigation, which always worked.
+
+## `stats: true` sat under a comment saying "all off"
+
+**Reported in the same breath as the tiles: *"les journaux de addon je peux
+pas les effacer"*.** The literal answer is that Home Assistant offers no way
+to clear an add-on's log -- the Supervisor owns that buffer, an add-on only
+writes to its own output, and restarting starts a new container without
+erasing what came before. That is not ours to fix.
+
+**What IS ours is how much went into it.** From `config.yaml`:
+
+```yaml
+  # All off. Turn one on only while something is already wrong: each
+  # writes to the add-on's log and nothing else.
+  debug:
+    stats: true
+```
+
+The comment and the value are on adjacent lines and say opposite things. One
+line every five seconds, per panel, is **17 280 lines a day** for one panel
+and twice that for two -- so every line worth reading was buried, and a log
+nobody wanted is a log nobody can get rid of. `false` now.
+
+**It does not reach an existing install, and the note says so.** The
+Supervisor writes these defaults only when an add-on is first installed; a
+stored value is the household's from then on. So anybody already running it
+has `stats: true` saved and has to turn it off themselves, which the changelog
+and DOCS.md both say rather than leaving it to be discovered.
+
+The shape is the one this file records more than any other, and this time both
+halves were visible at once on screen: a correct statement of intent, and code
+directly beneath it doing the opposite, with nobody re-asking the value
+because re-reading the comment confirms the intent.
+
 ## Repository conventions
 
 - Work on branch `claude/esphome-pr-outdated-mdq36w`, then merge into `main`

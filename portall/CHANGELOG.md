@@ -1,5 +1,25 @@
 # Changelog
 
+## 4.13.0
+
+- **A link tile now looks pressed when you press it.** Reported from a panel
+  as the tiles having no effect "comme un button lvgl". The rule was already
+  there and was already being applied -- and it lasted a measured median of
+  **2.3 ms**, because the sender holds a contact back until the finger lifts
+  and then sends the press and the release together. A frame at 25 pictures a
+  second is 40 ms, so the pressed look filled 6% of one frame and was almost
+  never photographed. It is held for 200 ms now -- about six frames at the
+  rate a panel runs at just after a touch -- and made readable across a room.
+  The OK button of a remote flashes the chosen tile too.
+
+- **`stats` is off by default, and it should always have been.** It sat under
+  a comment reading "all off" and shipped as on, printing one line every five
+  seconds per panel: 17 280 lines a day for one panel, which buries everything
+  else in the log. **An existing install keeps what it has** -- the Supervisor
+  writes these defaults only when the add-on is first installed -- so turn
+  `stats` off under **debug** in the add-on's configuration if you have been
+  running it.
+
 ## 4.12.0
 
 - **A remote or a gamepad now moves between links on sites that do not
