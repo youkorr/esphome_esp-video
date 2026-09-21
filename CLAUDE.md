@@ -6777,6 +6777,90 @@ reported on the way was its own:
 `:active` alone and `scale(.985)` back, six of the seven cases fail and the
 one that passes is the navigation, which always worked.
 
+## And that was the LAUNCHER's press. Every other site still had none
+
+**Reported one round later as *"jellyfin fait pareil que netflix le button ne
+dispose aucun effect"*, and the GROUPING is the whole diagnosis.** Those two
+were named and Home Assistant was not -- and the launcher's tiles are one
+piece of markup, so a fault there would hit all four equally. Naming two of
+them only makes sense if the effect is a property of the SITE.
+
+**`:active` is tied to the button really being down, and this sender sends the
+press and the release in the same instant.** `_finish()` did
+`mouse.move / mouse.down / mouse.up`, back to back, in both of its branches --
+so every page in the world saw a press of about one task. The launcher was
+fixed by adding a class it holds for 200 ms; nothing could do that for
+somebody else's stylesheet, because **no script can force another page's
+`:active`.**
+
+Measured through a real screencast, which is the only picture a panel gets,
+pressing a plain button at the centre of a page:
+
+| | frames showing the press |
+|---|---|
+| styles `:active` and nothing else -- Jellyfin, Netflix | **0 of 1** |
+| animates its own feedback (a Material ripple) -- Home Assistant | **15 of 25** |
+
+and the second row is **the same either way**, because an animation runs on
+after the button is up. That is exactly why two of the four sites were
+reported and two were not.
+
+**The fix is to stop lying about the gesture.** `_press()` puts the button
+down and `tick()` lets it go `PRESS_HOLD_S = 0.080` later -- deferred, never
+slept on, because a blocking wait in the loop is the fault this file records
+under the panel writer and it would have cost 80 ms of every tap's own
+pipeline. A sweep found one compositor frame is technically enough (16 ms
+works), and 80 is chosen against the thing that actually has to catch it: the
+sender throws away the frame in hand after a press and asks for a fresh one,
+and that frame is painted and encoded 20-40 ms later, so the button has to
+still be down when it is. It is also what a real finger does.
+
+**What it costs is that the click fires on mouseup, so the page acts 80 ms
+later -- and that is the right way round rather than a price.** The panel now
+shows the button going down at the moment it used to show nothing at all, and
+what makes an interface feel quick is the FIRST acknowledgement, not the
+completion. That is the whole of "comme un button lvgl". `--press-hold 0`
+restores the old behaviour for anybody who disagrees.
+
+Three things had to be got right and each is a defect if it is missing:
+
+- **`handle()` releases before anything else**, whatever the clock says. A
+  second contact dispatched on top of a button still held is a down-down no
+  page can make sense of. Three taps must be three downs and three ups.
+- **`tick()` is where the release happens**, for the reason the corner hold
+  already lives there: the finger has gone, so there is nothing left to hang
+  it on but the loop.
+- **The focus look moved with it.** `keyboard.request_sync(0.0)` was taken the
+  instant the tap was replayed, which used to be after the click; it is
+  `request_sync(injector.press_hold)` now, or the keyboard would look at focus
+  before the page had been clicked at all.
+
+### checkpress.py held the click back for every case that looked at the press
+
+`tools/checkpress.py` suppressed navigation with a capture-phase
+`preventDefault` for each case that measured the pressed LOOK, and its one
+case that let the click through only asserted that it navigated. So the
+combination -- a press that is real, on a page that reacts -- had never been
+measured, which is **"testing the two halves separately proved nothing about
+the whole"** in its second costume in this file.
+
+`tools/checkpresshold.py` drives the SHIPPED `Injector` (a straight-through
+touch map, the real `handle()` and `tick()`) against both page shapes and
+counts screencast frames. **The old behaviour is reached through the shipped
+option** -- `press_hold=0` is what `--press-hold 0` gives -- so the
+reproduction is the real code rather than a reverted copy, and it reads
+`0 of 1` exactly as the panel did.
+
+**Two faults in the ruler, both already named in this file.**
+`0 of 0 frames` for a button flashing red is impossible, and the cause was an
+**inline** `background` beating `#b:active` in the sheet -- the same
+specificity fault as the keyboard's `hide()`. And the sample was taken at the
+centre of the button, which is where its LABEL is: CLAUDE.md already records
+`checkpress.py` reading a tile's white name in both states. A quarter down
+now, and judged as "not at rest" rather than "equal to the pressed colour",
+because an animation passes through every colour in between and only its first
+frame is the one the fixture names.
+
 ## `stats: true` sat under a comment saying "all off"
 
 **Reported in the same breath as the tiles: *"les journaux de addon je peux
