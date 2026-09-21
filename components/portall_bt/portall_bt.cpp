@@ -1754,10 +1754,25 @@ void PortallBT::probe_hci(uint8_t hub_index, uint8_t hub_port, uint8_t intf_inde
 
   len = hci_ask(hport, intf, events, HCI_READ_LOCAL_NAME, "Read Local Name", 1500);
   if (len > 6) {
-    // The field is 248 bytes padded with NULs, and a controller with no name
-    // set sends 248 of them -- which is a valid answer and not worth a line.
-    g_hci_evt[sizeof(g_hci_evt) - 1] = 0;
-    const char *name = (const char *) &g_hci_evt[6];
+    /* The field is 248 bytes and the specification says NUL-padded -- and a
+     * TP-Link UB500 pads it with something else. A panel printed:
+     *
+     *     name "TP-Link UB5A Adapter????????????????"
+     *
+     * so the name is right and everything after its terminator is not text.
+     * Trusting a device to terminate a fixed-width field is the same class of
+     * assumption this component has already been caught by; the honest read is
+     * to take the printable run and stop. Bounded at the field's own 248 as
+     * well, in case a controller sends no terminator at all. */
+    char name[249];
+    size_t take = 0;
+    while (take < sizeof(name) - 1 && 6 + take < (size_t) len) {
+      const uint8_t c = g_hci_evt[6 + take];
+      if (c < 0x20 || c > 0x7E)
+        break;
+      name[take++] = (char) c;
+    }
+    name[take] = 0;
     if (name[0] != 0) {
       ESP_LOGI(TAG, "  name \"%s\"", name);
     }
