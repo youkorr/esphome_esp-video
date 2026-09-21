@@ -265,16 +265,21 @@ static void hid_cb(esp_hidh_cb_event_t event, esp_hidh_cb_param_t *param) {
       break;
     case ESP_HIDH_OPEN_EVT:
       if (param->open.status == ESP_HIDH_OK) {
-        g_bt->on_hid_open(param->open.bd_addr);
+        g_bt->on_hid_open(param->open.bd_addr, param->open.handle);
       } else {
-        g_bt->on_hid_closed();
+        /* A page that never opened is reported here too, and with several
+           devices that matters: -1 says "some attempt failed" and touches no
+           slot, where a bare close would have hung up whichever device the
+           single-slot version happened to be holding. */
+        g_bt->on_hid_closed(-1);
       }
       break;
     case ESP_HIDH_CLOSE_EVT:
-      g_bt->on_hid_closed();
+      g_bt->on_hid_closed((int) param->close.handle);
       break;
     case ESP_HIDH_DATA_IND_EVT:
-      g_bt->on_hid_report(param->data_ind.data, param->data_ind.len);
+      g_bt->on_hid_report(param->data_ind.data, param->data_ind.len,
+                          param->data_ind.handle);
       break;
     /* THE DEVICE SAYING WHERE ITS OWN BUTTONS ARE.
      *
@@ -286,7 +291,8 @@ static void hid_cb(esp_hidh_cb_event_t event, esp_hidh_cb_param_t *param) {
      * "handle every device", and it was already arriving. */
     case ESP_HIDH_GET_DSCP_EVT:
       g_bt->on_hid_descriptor(param->dscp.dsc_list, param->dscp.dl_len,
-                              param->dscp.vendor_id, param->dscp.product_id);
+                              param->dscp.vendor_id, param->dscp.product_id,
+                              param->dscp.handle);
       break;
     default:
       break;
@@ -305,18 +311,172 @@ void PortallBT::load_remembered_() {
   if (!this->remembered_pref_.load(&this->remembered_)) {
     this->remembered_ = Remembered{};
   }
+
+  /* THE INPUT LIST IS ITS OWN RECORD, under its own key, because an ESPHome
+     preference is found by a hash AND a size: growing `Remembered` to hold
+     four addresses would have made every panel that has ever paired forget
+     what it is paired to, speaker included. */
+  this->inputs_pref_ =
+      global_preferences->make_preference<RememberedInputs>(fnv1_hash("portall_bt_inputs"));
+  const bool had_list = this->inputs_pref_.load(&this->remembered_inputs_);
+  if (!had_list) {
+    this->remembered_inputs_ = RememberedInputs{};
+    /* A panel upgrading from the single-slot version has its device in the
+       OLD record and nothing in the new one. Carried across once, here, so
+       nobody has to re-pair a gamepad because the firmware learned to hold
+       four of them. */
+    if (this->remembered_.has_hid) {
+      memcpy(this->remembered_inputs_.addr[0], this->remembered_.hid, 6);
+      this->remembered_inputs_.count = 1;
+      this->inputs_pref_.save(&this->remembered_inputs_);
+    }
+  }
+  if (this->remembered_inputs_.count > MAX_INPUTS)
+    this->remembered_inputs_.count = MAX_INPUTS;
+
+  // The live table starts as the remembered one: away, but paged for.
+  for (uint8_t i = 0; i < this->remembered_inputs_.count; i++) {
+    memcpy(this->inputs_[i].addr, this->remembered_inputs_.addr[i], 6);
+    this->inputs_[i].used = true;
+    this->inputs_[i].remembered = true;
+  }
+}
+
+void PortallBT::save_inputs_() {
+#ifdef CONFIG_BT_BLUEDROID_ENABLED
+  RememberedInputs next{};
+  for (uint8_t i = 0; i < MAX_INPUTS; i++) {
+    if (!this->inputs_[i].used || !this->inputs_[i].remembered)
+      continue;
+    memcpy(next.addr[next.count], this->inputs_[i].addr, 6);
+    next.count++;
+  }
+  if (memcmp(&next, &this->remembered_inputs_, sizeof(next)) != 0) {
+    this->remembered_inputs_ = next;
+    this->inputs_pref_.save(&this->remembered_inputs_);
+  }
+
+  /* AND THE OLD RECORD IS KEPT AS A MIRROR OF THE FIRST SLOT. Nothing here
+     reads it any more, but a firmware rolled back to the single-device build
+     does, and leaving it pointing at a device that has since been forgotten
+     would have that build page an address with no key behind it for ever. */
+  const bool has = next.count > 0;
+  if (this->remembered_.has_hid != has ||
+      (has && memcmp(this->remembered_.hid, next.addr[0], 6) != 0)) {
+    this->remembered_.has_hid = has;
+    memset(this->remembered_.hid, 0, 6);
+    if (has)
+      memcpy(this->remembered_.hid, next.addr[0], 6);
+    this->remembered_pref_.save(&this->remembered_);
+  }
+#endif
+}
+
+int8_t PortallBT::slot_for_addr_(const uint8_t *addr) const {
+  for (uint8_t i = 0; i < MAX_INPUTS; i++)
+    if (this->inputs_[i].used && memcmp(this->inputs_[i].addr, addr, 6) == 0)
+      return (int8_t) i;
+  return -1;
+}
+
+int8_t PortallBT::slot_for_handle_(uint8_t handle) const {
+  for (uint8_t i = 0; i < MAX_INPUTS; i++)
+    if (this->inputs_[i].used && this->inputs_[i].open && this->inputs_[i].handle == handle)
+      return (int8_t) i;
+  return -1;
+}
+
+int8_t PortallBT::route_(uint8_t handle) const {
+  const int8_t by_handle = this->slot_for_handle_(handle);
+  if (by_handle >= 0)
+    return by_handle;
+  int8_t only = -1;
+  for (uint8_t i = 0; i < MAX_INPUTS; i++) {
+    if (!this->inputs_[i].open)
+      continue;
+    if (only >= 0)
+      return -1;  // Several open and none of them claims it: nowhere.
+    only = (int8_t) i;
+  }
+  return only >= 0 ? only : (int8_t) 0;
+}
+
+bool PortallBT::any_input_open_() const {
+  for (uint8_t i = 0; i < MAX_INPUTS; i++)
+    if (this->inputs_[i].open)
+      return true;
+  return false;
+}
+
+bool PortallBT::remembered_input_(const uint8_t *addr) const {
+  const int8_t slot = this->slot_for_addr_(addr);
+  return slot >= 0 && this->inputs_[slot].remembered;
+}
+
+int8_t PortallBT::claim_slot_(const uint8_t *addr) {
+  int8_t slot = this->slot_for_addr_(addr);
+  if (slot >= 0)
+    return slot;
+  for (uint8_t i = 0; i < MAX_INPUTS; i++) {
+    if (this->inputs_[i].used)
+      continue;
+    this->inputs_[i] = InputDevice{};
+    memcpy(this->inputs_[i].addr, addr, 6);
+    this->inputs_[i].used = true;
+    return (int8_t) i;
+  }
+  return -1;
+}
+
+void PortallBT::reset_decode_(InputDevice &d) {
+  d.dpad = 0xFF;
+  d.buttons = 0;
+  d.said = 0;
+  d.consumer = 0;
+  memset(d.axis, 0, sizeof(d.axis));
+  memset(d.axis_dir, 0, sizeof(d.axis_dir));
+  /* Not live until centred again: a controller that has just come back has
+     not told this panel where its sticks are. */
+  d.axis_live = 0;
+  d.said_no_descriptor = false;
+  memset(d.held, 0, sizeof(d.held));
+}
+
+HidReportMap *PortallBT::map_() {
+  InputDevice &d = this->dev_();
+  if (d.map == nullptr) {
+    d.map = new (std::nothrow) HidReportMap();
+    if (d.map == nullptr)
+      ESP_LOGW(TAG, "no room for this device's report map, so its buttons are "
+                    "read as a plain keyboard or not at all");
+  }
+  return d.map;
 }
 
 void PortallBT::remember_hid_(const uint8_t *addr) {
 #ifdef CONFIG_BT_BLUEDROID_ENABLED
-  if (this->remembered_.has_hid && memcmp(this->remembered_.hid, addr, 6) == 0)
-    return;  // Already ours; writing it again would spend a flash erase.
-  memcpy(this->remembered_.hid, addr, 6);
-  this->remembered_.has_hid = true;
-  this->remembered_pref_.save(&this->remembered_);
   char text[18];
   say_addr(text, addr);
-  ESP_LOGI(TAG, "remembering %s as this panel's input device", text);
+  const int8_t slot = this->claim_slot_(addr);
+  if (slot < 0) {
+    /* EVERY SLOT TAKEN. The device stays connected for this session -- its
+       buttons work -- and it is simply not paged for after a restart. Said
+       out loud with the way out named, because silently replacing one of the
+       devices somebody already paired is the quiet loss this component is
+       written to avoid. */
+    ESP_LOGW(TAG,
+             "%s is connected, but this panel already holds %u input device(s) "
+             "and has no slot for it -- its buttons are NOT decoded and it "
+             "will not be asked for again after a restart. "
+             "portall_bt.forget_input clears the list.",
+             text, (unsigned) MAX_INPUTS);
+    return;
+  }
+  if (this->inputs_[slot].remembered)
+    return;  // Already ours; writing it again would spend a flash erase.
+  this->inputs_[slot].remembered = true;
+  this->save_inputs_();
+  ESP_LOGI(TAG, "remembering %s as one of this panel's input devices", text);
 #else
   (void) addr;
 #endif
@@ -355,7 +515,7 @@ void PortallBT::start_profiles_() {
       char text[18];
       for (int i = 0; i < count; i++) {
         say_addr(text, list[i]);
-        const bool ours = this->remembered_.has_hid && memcmp(this->remembered_.hid, list[i], 6) == 0;
+        const bool ours = this->remembered_input_(list[i]);
         ESP_LOGI(TAG, "  %s%s", text, ours ? "  (this panel's input device)" : "");
       }
     }
@@ -387,44 +547,59 @@ void PortallBT::on_hid_ready() {
   this->reconnect_backoff_ms_ = RECONNECT_FIRST_MS;
 }
 
-void PortallBT::on_hid_open(const uint8_t *addr) {
+void PortallBT::on_hid_open(const uint8_t *addr, uint8_t handle) {
 #ifdef CONFIG_BT_BLUEDROID_ENABLED
   char text[18];
   say_addr(text, addr);
   ESP_LOGI(TAG, "input device %s is connected", text);
-  this->hid_open_ = true;
-  memcpy(this->open_hid_, addr, 6);
   this->reconnect_backoff_ms_ = RECONNECT_FIRST_MS;
+  // remember_hid_ is what claims the slot, so it comes first -- and the name
+  // is filed by ADDRESS against a slot, so asking before there is one to put
+  // the answer in would throw it away.
   this->remember_hid_(addr);
-  // AFTER remember_hid_, because the name is filed by address against a
-  // remembered slot and there would be no slot to put it in yet.
+  const int8_t slot = this->slot_for_addr_(addr);
+  if (slot >= 0) {
+    this->inputs_[slot].open = true;
+    this->inputs_[slot].handle = handle;
+    // A device that has just come back is not still holding what it was.
+    reset_decode_(this->inputs_[slot]);
+  }
   this->ask_remote_name_(addr);
 #else
   (void) addr;
+  (void) handle;
 #endif
 }
 
-void PortallBT::on_hid_closed() {
-  const bool was_connected = this->hid_open_;
-  if (was_connected)
-    ESP_LOGI(TAG, "input device disconnected; it will be asked for again by address, with no scan");
-  this->hid_open_ = false;
-  memset(this->open_hid_, 0, 6);
+void PortallBT::on_hid_closed(int handle) {
+  /* WHICH device went away, which with several of them is the whole of it.
+     -1 is a page that never opened: it says nothing about any live link, so
+     it must not hang one up -- and it is also the case that used to reset the
+     backoff on its own failures, which a panel's log caught (see the long
+     note in a2dp.cpp's on_a2dp_closed). */
+  const int8_t slot = handle < 0 ? (int8_t) -1 : this->slot_for_handle_((uint8_t) handle);
+  if (slot < 0)
+    return;
+
+  char text[18];
+  say_addr(text, this->inputs_[slot].addr);
+  ESP_LOGI(TAG, "input device %s disconnected; it will be asked for again by address, with no scan",
+           text);
+  this->inputs_[slot].open = false;
+  this->inputs_[slot].handle = 0;
+  /* A slot held by a device this panel never had room to remember is freed
+     the moment it hangs up, so the next device to arrive has somewhere to go
+     rather than inheriting somebody else's decode state. */
+  if (!this->inputs_[slot].remembered)
+    this->inputs_[slot] = InputDevice{};
+
   // Straight back to the short interval: a device that has just been switched
   // off is the one most likely to be switched on again in a moment.
-  //
-  // Only for a device that WAS connected, though. A connection that never
-  // opened is reported here as well, so doing this unconditionally meant the
-  // backoff reset itself on its own failures and could never grow -- see the
-  // long note in a2dp.cpp's on_a2dp_closed, which is the same fault and is
-  // where a panel's log caught it.
-  if (was_connected) {
-    this->reconnect_backoff_ms_ = RECONNECT_FIRST_MS;
-    this->reconnect_due_ms_ = now_ms_() + RECONNECT_FIRST_MS;
-  }
+  this->reconnect_backoff_ms_ = RECONNECT_FIRST_MS;
+  this->reconnect_due_ms_ = now_ms_() + RECONNECT_FIRST_MS;
 }
 
-void PortallBT::on_hid_report(const uint8_t *data, uint16_t len) {
+void PortallBT::on_hid_report(const uint8_t *data, uint16_t len, uint8_t handle) {
   const uint8_t next = (uint8_t) ((this->report_head_ + 1) % REPORTS);
   if (next == this->report_tail_) {
     // Full. Drop the OLDEST -- see the queue's own comment in the header: the
@@ -434,33 +609,51 @@ void PortallBT::on_hid_report(const uint8_t *data, uint16_t len) {
     this->reports_lost_++;
   }
   HidReport &slot = this->reports_[this->report_head_];
+  slot.handle = handle;
   slot.len = (uint8_t) (len > sizeof(slot.data) ? sizeof(slot.data) : len);
   memcpy(slot.data, data, slot.len);
   this->report_head_ = next;
 }
 
 void PortallBT::on_hid_descriptor(const uint8_t *desc, uint16_t len, uint16_t vendor,
-                                  uint16_t product) {
+                                  uint16_t product, uint8_t handle) {
   /* Copied here and parsed in loop(), because this runs on Bluedroid's task
      and the parsed map is read on ESPHome's. Nothing is logged from here for
      the same reason. */
   if (desc == nullptr || len == 0)
     return;
-  this->pending_desc_len_ = len > MAX_DESC ? MAX_DESC : len;
-  memcpy(this->pending_desc_, desc, this->pending_desc_len_);
-  this->pending_desc_vendor_ = vendor;
-  this->pending_desc_product_ = product;
-  this->desc_pending_ = true;
+  const uint8_t next = (uint8_t) ((this->pending_desc_head_ + 1) % MAX_INPUTS);
+  if (next == this->pending_desc_tail_)
+    return;  // Cannot happen with one descriptor per connected device.
+  PendingDesc &p = this->pending_desc_[this->pending_desc_head_];
+  p.len = len > MAX_DESC ? MAX_DESC : len;
+  memcpy(p.bytes, desc, p.len);
+  p.vendor = vendor;
+  p.product = product;
+  p.handle = handle;
+  this->pending_desc_head_ = next;
 }
 
 void PortallBT::drain_reports_() {
-  if (this->desc_pending_) {
-    this->desc_pending_ = false;
-    this->feed_hid_descriptor(this->pending_desc_, this->pending_desc_len_,
-                              this->pending_desc_vendor_, this->pending_desc_product_);
+  while (this->pending_desc_tail_ != this->pending_desc_head_) {
+    const PendingDesc &p = this->pending_desc_[this->pending_desc_tail_];
+    const int8_t slot = this->route_(p.handle);
+    if (slot >= 0) {
+      this->cur_input_ = (uint8_t) slot;
+      this->feed_hid_descriptor(p.bytes, p.len, p.vendor, p.product);
+    }
+    this->pending_desc_tail_ = (uint8_t) ((this->pending_desc_tail_ + 1) % MAX_INPUTS);
   }
   while (this->report_tail_ != this->report_head_) {
     const HidReport &slot = this->reports_[this->report_tail_];
+    /* WHICH DEVICE SENT THIS, before a byte of it is decoded. Everything
+       keys.cpp reads -- the map, the hat, the buttons, the six keycodes still
+       held -- belongs to one device, and reading a second controller's report
+       against the first one's descriptor is the confidently-wrong answer this
+       whole path was rewritten to stop giving. */
+    const int8_t routed = this->route_(slot.handle);
+    if (routed >= 0)
+      this->cur_input_ = (uint8_t) routed;
     std::vector<uint8_t> bytes(slot.data, slot.data + slot.len);
     if (this->show_reports_) {
       /* What every mapping has to be written against, and there is no way to
@@ -518,7 +711,8 @@ void PortallBT::drain_reports_() {
        whether these bytes are a boot-protocol keyboard report at all, and
        says out loud what it made of them; a gamepad is not covered and does
        not pretend to be. */
-    this->feed_hid_keys(slot.data, slot.len);
+    if (routed >= 0)
+      this->feed_hid_keys(slot.data, slot.len);
     this->report_tail_ = (uint8_t) ((this->report_tail_ + 1) % REPORTS);
   }
   if (this->reports_lost_ != 0) {
@@ -550,15 +744,26 @@ void PortallBT::reconnect_tick_() {
 
 void PortallBT::hid_reconnect_() {
 #if defined(CONFIG_BT_BLUEDROID_ENABLED) && defined(CONFIG_BT_HID_HOST_ENABLED)
-  if (!this->hid_host_ || this->hid_open_ || !this->profiles_up_)
-    return;
-  if (!this->remembered_.has_hid || !addr_set(this->remembered_.hid))
+  if (!this->hid_host_ || !this->profiles_up_)
     return;
 
-  char text[18];
-  say_addr(text, this->remembered_.hid);
-  ESP_LOGD(TAG, "asking %s to connect (no scan, by address)", text);
-  esp_bt_hid_host_connect(this->remembered_.hid);
+  /* ONE DEVICE PER TICK, taking turns, and that is arithmetic rather than
+     tidiness. A page's own timeout is 5.12 s by default, so four of them sent
+     together are four overlapping pages -- which is precisely the shape this
+     component already had to fix once, where a panel paged without pause and
+     starved the inquiry somebody was trying to pair with. */
+  for (uint8_t tried = 0; tried < MAX_INPUTS; tried++) {
+    const uint8_t i = (uint8_t) ((this->reconnect_next_ + tried) % MAX_INPUTS);
+    InputDevice &d = this->inputs_[i];
+    if (!d.used || !d.remembered || d.open || !addr_set(d.addr))
+      continue;
+    char text[18];
+    say_addr(text, d.addr);
+    ESP_LOGD(TAG, "asking %s to connect (no scan, by address)", text);
+    esp_bt_hid_host_connect(d.addr);
+    this->reconnect_next_ = (uint8_t) ((i + 1) % MAX_INPUTS);
+    return;
+  }
 #endif
 }
 
@@ -640,10 +845,13 @@ void PortallBT::drop_links_() {
 #endif
 #if defined(CONFIG_BT_HID_HOST_ENABLED)
   char hid_text[18];
-  if (this->hid_open_ && addr_set(this->open_hid_)) {
-    say_addr(hid_text, this->open_hid_);
+  for (uint8_t i = 0; i < MAX_INPUTS; i++) {
+    InputDevice &d = this->inputs_[i];
+    if (!d.open || !addr_set(d.addr))
+      continue;
+    say_addr(hid_text, d.addr);
     ESP_LOGI(TAG, "  hanging up the input device %s first", hid_text);
-    esp_bt_hid_host_disconnect(this->open_hid_);
+    esp_bt_hid_host_disconnect(d.addr);
   }
 #endif
 }
@@ -665,7 +873,7 @@ void PortallBT::pair_report_tick_() {
     return;
   this->pair_report_due_ms_ = 0;
 
-  if (this->a2dp_open_ || this->hid_open_) {
+  if (this->a2dp_open_ || this->any_input_open_()) {
     ESP_LOGI(TAG, "pairing finished: a device is connected. Nothing will scan again -- from now "
                   "on this panel reconnects by address.");
   } else if (this->heard_ == 0) {
@@ -722,8 +930,9 @@ void PortallBT::note_remote_name(const uint8_t *addr, const char *name) {
   // carried it: a pairing and a name request can both arrive for either role,
   // and a device this panel does not remember has no slot to go in.
   char *slot = nullptr;
-  if (this->remembered_.has_hid && memcmp(addr, this->remembered_.hid, 6) == 0)
-    slot = this->hid_name_;
+  const int8_t input = this->slot_for_addr_(addr);
+  if (input >= 0)
+    slot = this->inputs_[input].name;
   else if (this->remembered_.has_sink &&
            memcmp(addr, this->remembered_.sink, 6) == 0)
     slot = this->sink_name_;
@@ -764,25 +973,50 @@ void PortallBT::ask_remote_name_(const uint8_t *addr) {
 
 std::string PortallBT::describe_role(bool speaker) const {
 #ifdef CONFIG_BT_BLUEDROID_ENABLED
-  const bool has = speaker ? this->remembered_.has_sink : this->remembered_.has_hid;
-  if (!has)
-    return "none";
-  char text[18];
-  say_addr(text, speaker ? this->remembered_.sink : this->remembered_.hid);
-  const bool open = speaker ? this->a2dp_open_ : this->hid_open_;
   // The NAME first when there is one, because that is what somebody reading a
   // card is looking for -- "Orange TV remote" rather than A4:C1:38:9E:22:07.
   // The address stays beside it: two remotes of the same model are the same
   // name, and it is the address that a pair or forget action works on.
-  const char *name = speaker ? this->sink_name_ : this->hid_name_;
+  auto one_device = [this](const uint8_t *addr, const char *name, bool open) {
+    char text[18];
+    say_addr(text, addr);
+    std::string out = name[0] != '\0' ? std::string(name) + " (" + text + ")"
+                                     : std::string(text);
+    if (this->bt_off_)
+      return out + " (Bluetooth off)";
+    return out + (open ? " connected" : " paired, away");
+  };
+
+  if (speaker) {
+    if (!this->remembered_.has_sink)
+      return "none";
+    return one_device(this->remembered_.sink, this->sink_name_, this->a2dp_open_);
+  }
+
+  /* A LIST, because there are up to four of them now. Bounded at 200
+     characters rather than run to whatever it comes to: a text sensor's state
+     has a limit, and a line cut off mid-address reads as a fault in the
+     panel. What was left out says so instead. */
   std::string out;
-  if (name[0] != '\0')
-    out = std::string(name) + " (" + text + ")";
-  else
-    out = text;
-  if (this->bt_off_)
-    return out + " (Bluetooth off)";
-  return out + (open ? " connected" : " paired, away");
+  uint8_t shown = 0, total = 0;
+  for (uint8_t i = 0; i < MAX_INPUTS; i++) {
+    const InputDevice &d = this->inputs_[i];
+    if (!d.used || !d.remembered)
+      continue;
+    total++;
+    const std::string entry = one_device(d.addr, d.name, d.open);
+    if (out.size() + entry.size() + 2 > 200)
+      continue;
+    if (!out.empty())
+      out += ", ";
+    out += entry;
+    shown++;
+  }
+  if (total == 0)
+    return "none";
+  if (shown < total)
+    out += ", +" + std::to_string(total - shown) + " more";
+  return out;
 #else
   (void) speaker;
   return "none";
@@ -795,48 +1029,64 @@ void PortallBT::forget_one(bool speaker) {
     ESP_LOGW(TAG, "nothing to forget yet -- no dongle has answered");
     return;
   }
-  const bool has = speaker ? this->remembered_.has_sink : this->remembered_.has_hid;
-  if (!has) {
-    ESP_LOGW(TAG, "no %s is remembered, so there is nothing to forget",
-             speaker ? "speaker" : "input device");
-    return;
-  }
-  const uint8_t *addr = speaker ? this->remembered_.sink : this->remembered_.hid;
   char text[18];
-  say_addr(text, addr);
 
-  /* Hang up this one FIRST, for the reason forget() records: removing a bond
-   * under a live ACL leaves the device connected with its key gone, so the
-   * next scan cannot see it AND it can no longer come back on its own. */
-  esp_bd_addr_t target;
-  memcpy(target, addr, 6);
   if (speaker) {
+    if (!this->remembered_.has_sink) {
+      ESP_LOGW(TAG, "no speaker is remembered, so there is nothing to forget");
+      return;
+    }
+    say_addr(text, this->remembered_.sink);
+    /* Hang up FIRST, for the reason forget() records: removing a bond under a
+     * live ACL leaves the device connected with its key gone, so the next scan
+     * cannot see it AND it can no longer come back on its own. */
+    esp_bd_addr_t target;
+    memcpy(target, this->remembered_.sink, 6);
 #ifdef CONFIG_BT_A2DP_ENABLE
     if (this->a2dp_open_)
       esp_a2d_source_disconnect(target);
 #endif
-  } else {
-#ifdef CONFIG_BT_HID_HOST_ENABLED
-    if (this->hid_open_)
-      esp_bt_hid_host_disconnect(target);
-#endif
-  }
-  esp_bt_gap_remove_bond_device(target);
-
-  if (speaker) {
+    esp_bt_gap_remove_bond_device(target);
     this->remembered_.has_sink = false;
     memset(this->remembered_.sink, 0, 6);
     this->sink_name_[0] = '\0';
-  } else {
-    this->remembered_.has_hid = false;
-    memset(this->remembered_.hid, 0, 6);
-    this->hid_name_[0] = '\0';
-    this->hid_open_ = false;
-    memset(this->open_hid_, 0, 6);
+    this->remembered_pref_.save(&this->remembered_);
+    ESP_LOGI(TAG, "forgot the speaker %s -- link key and role both", text);
+    return;
   }
-  this->remembered_pref_.save(&this->remembered_);
-  ESP_LOGI(TAG, "forgot the %s %s -- link key and role both", speaker ? "speaker" : "input device",
-           text);
+
+  /* EVERY INPUT DEVICE, because there is no index a household could name one
+     by. This is the way back from a gamepad somebody gave away and the way to
+     make room when all four slots are taken, and it says how many went. */
+  uint8_t gone = 0;
+  for (uint8_t i = 0; i < MAX_INPUTS; i++) {
+    InputDevice &d = this->inputs_[i];
+    if (!d.used || !d.remembered)
+      continue;
+    say_addr(text, d.addr);
+    esp_bd_addr_t target;
+    memcpy(target, d.addr, 6);
+#ifdef CONFIG_BT_HID_HOST_ENABLED
+    if (d.open)
+      esp_bt_hid_host_disconnect(target);
+#endif
+    esp_bt_gap_remove_bond_device(target);
+    ESP_LOGI(TAG, "forgot the input device %s -- link key and role both", text);
+    /* The map is NOT freed with it. A slot that has held a device keeps its
+       9 KiB for the next one, because releasing and retaking a block that
+       size on a board's heap is how it gets fragmented. */
+    HidReportMap *keep = d.map;
+    d = InputDevice{};
+    d.map = keep;
+    if (d.map != nullptr)
+      d.map->clear();
+    gone++;
+  }
+  if (gone == 0) {
+    ESP_LOGW(TAG, "no input device is remembered, so there is nothing to forget");
+    return;
+  }
+  this->save_inputs_();
 #else
   (void) speaker;
 #endif
@@ -863,16 +1113,22 @@ void PortallBT::forget() {
         esp_bt_gap_remove_bond_device(list[i]);
     }
   }
-  // Both stores, or the next start would ask an address Bluedroid no longer has
-  // a key for, for ever, on a backoff.
+  // Every store, or the next start would ask an address Bluedroid no longer
+  // has a key for, for ever, on a backoff.
   this->remembered_ = Remembered{};
   this->remembered_pref_.save(&this->remembered_);
+  this->remembered_inputs_ = RememberedInputs{};
+  this->inputs_pref_.save(&this->remembered_inputs_);
   // The names go with them. A name left beside an address that has changed
   // reads as correct, which is worse than showing no name at all.
   this->sink_name_[0] = '\0';
-  this->hid_name_[0] = '\0';
-  this->hid_open_ = false;
-  memset(this->open_hid_, 0, 6);
+  for (uint8_t i = 0; i < MAX_INPUTS; i++) {
+    HidReportMap *keep = this->inputs_[i].map;
+    this->inputs_[i] = InputDevice{};
+    this->inputs_[i].map = keep;
+    if (keep != nullptr)
+      keep->clear();
+  }
   ESP_LOGI(TAG, "forgot %d paired device(s), link keys and roles both", bonded);
 #endif
 }

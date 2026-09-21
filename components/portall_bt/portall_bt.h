@@ -5,6 +5,7 @@
 #include "esphome/core/preferences.h"
 
 #include <functional>
+#include <new>
 #include <string>
 #include <vector>
 
@@ -31,6 +32,10 @@ struct Arrival {
 /// the arrival queue below, and for the same reason.
 struct HidReport {
   uint8_t len;
+  /// Which live link it came in on. ESP_HIDH_DATA_IND_EVT carries a handle and
+  /// no address at all, so this is the ONLY thing that says which of several
+  /// paired devices pressed the button.
+  uint8_t handle;
   uint8_t data[63];
 };
 
@@ -165,6 +170,84 @@ struct Remembered {
 /// text nobody reads to the end.
 static constexpr uint8_t MAX_REMOTE_NAME = 32;
 
+/* HOW MANY INPUT DEVICES ONE PANEL KEEPS, and the number is a slot count
+ * rather than a claim about the dongle.
+ *
+ * Asked for plainly -- "si je dispose de plus peripherique bluetooth que je
+ * voudrais le connecter comment les text_sensor alors qu'il que que deux
+ * text_sensor". One slot was never a design, it was the first version: a
+ * household with a gamepad AND a remote had to choose, because pairing the
+ * second silently replaced the first.
+ *
+ * Four covers a gamepad, a remote, a keyboard and one spare. What it does NOT
+ * claim is that Bluedroid will carry four HID links at once -- that is its
+ * own limit and nothing here has tried it. A slot that cannot connect simply
+ * reads "paired, away", which is the honest answer either way.
+ *
+ * The SPEAKER stays at one, and that is structural rather than a matching
+ * shortfall: A2DP source is a single stream with one encoder, and a second
+ * would mean mixing and lip-syncing two of them. */
+static constexpr uint8_t MAX_INPUTS = 4;
+
+/// The input devices this panel is paired to, as it survives a restart.
+///
+/// SEPARATE FROM `Remembered` ON PURPOSE. An ESPHome preference is found by a
+/// hash AND a size, so growing that struct would make every panel that has
+/// ever paired forget what it is paired to. This one is its own record under
+/// its own key, and `Remembered.hid` is kept as a MIRROR of the first slot so
+/// that a firmware rolled back to a single-device build still finds a device
+/// rather than an empty list.
+struct RememberedInputs {
+  uint8_t addr[MAX_INPUTS][6];
+  uint8_t count;
+} __attribute__((packed));
+
+/* The four analog axes a gamepad is steered with, and the report SHAPES a
+   device may name itself over -- both per device, which is why they are here
+   rather than inside the component. */
+static constexpr uint8_t PAD_AXES = 4;
+static constexpr uint8_t SHAPES = 6;
+
+/// Everything that is true of ONE input device rather than of the panel.
+///
+/// This is the whole of what several devices needed. ESP_HIDH_DATA_IND_EVT
+/// carries a HANDLE and no address, so a report has to be routed to the
+/// device it came from -- and decoding one controller's report against
+/// another's descriptor is exactly the confidently-wrong answer this
+/// component was rewritten to stop giving. The edge-detection state is the
+/// same story one step down: two gamepads share a `buttons` word and each
+/// one's press looks to the other like a release.
+struct InputDevice {
+  uint8_t addr[6]{};
+  bool used{false};       ///< this slot names a device at all
+  bool remembered{false}; ///< ...and it is in NVS, so it is paged for
+  bool open{false};       ///< ...and it is connected right now
+  uint8_t handle{0};      ///< what Bluedroid calls the live link
+  char name[MAX_REMOTE_NAME + 1]{};
+
+  /* THE MAP IS ALLOCATED WHEN A DESCRIPTOR FIRST ARRIVES, never before.
+     One costs 9 KiB -- 384 fields at 24 bytes -- and four slots inline would
+     be 37 KiB of a board's internal RAM standing idle on every panel that
+     pairs a speaker and nothing else. Allocated once per slot and kept: a
+     device that reconnects reuses it, and freeing and retaking 9 KiB every
+     eleven seconds is how a heap gets fragmented. */
+  HidReportMap *map{nullptr};
+  uint16_t desc_len{0};
+  uint32_t desc_sum{0};
+  bool said_no_descriptor{false};
+
+  uint8_t held[6]{};
+  uint8_t dpad{0xFF};
+  uint32_t buttons{0};
+  uint32_t said{0};
+  uint8_t consumer{0};
+  int8_t axis[PAD_AXES]{};
+  uint8_t axis_dir[PAD_AXES]{};
+  uint8_t axis_live{0};
+  uint16_t said_shapes[SHAPES]{};
+  uint8_t said_shape_count{0};
+};
+
 class PortallBT : public Component {
  public:
   void setup() override;
@@ -292,13 +375,23 @@ class PortallBT : public Component {
    * inventing a field would have put a number in the log that means nothing.
    * So what comes out of here is exactly what the device sent. */
   void on_hid_ready();
-  void on_hid_open(const uint8_t *addr);
-  void on_hid_closed();
-  void on_hid_report(const uint8_t *data, uint16_t len);
+  /* EVERY ONE OF THESE CARRIES A HANDLE, because with more than one device a
+     report has to be routed to the device that sent it. ESP_HIDH_OPEN_EVT is
+     the only one of the four that carries a bd_addr as well, which is what
+     ties a handle to a slot in the first place; CLOSE and DATA_IND carry a
+     handle and nothing else, checked in the header rather than assumed. The
+     defaults are for a caller that has one device and no handles -- the
+     tests, which press real buttons at this from a workstation. */
+  void on_hid_open(const uint8_t *addr, uint8_t handle = 0);
+  /// -1 when the event said nothing about WHICH link went away -- a page that
+  /// never opened reports itself here too, and that must not hang up a device
+  /// that is perfectly well connected.
+  void on_hid_closed(int handle = -1);
+  void on_hid_report(const uint8_t *data, uint16_t len, uint8_t handle = 0);
   /// The device's report descriptor, straight off Bluedroid's own task.
   /// Copied and parsed later, for the reason the report queue exists.
   void on_hid_descriptor(const uint8_t *desc, uint16_t len, uint16_t vendor,
-                         uint16_t product);
+                         uint16_t product, uint8_t handle = 0);
 
   /// Look for something to pair with, once, because somebody asked.
   ///
@@ -338,9 +431,11 @@ class PortallBT : public Component {
   void set_bt_enabled(bool on);
   bool bt_enabled() const { return !this->bt_off_; }
 
-  /// Forget ONE remembered device rather than every bond at once.
-  /// `speaker` picks which of the two slots -- see Remembered, which holds
-  /// exactly one of each and is why there is no list here to page through.
+  /// Forget by ROLE rather than every bond at once: the speaker, or every
+  /// input device. There is no per-device action and that is deliberate --
+  /// one would need an index a household has no way to read, which is the
+  /// mechanism-instead-of-a-name this component keeps being corrected into
+  /// not building.
   void forget_one(bool speaker);
 
   /// One line for a text sensor: what the device calls itself, its address,
@@ -351,6 +446,9 @@ class PortallBT : public Component {
   /// name and it is the address a pair or forget acts on. A panel that has
   /// just booted shows the address alone until the name arrives; see
   /// note_remote_name below for why it is not stored.
+  /// The speaker is one device; the input side is a LIST, joined with ", ".
+  /// Bounded, because a text sensor's state is not unlimited and four names
+  /// can reach past it -- what is dropped is said rather than cut off.
   std::string describe_role(bool speaker) const;
   /* Remember what a device CALLS itself, so the entity above is readable.
    *
@@ -417,6 +515,35 @@ class PortallBT : public Component {
   void reconnect_tick_();
   void remember_hid_(const uint8_t *addr);
   void load_remembered_();
+  void save_inputs_();
+  /// Which slot holds this address / this live handle, or -1.
+  int8_t slot_for_addr_(const uint8_t *addr) const;
+  int8_t slot_for_handle_(uint8_t handle) const;
+  /// Which slot a report carrying this handle belongs to, or -1 for nowhere.
+  ///
+  /// The handle is the answer whenever a device is open under it. The
+  /// fallbacks are for the two cases that are not a several-device question
+  /// at all: exactly one device connected (so the handle can only be its
+  /// own, whatever Bluedroid numbered it) and a caller with no handles --
+  /// the tests, which press buttons at slot 0 the way they always have.
+  ///
+  /// -1 IS A REAL ANSWER AND NOT A FAILURE TO GUESS. A device that connected
+  /// when every slot was already taken has no map, no hat and no button word
+  /// of its own, and decoding its report against the nearest device's is the
+  /// confidently-wrong answer this whole path exists to stop giving. Its
+  /// bytes still reach on_hid_report and `show_reports:`; they simply become
+  /// no key.
+  int8_t route_(uint8_t handle) const;
+  /// A slot for a device that has just connected: its own if it has one, else
+  /// a free one. -1 when every slot is taken, which is said out loud rather
+  /// than quietly dropping somebody's newest device.
+  int8_t claim_slot_(const uint8_t *addr);
+  bool any_input_open_() const;
+  bool remembered_input_(const uint8_t *addr) const;
+  /// Forget what a device was holding. A controller that hung up and came
+  /// back is not still holding whatever it was holding, and a stale hat
+  /// position would swallow the first press.
+  static void reset_decode_(InputDevice &d);
 
   void hid_reconnect_();
 
@@ -455,41 +582,43 @@ class PortallBT : public Component {
   std::vector<Trigger<uint8_t, bool> *> media_key_triggers_;
   KeySink key_sink_{};
   HomeSink home_sink_{};
-  /* The six keycodes a boot-protocol keyboard report carries, as they were
-     last time: a key still held is in every report, and sending it again on
-     each one would repeat it fifty times a second. Only what is NEW counts. */
-  uint8_t held_[6]{};
-  /* A gamepad's last hat position and button byte, for the same reason: a
-     thumb resting on the d-pad sends the same report a hundred times a
-     second, and only a CHANGE is a press. 0x0F is not a hat position, so the
-     first real report always counts as a change. */
-  /* The descriptor as Bluedroid handed it over, waiting for loop().
-     Bluedroid's callback runs on its own BTC task and the map is read from
+  /* EVERY INPUT DEVICE THIS PANEL KNOWS ABOUT, and which of them a report is
+     being decoded against right now.
+     `cur_input_` is set from the report's own handle in drain_reports_ and
+     read by the whole of keys.cpp, which is why the feeds stay one-argument:
+     a test presses buttons at slot 0 exactly as it always did. */
+  InputDevice inputs_[MAX_INPUTS]{};
+  uint8_t cur_input_{0};
+  InputDevice &dev_() { return this->inputs_[this->cur_input_]; }
+  const InputDevice &dev_() const { return this->inputs_[this->cur_input_]; }
+  /// The current device's report map, allocated on first use. Null when the
+  /// board had no room for one, which is said once and costs the buttons
+  /// rather than the panel.
+  HidReportMap *map_();
+
+  /* The descriptors as Bluedroid handed them over, waiting for loop().
+     Bluedroid's callback runs on its own BTC task and a map is read from
      drain_reports_ on ESPHome's, so the bytes are COPIED there and parsed
      here -- the same split every other thing this component takes off that
      task already makes. 512 is generous for a gamepad and a descriptor past
-     it is refused out loud rather than half-read. */
-  static constexpr uint16_t MAX_DESC = 512;
-  uint8_t pending_desc_[MAX_DESC]{};
-  uint16_t pending_desc_len_{0};
-  uint16_t pending_desc_vendor_{0};
-  uint16_t pending_desc_product_{0};
-  bool desc_pending_{false};
+     it is refused out loud rather than half-read.
 
-  /* The device's report descriptor, parsed once when it connects. With one
-     of these there are no byte offsets in this component at all: the device
-     says which bits are its hat and which are its buttons, which is the only
-     version of this that can work for a device nobody here owns. */
-  HidReportMap hid_map_;
-  /* Which descriptor is already in there -- its length and a plain sum of its
-     bytes. A controller that reconnects sends the same one again, and this
-     panel's own log shows a Shield reconnecting every eleven seconds, so
-     re-parsing and re-announcing it each time buries whatever else the log is
-     trying to say. Same descriptor: reset the edge-detection state, keep the
-     map, say nothing. */
-  uint16_t desc_seen_len_{0};
-  uint32_t desc_seen_sum_{0};
-  bool said_no_descriptor_{false};
+     A RING RATHER THAN ONE BUFFER, sized to the slots. A device sends its
+     descriptor once per connection, so MAX_INPUTS of them is provably enough
+     for every connected device to have one waiting; a single buffer would
+     have been fine almost always, and "almost always" is how every silent
+     fault in this file started. */
+  static constexpr uint16_t MAX_DESC = 512;
+  struct PendingDesc {
+    uint8_t bytes[MAX_DESC];
+    uint16_t len;
+    uint16_t vendor;
+    uint16_t product;
+    uint8_t handle;
+  };
+  PendingDesc pending_desc_[MAX_INPUTS]{};
+  uint8_t pending_desc_head_{0};
+  uint8_t pending_desc_tail_{0};
   /// When sound was last put into the ring, and the quiet a stream is allowed
   /// before it is suspended. Ten seconds rather than the half second a mixer
   /// source defaults to: restarting costs an AVDTP round trip, so consecutive
@@ -504,17 +633,10 @@ class PortallBT : public Component {
   uint8_t rtl_image_count_{0};
   bool send_realtek_firmware_(struct usbh_hubport *hport, uint8_t intf,
                               struct usb_endpoint_descriptor *events, uint8_t rom_version);
-  /* The d-pad's last position, as the eight compass points HID's Hat Switch
-     uses, with 0xFF for centred. A thumb resting on it sends the same report
-     a hundred times a second, so only a CHANGE is a press -- the same rule
-     the keyboard path above lives under, and the same one portall's touch
-     queue had to learn. */
-  uint8_t pad_dpad_{0xFF};
-  /* Buttons already down, one bit per Button-page usage 1..32, and which of
-     them have already named themselves in the log. */
-  uint32_t pad_buttons_{0};
-  uint32_t pad_said_{0};
-  uint8_t consumer_held_{0};
+  /* The d-pad's last position, the buttons already down, the analog axes and
+     the keycodes still held all moved into InputDevice above -- see its own
+     comment for why. Two gamepads sharing one button word is one device's
+     press reading as the other's release. */
   /* THE ANALOG STICKS, which are four axes rather than four buttons.
      Generic Desktop X and Y are the left stick and Z and Rz are the right
      one -- bluepad32's Android parser, which the button numbering above
@@ -530,10 +652,6 @@ class PortallBT : public Component {
      merely likely to hold: a stick reports its centre constantly and a
      trigger never does, so an axis that has not been centred is not steered
      with. */
-  static constexpr uint8_t PAD_AXES = 4;
-  int8_t pad_axis_[PAD_AXES]{};
-  uint8_t pad_axis_dir_[PAD_AXES]{};
-  uint8_t pad_axis_live_{0};
   /* Six keycodes from one report, compared against the last six. Shared by
      the descriptor path and the plain boot-keyboard fallback, because a
      key held down is a key held down either way. */
@@ -549,9 +667,11 @@ class PortallBT : public Component {
      arrived first would leave the one button somebody is hunting for
      permanently silent. Capped, because the cap is what keeps this from
      becoming show_reports. */
-  static constexpr uint8_t SHAPES = 6;
-  uint16_t said_shapes_[SHAPES]{};
-  uint8_t said_shape_count_{0};
+  /* Said ONCE for the whole panel rather than once per device: it is about a
+     setting nobody turned on, not about the device that noticed. It used to
+     borrow the shape list's own counter to remember it had spoken, which
+     spent a shape slot on a line that is not a shape. */
+  bool said_no_sink_{false};
   /* The last report `show_reports:` actually printed, and how many identical
      ones have been swallowed since.
      A CONTROLLER AT REST REPEATS ONE REPORT ABOUT A HUNDRED TIMES A SECOND,
@@ -569,15 +689,14 @@ class PortallBT : public Component {
   // not wait a minute.
   uint32_t reconnect_due_ms_{0};
   uint32_t reconnect_backoff_ms_{0};
-  bool hid_open_{false};
   /* The address of whatever is connected RIGHT NOW, which is a different
    * question from what this panel remembers. `remembered_` survives a restart
-   * and is cleared by forget(); these two are the live links, and a link has
-   * to be dropped by address. Keeping them apart is what lets forget() hang up
+   * and is cleared by forget(); this is the live link, and a link has to be
+   * dropped by address. Keeping them apart is what lets forget() hang up
    * BEFORE it throws the key away -- removing a bond while the ACL is still up
-   * leaves a connection with nothing behind it, which is the worst of both. */
+   * leaves a connection with nothing behind it, which is the worst of both.
+   * The input side's equivalent is InputDevice::open, one per slot. */
   uint8_t open_sink_[6]{};
-  uint8_t open_hid_[6]{};
   /* Pairing suspends the reconnection clock and this is what puts it back, so
    * a scan that finds nothing does not cost a paired device its way home. */
   bool reconnect_paused_{false};
@@ -587,12 +706,18 @@ class PortallBT : public Component {
   uint32_t pair_report_due_ms_{0};
   Remembered remembered_{};
   ESPPreferenceObject remembered_pref_;
+  RememberedInputs remembered_inputs_{};
+  ESPPreferenceObject inputs_pref_;
+  /* Which remembered input device gets asked for next. A page is 5.12 s of
+     radio by default, and this component already had to learn that overlapping
+     pages starve an inquiry -- so one device is asked per tick and the turn
+     moves on, rather than four pages going out together. */
+  uint8_t reconnect_next_{0};
   // What each remembered device calls itself, for as long as this panel is up.
   // Empty until a pairing or a Remote Name Request fills it, and cleared when
   // the device is forgotten -- a stale name beside a new address is worse than
   // no name, because it reads as correct.
   char sink_name_[MAX_REMOTE_NAME + 1]{};
-  char hid_name_[MAX_REMOTE_NAME + 1]{};
   bool show_reports_{false};
   std::vector<Trigger<std::vector<uint8_t>> *> hid_report_triggers_;
   bool stack_up_{false};

@@ -6990,6 +6990,119 @@ Sources: ricardoquesada/bluepad32 `parser/uni_hid_parser_android.c`;
 devmapal/nvidia-shield-controller-driver and stdll/shield-controller-ubuntu,
 both read and both transport rather than HID mapping.
 
+## One panel, four input devices -- and the descriptor is why it was work
+
+**Asked in one line: *"j'ai une question si je dispose de plus peripherique
+bluetooth que je voudrais le connecter comment les text_sensor alors qu'il que
+que deux text_sensor"*, then *"fait la construction"*.** One slot was never a
+design, it was the first version -- `Remembered` held one address for an input
+device, so pairing a remote replaced the gamepad silently and the entity could
+only ever name one of them.
+
+**The bookkeeping half is the easy half and it is not where the fault would
+have been.** `ESP_HIDH_DATA_IND_EVT` carries a **handle and no address at
+all** -- checked in the header rather than assumed, which is the same reading
+that once stopped three wrong lines in this component -- so a report has to be
+routed to the device that sent it. Decoding one controller's report against
+another's report descriptor is exactly the confidently-wrong answer the whole
+descriptor path was built to stop giving, and with one shared `HidReportMap`
+it is what would have happened the moment a second device connected.
+
+So `InputDevice` carries everything that is true of ONE device: its address,
+its name, whether it is open, the handle Bluedroid gave the link, its own
+parsed map, and every piece of edge-detection state -- the hat position, the
+button word, the four analog axes and the six keycodes still held. Two
+gamepads sharing a button word is each one's press reading to the other as a
+release, which is a fault nobody could diagnose from a sofa.
+
+**`route_` returns -1 rather than guessing**, and that case is real: a device
+that connects when all four slots are taken has no map, no hat and no button
+word, so its bytes reach `on_hid_report` and `show_reports:` and become no
+key. The alternative -- decoding it against the nearest slot -- is the fault
+above in its purest form. `remember_hid_` says so out loud with the way out
+named, because silently dropping one of the devices somebody already paired is
+the quiet loss this component exists to avoid.
+
+**The stored record is a NEW key, and the old one is kept as a mirror.** An
+ESPHome preference is found by a hash AND a size, so growing `Remembered` to
+hold four addresses would have made every panel that has ever paired forget
+what it is paired to -- the speaker included. `RememberedInputs` is its own
+record under `portall_bt_inputs`; `load_remembered_` carries the old single
+address across once when the new record is absent; and `save_inputs_` keeps
+`Remembered.hid` pointing at the first slot so a firmware rolled back to the
+one-device build still finds a device rather than paging an address whose key
+has since been removed.
+
+**The map is allocated when a descriptor first arrives, never before.** One is
+9 KiB -- 384 fields at 24 bytes -- so four inline would be 37 KiB of a board's
+internal RAM standing idle on every panel that pairs a speaker and nothing
+else. A panel with one gamepad pays what it always did; a panel with none pays
+2 KiB of staging buffer. Allocated once per slot and kept: a device that
+reconnects reuses it, and freeing and retaking a block that size every eleven
+seconds is how a heap gets fragmented.
+
+**One device is paged per tick, taking turns.** A page's own timeout is 5.12 s
+by default, so four sent together are four overlapping pages -- which is
+precisely the shape this file already records under *"a failed page re-armed
+the backoff"*, where a panel paged without pause and starved the inquiry
+somebody was trying to pair with.
+
+**The entity is a LIST on one line, not an entity per slot.** A slot is not
+something a household chose -- it is wherever a device happened to land -- so
+one card per slot would put three empty ones on the device page of every panel
+with a single gamepad, which is the dark entity this component already had to
+take out once. Bounded at 200 characters with what was left out said rather
+than cut off. `portall_bt.forget_input` clears the whole list, and there is no
+per-device action deliberately: one would need an index a household has no way
+to read, which is the mechanism-instead-of-a-name this project has been
+corrected into not building six times.
+
+**The speaker stays at one and that is structural**, not a matching shortfall:
+A2DP source is a single stream with one encoder, and a second would mean
+mixing and lip-syncing two of them.
+
+### The RUN pass had never opened the HID host
+
+`tools/checkbt.py` compiles five configurations and RUNS the tests, and the
+run pass defined `CONFIG_BT_BLUEDROID_ENABLED`, `CONFIG_BT_A2DP_ENABLE` and
+`USE_SPEAKER` -- and **not `CONFIG_BT_HID_HOST_ENABLED`**. So
+`hid_reconnect_()`, `forget_one`'s hang-up and the whole of the HID callback
+were behind an `#ifdef` that no test binary had ever opened, on a component
+whose newest work is all input. The syntax passes covered it; nothing ran it.
+That is this file's most-recorded shape, in the tool written to catch it --
+the same way `checkbt` once globbed `*.cpp` and never saw a platform.
+
+### Two faults in the fixtures before either was in the code
+
+- **A test that segfaults against the old code reports nothing.** The first
+  version asked `bt->inputs_[1].map->uses_ids()` straight out, and with the
+  routing reverted that slot has no map at all -- so the reproduction died
+  before printing a line instead of naming the case. Asked null-safely now.
+- **The same direction twice cannot fail.** The case proving a slot-less
+  device is not decoded against somebody else's map sent the report the
+  routed device had just sent, so a misroute would have been swallowed as
+  "no change" and the check passed against the broken build. It sends the
+  opposite direction now, and fails.
+
+**Reproduced before it was believed**, in a copy with `route_` returning 0 --
+which IS the old behaviour, one map and one button word for every device:
+**seven of multi.cpp's cases fail**, including "the gamepad still moves up
+after a keyboard connected beside it", which is the user-visible one.
+
+`tools/bttest/descfixtures.h` holds the two report descriptors, one copy, for
+the reason `linkstubs.h` gives about its own list. And the preferences
+stand-in really STORES now, keyed by the hash AND the size the way the real
+one is -- a stub whose `load()` always said "nothing saved" could only ever
+exercise a fresh board, and the upgrade is the one moment a household can
+silently lose what it paired.
+
+**What is NOT done.** No C++ here has been compiled by a real toolchain, and
+**no panel has had two input devices connected at once** -- whether Bluedroid
+carries four HID links is its own limit and nothing here has tried it. A slot
+that cannot connect reads "paired, away", which is the honest answer either
+way. The Shield's own report descriptor has still never been seen: both
+fixtures are built to the specification.
+
 ## Repository conventions
 
 - Work on branch `claude/esphome-pr-outdated-mdq36w`, then merge into `main`

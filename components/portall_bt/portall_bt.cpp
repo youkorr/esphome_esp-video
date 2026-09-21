@@ -1804,12 +1804,21 @@ void PortallBT::dump_config() {
   }
   if (this->hid_host_) {
     ESP_LOGCONFIG(TAG, "  Input devices: on, as \"%s\"", this->device_name_);
-    if (this->remembered_.has_hid) {
-      ESP_LOGCONFIG(TAG, "    Remembered: %02X:%02X:%02X:%02X:%02X:%02X -- reconnected by address, never scanned for",
-                    this->remembered_.hid[0], this->remembered_.hid[1], this->remembered_.hid[2],
-                    this->remembered_.hid[3], this->remembered_.hid[4], this->remembered_.hid[5]);
-    } else {
+    uint8_t listed = 0;
+    for (uint8_t i = 0; i < MAX_INPUTS; i++) {
+      const InputDevice &d = this->inputs_[i];
+      if (!d.used || !d.remembered)
+        continue;
+      ESP_LOGCONFIG(TAG, "    Remembered: %02X:%02X:%02X:%02X:%02X:%02X%s%s",
+                    d.addr[0], d.addr[1], d.addr[2], d.addr[3], d.addr[4], d.addr[5],
+                    d.name[0] != '\0' ? "  " : "", d.name);
+      listed++;
+    }
+    if (listed == 0) {
       ESP_LOGCONFIG(TAG, "    Nothing paired yet. Run the portall_bt.pair action once.");
+    } else {
+      ESP_LOGCONFIG(TAG, "    %u of %u slot(s) used -- each is reconnected by address, never scanned for",
+                    (unsigned) listed, (unsigned) MAX_INPUTS);
     }
   }
   if (this->a2dp_) {
