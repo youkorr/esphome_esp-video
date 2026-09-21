@@ -140,6 +140,42 @@ constexpr uint16_t DESKTOP_DPAD_DOWN = 0x91;
 constexpr uint16_t DESKTOP_DPAD_RIGHT = 0x92;
 constexpr uint16_t DESKTOP_DPAD_LEFT = 0x93;
 
+/* The analog sticks. X and Y are the left one and Z and Rz are the right,
+   which is bluepad32's Android parser -- the same source this file's button
+   numbering comes from. Rx and Ry are absent on purpose: see the note on
+   pad_axis_live_ in the header. */
+constexpr uint16_t DESKTOP_X = 0x30;
+constexpr uint16_t DESKTOP_Y = 0x31;
+constexpr uint16_t DESKTOP_Z = 0x32;
+constexpr uint16_t DESKTOP_RZ = 0x35;
+
+/* How far a stick has to be pushed to count as a direction, and how far back
+   it has to come before it can be pushed again, both as a percentage of full
+   travel from the axis's own declared centre.
+
+   These two are a JUDGEMENT rather than a transcription, which is worth
+   saying because nothing else in this file is. The specification fixes no
+   deadzone -- it only says what the axis reports -- so the numbers answer
+   what this is for: moving between tiles across a room. Half travel is a
+   deliberate push rather than a thumb resting on the stick, and letting go
+   at a THIRD rather than at the same point is hysteresis: one threshold for
+   both would chatter a whole list past somebody holding the stick near it. */
+constexpr int32_t STICK_PUSH_PCT = 50;
+constexpr int32_t STICK_RELEASE_PCT = 30;
+
+/* Which of the four this usage is, or -1. */
+int axis_index(uint16_t page, uint16_t usage) {
+  if (page != PAGE_DESKTOP)
+    return -1;
+  switch (usage) {
+    case DESKTOP_X: return 0;
+    case DESKTOP_Y: return 1;
+    case DESKTOP_Z: return 2;
+    case DESKTOP_RZ: return 3;
+    default: return -1;
+  }
+}
+
 /* AC Home and AC Back on the Consumer page.
    These are where a Shield's Home and Back buttons really live, and it took
    reading Linux's hid-nvidia-shield.c to find out: its android_input_mapping()
@@ -320,6 +356,11 @@ void PortallBT::feed_hid_descriptor(const uint8_t *desc, uint16_t len, uint16_t 
   this->pad_buttons_ = 0;
   this->pad_said_ = 0;
   this->consumer_held_ = 0;
+  memset(this->pad_axis_, 0, sizeof(this->pad_axis_));
+  memset(this->pad_axis_dir_, 0, sizeof(this->pad_axis_dir_));
+  /* Not live until centred again: a controller that has just come back has
+     not told this panel where its sticks are. */
+  this->pad_axis_live_ = 0;
   this->said_no_descriptor_ = false;
   memset(this->held_, 0, sizeof(this->held_));
 
@@ -410,6 +451,81 @@ void PortallBT::feed_hid_usage(uint16_t page, uint16_t usage, int32_t value,
     if (key == 0)
       return;
     ESP_LOGI(TAG, "gamepad: %s", usage_name(key));
+    this->key_sink_(PAGE_KEYBOARD, key);
+    return;
+  }
+
+  /* THE STICKS. Reported as an absolute position a hundred times a second,
+     where every other input on this path is an edge -- so the edge has to be
+     made here, from the crossing, or one push would walk the whole list.
+
+     Everything about the arithmetic comes from the DESCRIPTOR: a stick that
+     runs 0..255 and one that runs -32768..32767 are the same axis expressed
+     twice, and the centre of either is its own declared midpoint rather than
+     a number anybody typed. That is the same rule the hat above follows and
+     the reason the byte offsets this file used to carry are gone. */
+  const int idx = axis_index(page, usage);
+  if (idx >= 0 && logical_max > logical_min) {
+    const int32_t span = logical_max - logical_min;
+    /* Twice the value less twice the centre, over the span: -100 at one end
+       of the declared range, 0 at its middle, +100 at the other. */
+    int32_t pct = ((int32_t) value * 2 - (logical_min + logical_max)) * 100 / span;
+    if (pct > 100)
+      pct = 100;
+    if (pct < -100)
+      pct = -100;
+    const int32_t away = pct < 0 ? -pct : pct;
+    const uint8_t live = (uint8_t)(1u << idx);
+
+    if (away < STICK_RELEASE_PCT) {
+      /* Home. This is also the ONLY place an axis earns the right to steer
+         anything: a trigger declared on one of these usages sits at an end
+         of its range for ever and therefore never reaches this line. */
+      this->pad_axis_live_ |= live;
+      this->pad_axis_dir_[idx] = 0;
+      this->pad_axis_[idx] = (int8_t) pct;
+      return;
+    }
+
+    const uint8_t want = (uint8_t)(pct < 0 ? 1 : 2);
+    const bool crossing = (this->pad_axis_dir_[idx] != want) &&
+                          (this->pad_axis_live_ & live) != 0 &&
+                          away >= STICK_PUSH_PCT;
+    /* The other half of this stick, so a diagonal moves along ONE axis
+       rather than both. A grid of tiles has no diagonal, and firing both
+       would move twice for one push.
+
+       What this is exactly, rather than what it would be nice to claim: the
+       partner's figure comes from this same report where that axis was
+       decoded first, and from the report before it otherwise. That is enough
+       because a thumb does not teleport -- it crosses the threshold on one
+       axis while the other is already on its way, so by the crossing report
+       the two are comparable. What it does NOT do is hold for a stick
+       slammed from dead centre to a perfect forty-five degrees between two
+       reports, where whichever axis the descriptor lists first wins by
+       having seen the other still centred. No thumb produces that, and
+       reaching for it would mean holding every axis back until the end of a
+       report for a case that does not occur. */
+    const int partner = idx ^ 1;
+    const int32_t other = this->pad_axis_[partner] < 0 ? -this->pad_axis_[partner]
+                                                       : this->pad_axis_[partner];
+    this->pad_axis_[idx] = (int8_t) pct;
+    if (!crossing)
+      return;
+    this->pad_axis_dir_[idx] = want;
+    if (away <= other)
+      return;
+    /* HID counts Y downwards, so a stick pushed away from the person is
+       NEGATIVE on its vertical axis. Getting this backwards is the kind of
+       fault that reads as the panel being possessed rather than as a sign
+       being wrong, which is why it is written down. */
+    const bool vertical = (idx == 1 || idx == 3);
+    uint16_t key;
+    if (vertical)
+      key = pct < 0 ? KEY_UP : KEY_DOWN;
+    else
+      key = pct < 0 ? KEY_LEFT : KEY_RIGHT;
+    ESP_LOGI(TAG, "gamepad: %s (stick at %d%%)", usage_name(key), (int) pct);
     this->key_sink_(PAGE_KEYBOARD, key);
     return;
   }

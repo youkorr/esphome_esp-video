@@ -306,6 +306,18 @@ int main() {
     out[6] = (uint8_t) (buttons & 0xFF);
     out[7] = (uint8_t) (buttons >> 8);
   };
+  // The same report with the sticks somewhere other than centred. 0x80 is the
+  // middle of the declared 0..255, so it is what letting go looks like, and
+  // 0x0F is outside the hat's declared 0..7, which is its null value.
+  auto pad_stick = [](uint8_t x, uint8_t y, uint8_t z, uint8_t rz, uint8_t *out) {
+    std::memset(out, 0, 8);
+    out[0] = 0x01;
+    out[1] = x;
+    out[2] = y;
+    out[3] = z;
+    out[4] = rz;
+    out[5] = 0x0F;
+  };
   auto with_descriptor = [&]() {
     PortallBT *bt = fresh();
     bt->feed_hid_descriptor(PAD_DESC, sizeof(PAD_DESC), 0x0955, 0x7214);
@@ -506,6 +518,129 @@ int main() {
     ok("with no descriptor, a gamepad report moves nothing", g_sent.empty());
     ok("and the log says that is why",
        said.find("no report descriptor") != std::string::npos);
+    delete bt;
+  }
+  // THE ANALOG STICKS. Reported from a panel as "les joystiks ne sont pas
+  // fonctionnel", and the cause was an absence: feed_hid_usage handled the hat,
+  // the buttons and the consumer page, and Generic Desktop X/Y/Z/Rz fell off
+  // the end of it. Every one of these cases sends NOTHING against that code,
+  // which is the whole reason to trust them.
+  //
+  // A stick is an absolute position rather than an edge, so the test streams
+  // reports the way a controller does: centred first, then pushed.
+  {
+    struct { const char *name; uint8_t x, y, z, rz; uint16_t usage; } pushes[] = {
+        {"the left stick pushed right is right", 0xFF, 0x80, 0x80, 0x80, 0x4F},
+        {"pushed left is left", 0x00, 0x80, 0x80, 0x80, 0x50},
+        // HID counts Y downwards, so away from the person is the LOW end.
+        {"pushed away is up, because HID counts Y downwards", 0x80, 0x00, 0x80, 0x80, 0x52},
+        {"pulled back is down", 0x80, 0xFF, 0x80, 0x80, 0x51},
+        {"and the right stick steers too", 0x80, 0x80, 0xFF, 0x80, 0x4F},
+        {"on both of its axes", 0x80, 0x80, 0x80, 0x00, 0x52},
+    };
+    for (const auto &one : pushes) {
+      PortallBT *bt = with_descriptor();
+      uint8_t pad[8];
+      pad_stick(0x80, 0x80, 0x80, 0x80, pad);
+      bt->feed_hid_keys(pad, sizeof(pad));
+      g_sent.clear();
+      pad_stick(one.x, one.y, one.z, one.rz, pad);
+      bt->feed_hid_keys(pad, sizeof(pad));
+      ok(one.name, only(one.usage));
+      delete bt;
+    }
+  }
+  {
+    // A thumb held over is one move, not a hundred a second -- the same rule
+    // the hat and the keyboard above live under, made here from the crossing
+    // because the device reports a position rather than a press.
+    PortallBT *bt = with_descriptor();
+    uint8_t pad[8];
+    pad_stick(0x80, 0x80, 0x80, 0x80, pad);
+    bt->feed_hid_keys(pad, sizeof(pad));
+    g_sent.clear();
+    for (int i = 0; i < 20; i++) {
+      pad_stick(0xFF, 0x80, 0x80, 0x80, pad);
+      bt->feed_hid_keys(pad, sizeof(pad));
+    }
+    ok("a stick held over moves one tile, not twenty", only(0x4F));
+    // Let go and push again: that is a second move.
+    pad_stick(0x80, 0x80, 0x80, 0x80, pad);
+    bt->feed_hid_keys(pad, sizeof(pad));
+    pad_stick(0xFF, 0x80, 0x80, 0x80, pad);
+    bt->feed_hid_keys(pad, sizeof(pad));
+    ok("and letting it come back arms the next one", g_sent.size() == 2);
+    delete bt;
+  }
+  {
+    // Hysteresis: half travel to push, a third to let go. Coming back only as
+    // far as the band between them must NOT arm another move, or a thumb
+    // resting near the threshold walks the whole list.
+    PortallBT *bt = with_descriptor();
+    uint8_t pad[8];
+    pad_stick(0x80, 0x80, 0x80, 0x80, pad);
+    bt->feed_hid_keys(pad, sizeof(pad));
+    g_sent.clear();
+    pad_stick(0xFF, 0x80, 0x80, 0x80, pad);
+    bt->feed_hid_keys(pad, sizeof(pad));
+    pad_stick(0xB0, 0x80, 0x80, 0x80, pad);  // 38% -- under the push, over the release
+    bt->feed_hid_keys(pad, sizeof(pad));
+    pad_stick(0xFF, 0x80, 0x80, 0x80, pad);
+    bt->feed_hid_keys(pad, sizeof(pad));
+    ok("easing off inside the hysteresis band does not re-arm it", only(0x4F));
+    delete bt;
+  }
+  {
+    // A diagonal moves along ONE axis. Ramped rather than teleported, because
+    // that is what a thumb does and it is the case the guard is written for.
+    PortallBT *bt = with_descriptor();
+    uint8_t pad[8];
+    pad_stick(0x80, 0x80, 0x80, 0x80, pad);
+    bt->feed_hid_keys(pad, sizeof(pad));
+    g_sent.clear();
+    pad_stick(0xA0, 0x90, 0x80, 0x80, pad);  // both still inside the deadzone
+    bt->feed_hid_keys(pad, sizeof(pad));
+    pad_stick(0xFF, 0xC8, 0x80, 0x80, pad);  // right hard, down somewhat
+    bt->feed_hid_keys(pad, sizeof(pad));
+    ok("a diagonal push moves along its dominant axis only", only(0x4F));
+    delete bt;
+  }
+  {
+    // THE TRIGGER GUARD. An axis that has never been seen near its own centre
+    // is not steered with: a trigger declared on one of these usages rests at
+    // an end of its range for ever, and reading that as a direction would be a
+    // key nobody can let go of.
+    PortallBT *bt = with_descriptor();
+    uint8_t pad[8];
+    pad_stick(0x00, 0x80, 0x80, 0x80, pad);  // "X" sits at its minimum, like a trigger
+    for (int i = 0; i < 5; i++)
+      bt->feed_hid_keys(pad, sizeof(pad));
+    ok("an axis resting at one end of its range steers nothing", g_sent.empty());
+    pad_stick(0xFF, 0x80, 0x80, 0x80, pad);  // pulled fully the other way
+    bt->feed_hid_keys(pad, sizeof(pad));
+    ok("and still nothing, because it has never been centred", g_sent.empty());
+    // Centre it once and it becomes a stick.
+    pad_stick(0x80, 0x80, 0x80, 0x80, pad);
+    bt->feed_hid_keys(pad, sizeof(pad));
+    pad_stick(0xFF, 0x80, 0x80, 0x80, pad);
+    bt->feed_hid_keys(pad, sizeof(pad));
+    ok("once it has been centred it steers like any other axis", only(0x4F));
+    delete bt;
+  }
+  {
+    // A reconnection forgets where the sticks were, exactly as it forgets the
+    // hat -- and forgets that they were ever centred, because the panel has
+    // not been told where they are now.
+    PortallBT *bt = with_descriptor();
+    uint8_t pad[8];
+    pad_stick(0x80, 0x80, 0x80, 0x80, pad);
+    bt->feed_hid_keys(pad, sizeof(pad));
+    bt->feed_hid_descriptor(PAD_DESC, sizeof(PAD_DESC), 0x0955, 0x7214);
+    g_sent.clear();
+    pad_stick(0xFF, 0x80, 0x80, 0x80, pad);
+    bt->feed_hid_keys(pad, sizeof(pad));
+    ok("after a reconnection a stick is armed by being centred again",
+       g_sent.empty());
     delete bt;
   }
   {
