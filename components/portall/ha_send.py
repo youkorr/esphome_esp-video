@@ -372,6 +372,38 @@ WHEEL_MIN_INTERVAL_S = 0.030
 # a tap. Small enough that a deliberate drag is recognised at once, large
 # enough that the wobble of a fingertip on a press is not.
 DRAG_THRESHOLD = 12
+# How long a tap holds the button down before it is let go.
+#
+# A finger's press is held back until it lifts, so that a gesture that
+# travelled can become a wheel instead of a click -- and then mousedown and
+# mouseup went out together. `:active` is tied to the button really being
+# down, so on this path it lasted about as long as one task, and no page
+# anywhere could show a pressed state.
+#
+# Measured through a screencast, pressing a plain button that styles nothing
+# but :active, counting the frames that contain the press:
+#
+#   down and up together   0 of 1 frames
+#   held 16 ms             1 of 2
+#   held 48, 64, 96, 150   1 of 2
+#
+# and, in the same run, a button that animates its own feedback the way Home
+# Assistant's Material ripple does: 15 of 25 frames EITHER WAY, because an
+# animation runs on after the button is up. That is the whole of why a panel
+# felt responsive on Home Assistant and dead on Jellyfin and Netflix, which
+# style :active and nothing else.
+#
+# 80 ms rather than the 16 that is technically enough: the sender throws away
+# the frame in hand after a press and asks for a fresh one, and that frame is
+# painted and encoded 20-40 ms later, so the button has to still be down when
+# it is. It is also what a real finger does -- a tap is 80-150 ms.
+#
+# What it costs is that the click fires on mouseup, so the page acts 80 ms
+# later. That is the right trade and not merely an acceptable one: the panel
+# now shows the button going down at the moment it used to show nothing at
+# all, and what makes an interface feel quick is the first acknowledgement
+# rather than the completion. --press-hold 0 restores the old behaviour.
+PRESS_HOLD_S = 0.080
 # How long to wait for a page to say it has loaded before showing it anyway.
 # Nothing is given up by the wait ending: the browser goes on loading and the
 # screencast shows whatever paints. It is only the difference between a first
@@ -3075,7 +3107,8 @@ class Injector:
     """
 
     def __init__(self, page, touch_map, keyboard=None, page_w=0, page_h=0,
-                 corner=HOME_CORNER_FRACTION, hold=HOME_HOLD_S):
+                 corner=HOME_CORNER_FRACTION, hold=HOME_HOLD_S,
+                 press_hold=PRESS_HOLD_S):
         self._page = page
         self._corner = (page_w * corner, page_h * corner)
         # How long a finger must stay in the corner. A panel mounted where it
@@ -3132,9 +3165,17 @@ class Injector:
         self._key = None
         # When the finger landed, so a tap can be told from an abandoned hold.
         self._down_at = 0.0
+        # A tap whose button is still down, and when it is due to be let go.
+        # None when nothing is held. See PRESS_HOLD_S.
+        self.press_hold = max(0.0, press_hold)
+        self._release_at = None
 
     def handle(self, reports):
         """Replay the contacts. True if any of them reached the page."""
+        # Whatever is still held goes now, whether or not its time is up: the
+        # finger has moved on, and a second press dispatched on top of a button
+        # that was never released is a down-down the page cannot make sense of.
+        self.release_press()
         clicked = False
         self.began = False
         # Every report, in order. Collapsing a run of them down to its last
@@ -3275,6 +3316,11 @@ class Injector:
     def tick(self, now):
         """True once, when the corner has been asked to take the panel home.
 
+        Also lets go of a tap whose hold is up. It belongs here rather than in
+        handle() for the same reason the corner's hold does: the board drops a
+        report identical to the one before it, so a finger that has already
+        lifted produces nothing further to hang this on.
+
         Two ways ask for it. A swipe sideways out of the corner is decided in
         handle(), where the movement is, and left here to be collected: one
         place for the loop to look means the loop cannot learn about one and
@@ -3286,6 +3332,7 @@ class Injector:
         before it, which is what stops a resting finger from saying the same
         thing fifty times a second.
         """
+        self.release_press(now)
         if self._home:
             self._home = False
             self.held_for = None
@@ -3325,6 +3372,37 @@ class Injector:
         dx, dy = self._wheel
         self._wheel = [0, 0]
         self._page.mouse.wheel(dx, dy)
+
+    def _press(self, x, y):
+        """Put the button down. tick() is what lets it go again."""
+        self._page.mouse.move(x, y)
+        self._page.mouse.down()
+        if not self.press_hold:
+            # Asked for the old behaviour: both halves in one go, and nothing
+            # left for tick() to find.
+            self._page.mouse.up()
+            return
+        self._release_at = time.monotonic() + self.press_hold
+
+    def release_press(self, now=None):
+        """Let go of a held tap. With no time given, let go whatever the clock.
+
+        True when something was actually released, so a caller can tell a tap
+        that completed from a turn with nothing to do.
+        """
+        if self._release_at is None:
+            return False
+        if now is not None and now < self._release_at:
+            return False
+        self._release_at = None
+        try:
+            self._page.mouse.up()
+        except Exception:  # noqa: BLE001 - a page mid-navigation, or gone
+            # A press that cannot be released is not worth the picture: the
+            # page is being replaced, which is usually what the press asked
+            # for.
+            return False
+        return True
 
     def _finish(self):
         """The finger left. A gesture that never travelled was a tap.
@@ -3385,16 +3463,12 @@ class Injector:
                         print(f"[{stamp()}] corner: a {held:.2f}s tap -- "
                               f"straight to the page", flush=True)
                         self._say_target(*self._last)
-                    self._page.mouse.move(*self._last)
-                    self._page.mouse.down()
-                    self._page.mouse.up()
+                    self._press(*self._last)
                     clicked = True
             else:
                 if self.verbose:
                     self._say_target(*self._last)
-                self._page.mouse.move(*self._last)
-                self._page.mouse.down()
-                self._page.mouse.up()
+                self._press(*self._last)
                 clicked = True
         self._reset()
         return clicked
@@ -3527,6 +3601,15 @@ def main():
         help="how long a finger must be held in that corner, in seconds. "
         "Short of it the tap is delivered to the page as usual, so the corner "
         "stays usable. The sideways swipe out of the corner is unaffected",
+    )
+    parser.add_argument(
+        "--press-hold",
+        type=float,
+        default=PRESS_HOLD_S * 1000.0,
+        help="how long a tap holds the button down, in milliseconds. The "
+        "panel sees the page at a frame rate, so a press that goes down and "
+        "up in the same instant is one no frame can contain and no site's "
+        ":active can show. 0 restores that",
     )
     parser.add_argument(
         "--not-home-assistant",
@@ -4228,7 +4311,8 @@ def main():
         injector = (
             None if args.no_touch
             else Injector(page, touch_map, keyboard, page_w, page_h,
-                          corner_fraction, args.home_hold)
+                          corner_fraction, args.home_hold,
+                          max(0.0, args.press_hold) / 1000.0)
         )
         if injector is not None:
             injector.verbose = args.show_touches
@@ -4657,7 +4741,7 @@ def main():
                             # asking about -- and twice, because Home
                             # Assistant opens its search in a dialog that
                             # animates in before focusing its field.
-                            keyboard.request_sync(0.0)
+                            keyboard.request_sync(injector.press_hold)
                             keyboard.request_sync(0.45)
                         if URGENT_AFTER_INPUT:
                             urgent_until = time.monotonic() + args.urgent_window

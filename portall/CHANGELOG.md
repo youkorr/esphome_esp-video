@@ -1,5 +1,26 @@
 # Changelog
 
+## 4.14.0
+
+- **Every site's own press effect works now, not just the launcher's.**
+  Reported from a panel as "jellyfin fait pareil que netflix le button ne
+  dispose aucun effect" -- and naming those two and not Home Assistant is the
+  whole diagnosis. The sender held a tap back until the finger lifted and then
+  sent the press and the release together, so `:active` -- which is tied to
+  the button really being down -- lasted about as long as one task. Measured
+  through a real screencast: a button styled with `:active` alone, which is
+  what Jellyfin and Netflix use, appeared pressed in **0 of 1** frames; one
+  that animates its own feedback, which is what Home Assistant's Material
+  buttons do, appeared in 15 of 25 either way. That is why only two of the
+  four were reported.
+
+  A tap now holds the button down for 80 ms, which is what a finger does
+  anyway, so the page paints its own pressed state and a frame can contain it.
+  The panel shows the press at the moment it used to show nothing, and the
+  page acts 80 ms later -- which is the right way round, because what makes an
+  interface feel quick is the first acknowledgement rather than the
+  completion. `--press-hold 0` on a hand run restores the old behaviour.
+
 ## 4.13.0
 
 - **A link tile now looks pressed when you press it.** Reported from a panel
