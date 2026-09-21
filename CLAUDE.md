@@ -7315,6 +7315,55 @@ st 0x4` -- a Page Timeout seven seconds after everything had connected, from a
 page this component did not make, since both reconnect paths return while
 their device is open.
 
+### SETTLED by a panel, and it was the device -- not the radio and not the fix
+
+**The controlled experiment ran and both pairings worked, twenty seconds
+apart.** A Shield, then an UGREEN, on one panel:
+
+    22:21:36  scanning for about 10 seconds
+    22:21:40    heard 00:04:4B:93:A9:B2  class 000508  major 5 minor 2
+    22:21:43  pairing finished: 00:04:4B:93:A9:B2 is connected.
+    22:21:45  hcif mode change: hdl 0x2, mode 2, intv 18     <- the Shield, in SNIFF
+    22:21:56  scanning for about 10 seconds
+    22:22:00    heard 46:E8:1C:8A:88:DD  class 240404  major 4 minor 1
+    22:22:03  pairing finished: 46:E8:1C:8A:88:DD is connected.
+
+**The second scan ran with the Shield's ACL up and heard the speaker in four
+seconds**, so the hypothesis this file had just recorded -- that a live link
+was costing the inquiry, and that removing `drop_links_()` from `pair()` might
+be why a previous scan heard nothing -- is **wrong**. The earlier silence was
+the UGREEN not being discoverable, which was always the other candidate.
+
+Worth keeping because of the shape: that hypothesis was reasonable, it was
+about this session's own change, and it was stated as a candidate rather than
+a cause precisely so a run could kill it. One run did. **A candidate named
+honestly is cheap to retire; one argued into the file as a finding is not.**
+
+**And the diagnostic built for it never printed**, because the case it names
+did not arise. That is the right outcome and not a wasted change -- it costs
+nothing on a scan that hears something, and the next silence is still the one
+it exists for. Unproven in the field, deliberately said so.
+
+Three other things that log confirms, all of them fixes landing:
+
+- **No `hanging up ...` line anywhere.** Pairing the speaker left the Shield
+  connected -- `hdl 0x2` for the controller, `hdl 0x3` for the speaker, both
+  live. That is Pair MEANING ADD, on hardware.
+- **`the speaker's buttons are connected`** -- the AVRCP target, on the car
+  receiver whose own `unknown PSM: 23` asked for it.
+- **`0955:7214 described itself: 379 bytes, 339 fields`** with no truncation
+  warning, and `event 257 bytes, code 07` on the boot probe: the largest frame
+  HCI defines, reassembled whole over a sixteen-byte endpoint.
+
+`hcif disc complete: hdl 0x1, rsn 0x5` at boot is Authentication Failure
+again -- a device paging with a link key a Forget removed -- and
+`opcode=0xfc82, status= 01: Illegal Command` is the vendor command this dongle
+does not carry. Both already recorded, neither a fault.
+
+**What this log does NOT settle** is the `l2cab is_cong_cback_context` flood:
+it ends about a second after `audio stream started`, so the idle suspend has
+not had its ten seconds and the congested case has barely run.
+
 ## Repository conventions
 
 - Work on branch `claude/esphome-pr-outdated-mdq36w`, then merge into `main`
