@@ -220,6 +220,9 @@ static constexpr uint16_t HCI_READ_BD_ADDR = 0x1009;
 // status and a version byte. Taken from Linux's rtl_read_rom_version() rather
 // than from anywhere else, which is also where the two tables below come from.
 static constexpr uint16_t HCI_RTL_READ_ROM_VERSION = 0xFC6D;
+// Realtek's firmware download. One index byte then up to 252 of patch, and
+// the answer is a status and the index echoed back.
+static constexpr uint16_t HCI_RTL_DOWNLOAD = 0xFC20;
 
 static constexpr uint16_t HCI_INQUIRY = 0x0401;
 static constexpr uint16_t HCI_WRITE_INQUIRY_MODE = 0x0C45;
@@ -241,7 +244,13 @@ static constexpr uint8_t RESET_ATTEMPTS = 5;
 static constexpr uint32_t RESET_RETRY_MS = 400;
 
 // DMA reads and writes these, so they go where CherryUSB puts its own.
-static USB_NOCACHE_RAM_SECTION USB_MEM_ALIGNX uint8_t g_hci_cmd[64];
+// 3 bytes of HCI header and up to 253 of parameters. It was 64, which is
+// ample for every command this component sends by hand and four times too
+// small for a firmware fragment: Realtek's download carries an index byte and
+// 252 of patch. The attributes are the alignment rule this file already paid
+// for once -- a buffer handed to the controller lives out of cache and on a
+// 64-byte boundary, and a bigger one changes neither.
+static USB_NOCACHE_RAM_SECTION USB_MEM_ALIGNX uint8_t g_hci_cmd[256];
 static USB_NOCACHE_RAM_SECTION USB_MEM_ALIGNX uint8_t g_hci_evt[260];
 
 // Every read lands HERE first and is copied out, rather than being read
@@ -565,10 +574,10 @@ static const char *realtek_rom_part(uint16_t lmp_subver, uint16_t hci_rev, uint8
 
 static int hci_ask(struct usbh_hubport *hport, uint8_t intf,
                    struct usb_endpoint_descriptor *events, uint16_t opcode, const char *what,
-                   uint32_t patience_ms) {
+                   uint32_t patience_ms, const uint8_t *params = nullptr, uint8_t plen = 0) {
   Waited saw;
 
-  const int sent = hci_command(hport, intf, opcode, nullptr, 0);
+  const int sent = hci_command(hport, intf, opcode, params, plen);
   if (sent < 0) {
     // -3 is USB_ERR_NODEV: somebody pulled the dongle out. Worth naming,
     // because five identical lines saying a command would not go out read like
@@ -600,6 +609,114 @@ static int hci_ask(struct usbh_hubport *hport, uint8_t intf,
     return -1;
   }
   return len;
+}
+
+/* Realtek's firmware download, which is what turns a dongle that answers HCI
+ * into one that does anything on the air.
+ *
+ * A panel reported both its devices sitting beside it and neither connecting:
+ * an inquiry that heard nothing and `hcif conn complete ... st 0x4`, Page
+ * Timeout, on an address that had worked minutes earlier on a Broadcom. Same
+ * panel, same firmware, same room -- the dongle was the only thing that
+ * changed. That is the shape of a Realtek running its ROM: the HCI interface
+ * is implemented there, so everything up to and including Bluedroid's whole
+ * startup succeeds, and then nothing reaches the radio.
+ *
+ * `RTL_FRAG_LEN` and the index rule are transcribed from
+ * rtl_download_firmware() in Linux's drivers/bluetooth/btrtl.c, including the
+ * two details nobody would invent: the index counts 0, 1 ... 0x7f and then
+ * wraps to 1 rather than to 0, and the LAST fragment carries 0x80 in that
+ * byte and a length of `total % 252` -- which is zero when the image divides
+ * exactly, and is sent anyway because that is what the controller is waiting
+ * for.
+ *
+ * What is NOT here is the parsing. The file is a header, a metadata table, a
+ * backwards walk for a project id and a four-byte version splice, and every
+ * one of those is somewhere to be silently wrong; `tools/rtlfw.py` does it
+ * where it can be run against the real file, and this is handed the bytes. */
+static constexpr uint8_t RTL_FRAG_LEN = 252;
+
+/* Which index byte the i-th fragment carries.
+ *
+ * Linux writes this as a running counter: `index = j++; if (index == 0x7f) j =
+ * 1;`. So the value 0x7f IS used, and the reset lands on ONE rather than zero
+ * -- zero is only ever the very first fragment. Written here as a function of
+ * i instead, because a counter carried through a loop is a place for an
+ * off-by-one to hide where nothing can look at it, and a patch sent with the
+ * wrong indices is a dongle stuck half-programmed on somebody's panel.
+ *
+ * The test states the counter form separately and requires the two to agree
+ * across a thousand fragments; two formulations of one rule agreeing is a
+ * check, where copying the formula into the test would not be. */
+uint8_t rtl_fragment_index(uint32_t i) {
+  if (i <= 0x7F)
+    return (uint8_t) i;
+  return (uint8_t) ((i - 0x80) % 0x7F + 1);
+}
+
+bool PortallBT::send_realtek_firmware_(struct usbh_hubport *hport, uint8_t intf,
+                                       struct usb_endpoint_descriptor *events,
+                                       uint8_t rom_version) {
+  const uint8_t *image = nullptr;
+  uint32_t length = 0;
+  for (uint8_t i = 0; i < this->rtl_image_count_; i++) {
+    if (this->rtl_images_[i].rom_version == rom_version) {
+      image = this->rtl_images_[i].data;
+      length = this->rtl_images_[i].length;
+      break;
+    }
+  }
+  if (image == nullptr) {
+    ESP_LOGW(TAG, "  this controller wants the patch for ROM version %u and the firmware "
+                  "given to this build does not carry one. tools/rtlfw.py lists what a "
+                  "pair of files covers.", rom_version);
+    return false;
+  }
+
+  const uint32_t whole = length / RTL_FRAG_LEN + 1;
+  ESP_LOGI(TAG, "  loading %u bytes of firmware into it, %u fragments", (unsigned) length,
+           (unsigned) whole);
+
+  uint32_t at = 0;
+  for (uint32_t i = 0; i < whole; i++) {
+    uint8_t take = RTL_FRAG_LEN;
+    uint8_t mark = rtl_fragment_index(i);
+    if (i + 1 == whole) {
+      // The last one is marked, and its length is the REMAINDER -- which is
+      // zero when the image divides by 252 exactly. Linux sends that empty
+      // fragment anyway and so does this: it is the mark rather than the
+      // bytes that tells the controller the patch is complete.
+      mark |= 0x80;
+      take = (uint8_t) (length % RTL_FRAG_LEN);
+    }
+
+    uint8_t frame[1 + RTL_FRAG_LEN];
+    frame[0] = mark;
+    if (take != 0)
+      memcpy(&frame[1], &image[at], take);
+    at += take;
+
+    // Quiet on the way through: a hundred and twenty lines saying a fragment
+    // went out is a log nobody can read, and the one that fails says so.
+    const int len = hci_ask(hport, intf, events, HCI_RTL_DOWNLOAD, "Realtek firmware fragment",
+                            2000, frame, (uint8_t) (take + 1));
+    if (len < 0) {
+      ESP_LOGE(TAG, "  fragment %u of %u was refused -- the controller is now part way "
+                    "through a patch and should be unplugged and put back",
+               (unsigned) (i + 1), (unsigned) whole);
+      return false;
+    }
+  }
+
+  // The proof, and it is the same field the ROM was recognised by: a patched
+  // controller reports the firmware's own version and matches no table here.
+  if (hci_ask(hport, intf, events, HCI_READ_LOCAL_VERSION, "Read Local Version", 1500) >= 14) {
+    const uint16_t hci_rev = (uint16_t) (g_hci_evt[7] | (g_hci_evt[8] << 8));
+    const uint16_t lmp_subver = (uint16_t) (g_hci_evt[12] | (g_hci_evt[13] << 8));
+    ESP_LOGI(TAG, "  firmware loaded -- it now reports revision %04x subversion %04x",
+             hci_rev, lmp_subver);
+  }
+  return true;
 }
 
 // What the task is handed. The PORT is carried, never the hubport pointer: an
@@ -1607,10 +1724,20 @@ void PortallBT::probe_hci(uint8_t hub_index, uint8_t hub_port, uint8_t intf_inde
                       "which is what a patched controller looks like");
       }
       // One more command, and it is the maker's own. It costs nothing on a
-      // Realtek and is never sent to anything else.
+      // Realtek and is never sent to anything else. Its answer is also what
+      // chooses the patch, so it has to be asked before any of that.
       if (hci_ask(hport, intf, events, HCI_RTL_READ_ROM_VERSION, "Realtek Read ROM Version",
-                  1500) >= 7)
-        ESP_LOGI(TAG, "  Realtek ROM version %u", g_hci_evt[6]);
+                  1500) >= 7) {
+        const uint8_t rom_version = g_hci_evt[6];
+        ESP_LOGI(TAG, "  Realtek ROM version %u", rom_version);
+        if (part != nullptr && this->rtl_image_count_ > 0) {
+          this->send_realtek_firmware_(hport, intf, events, rom_version);
+        } else if (part != nullptr) {
+          ESP_LOGW(TAG, "  no firmware was built into this panel, so this dongle stays on "
+                        "its ROM. It will answer every command and reach nothing on the "
+                        "air: see firmware: in the portall_bt documentation.");
+        }
+      }
     }
   }
 

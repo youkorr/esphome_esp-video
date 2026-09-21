@@ -6233,6 +6233,94 @@ that is off, away, or connected to a car, and this file already records that a
 connected speaker answers no inquiry. What the fix buys is that the panel is
 no longer competing with its own paging while somebody tries to pair.
 
+## The Realtek needs its firmware, and the panel is what proved it
+
+**Reported as *"l'UGREEN n'est pas connecter ailleur il es juste a cote comme
+la manette il n'arrive pas a ce connecter avec le tplink"*.** That is the
+controlled experiment this file kept saying was one flash away, and it arrives
+as one sentence: **same panel, same firmware, same room, two devices that both
+worked on the Broadcom, and neither connects on the TP-Link.**
+
+This file has carried the prediction since the TP-Link first ran: *"in ROM
+mode, with nothing uploaded, it answered every one of Bluedroid's thirty-three
+startup commands and brought the host up. **What the firmware buys is what
+happens after that, which is untested.**"* It is tested now, and what it buys
+is everything on the air. The ROM implements HCI, so enumeration, `esp_bt_dev_
+get_address()` and the whole of Bluedroid's startup succeed -- and an inquiry
+hears nothing and every page ends `st 0x4`, Page Timeout.
+
+**The parse is in Python and the board only cuts bytes up.** `tools/rtlfw.py`
+turns Realtek's two files into the image a controller is sent, at CODEGEN, and
+`components/portall_bt/__init__.py` emits it as a C array. The format is a
+header, a metadata table indexed off by one, a backwards walk through an
+instruction stream for a project id, and a four-byte version splice -- four
+places to be silently wrong, and silently wrong here is a dongle stuck
+half-programmed on somebody else's panel. Python can be run against the real
+file; C++ on a board cannot.
+
+**And the arithmetic landed on the number this file already carried.** The
+parser, written from `rtlbt_parse_firmware()` with no reference to it, gives
+**30 210 bytes** for an RTL8761BU -- which is exactly what CLAUDE.md recorded
+from Linux months earlier. 30204 of patch for ROM version 1, plus a config
+file that turns out to be **six bytes**: a magic and a zero length.
+
+Three details in the format that no reader would invent, all transcribed:
+
+- **A chip reporting ROM version N takes the patch whose chip id is N + 1.**
+- **The last four bytes of the patch are REPLACED** by the version out of the
+  header. Not a checksum: the controller reports it back afterwards, which is
+  how a patched dongle is told from one on its ROM.
+- **The index byte counts 0, 1 ... 0x7f and then wraps to ONE**, because
+  Linux's `index = j++; if (index == 0x7f) j = 1;` assigns before it resets.
+  Zero appears exactly once in the whole stream.
+
+**The last fragment is marked and may be EMPTY.** `frag_num = len / 252 + 1`
+and the last length is `len % 252`, which is zero when the image divides
+exactly -- and it is sent anyway, because the 0x80 in the index is what ends
+the patch rather than the bytes. A tidier loop would have dropped it.
+
+### The files are not in this repository, and that is a licence rather than a preference
+
+`firmware:` and `firmware_config:` take PATHS. The blobs are Realtek's,
+linux-firmware redistributes them under Realtek's own terms, and a household
+downloads them once -- so the question never arrives here. `git.kernel.org` is
+refused by this container's proxy and every GitHub mirror tried returned 404;
+**gitlab.com/kernel-firmware/linux-firmware** is the one that answers, which
+is worth recording so the next session does not repeat the search.
+
+### What is tested, and the one thing that is not
+
+`tools/checkrtlfw.py` builds files byte by byte to the format's own
+description, so every expected answer is stated independently of the parser:
+both patches found, the chip-id-minus-one rule, the version splice, the config
+appended. Then eight refusals -- no signature, the newer RTBTCore format, a
+truncated file, a bad config magic, a config whose length disagrees with
+itself, a patch running off the end, a file naming no project. And against
+**Realtek's own file** when `RTL_FW` points at it, where the 30 210 is the
+assertion.
+
+`tools/bttest/fragments.cpp` links the shipped `rtl_fragment_index()` and
+checks it against **Linux's counter form written out separately** over a
+thousand fragments -- two formulations of one rule agreeing, where copying the
+formula into the test would have proved only that it can be copied. That is
+why the index is a pure function of `i` rather than a counter carried through
+the loop: a counter has nowhere for a test to look. **Reproduced against the
+natural wrong reading** -- wrapping to zero instead of one -- where it parts
+company at fragment 128 and fails four cases.
+
+The codegen was read rather than trusted: with the real files, ESPHome emits
+`static const uint8_t rtl_firmware_0[14054]` and `rtl_firmware_1[30210]`, both
+wired through `add_realtek_firmware`, and the first bytes of the image are
+patch data rather than the file's `Realtech` header.
+
+**What is NOT tested is the download itself.** No C++ here has been compiled
+by a real toolchain and nothing has sent a fragment to a controller. The loop
+is a transcription; `g_hci_cmd` grew from 64 bytes to 256 to hold one, which
+is the kind of change that is invisible until a fragment is silently cut
+short. What settles it is one flash, and the log now says which dongle it is,
+whether it is on its ROM, how many fragments went out, and what version it
+reports afterwards.
+
 ## Repository conventions
 
 - Work on branch `claude/esphome-pr-outdated-mdq36w`, then merge into `main`
