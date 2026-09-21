@@ -424,17 +424,48 @@ report that changes, which is what to turn on if a button does nothing.
 #### And whether the arrows do anything depends on the page
 
 This is the part to read before deciding a remote is broken. A browser does
-**not** move focus between links with the arrow keys -- only Tab does. So a
-page that wants to be driven by a remote has to say so, and each one answers
-differently:
+**not** move focus between links with the arrow keys on its own -- only Tab
+does -- so this add-on turns spatial navigation on in the browser it launches,
+and a site that drives itself with a remote keeps doing so. What each one does
+still differs:
 
 | | arrows | what it needs |
 |---|---|---|
 | **the launcher** | yes, moves between tiles | nothing -- built in |
 | **YouTube `/tv`** | yes | the television user agent on that link, as below |
-| **Jellyfin** | yes, **once its layout is TV** | Settings > Display > Layout: **TV** |
-| **Home Assistant** | no -- **Tab** moves between cards, Enter opens | nothing to set |
-| **anything else** | arrows scroll the page, Tab moves focus | -- |
+| **Jellyfin** | yes, and **better once its layout is TV** | Settings > Display > Layout: **TV** |
+| **Home Assistant** | **Tab** moves between cards, Enter opens | nothing to set |
+| **anything else** | yes -- the browser moves the focus | nothing to set |
+
+**That last row used to read "arrows scroll the page", and a panel is what
+changed it.** Driving a gamepad, YouTube was fine and Netflix, Orange TV and
+Jellyfin were not -- *"il ya juste parfois le button up et down qui fonctionne
+mais difficillement"*. That is not the remote, the dongle or the panel: a
+browser does not move focus with the arrows, so on a site with no spatial
+navigation of its own they fell through to the browser's default, which is to
+SCROLL. Up and down had somewhere to go and left and right had nothing, which
+is the report exactly.
+
+The sender now launches the browser with spatial navigation on, so the arrows
+move the focus on those sites too. Two things are worth knowing about it:
+
+- **A neighbour that is off the screen costs one press to reveal.** The first
+  arrow scrolls it into view and the second takes it; with it already visible
+  the first press takes it. That is the browser being sensible rather than a
+  fault, but from a sofa it reads as a key that sometimes needs pressing twice.
+- **A page that handles its own arrows still wins.** It is a fallback, not an
+  override -- measured against a page whose handler deliberately moves the
+  opposite way, and the page won. So the launcher, YouTube's television
+  interface and Jellyfin in TV layout behave exactly as they did.
+
+Jellyfin keeps its own row because its TV layout is still the better setting:
+the browser's fallback moves focus, and Jellyfin's own navigation also gives
+Back its meaning and lays the pages out for a remote in the first place.
+
+**Not verified against those sites themselves** -- there is no route to
+Netflix, Orange TV or a Jellyfin server from where this was written. What is
+measured is the mechanism, on the browser the add-on ships, against a page
+built to the shape of one: `tools/checkspatnav.py`.
 
 **If nothing happens at all, the log now says which of the three it is** --
 `keys:` not set, a report shape this cannot read (with its bytes), or a

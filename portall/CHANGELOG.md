@@ -1,5 +1,19 @@
 # Changelog
 
+## 4.12.0
+
+- **A remote or a gamepad now moves between links on sites that do not
+  handle the arrows themselves.** Reported from a panel driving an NVIDIA
+  Shield: YouTube fine, and Netflix, Orange TV and Jellyfin where "sometimes
+  up and down work, with difficulty". That is not the remote or the dongle --
+  a browser does not move focus with the arrows, only Tab does, so on a site
+  with no spatial navigation of its own they fell through to the browser and
+  SCROLLED the page. Up and down had somewhere to go and left and right had
+  nothing, which is the report word for word. The browser is launched with
+  spatial navigation on now. A page that handles its own arrows still wins --
+  measured -- so the launcher, YouTube's television interface and Jellyfin in
+  TV layout are unchanged.
+
 ## 4.11.1
 
 - **A panel with `keep_profile` off now says what its old profile is costing.**

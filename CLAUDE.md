@@ -6522,6 +6522,87 @@ Whether the `l2cab is_cong_cback_context` flood is gone is **not** settled by
 this log: the stream here was suspended within seconds of connecting by the
 clock bug above, so the congested case barely ran. The next log is what says.
 
+## The arrows only ever worked where the SITE moved the focus
+
+**Asked as a question rather than a report, which is what made it easy to
+answer: *"sur youtube je peux bien naviguer mais sur netfix, orange tv,
+jellyfin c'est compliquer il ya juste parfois le button up et down qui
+fonctionne mais difficillement"*.**
+
+That last clause is the whole diagnosis and the user wrote it without meaning
+to. **A browser does not move focus between links with the arrows -- only Tab
+does.** So on a site with no spatial navigation of its own the arrows fall
+through to the browser's default, which is to SCROLL: up and down have
+somewhere to go, left and right have nothing at all. "Sometimes up and down,
+with difficulty" is not a flaky gamepad, it is a page being scrolled by
+somebody trying to navigate it.
+
+Everything upstream was already proved right by the same session: the Shield's
+descriptor is read, `gamepad: up / down / left / right` decode once per press,
+and YouTube's television interface works -- because `ytlr` implements spatial
+navigation for itself. DOCS.md already carried the table saying so, with
+`anything else | arrows scroll the page` as its last row. **The table was
+correct and nobody had asked whether that row had to stay true.**
+
+### One Chromium flag, and the measurement is what made it safe
+
+`--enable-spatial-navigation`, measured on the shipped build against a grid of
+links with no key handler -- which is the shape of a media site's rows:
+
+| | focus moved | what the arrows did |
+|---|---|---|
+| as it was | **0 of 4** | up and down scrolled the page |
+| with the flag | **3 of 4** | moved between tiles |
+
+The fourth is not a failure and is worth keeping because it is what
+"difficult" would look like if it ever came back: a neighbour that is **off
+screen** is scrolled into view by the first press and taken by the second,
+and the same press with that neighbour visible takes it on the first. Enter
+still activates what is focused.
+
+**The regression risk is the only thing that could have made this a bad trade,
+and it is the half that was checked first.** The launcher swallows every arrow
+before anything else -- itself a fix this file records under *"up cree des
+probleme"* -- so if the flag ran INSTEAD of a page's own handler, the one page
+that works today would stop. Measured against a page whose handler calls
+`preventDefault()` and deliberately moves the OPPOSITE way, so which of the two
+ran is readable rather than inferred: **the page won, with the flag exactly as
+without it.** It is a fallback, not an override. The launcher, YouTube `/tv`
+and Jellyfin in TV layout are untouched, and only the pages that do nothing
+today gain anything.
+
+### The check reads the flag off the shipped list
+
+`tools/checkspatnav.py` imports `ha_send.BROWSER_ARGS` and launches with it,
+rather than writing the flag out again -- so removing it from the sender fails
+the check. A test carrying its own copy of the thing it checks can only ever
+agree with itself, which is the shape this file has now recorded three times
+for `descriptor.cpp` and `checkarrows.py`. **Reproduced before it was
+believed**: with the flag taken out of `ha_send.py`, six of its ten cases fail,
+and the one asserting `no arrow moves the focus at all` passes -- that case IS
+the panel's report, kept rather than remembered.
+
+### Two things this does NOT settle
+
+- **Netflix, Orange TV and a Jellyfin server were never reached** -- there is
+  no route to any of them from here. What is measured is the MECHANISM, on the
+  browser the add-on ships, against a page built to their shape. Whether a
+  particular site also fights the focus for its own reasons is one flash away.
+- **Netflix has a second wall that has nothing to do with arrows**, already
+  recorded above: it needs Widevine, only Chrome carries it, and Google
+  publishes no arm64 Linux build. Navigation reaching its tiles does not make
+  it play.
+
+And Jellyfin keeps its own row in the table: the browser's fallback moves the
+focus, and its TV layout is still the better setting, because that is also
+what gives Back its meaning and lays the pages out for a remote at all. One
+dropdown, in Jellyfin, per user -- `Settings > Display > Layout: TV`.
+
+The general shape, for the seventh time in this file: **the row of a table
+that says "this does not work" is a question nobody has asked yet.** It had
+been true since the day it was written, it was documented honestly, and one
+flag turned it over.
+
 ## Repository conventions
 
 - Work on branch `claude/esphome-pr-outdated-mdq36w`, then merge into `main`
