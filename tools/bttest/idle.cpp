@@ -55,6 +55,26 @@ static void streaming(PortallBT &bt) {
 int main() {
   std::printf("a speaker being sent nothing\n");
 
+  /* The clock must START when a speaker connects. It begins at zero and a
+   * panel is minutes into its uptime by the time anybody pairs, so "nothing
+   * fed for ten seconds" was true the instant a sink connected -- the suspend
+   * went out BEFORE the start it was meant to undo, which is what a panel's
+   * log showed in three consecutive lines. */
+  esphome::g_now_ms = 120000;  // a panel two minutes up, which is the real case
+  {
+    g_media_ctrl.clear();
+    PortallBT fresh;
+    esp_bd_addr_t speaker = {0x46, 0xE8, 0x1C, 0x8A, 0x88, 0xDD};
+    fresh.set_a2dp(true);
+    fresh.start_profiles_();
+    fresh.on_a2dp_ready();
+    fresh.on_a2dp_open(speaker);
+    fresh.on_a2dp_audio(true);
+    fresh.loop();
+    check("a speaker that has just connected is not suspended at once",
+          !asked(ESP_A2D_MEDIA_CTRL_SUSPEND));
+  }
+
   // Ten seconds of quiet: the stream goes down.
   esphome::g_now_ms = 0;
   PortallBT bt;

@@ -364,8 +364,13 @@ int main() {
     // first version of this could hold, so whatever fell past it did not
     // exist -- and the log could only say "more than this can hold", which
     // tells the next person nothing about what to raise it to.
+    // The fixture is derived from the SHIPPED cap rather than from a number
+    // typed beside it -- raising MAX_FIELDS used to make this case stop
+    // testing anything and fail, which is the ruler being wrong rather than
+    // the code. Eight fields per item, so enough items to overrun it by one.
+    const int items = HidReportMap::MAX_FIELDS / 8 + 1;
     std::vector<uint8_t> big = {0x05, 0x09, 0x15, 0x00, 0x25, 0x01, 0x75, 0x01};
-    for (int i = 0; i < 40; i++) {
+    for (int i = 0; i < items; i++) {
       big.insert(big.end(), {0x19, 0x01, 0x29, 0x08, 0x95, 0x08, 0x81, 0x02});
     }
     HidReportMap map;
@@ -374,19 +379,22 @@ int main() {
        map.field_count() == HidReportMap::MAX_FIELDS);
     ok("and says it was truncated", map.truncated());
     // The number that makes the cap raisable: what the descriptor ASKED for.
-    ok("and how far short it fell", map.wanted_fields() == 40 * 8);
+    ok("and how far short it fell", map.wanted_fields() == items * 8);
   }
   {
     // And the size that mattered: a descriptor of a shape a real gamepad has
     // -- well over the sixty-four that were on offer -- now fits whole.
+    // 344 fields: the Shield reported wanting 339, so the size that matters is
+    // "more than that real device asked for", not a round number.
+    const int items = 43;
     std::vector<uint8_t> big = {0x05, 0x09, 0x15, 0x00, 0x25, 0x01, 0x75, 0x01};
-    for (int i = 0; i < 15; i++) {
+    for (int i = 0; i < items; i++) {
       big.insert(big.end(), {0x19, 0x01, 0x29, 0x08, 0x95, 0x08, 0x81, 0x02});
     }
     HidReportMap map;
     map.parse(big.data(), (uint16_t) big.size());
-    ok("a hundred and twenty fields fit, where sixty-four did not",
-       map.field_count() == 15 * 8 && !map.truncated());
+    ok("the 339 fields a real Shield asked for now fit whole",
+       items * 8 > 339 && map.field_count() == items * 8 && !map.truncated());
     ok("and wanted matches kept when nothing was dropped",
        map.wanted_fields() == map.field_count());
   }

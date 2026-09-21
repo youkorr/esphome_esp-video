@@ -6438,6 +6438,90 @@ asks the stack for nothing at all.
 log says. The mechanism is read from Espressif's source and the cause is
 demonstrated in the component, which is as far as this can go without a board.
 
+## The firmware loads on real hardware, and the log then chose the next three
+
+**A panel's own log, and the line this whole thread was for:**
+
+    this is a RTL8761BU running its ROM -- no firmware patch has been loaded
+      Realtek ROM version 1
+      loading 30210 bytes of firmware into it, 120 fragments
+      firmware loaded -- it now reports revision dfc6 subversion d922
+
+**`dfc6 d922` is the proof, and it is not a coincidence.** The epatch header's
+`fw_version` is `0xdfc6d922`, and the format's one transformation is that the
+last four bytes of the patch are REPLACED by it. The controller reports it
+back split across the two fields the ROM table is matched on -- so a
+transcription written from `btrtl.c` and never run is confirmed by the chip
+echoing the number the file carried. 120 fragments is `30210 / 252 + 1`.
+
+Everything after it works: the Shield and the UGREEN both pair, `gamepad: up
+/ down / left / right`, `A -- ok`, `B -- back`, and `gamepad: home -- back to
+this panel's own page` followed by portall's own `Asked to go back`. The
+remote chain is proved end to end on hardware for the first time.
+
+**Three faults in the same log, and the first is the diagnostic paying off.**
+
+### The cap was still too small, and the panel said by how much
+
+    input device 0955:7214 described itself in 379 bytes and 339 fields,
+    of which only 192 fit -- buttons past that one are not decoded
+
+That line exists because the previous round's version said "and more than
+this can hold", which is a number-free complaint about a number. It cost one
+flash to turn into an exact figure. **384 now** -- a Report Count of N makes N
+fields out of one item, so 379 bytes really do carry 339 of them: sticks at
+sixteen bits, a battery, NVIDIA's own host-command reports. 24 bytes a field,
+so 9.0 KiB of RAM against 4.5, which is worth saying because it is a board's
+memory rather than a number in a file.
+
+**And raising it broke the test, which was the ruler rather than the code.**
+`descriptor.cpp` built its overrun fixture from 40 items -- 320 fields --
+which stopped overrunning the moment the cap moved. The fixture is derived
+from `HidReportMap::MAX_FIELDS` now, so the case cannot stop testing anything
+when the number changes. This file already records that shape twice for
+`checkarrows.py`; this is the third.
+
+### The stream was suspended before the start it was meant to undo
+
+Three consecutive lines, in the wrong order:
+
+    speaker 46:E8:1C:8A:88:DD is connected
+    nothing has been played for 10s, so the stream ... is suspended
+    audio stream started
+
+`pcm_fed_at_` begins at zero and a panel is two minutes into its uptime by the
+time anybody pairs, so `at - pcm_fed_at_ > A2DP_IDLE_MS` was true the instant
+a sink connected. **A clock that has never been set is not the same as one
+that has expired**, and an uptime comparison cannot tell them apart unless
+somebody sets it. `on_a2dp_open` starts it now.
+
+Shipped one round earlier, in the change that added the idle suspend, and
+invisible to every test in it because they all began at `g_now_ms = 0` where
+the two states look alike. The new case starts the clock at two minutes,
+which is the real one, and **fails against the shipped code**.
+
+### A device does not have to terminate a fixed-width field
+
+    name "TP-Link UB5A Adapter????????????????"
+
+The specification says the 248-byte name is NUL-padded and this dongle pads it
+with something else. Printing from the buffer and trusting a terminator is the
+same assumption this component has already been caught by; it takes the
+printable run and stops, bounded at the field's own width in case there is no
+terminator at all.
+
+### What the log settles about the silence, and what it does not
+
+    4446032 bytes of silence were sent for want of anything to play
+
+That is the starvation counter reporting honestly over about fifty seconds of
+a stream that was up while the page was quiet -- roughly half of what
+44.1 kHz stereo asks for. It is not a fault in itself; it is the cost the idle
+suspend exists to bound, and the suspend fired correctly at the end of it.
+Whether the `l2cab is_cong_cback_context` flood is gone is **not** settled by
+this log: the stream here was suspended within seconds of connecting by the
+clock bug above, so the congested case barely ran. The next log is what says.
+
 ## Repository conventions
 
 - Work on branch `claude/esphome-pr-outdated-mdq36w`, then merge into `main`

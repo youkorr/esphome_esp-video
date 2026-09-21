@@ -505,6 +505,21 @@ void PortallBT::on_a2dp_open(const uint8_t *addr) {
   ESP_LOGI(TAG, "speaker %02X:%02X:%02X:%02X:%02X:%02X is connected", addr[0], addr[1], addr[2], addr[3],
            addr[4], addr[5]);
   this->a2dp_open_ = true;
+  /* START THE QUIET CLOCK HERE, or the first thing this does to a speaker is
+   * hang up on it. `pcm_fed_at_` begins at zero and millis() is already two
+   * minutes in by the time anybody pairs, so "nothing fed for ten seconds"
+   * was true the instant a sink connected. A panel's log caught it in three
+   * consecutive lines:
+   *
+   *   speaker 46:E8:...:DD is connected
+   *   nothing has been played for 10s, so the stream ... is suspended
+   *   audio stream started
+   *
+   * -- the suspend going out BEFORE the start it was meant to undo. A clock
+   * that has never been set is not the same as one that expired, and an
+   * uptime-based comparison cannot tell them apart unless somebody sets it. */
+  this->pcm_fed_at_ = millis();
+  this->a2dp_ctrl_asked_ = false;
   memcpy(this->open_sink_, addr, 6);
   this->remember_sink_(addr);
   // Ask before starting. The reply comes back as ESP_A2D_MEDIA_CTRL_ACK_EVT.

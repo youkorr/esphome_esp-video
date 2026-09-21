@@ -81,7 +81,24 @@ class HidReportMap {
      and the log prints both -- a limit that cannot say how far short it fell
      is a limit nobody can raise correctly, which is what the first version of
      this line was. */
-  static constexpr uint16_t MAX_FIELDS = 192;
+  /* 384, and the number is the panel's rather than a guess -- twice now.
+   *
+   * 64 was sized for "two sticks, two triggers, a hat and sixteen buttons with
+   * room over" and a Shield said it wanted more. 192 was the round number that
+   * followed, and the same Shield came back with the figure it actually wants:
+   *
+   *   described itself in 379 bytes and 339 fields, of which only 192 fit
+   *
+   * A controller declares far more than its buttons -- sticks at sixteen bits
+   * each, a battery, NVIDIA's own host-command reports -- and a Report Count
+   * of N makes N fields out of one item, so 379 bytes of descriptor really do
+   * carry that many. Anything past the cap DOES NOT EXIST, so a report made
+   * only of dropped fields decodes to nothing and reads from outside as a
+   * device sending something unreadable.
+   *
+   * 24 bytes a field, so this is 9.0 KiB against the 4.5 it was. Worth saying
+   * out loud because it is RAM on a board rather than a number in a file. */
+  static constexpr uint16_t MAX_FIELDS = 384;
   static constexpr uint8_t MAX_REPORT_IDS = 16;
   static constexpr uint8_t MAX_LOCAL_USAGES = 64;
 
