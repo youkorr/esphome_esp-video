@@ -67,20 +67,6 @@ struct HidField {
 /// silently half-read.
 class HidReportMap {
  public:
-  /* SIXTY-FOUR WAS NOT ENOUGH, AND A REAL CONTROLLER SAID SO IN ONE LINE:
-     "input device 0955:7214 described itself: 379 bytes, 64 fields (and more
-     than this can hold)". An NVIDIA Shield declares a gamepad, a consumer
-     report, a battery, NVIDIA's own host-command channel and more besides, so
-     a number chosen to cover "two sticks, two triggers, a hat and sixteen
-     buttons" covered the first collection and silently dropped the rest.
-     Whatever fell past the cap simply did not exist, which on a report this
-     has no fields for reads as a device sending something unreadable.
-
-     192 costs under four kilobytes and covers that descriptor with room over.
-     It is still a cap, so `wanted` counts what the descriptor really declared
-     and the log prints both -- a limit that cannot say how far short it fell
-     is a limit nobody can raise correctly, which is what the first version of
-     this line was. */
   /* 384, and the number is the panel's rather than a guess -- twice now.
    *
    * 64 was sized for "two sticks, two triggers, a hat and sixteen buttons with
@@ -97,7 +83,12 @@ class HidReportMap {
    * device sending something unreadable.
    *
    * 24 bytes a field, so this is 9.0 KiB against the 4.5 it was. Worth saying
-   * out loud because it is RAM on a board rather than a number in a file. */
+   * out loud because it is RAM on a board rather than a number in a file.
+   *
+   * It is still a cap, so `wanted` counts what the descriptor really declared
+   * and the log prints both -- a limit that cannot say how far short it fell
+   * is a limit nobody can raise correctly, which is what the first version of
+   * this line was. */
   static constexpr uint16_t MAX_FIELDS = 384;
   static constexpr uint8_t MAX_REPORT_IDS = 16;
   static constexpr uint8_t MAX_LOCAL_USAGES = 64;
@@ -167,6 +158,12 @@ struct Remembered {
   bool has_hid;
   bool has_sink;
 } __attribute__((packed));
+
+/// How much of a device's own name is kept, for a card somebody reads across
+/// a room. The specification allows 248; a remote calls itself something far
+/// shorter, and two full-length buffers would be half a kilobyte of RAM for
+/// text nobody reads to the end.
+static constexpr uint8_t MAX_REMOTE_NAME = 32;
 
 class PortallBT : public Component {
  public:
@@ -346,11 +343,33 @@ class PortallBT : public Component {
   /// exactly one of each and is why there is no list here to page through.
   void forget_one(bool speaker);
 
-  /// One line for a text sensor: the address and whether it is connected, or
-  /// "none". The ADDRESS rather than the name, because Remembered stores six
-  /// bytes and nothing else -- adding a name would change a struct that is
-  /// already in NVS on every panel that has paired.
+  /// One line for a text sensor: what the device calls itself, its address,
+  /// and whether it is connected -- or "none".
+  ///
+  /// The name leads because that is what somebody reading a card wants, and
+  /// the address stays beside it because two remotes of one model share a
+  /// name and it is the address a pair or forget acts on. A panel that has
+  /// just booted shows the address alone until the name arrives; see
+  /// note_remote_name below for why it is not stored.
   std::string describe_role(bool speaker) const;
+  /* Remember what a device CALLS itself, so the entity above is readable.
+   *
+   * `Remembered` stays six bytes per role and is deliberately not touched:
+   * it is already sitting in the NVS of every panel that has ever paired, and
+   * changing its layout would make each of them forget what it is paired to.
+   * So the name lives in RAM instead, for as long as the panel is up, and a
+   * panel that has just booted shows the address until the name arrives.
+   *
+   * The name is free at pairing -- ESP_BT_GAP_AUTH_CMPL_EVT carries it and it
+   * was being logged and thrown away. On a RECONNECT there is no pairing and
+   * ESP_HIDH_OPEN_EVT carries no name at all, so it is asked for: that is a
+   * Remote Name Request over a link that is already open, NOT an inquiry, so
+   * it does not sweep the band and does not take this panel's Wi-Fi down with
+   * it. Reasoned from what the command is rather than measured here.
+   */
+  void note_remote_name(const uint8_t *addr, const char *name);
+  /// Ask a device what it calls itself, once it is connected.
+  void ask_remote_name_(const uint8_t *addr);
   /// Hang up whatever is connected. An inquiry cannot find a device that is
   /// already talking to this panel, so pairing and forgetting both start here.
   void drop_links_();
@@ -549,6 +568,12 @@ class PortallBT : public Component {
   uint32_t pair_report_due_ms_{0};
   Remembered remembered_{};
   ESPPreferenceObject remembered_pref_;
+  // What each remembered device calls itself, for as long as this panel is up.
+  // Empty until a pairing or a Remote Name Request fills it, and cleared when
+  // the device is forgotten -- a stale name beside a new address is worse than
+  // no name, because it reads as correct.
+  char sink_name_[MAX_REMOTE_NAME + 1]{};
+  char hid_name_[MAX_REMOTE_NAME + 1]{};
   bool show_reports_{false};
   std::vector<Trigger<std::vector<uint8_t>> *> hid_report_triggers_;
   bool stack_up_{false};

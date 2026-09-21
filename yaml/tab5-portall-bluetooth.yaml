@@ -449,9 +449,13 @@ text_sensor:
     speaker:
       name: "Bluetooth speaker"
       icon: mdi:speaker-bluetooth
+    # A REMOTE LANDS HERE TOO. A Bluetooth remote pairs over HID exactly as a
+    # gamepad does, so this one slot is both and there is no third entry to
+    # add for one. It reads the device's own name now, not only its address:
+    #   Orange TV remote (A4:C1:38:9E:22:07) connected
     input:
-      name: "Bluetooth controller"
-      icon: mdi:controller
+      name: "Bluetooth remote or controller"
+      icon: mdi:remote
 
 button:
   # Pairing is an ACTION and never a loop. An inquiry sweeps the whole 2.4 GHz

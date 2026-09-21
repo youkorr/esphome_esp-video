@@ -89,6 +89,10 @@ typedef enum {
   ESP_BT_GAP_CFM_REQ_EVT,
   ESP_BT_GAP_KEY_NOTIF_EVT,
   ESP_BT_GAP_KEY_REQ_EVT,
+  ESP_BT_GAP_READ_RSSI_DELTA_EVT,
+  ESP_BT_GAP_CONFIG_EIR_DATA_EVT,
+  ESP_BT_GAP_SET_AFH_CHANNELS_EVT,
+  ESP_BT_GAP_READ_REMOTE_NAME_EVT,
   ESP_BT_GAP_EVT_MAX,
 } esp_bt_gap_cb_event_t;
 
@@ -109,6 +113,12 @@ typedef union {
     esp_bt_link_key_type_t lk_type;
     uint8_t device_name[ESP_BT_GAP_MAX_BDNAME_LEN + 1];
   } auth_cmpl;
+
+  struct read_rmt_name_param {
+    esp_bd_addr_t bda;
+    esp_bt_status_t stat;
+    uint8_t rmt_name[ESP_BT_GAP_MAX_BDNAME_LEN + 1];
+  } read_rmt_name;
 
   struct pin_req_param {
     esp_bd_addr_t bda;
@@ -133,5 +143,6 @@ int esp_bt_gap_get_bond_device_num(void);
 esp_err_t esp_bt_gap_get_bond_device_list(int *dev_num, esp_bd_addr_t *dev_list);
 esp_err_t esp_bt_gap_set_security_param(esp_bt_sp_param_t param_type, void *value, uint8_t len);
 esp_err_t esp_bt_gap_ssp_confirm_reply(esp_bd_addr_t bd_addr, bool accept);
+esp_err_t esp_bt_gap_read_remote_name(esp_bd_addr_t remote_bda);
 esp_err_t esp_bt_gap_pin_reply(esp_bd_addr_t bd_addr, bool accept, uint8_t pin_code_len,
                                esp_bt_pin_code_t pin_code);

@@ -16,10 +16,21 @@ back without an inquiry -- and an inquiry is what takes the panel's own Wi-Fi
 down for as long as it runs. So there is no list to page through; there is a
 speaker slot and an input slot.
 
-Each reports the ADDRESS and whether it is connected, or `none`. The address
-rather than the name: Remembered stores six bytes and nothing else, and adding
-a name would change a struct that is already sitting in NVS on every panel
-that has ever paired.
+Each reports what the device calls itself, its address and whether it is
+connected -- or `none`:
+
+    Orange TV remote (A4:C1:38:9E:22:07) connected
+
+A REMOTE IS AN INPUT DEVICE, so `input:` is its slot. A Bluetooth remote pairs
+over HID exactly as a gamepad does, which is why there is no third entry here
+for one; if a panel has both, the slot holds whichever was paired last.
+
+The name is held in RAM, not in NVS. `Remembered` stores six bytes per role
+and is deliberately left alone -- it is already in the NVS of every panel that
+has ever paired, and an ESPHome preference is found by a hash AND a size, so
+growing it would make each of them forget what it is paired to. The cost of
+keeping the name in RAM is that a panel which has just restarted shows the
+address alone until the device connects and answers a Remote Name Request.
 """
 
 import esphome.codegen as cg
