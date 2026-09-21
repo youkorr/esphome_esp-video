@@ -39,10 +39,12 @@ import os
 
 import esphome.automation as automation
 import esphome.codegen as cg
-from esphome.components import display, esp32, speaker, touchscreen
+from esphome.components import button, display, esp32, speaker, touchscreen
 import esphome.config_validation as cv
 from esphome.const import (
     CONF_HEIGHT,
+    CONF_ICON,
+    CONF_NAME,
     CONF_PORT,
     CONF_TRIGGER_ID,
     CONF_ID,
@@ -55,7 +57,10 @@ from esphome.core import HexInt
 CODEOWNERS = ["@youkorr"]
 DEPENDENCIES = ["display"]
 # The speaker path hands the host's stream over with an audio::AudioStreamInfo.
-AUTO_LOAD = ["audio"]
+# button is here for `remote:`, which builds its entities in this component's
+# own to_code rather than from a platform block -- the shape esphome's `demo`
+# component already uses for the same reason.
+AUTO_LOAD = ["audio", "button"]
 
 portall_ns = cg.esphome_ns.namespace("portall")
 Portall = portall_ns.class_("Portall", cg.Component)
@@ -113,6 +118,42 @@ KEYS = {
 }
 
 CONF_KEY = "key"
+
+CONF_REMOTE = "remote"
+# Where the generated entities are kept inside this component's own config.
+# Built in the VALIDATOR rather than in to_code, which is the lesson `keys:`
+# cost a build: esphome names an anonymous id by walking the VALIDATED config,
+# so an entity invented at codegen has nothing to resolve it.
+CONF_REMOTE_BUTTONS = "remote_buttons"
+
+RemoteButton = portall_ns.class_(
+    "RemoteButton", button.Button, cg.Parented.template(Portall)
+)
+
+# The seven a remote has, and no more. Every other name in KEYS stays reachable
+# through the portall.key action, where somebody who wants Page Down has asked
+# for it; a device page carrying ten buttons is the clutter this project took
+# an entity out of once already.
+#
+# The label is what Home Assistant shows after the device's own name, so
+# "Salon Remote up" reads as what it is beside a volume slider.
+REMOTE_KEYS = (
+    ("up", "Remote up", "mdi:chevron-up"),
+    ("down", "Remote down", "mdi:chevron-down"),
+    ("left", "Remote left", "mdi:chevron-left"),
+    ("right", "Remote right", "mdi:chevron-right"),
+    ("ok", "Remote OK", "mdi:circle-outline"),
+    ("back", "Remote back", "mdi:arrow-u-left-top"),
+)
+REMOTE_HOME = ("Remote home", "mdi:home")
+
+# A name here that KEYS does not carry would be a button that crosses the link
+# and does nothing -- the silent no-op this repository records more often than
+# any other fault, and tools/importcheck.py executes this file, so it is
+# checked rather than merely written down.
+_missing = [name for name, _, _ in REMOTE_KEYS if name not in KEYS]
+if _missing:
+    raise ValueError(f"REMOTE_KEYS names no key in KEYS: {_missing}")
 
 KeyAction = portall_ns.class_("KeyAction", automation.Action)
 HomeAction = portall_ns.class_("HomeAction", automation.Action)
@@ -426,6 +467,34 @@ def _validate_render_size(config):
     return config
 
 
+def _remote_buttons(config):
+    """`remote: true` becomes seven button entities, here rather than in to_code.
+
+    An id invented at codegen is not in the validated config, so nothing names
+    it and get_variable waits for a variable that is never registered -- which
+    is the "Circular dependency detected!" a first attempt at `keys:` shipped.
+    Built here, esphome walks these the way it walks any other declared id.
+
+    A panel that does not ask for them carries none: the list is empty and
+    to_code writes nothing at all.
+    """
+    if not config[CONF_REMOTE]:
+        return config
+
+    built = []
+    for name, label, icon in REMOTE_KEYS:
+        one = button.button_schema(RemoteButton, icon=icon)({CONF_NAME: label})
+        one[CONF_KEY] = name
+        built.append(one)
+    label, icon = REMOTE_HOME
+    # No CONF_KEY, because home is not a key: it is the panel's own url, and
+    # ask_home() is what asks for it. A reserved usage standing in for it would
+    # be one number meaning two things.
+    built.append(button.button_schema(RemoteButton, icon=icon)({CONF_NAME: label}))
+    config[CONF_REMOTE_BUTTONS] = built
+    return config
+
+
 CONFIG_SCHEMA = cv.All(
     cv.Schema(
         {
@@ -496,6 +565,9 @@ CONFIG_SCHEMA = cv.All(
             # stage, for a picture that is softer but not by much.
             cv.Optional(CONF_RENDER_WIDTH): cv.int_range(min=16, max=4096),
             cv.Optional(CONF_RENDER_HEIGHT): cv.int_range(min=16, max=4096),
+            # Seven buttons in Home Assistant, so a telephone is the remote.
+            # See _remote_buttons.
+            cv.Optional(CONF_REMOTE, default=False): cv.boolean,
             # Whether this board is a USB device at all. See _validate_usb.
             cv.Optional(CONF_USB, default=True): cv.boolean,
             cv.Optional(CONF_USB_SPEED, default="high"): cv.enum(
@@ -535,6 +607,7 @@ CONFIG_SCHEMA = cv.All(
     _validate_usb,
     _validate_render_size,
     _request_fast_network,
+    _remote_buttons,
 )
 
 
@@ -552,6 +625,17 @@ async def to_code(config):
     cg.add(var.set_rotation(config[CONF_ROTATION]))
     cg.add(var.set_ppa_burst(config[CONF_PPA_BURST]))
     cg.add(var.set_max_fps(config[CONF_MAX_FPS]))
+
+    # The remote, one button entity per direction. Nothing is emitted for a
+    # panel that never asked, because _remote_buttons left the list absent.
+    for conf in config.get(CONF_REMOTE_BUTTONS, []):
+        btn = await button.new_button(conf)
+        await cg.register_parented(btn, config[CONF_ID])
+        if (key := conf.get(CONF_KEY)) is not None:
+            page, usage = KEYS[key]
+            cg.add(btn.set_usage(page, usage))
+        else:
+            cg.add(btn.set_home())
     if (port := config.get(CONF_PORT)) is not None:
         cg.add(var.set_port(port))
         # How fast pictures can arrive is decided by the TCP receive window,

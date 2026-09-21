@@ -438,6 +438,42 @@ gamepad: button 4 is pressed and has no meaning in a page
 
 Send that line saying which button it was and it can be given one.
 
+### A telephone is a remote too, and it needs no Bluetooth at all
+
+`remote: true` on the panel's own `portall:` block puts seven buttons in Home
+Assistant -- up, down, left, right, OK, back and home:
+
+```yaml
+portall:
+  id: panel
+  # ...
+  remote: true
+```
+
+They appear on the panel's device page beside its other entities, so the Home
+Assistant app on any telephone drives the page the panel is showing, and a
+dashboard card can lay them out as a cross. They press through exactly what a
+paired remote presses through -- a HID usage on the same socket -- so the two
+cannot disagree about what `up` means.
+
+**Why this is worth having beside a Bluetooth remote rather than instead of
+one.** Two devices people already own cannot be paired to a panel at all:
+
+- **an iPhone cannot be a Bluetooth HID device.** A panel is a HID *host*; a
+  telephone is on the other side of that, whatever the dongle.
+- **a recent Xbox controller speaks BLE.** Microsoft's firmware v3 and v4 use
+  Bluetooth Classic and pair here; v5 and later moved to Bluetooth Low
+  Energy, which this component does not host -- so such a controller answers
+  no scan and reads, from the panel, exactly like one that is switched off.
+
+A button in Home Assistant needs neither. It also needs no line of sight and
+no batteries, which is most of what a remote is for.
+
+**What it does not do:** it drives the page the panel is showing. It is not an
+Apple TV remote, and it is not the Control Centre widget -- that one speaks
+Apple's own Companion Link over the network, paired and encrypted the way
+HomeKit is, which would mean this panel impersonating an Apple TV.
+
 **Home and Back are not gamepad buttons**, and it is worth knowing why. On a
 Shield, Home, Back, Search, Play/Pause and the volume keys are HID *consumer*
 keys (Linux's own `hid-nvidia-shield.c` maps Home as usage `0x223`), so they

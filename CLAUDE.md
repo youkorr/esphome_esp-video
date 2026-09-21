@@ -7364,6 +7364,122 @@ does not carry. Both already recorded, neither a fault.
 it ends about a second after `audio stream started`, so the idle suspend has
 not had its ten seconds and the congested case has barely run.
 
+## The telephone is the remote, and building it found a broken guard
+
+**Asked after the Bluetooth thread ran out of devices: *"il sera interessant
+que cette telecommande de l'iPhone qui commande une Apple TV fonctionne ?"*,
+answered with *"fait le je serai surpris si ca fonctionne"*.** Two questions
+in one, and only the second is buildable.
+
+**The iPhone's Control Centre remote is not Bluetooth at all.** It speaks
+Apple's **Companion Link** over the network -- Apple moved the widget off MRP
+in iOS 13 -- and it is paired and encrypted the way HomeKit is: HAP, with
+sequence-number nonces. `pyatv`, which is the reference for this whole area,
+is a CLIENT: it commands an Apple TV, it does not pretend to be one. Making
+that widget drive a panel would mean implementing the server side of an
+undocumented, encrypted, pairing-authenticated protocol and advertising as an
+Apple TV -- and being broken invisibly by the next tvOS. That is a line, not a
+difficulty.
+
+**So the answer is the shape this project keeps rediscovering: ask what the
+household already has.** They have Home Assistant on the telephone, and this
+panel already has the one thing a remote presses through -- `send_key()` and
+`ask_home()`, proved on hardware the day before by a gamepad.
+
+`remote: true` on `portall:` puts **seven button entities** on the panel's
+device page: up, down, left, right, OK, back, home. The Home Assistant app on
+any telephone is then a remote, iPhone included, and a dashboard card lays
+them out as a cross. It is the **seventh** time the named per-thing setting
+beat a mechanism here, and it is the user's own pattern: no id to read, no
+usage to look up, no seven blocks to write.
+
+Two devices make it worth having BESIDE a paired controller rather than
+instead of one, and both were established in the same conversation: **an
+iPhone cannot be a Bluetooth HID device** (a panel is the host; a telephone
+is on the other side of that), and **an Xbox controller on firmware v5 or
+later speaks BLE**, which this component does not host -- so it answers no
+inquiry and reads exactly like a controller that is switched off. Sony's
+DualSense and DualShock 4, and Xbox firmware v3/v4, are BR/EDR and are
+reachable today. Read off bluepad32's own table rather than remembered.
+
+**The entities are built in the VALIDATOR, not in to_code**, and that is the
+`keys:` lesson collected on rather than re-learnt: esphome names an anonymous
+id by walking the VALIDATED config, so an entity invented at codegen has
+nothing to resolve it and `get_variable` waits for ever -- the "Circular
+dependency detected!" a first attempt at `keys:` shipped. `esphome`'s own
+`demo` component is the precedent for the rest: `AUTO_LOAD = ["button"]` and
+`button.new_button(conf)` from a component's own `to_code`, with no platform
+block.
+
+Home is a FLAG on the button rather than a reserved usage. A sentinel inside
+the usage would be one number meaning two things, which is what the gamepad
+path was corrected out of once already.
+
+### And `portall.key` has been uncompilable without a speaker for releases
+
+Found while adding the buttons, not by reading the diff: **`KeyAction` and
+`HomeAction` sat inside `#ifdef USE_SPEAKER`.** They drive `send_key()` and
+`ask_home()`, which are declared unguarded -- so a board with `keys: true`
+and no `speaker:` has the methods, does not have the classes, and fails to
+build on somebody else's panel with "KeyAction is not a member of portall".
+
+It arrived by an anchored edit that put two classes inside a guard meant for a
+third, and it took `SetVolumeAction`'s own comment away from `SetVolumeAction`
+with it -- the replacement hazard this file already records four times, in its
+worst form, because the file still parses and still compiles **here**.
+
+**Nothing could see it.** `esphome config` never compiles C++; `checkguards.py`
+reads TinyUSB symbols and nothing else; and **every example in `yaml/` that
+carries a `portall:` block also carries a speaker**, which is the whole reason
+it went unnoticed. That last fact is the one worth keeping: a configuration no
+example exercises is a configuration nothing checks.
+
+`tools/checkactions.py` is the check, and **the rule is derived rather than
+listed** -- a hand-written table of which class may sit under which macro is
+the pair-of-constants failure this repository keeps paying for. It reads the
+guards above each class and the guards above each `Portall` method that class
+calls through `this->parent_->`, and requires them EQUAL. A class more guarded
+than its method is unreachable; less guarded is a compile error; both are the
+same fault mirrored.
+
+One guard is legitimate and is derived too: a class deriving from
+`button::Button` genuinely needs whatever guards the include of that
+component's header, or there is no base to derive from. So the allowed set is
+the methods' guards plus the base classes' include guards, both read off the
+same file. The first version did not know that and reported `RemoteButton`;
+the answer was to derive the exception, not to write it down.
+
+**Reproduced against the shipped header before the fix was believed**: run on
+`git show HEAD:components/portall/portall.h` it names both classes and exits
+1; on the corrected file it is clean.
+
+### What is verified and what is not
+
+Read off `generate_cpp_contents` at 2026.8.2 rather than from the validator's
+opinion -- seven buttons, each parented and each carrying the right usage:
+
+    new(portall_remotebutton_id) portall::RemoteButton();
+    App.register_button(portall_remotebutton_id, "Remote up", ...)
+    portall_remotebutton_id->set_parent(panel);
+    portall_remotebutton_id->set_usage(7, 82);
+    ...
+    portall_remotebutton_id_7->set_home();
+
+and **a panel that does not ask emits none at all** -- `tab5-portall-screen`
+carries zero. A `portall:` with `remote: true` and **no speaker** was staged
+and generated as well, since that is the configuration the guard bug broke and
+no example covers it.
+
+**No C++ here has been compiled by a real toolchain**, as always, and
+**nothing has been pressed**: whether a button in Home Assistant moves a tile
+on the glass is one flash away. The chain under it is the one a gamepad proved
+on hardware the day before, which is the reason to expect it to work -- and
+the reason it might not is the half that is new: seven entities registered
+from a component's own `to_code` rather than from a platform block.
+
+**No add-on bump**: `DOCS.md` is read by the Supervisor from the repository,
+and `tools/checkaddon.py` agrees.
+
 ## Repository conventions
 
 - Work on branch `claude/esphome-pr-outdated-mdq36w`, then merge into `main`
