@@ -212,8 +212,23 @@ two. Every line worth reading sits somewhere in that.
 
 It is off from 4.13.0. **An existing install keeps what it has**, because the
 Supervisor writes these defaults only when an add-on is first installed and a
-stored value is yours from then on -- so turn it off under **debug** if you
-have been running it.
+stored value is yours from then on -- so turn it off yourself if you have been
+running it.
+
+> **`debug:` here is NOT ESPHome's `debug:` component, and the two are one
+> word apart.** This setting lives in **Settings > Add-ons > Portall >
+> Configuration**, in the add-on's own options, and nowhere else. Putting it
+> in a panel's ESPHome YAML gets exactly this, because ESPHome has a component
+> of the same name that takes `id` and `update_interval` and nothing else:
+>
+> ```
+> debug: [source /config/esphome/ha-esp32p4.yaml:48]
+>   [stats] is an invalid option for [debug]. Please check the indentation.
+> ```
+>
+> Reported from a real build. Nothing about a panel's firmware knows what
+> `stats` is: it is the SENDER that prints that line, and the sender runs
+> here, in the add-on.
 
 Home Assistant itself offers no way to clear an add-on's log: the Supervisor
 owns that buffer, an add-on only writes to its own output, and there is no
