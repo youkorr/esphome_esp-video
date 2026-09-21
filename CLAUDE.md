@@ -747,8 +747,28 @@ box, since Google publishes no Chrome for it -- signing in buys nothing at
 all, so `report_drm()`'s line is what to read before spending an evening on
 `import_profile`. And even with both solved a browser gets Widevine **L3**,
 which Netflix limits to standard definition, over the full-motion path that
-was just measured as the expensive one. Large effort, poor result; Jellyfin is
-the better answer for a panel and needs none of it.
+was just measured as the expensive one.
+
+**CORRECTED BY A PANEL: "Large effort, poor result; Jellyfin is the better
+answer and needs none of it" stood here, and it is wrong.** Reported as
+*"Netflix fonctionne correctement car il fonctionne sur chrome tu oublier et
+Widevine bien present"*. On an **amd64** Home Assistant box `playwright
+install chrome` succeeds, `SYSTEM_BROWSERS` prefers `/usr/bin/google-chrome-
+stable`, Widevine is there and Netflix plays. That is most Home Assistant
+machines, not an edge case.
+
+Every FACT in the paragraph above survives -- arm64 really has no Chrome, L3
+really is standard definition -- and the CONCLUSION drawn from them did not.
+That is the shape this file already names as the hardest kind to spot: a
+correct fact with a wrong conclusion attached, because re-reading it confirms
+the fact and never re-asks the conclusion. It was written when a Pi was the
+assumed box and nobody re-asked it when Chrome started being installed.
+
+**And it was repeated in chat, to the user, about their own working setup** --
+the arm64 caveat stated as a flat wall on a panel that had been playing
+Netflix all along. The narrow rule: `report_drm()`'s line and
+`Browser: running ...` are the ground truth for a given box, and neither was
+consulted before answering.
 
 **And `keepalive` does not exist in this project.** Asked as *"je vois que
 keepalive n'est pas dans les link"* -- it is `keep_profile`, and it is a panel

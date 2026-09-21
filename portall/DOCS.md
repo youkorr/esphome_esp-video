@@ -1286,11 +1286,20 @@ mode below is for.
 So Widevine is the only thing standing between a panel and Netflix, and the
 log line above is what says whether you have it.
 
-Even with both solved, a browser gets Widevine **L3**, which Netflix limits to
-standard definition -- and full motion at a panel's own resolution is the
-expensive case measured under **YouTube** above. The effort is large and the
-result is poor. Jellyfin, which needs none of this, is the better answer for a
-panel.
+**And on a box where Chrome installed, it plays -- reported from a panel:**
+*"Netflix fonctionne correctement car il fonctionne sur chrome ... et Widevine
+bien present"*. That is the amd64 case working end to end, which is most Home
+Assistant machines, and it is worth saying plainly because an earlier version
+of this section led with the Raspberry Pi and read as though Netflix were out
+of reach generally. It is not. Read the `Browser: running ...` line: if it
+names `google-chrome`, you have Widevine.
+
+Two things remain true and neither is a reason not to try it. A browser gets
+Widevine **L3**, which Netflix limits to standard definition; and full motion
+at a panel's own resolution is the expensive case measured under **YouTube**
+above, so `quality:` on that link is the setting worth having. Jellyfin needs
+none of this at all, which still makes it the cheaper answer where you have
+the choice -- not the only one.
 
 Signing in is a separate question from playing, and worth separating when
 something else fails: an ordinary site's sign-in form is plain and the
