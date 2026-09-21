@@ -6167,6 +6167,72 @@ gigabyte not move with no way to learn why. `sweep_profiles()` names that
 state and gives both ways out, and `tools/checkprofiles.py` asserts the plain
 line is NOT printed for a panel that does keep one.
 
+## A failed page re-armed the backoff, so the panel paged without pause
+
+**Reported as *"il n'arrive pas a apparailler"*, with a log whose useful half
+is the part nobody was looking at:**
+
+    04:37:43  nothing answered. Put the device in PAIRING mode
+    04:37:46  asking the speaker to connect (no scan, by address)
+    04:37:50  asking the speaker to connect (no scan, by address)
+    04:37:53  :57   04:38:01  :05  :08  :12   (for ever)
+    BT_HCI: hcif conn complete: hdl 0x1, st 0x4
+    BT_BTC: BTA_AV_OPEN_EVT::FAILED status: 2
+
+**`st 0x4` is Page Timeout**, so the remembered UGREEN is switched off, out of
+range or in somebody's car -- that half is not a fault. What is a fault is the
+CADENCE. The design in this file says 2 s growing to 60; the log says every
+three or four seconds, and it never grows.
+
+**Bluedroid reports a connection that never opened as a DISCONNECTED state**,
+so every failed page ran `on_a2dp_closed()`, which put the clock back to its
+shortest. The backoff could never get past one doubling: it reset itself on
+its own failures. `on_hid_closed()` had the identical line.
+
+This file already recorded the mechanism and drew a different conclusion from
+it -- **"the clock is re-armed in five other places -- every disconnect event
+in `a2dp.cpp` and `hid.cpp` puts it back"**, written while making `off` a flag
+rather than a cleared clock. The sentence was correct and what it implied for
+the backoff itself was never followed up.
+
+**Why it matters is arithmetic rather than tidiness.** A page's own timeout is
+**5.12 s** by default and the attempts were 3.5 s apart, so they OVERLAP: the
+controller was paging essentially without pause. An inquiry and a page compete
+for the same radio, the dongle's antenna is centimetres from the C6's, and the
+one thing that household was trying to do was run an inquiry. The pairing scan
+heard nothing at all -- not a device rejected for its class, nothing. The
+picture wobbled with it: 25.4, 23.3, 27.0, 39.2, 18.0 fps in five consecutive
+lines.
+
+**The short interval belongs to a real disconnection and only that.** Its
+reasoning is unchanged and still right -- a speaker just switched off is the
+one most likely to come back in a moment -- and it says nothing about an
+address that has not answered in a minute. `was_connected` is the guard, and
+it is the same test the log line above it already used.
+
+`tools/bttest/backoff.cpp` drives the SHIPPED `loop()` against a clock it can
+move, answering every page the way a switched-off speaker does, and counts
+what the panel really does over two minutes rather than reading a field.
+`linkstubs.h`'s `millis()` became a variable for it -- it had been a constant
+0, which is fine for anything that reads it once and useless for behaviour
+that is entirely about time passing.
+
+**Reproduced against the old code before the fix was believed**, and the
+numbers are the report:
+
+| | attempts in 120 s | first gap | last gap |
+|---|---|---|---|
+| as it was | **60** -- one every 2 s, for ever | 2 s | **2 s** |
+| now | 5 -- at 2, 6, 14, 30 and 62 s | 4 s | 32 s |
+
+And the case the guard must not break is in the same file: a speaker that
+really went away is asked for again **2000 ms** later, unchanged.
+
+**What is NOT diagnosed** is why the UGREEN did not answer -- that is a device
+that is off, away, or connected to a car, and this file already records that a
+connected speaker answers no inquiry. What the fix buys is that the panel is
+no longer competing with its own paging while somebody tries to pair.
+
 ## Repository conventions
 
 - Work on branch `claude/esphome-pr-outdated-mdq36w`, then merge into `main`
