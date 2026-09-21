@@ -738,6 +738,20 @@ class PortallBT : public Component {
   uint8_t pair_target_[6]{};
   bool pair_took_{false};
   bool is_open_(const uint8_t *addr) const;
+  /* WHAT WAS CONNECTED WHILE THE SCAN RAN, which is the one half of "nothing
+     answered" a panel can report about itself.
+     A scan that hears nothing has two causes and they need different next
+     steps: the device was not discoverable -- switched off, out of range, in
+     somebody's car -- or this panel's own radio was busy. An inquiry and an
+     established link share one controller, and the dongle's antenna is
+     centimetres from the C6's, so a link that was up is the only thing on
+     this side that could have cost the scan anything. From a log the two used
+     to be the same sentence.
+     Filled in pair() rather than read when the report is printed: by then a
+     device may have come or gone, and the question is about the scan. */
+  char pair_links_[96]{};
+  uint8_t pair_link_count_{0};
+  void note_links_for_scan_();
   uint32_t pair_report_due_ms_{0};
   Remembered remembered_{};
   ESPPreferenceObject remembered_pref_;

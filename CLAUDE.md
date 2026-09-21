@@ -7242,6 +7242,79 @@ Bluedroid's business, not something a workstation can show — if the new
 speaker does not come up on the first press, that ordering is the first place
 to look.
 
+## A scan that hears nothing had two causes and one sentence
+
+**A panel log arrived with no prose, which is the right way to read it: what
+it confirms and what it cannot settle are separate questions.** From
+`[21:53:40]` to `[21:55:27]`, after the three pairing fixes above were
+flashed.
+
+**What it confirms, and all three are fixes landing on hardware:**
+
+- **No `hanging up ...` line when Pair is pressed.** The Shield went on
+  working across the scan, which is the whole of *"pour faire un appareillage
+  c'est contraignant"*.
+- **The Shield was TAKEN rather than skipped** -- nothing was remembered, so
+  the new skip rule correctly did not apply -- and the report named it:
+  `pairing finished: 00:04:4B:93:A9:B2 is connected.` That line is the one
+  written to stop a connected speaker being called a success.
+- **`379 bytes, 339 fields` with NO truncation warning.** `MAX_FIELDS = 384`
+  was raised from 192 on the strength of a panel printing its own shortfall;
+  this is that panel not printing it.
+
+One line in it is not a fault and is worth recording so it is not chased:
+`hcif disc complete: hdl 0x1, rsn 0x5` at boot is **Authentication Failure** --
+a device paging this panel with a link key that was removed by a Forget. That
+is Forget having worked.
+
+**What it cannot settle is the two Pair presses that each ended
+`scan finished, 0 device(s) heard`.** Two causes, and they need opposite next
+steps:
+
+- the UGREEN was not discoverable -- switched off, out of range, in the car,
+  or simply not in pairing mode;
+- or the live ACL to the just-paired Shield (`mode 2, intv 18`, so in SNIFF)
+  cost the inquiry. An inquiry and an established link share one controller,
+  and the dongle's antenna is centimetres from the C6's.
+
+**And the second is a cost the fix above may have introduced.** `pair()` used
+to hang everything up before scanning and no longer does, deliberately -- but
+the reason that behaviour was there in the first place was a radio argument,
+and dropping it means a scan now runs with whatever is connected still
+connected. Said plainly rather than argued away: it is a candidate and there
+is no board here to rule it out.
+
+**So the log now says what the panel ITSELF was doing while it scanned.**
+`note_links_for_scan_()` records the open links at the moment `pair()` runs --
+at that moment, not when the report prints, because by then a device may have
+come or gone and the question is about the scan -- and the delayed report
+names them, or says the radio was free. Two runs of that line settle it:
+nothing connected and still nothing heard is the device; something connected
+and the same silence, with a later run that hears it once Forget has cleared
+the link, is ours.
+
+It goes in the DELAYED report rather than beside the scan, for the reason
+`pair_report_tick_()` exists at all: every line a pairing produces is written
+into a Wi-Fi link the inquiry has just taken down.
+
+**And there is currently no clean household route to scan with the radio
+free.** Forget is the only button that hangs anything up: `set_bt_enabled(false)`
+drops the links but `pair()` is refused while Bluetooth is off, and switching
+it back on re-pages within two seconds. That is not fixed here -- it is
+written down because it is the next thing to build if the line above says the
+link is what costs the scan.
+
+Reproduced against the shipped report before the fix was believed: four of
+the five new cases fail, and the fifth is the negative one -- *and does not
+invent a device to blame* -- which passes trivially against code that prints
+nothing at all. **Not measured on hardware**: whether a free radio changes the
+count is what the next log says.
+
+Still unexplained from the log before this one: `hcif conn complete: hdl 0x4,
+st 0x4` -- a Page Timeout seven seconds after everything had connected, from a
+page this component did not make, since both reconnect paths return while
+their device is open.
+
 ## Repository conventions
 
 - Work on branch `claude/esphome-pr-outdated-mdq36w`, then merge into `main`

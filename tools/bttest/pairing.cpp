@@ -331,6 +331,48 @@ int main() {
           !called("esp_bt_hid_host_disconnect") && g_hid_connects.size() == 1);
   }
 
+  printf("\na scan that hears nothing says what this panel was doing\n");
+  {
+    /* THE TWO CAUSES OF SILENCE, which a log could not tell apart. A device
+       that is not discoverable and a radio that was busy read identically
+       from the outside, and only the second is this panel's to fix. */
+    PortallBT bt;
+    with_a_speaker_connected(bt);
+    bt.note_remote_name(SPEAKER, "UGREEN-90748");
+    say(&PortallBT::pair, bt);
+    // and nothing answers it at all
+    bt.say_pairing_later();
+    esphome::g_now_ms += 4000;
+    const std::string report = say_run([&] { bt.pair_report_tick_(); });
+
+    check("it names the device that was connected while it scanned",
+          report.find("46:E8:1C:8A:88:DD") != std::string::npos);
+    check("and calls it by name, which is what a reader recognises",
+          report.find("UGREEN-90748") != std::string::npos);
+    check("and says the radio was shared, which is the way out",
+          report.find("share one radio") != std::string::npos);
+  }
+  {
+    // The control, and it is the half that makes the line above worth
+    // printing: with nothing connected the panel says so, so a second run
+    // settles which of the two causes it is.
+    PortallBT bt;
+    esphome::global_preferences->wipe();
+    bt.set_a2dp(true);
+    bt.set_hid_host(true);
+    bt.start_profiles_();
+    g_calls.clear();
+    say(&PortallBT::pair, bt);
+    bt.say_pairing_later();
+    esphome::g_now_ms += 4000;
+    const std::string report = say_run([&] { bt.pair_report_tick_(); });
+
+    check("with nothing connected it says the radio was free",
+          report.find("radio was free") != std::string::npos);
+    check("and does not invent a device to blame",
+          report.find("share one radio") == std::string::npos);
+  }
+
   printf("\nthe faults the first report was about, which must still hold\n");
   {
     // The stack refusing, which is what the panel's silence looked like.
