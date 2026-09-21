@@ -140,16 +140,15 @@ portall_bt:
   # nothing and a Page Timeout on an address that worked on another dongle
   # minutes earlier. That is what a panel reported.
   #
-  # The files are Realtek's and are not in this repository. Download the pair
-  # for your dongle from linux-firmware's rtl_bt/ directory -- for the TP-Link
-  # UB500 that is rtl8761bu_fw.bin and rtl8761bu_config.bin -- put them beside
-  # this file, and uncomment these two lines. `tools/rtlfw.py <fw> <config>`
-  # says what a pair covers before you flash anything.
+  # These two are the TP-Link UB500's, from linux-firmware's rtl_bt/ directory,
+  # and they sit beside this file. `tools/rtlfw.py <fw> <config>` says what a
+  # pair covers before anything is flashed: for these, 14 054 bytes for a
+  # controller reporting ROM version 0 and 30 210 for one reporting 1.
   #
-  # A Broadcom needs none of this: its patch is optional and it works without.
-  #
-  # firmware: rtl8761bu_fw.bin
-  # firmware_config: rtl8761bu_config.bin
+  # A BROADCOM NEEDS NONE OF THIS and these lines do it no harm: they are read
+  # at build time and only ever sent to a Realtek.
+  firmware: rtl8761bu_fw.bin
+  firmware_config: rtl8761bu_config.bin
 
   # The panel sends its sound to a Bluetooth speaker: a car receiver, a pair
   # of headphones, a garden speaker. A2DP is Bluetooth CLASSIC, which is
