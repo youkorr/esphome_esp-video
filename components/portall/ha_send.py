@@ -2370,6 +2370,124 @@ BLUR_GRACE_S = 0.4
 # is walking up to the panel, short enough not to become furniture.
 HOME_HINT_SECONDS = 5.0
 
+# One arrow, one move -- on the pages that move nothing by themselves.
+#
+# WHY THIS EXISTS, and it is a measurement rather than a preference. A panel
+# reported that up, down, left and right inside a link need several presses
+# each, "compared to YouTube which is very fluid". Measured on the shipped
+# browser against a media-site grid -- rows of links, no key handler of its
+# own, taller than the panel:
+#
+#                                          presses per row
+#   --enable-spatial-navigation alone            3
+#   this script                                  1
+#
+# and sideways, where nothing has to scroll, both cost one. So the fault is
+# not the gamepad, the board or the link: Chromium's own spatial navigation
+# SCROLLS a row into view before it will take it, and a row that is fully
+# off screen costs two presses of scrolling before the third moves anything.
+# YouTube's television interface never shows it because `ytlr` moves its own
+# focus and never falls through to the browser at all.
+#
+# The dangerous half is not the moving, it is the standing down. A page that
+# navigates for itself must keep every arrow, so there are two gates and they
+# answer different failures:
+#
+#   * `defaultPrevented` -- a page that handles an arrow nearly always
+#     swallows it, because otherwise the browser scrolls underneath its own
+#     navigation and the page jumps. That is not a guess: it is exactly the
+#     fault this project shipped in its OWN launcher and had reported back as
+#     "up cree des probleme".
+#   * and for a page that moves focus WITHOUT swallowing, the focus is looked
+#     at again on the next turn: if it went somewhere neither we nor the
+#     browser put it, this script stands down for the life of the document.
+#     That costs one press, once, and never a second.
+#
+# Everything else is the launcher's own rule, which is already proved in a
+# browser: straight ahead beats near-and-sideways (`along + across * 3`), and
+# the first arrow on a page with nothing focused chooses an end rather than
+# moving. Shadow roots are walked, because a Home Assistant dashboard is
+# nothing but shadow roots. A text field keeps its arrows -- those belong to
+# the caret -- and where there is nothing in that direction nothing is
+# swallowed, so the browser is still free to scroll the page.
+SPATNAV_JS = r"""
+(() => {
+  if (window.__udispNav) return;
+  window.__udispNav = true;
+  const WAYS = {ArrowUp: [0, -1], ArrowDown: [0, 1],
+                ArrowLeft: [-1, 0], ArrowRight: [1, 0]};
+  const PICKABLE = 'a[href],button,input,select,textarea,[tabindex],' +
+                   '[contenteditable="true"],[role="button"],[role="link"],' +
+                   '[role="menuitem"],[role="option"],[role="tab"]';
+  const TYPING = {INPUT: 1, TEXTAREA: 1, SELECT: 1};
+  let standDown = false, mine = null;
+
+  function deepActive() {
+    let e = document.activeElement;
+    while (e && e.shadowRoot && e.shadowRoot.activeElement)
+      e = e.shadowRoot.activeElement;
+    return e;
+  }
+  function gather(root, out) {
+    let all;
+    try { all = root.querySelectorAll(PICKABLE); } catch (err) { return out; }
+    for (const el of all) {
+      if (el.disabled || el.getAttribute('aria-hidden') === 'true') continue;
+      if (el.tabIndex < 0) continue;
+      const r = el.getBoundingClientRect();
+      if (r.width < 4 || r.height < 4) continue;
+      out.push([el, r]);
+    }
+    for (const el of root.querySelectorAll('*'))
+      if (el.shadowRoot) gather(el.shadowRoot, out);
+    return out;
+  }
+  function pick(from, way) {
+    const [dx, dy] = WAYS[way];
+    const all = gather(document, []);
+    if (!all.length) return null;
+    if (!from) {
+      all.sort((a, b) => (a[1].top - b[1].top) || (a[1].left - b[1].left));
+      return (dx > 0 || dy > 0) ? all[0][0] : all[all.length - 1][0];
+    }
+    const r = from.getBoundingClientRect();
+    const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+    let best = null, score = Infinity;
+    for (const [el, q] of all) {
+      if (el === from) continue;
+      const qx = q.left + q.width / 2, qy = q.top + q.height / 2;
+      const along = (qx - cx) * dx + (qy - cy) * dy;
+      if (along <= 1) continue;
+      const across = Math.abs((qx - cx) * dy) + Math.abs((qy - cy) * dx);
+      const s = along + across * 3;
+      if (s < score) { score = s; best = el; }
+    }
+    return best;
+  }
+  window.addEventListener('keydown', (e) => {
+    if (!(e.key in WAYS) || e.defaultPrevented || standDown) return;
+    if (e.altKey || e.ctrlKey || e.metaKey) return;
+    const was = deepActive();
+    if (was && (TYPING[was.tagName] || was.isContentEditable)) return;
+    const next = pick(was && was !== document.body ? was : null, e.key);
+    if (next) {
+      next.focus({preventScroll: true});
+      try { next.scrollIntoView({block: 'nearest', inline: 'nearest'}); }
+      catch (err) { next.scrollIntoView(false); }
+      mine = next;
+      e.preventDefault();
+    }
+    // Asked afterwards rather than decided here: a page may move the focus
+    // without saying so, and one turn of the event loop is what it takes to
+    // find out. Whatever it did wins, and this stands aside for good.
+    setTimeout(() => {
+      const now = deepActive();
+      if (now !== was && now !== mine && now !== null) standDown = true;
+    }, 0);
+  }, false);
+})();
+"""
+
 HOME_HINT_JS = r"""
 (() => {
   const ID = '__portall_home';
@@ -4251,6 +4369,8 @@ def main():
         # On the context, so it survives every navigation the panel makes --
         # including the one the corner itself performs.
         context.add_init_script(HOME_HINT_JS)
+        # One arrow, one move, on a page that navigates nothing by itself.
+        context.add_init_script(SPATNAV_JS)
         # Which requests the page could not make. Silent on a page that works.
         watch_failed_requests(context)
         # The panel's own token first, so a panel that sets one keeps it over
