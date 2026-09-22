@@ -583,10 +583,16 @@ is the report exactly.
 The sender now launches the browser with spatial navigation on, so the arrows
 move the focus on those sites too. Two things are worth knowing about it:
 
-- **A neighbour that is off the screen costs one press to reveal.** The first
-  arrow scrolls it into view and the second takes it; with it already visible
-  the first press takes it. That is the browser being sensible rather than a
-  fault, but from a sofa it reads as a key that sometimes needs pressing twice.
+- **That cost three presses a row until 4.16.0, and it was reported.** The
+  browser's own spatial navigation scrolls a row into view before it will
+  focus it, so a row fully off the screen costs two presses of scrolling and
+  moves on the third -- *"il faut s'y reprendre plusieurs fois pour monter,
+  descendre"*, against a YouTube that moves its own focus and never shows it.
+  Measured on a grid of links: **3 presses a row, and 1 sideways** where
+  nothing has to scroll.
+
+  The sender carries its own fallback now and it is **one press a row**, with
+  the chosen tile scrolled into view. Nothing to set.
 - **A page that handles its own arrows still wins.** It is a fallback, not an
   override -- measured against a page whose handler deliberately moves the
   opposite way, and the page won. So the launcher, YouTube's television

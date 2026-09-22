@@ -1,5 +1,26 @@
 # Changelog
 
+## 4.16.0
+
+- **One arrow, one move, inside every link.** Reported from panels using the
+  project: up, down, left and right need several presses each inside a link,
+  "compared to YouTube which is very fluid". Measured on the shipped browser
+  against a grid of links with no key handler of its own, taller than the
+  panel: **three presses per row**, and one sideways where nothing has to
+  scroll. That is Chromium's own spatial navigation, which scrolls a row into
+  view before it will focus it -- YouTube's television interface never shows
+  it because it moves its own focus and never falls through to the browser.
+
+  The sender now carries its own fallback: one press, one move, with the
+  chosen thing scrolled into view. It is **one press per row** on the same
+  fixture.
+
+  It stands aside wherever the page navigates for itself, through two gates:
+  an arrow the page swallows is never touched, and a page that moves the
+  focus without swallowing is noticed on the next turn and left alone for the
+  rest of its life. The launcher, YouTube `/tv` and Jellyfin in TV layout are
+  unchanged, and a text field keeps its arrows for the caret.
+
 ## 4.15.1
 
 - **The Back button of the iPhone's remote now brings a panel home.** Reported

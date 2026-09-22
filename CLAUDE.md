@@ -7687,6 +7687,85 @@ the real `Control` at the far end.
 Sources: nikf86/homekit-tv-remote README (the widget's five buttons);
 home-assistant.io `homekit.markdown`; HAP-python 5.0.0 RemoteKey ValidValues.
 
+## Three presses a row, and the row that said so was already in this file
+
+**Reported from panels other people are running: *"le deplacement up, down,
+droite et gauche n'est pas fluide dans les link, vous etes obliger de vous
+reprendre plusieurs fois ... comparer a youtube qui est tres fluide"*.** The
+comparison is the diagnosis: YouTube's television interface moves its own
+focus and never falls through to the browser, so a fault that lives in the
+fallback cannot show there.
+
+**And this file predicted it, in the section that shipped the fallback.** The
+spatial-navigation round recorded *"the fourth is not a failure and is worth
+keeping because it is what 'difficult' would look like if it ever came back:
+a neighbour that is off screen is scrolled into view by the first press and
+taken by the second"*. That was written as a curiosity. It is the report.
+
+**Measured rather than assumed, and it is worse than the note said.** On the
+shipped browser, a media-site grid -- rows of links, no key handler of its
+own, taller than the panel:
+
+| | presses per row |
+|---|---|
+| `--enable-spatial-navigation` alone | **3** |
+| this round | **1** |
+
+and sideways, where nothing has to scroll, both cost one. So the number in
+the old note was a guess at its own measurement: Chromium scrolls a fixed
+amount per press and takes two before the next row is considered near enough
+to take. **A behaviour named honestly in a comment is not a behaviour
+measured**, which is the same lesson as `Exit` one section above -- twice in
+two days, both times a thing this file had written down and not followed up.
+
+### SPATNAV_JS, and the dangerous half is the standing down
+
+Moving the focus is the launcher's own rule, already proved in a browser:
+`along + across * 3`, so straight ahead beats near-and-sideways, shadow roots
+walked because a Home Assistant dashboard is nothing else, and the first
+arrow on a page with nothing focused chooses an end rather than moving.
+
+What had to be decided is when NOT to act, because a page that navigates for
+itself must keep every arrow. Two gates, answering different failures:
+
+- **`defaultPrevented`.** A page that handles an arrow nearly always swallows
+  it, because otherwise the browser scrolls underneath its own navigation and
+  the page jumps -- which is not a guess, it is the fault this project
+  shipped in its OWN launcher and had reported back as *"up cree des
+  probleme"*.
+- **And a look on the next turn**, for a page that moves focus without
+  swallowing: if the focus went somewhere neither we nor the browser put it,
+  the script stands down for the life of the document. That costs one press,
+  once. It cannot be decided synchronously -- the page has not moved anything
+  yet when the handler runs -- so it is a `setTimeout(..., 0)` and the page
+  wins the first press.
+
+A text field keeps its arrows, and where there is nothing in that direction
+nothing is swallowed, so the browser is still free to scroll.
+
+**The flag stays.** It is now a fallback below a fallback: where this script
+declines, Chromium's own behaviour is what a panel gets, which is right in
+every case where declining was the correct answer.
+
+### The reproduction runs through the shipped file
+
+`tools/checknav.py --without` leaves the script out and runs the same
+fixtures, so the reported fault is reproduced against what is shipped rather
+than against a reverted copy -- the `--press-hold 0` pattern this file
+already records. It reads **`[1, 1, 3, 3, 3, 3]`**, which is the panel's
+report as a list of integers.
+
+Ten cases, and the strongest is the last: the **launcher itself**, served by
+`launcher.start()` with the script loaded over it. That page swallows every
+arrow, so it is the real instance of gate one, on this project's own page
+rather than on a fixture built to shape.
+
+**What is NOT verified**: Netflix, Orange TV and a Jellyfin server were never
+reached -- there is no route to any of them from here. What is measured is
+the mechanism, on the browser the add-on ships, against pages built to their
+shape. And a site that moves focus without swallowing costs one press before
+the stand-down, which nothing here has seen in the wild.
+
 ## Repository conventions
 
 - Work on branch `claude/esphome-pr-outdated-mdq36w`, then merge into `main`
