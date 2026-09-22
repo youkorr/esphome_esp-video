@@ -378,6 +378,76 @@ def _one_controller_each(config):
     )
 
 
+def _one_bluedroid_transport(config):
+    """One Bluedroid, one HCI transport -- and the C6 is already a controller.
+
+    An ESP32-P4 panel reaches Bluetooth twice over, and the two routes are the
+    same architecture with a different wire underneath:
+
+    - THIS component, over a USB dongle. It fills Espressif's
+      `esp_bluedroid_hci_driver_operations_t` -- send / check_send_available /
+      register_host_callback -- and calls `esp_bluedroid_attach_hci_driver()`.
+    - ESPHome's `esp32_ble`, over the C6 that is already there for the Wi-Fi.
+      When it sees an `esp32_hosted:` block it writes
+      CONFIG_ESP_HOSTED_ENABLE_BT_BLUEDROID and CONFIG_ESP_HOSTED_BLUEDROID_HCI_VHCI,
+      and esp-hosted's own Bluedroid glue then attaches THE SAME ops struct over
+      the SDIO link. Espressif's design note says so in as many words.
+
+    So both hand one Bluedroid host a transport, and it has room for one. There
+    is nothing to arbitrate at runtime and nothing that could report it: whoever
+    attaches second either replaces the first or is refused, and a panel would
+    show a Bluetooth stack that is up and talks to nothing.
+
+    THE SDKCONFIG SAYS IT WITHOUT ANYBODY ASKING. This component sets
+    CONFIG_BT_CLASSIC_ENABLED True, because Classic is the whole point of a
+    dongle; esp32_ble sets the same key False, because the C6 has no Classic
+    radio to enable. `add_idf_sdkconfig_option` is a plain dict assignment, so
+    the build takes whichever `to_code` ran last and says nothing at all --
+    which is why both blocks in one file validated `ok` before this check
+    existed. It is `_one_controller_each` above in a second costume: two
+    settings that must agree, with nothing comparing them.
+
+    The panel is not left with nothing either way, and the message says which
+    half it can keep. The C6 is BLUETOOTH LE ONLY -- Espressif's esp-hosted
+    documentation: "Classic Bluetooth requires an ESP32 as the co-processor.
+    All other ESP chips provide BLE only." So a Bluetooth SPEAKER (A2DP) and a
+    Classic gamepad are the dongle's and cannot move; a Bluetooth proxy, a
+    thermometer, a BLE remote are the C6's and need no dongle.
+    """
+    if not _wants(config, CONF_HOST_STACK):
+        return config
+    fconf = fv.full_config.get()
+    # esp32_ble is AUTO_LOADed by esp32_ble_tracker, bluetooth_proxy,
+    # ble_client and esp32_ble_server alike, so it is the one key that catches
+    # every way a YAML asks for the C6's Bluetooth.
+    if "esp32_ble" not in fconf:
+        return config
+
+    raise cv.Invalid(
+        "portall_bt and ESPHome's own Bluetooth are both trying to drive one "
+        "Bluedroid: this component attaches the USB dongle as Bluedroid's HCI "
+        "transport, and esp32_ble (pulled in by esp32_ble_tracker, "
+        "bluetooth_proxy, ble_client or esp32_ble_server) attaches the C6 over "
+        "esp-hosted as the same thing. There is room for one, and the build "
+        "would not say which it took -- the two also set "
+        "CONFIG_BT_CLASSIC_ENABLED to opposite values into one dictionary.\n"
+        "Pick by what the panel needs. The C6 is Bluetooth LOW ENERGY only, so "
+        "a Bluetooth speaker (A2DP) and a Classic gamepad such as a Shield or "
+        "a DualSense need the dongle: keep portall_bt and take the "
+        "esp32_ble_tracker / bluetooth_proxy blocks out. A Bluetooth proxy for "
+        "Home Assistant, or a BLE sensor, needs no dongle at all: drop "
+        "`portall_bt:` and keep them.",
+        path=[CONF_HOST_STACK],
+    )
+
+
+def _final_validate(config):
+    """Both final checks, because a schema may only carry one."""
+    _one_controller_each(config)
+    _one_bluedroid_transport(config)
+    return config
+
+
 # The firmware this component carries, beside its own source. A Realtek
 # controller runs a ROM that answers every HCI command and does almost nothing
 # on the air -- which is why a panel reported its speaker and its gamepad both
@@ -756,4 +826,4 @@ async def to_code(config):
             )
 
 
-FINAL_VALIDATE_SCHEMA = _one_controller_each
+FINAL_VALIDATE_SCHEMA = _final_validate

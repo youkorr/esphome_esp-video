@@ -7868,6 +7868,128 @@ it on the writer as well would cut two thirds of the host's paint and encode
 during motion and change nothing the panel sees. Identified, not built, and
 nobody asked for it.
 
+## The C6 already gives a panel Bluetooth, and ESPHome already wires it
+
+**Proposed after the dongle turned out to be the obstacle: *"je confronte a un
+autre probleme que j'avais pas pense celui de la clef bluetooth que peu de
+personne dispose donc j'ai penser a ceci que toute personne dispose avec le
+c6"*, pointing at esp-idf's `components/bt`.** The instinct is right and the
+answer is better than it looks: **there is nothing to build, and a panel can
+have it today in two YAML blocks.**
+
+**ESP-Hosted carries HCI over the SDIO link that is already there.** From
+Espressif's own `docs/features/bluetooth.md`: *"The host runs the Bluetooth
+application and host stack; the co-processor runs the Bluetooth controller and
+radio. ESP-Hosted carries HCI packets between them."* So a P4 runs the host
+stack and the C6 is the controller -- which is **the identical architecture
+this component already built for the dongle**, with a different wire.
+
+Identical is not a figure of speech. Their `docs/design/bluetooth.md`: *"The
+BlueDroid glue implements an HCI driver ops struct
+(`esp_bluedroid_hci_driver_operations_t`: send / check_send_available /
+register_host_callback) and attaches it to BlueDroid with
+`esp_bluedroid_attach_hci_driver()`."* That is line for line what
+`portall_bt.cpp` does over CherryUSB. Nine faults were paid for on that path
+and the shape of it was right.
+
+**And ESPHome does the whole thing already.** `esp32_ble/__init__.py`, present
+as far back as 2026.6.5 and in the 2026.8.2 a panel is built with:
+
+```python
+    if "esp32_hosted" in full_config:
+        add_idf_sdkconfig_option("CONFIG_BT_CLASSIC_ENABLED", False)
+        add_idf_sdkconfig_option("CONFIG_BT_BLE_ENABLED", True)
+        add_idf_sdkconfig_option("CONFIG_BT_BLUEDROID_ENABLED", True)
+        add_idf_sdkconfig_option("CONFIG_BT_CONTROLLER_DISABLED", True)
+        add_idf_sdkconfig_option("CONFIG_ESP_HOSTED_ENABLE_BT_BLUEDROID", True)
+        add_idf_sdkconfig_option("CONFIG_ESP_HOSTED_BLUEDROID_HCI_VHCI", True)
+```
+
+**Every panel YAML in this repository already carries an `esp32_hosted:`
+block**, because that is how the C6 does the Wi-Fi. So the switch is thrown
+already and what is missing is only the consumer. ESPHome tests it on this
+exact host -- `tests/components/bluetooth_proxy/test.esp32-p4-idf.yaml` is a
+P4 with a C6 over SDIO -- and adding
+
+```yaml
+esp32_ble_tracker:
+
+bluetooth_proxy:
+  active: true
+```
+
+to `yaml/ws-wired-portall.yaml` **validates at 2026.8.2**, checked here rather
+than assumed.
+
+**What it is NOT is Classic, and that is the whole limit.** Espressif's own
+line: *"Classic Bluetooth requires an ESP32 as the co-processor. All other ESP
+chips provide BLE only."* So the two things this component has actually proved
+on hardware -- an A2DP car receiver and a Classic HID gamepad -- **cannot move
+to the C6 at all**. The dongle is not replaced; it is narrowed to what needs
+Classic.
+
+The honest split, and it is worth having in one place:
+
+| | C6, no dongle | dongle |
+|---|---|---|
+| Bluetooth proxy for Home Assistant, BLE sensors | **yes, today, two YAML blocks** | -- |
+| a BLE remote or an Xbox controller on firmware v5+ | possible, see below | no (they answer no inquiry) |
+| a Bluetooth SPEAKER (A2DP) | **never** | yes, proved |
+| a Shield, a DualSense, a DualShock 4 | **never** | yes, proved |
+
+**The proxy is the one that changes what a panel IS**, and it is the part
+nobody has to be sold: a screen in every room that is already powered and
+already on the network is exactly where a household wants Bluetooth coverage,
+and it costs this project no code and no maintenance.
+
+### Nothing refused the pair, and the sdkconfig says it out loud
+
+`tab5-bt-probe.yaml` with `host_stack: bluedroid` and a `bluetooth_proxy:`
+block beside it **validated `ok`** before this was written. Two things would
+then attach a transport to one Bluedroid, and neither could report it -- a
+stack that is up and talks to nothing.
+
+The sdkconfig makes it concrete rather than theoretical: this component sets
+`CONFIG_BT_CLASSIC_ENABLED` **True** and esp32_ble sets the same key **False**,
+and `add_idf_sdkconfig_option` is `CORE.data[...][name] = value` -- a plain
+dict assignment, so the build takes whichever `to_code` ran last and says
+nothing. **`_one_controller_each` in a second costume**: two settings that must
+agree, with nothing comparing them.
+
+`_one_bluedroid_transport` refuses it and names which half to keep, by what the
+panel needs rather than by which is tidier. `FINAL_VALIDATE_SCHEMA` is
+`_final_validate`, which runs both -- a schema carries one. Keyed on
+**`esp32_ble` in the full config**, because that is AUTO_LOADed by
+`esp32_ble_tracker`, `bluetooth_proxy`, `ble_client` and `esp32_ble_server`
+alike, so one test catches every way a YAML asks for it.
+
+**Reproduced before it was believed**: both blocks in one file read `ok` at
+2026.8.2 against the shipped validator and are refused after, while
+`bluetooth_proxy` alone, `tab5-bt-probe.yaml` and
+`yaml/tab5-portall-bluetooth.yaml` all still pass.
+
+### A BLE gamepad is buildable, and the component for it is already in IDF
+
+**`components/esp_hid` is built into ESP-IDF** -- not a managed component --
+and it carries `src/ble_hidh.c` beside `src/bt_hidh.c`. Its host API is
+transport-agnostic: `esp_hidh_init()`, then `ESP_HIDH_OPEN_EVENT` and
+`ESP_HIDH_INPUT_EVENT` carrying a report. That is the same report-plus-
+descriptor shape `hid_descriptor.cpp` and `keys.cpp` already decode, so a BLE
+remote or an Xbox controller on firmware v5 or later -- which this file already
+records as unreachable over Classic -- would reuse the decoding entirely and
+need a new door rather than a new parser.
+
+**Identified, not built**, and two things are unknown: whether `esp_hid`'s BLE
+host coexists with ESPHome's own `esp32_ble` on one Bluedroid (both want the
+GATT client), and whether the one panel this would be for has such a device.
+Nobody has asked for it yet.
+
+Sources: espressif/esp-hosted-mcu `docs/features/bluetooth.md` and
+`docs/design/bluetooth.md`; esphome `esp32_ble/__init__.py`,
+`esp32_hosted/__init__.py` (which pins `espressif/esp_hosted` 2.12.12) and
+`tests/components/bluetooth_proxy/test.esp32-p4-idf.yaml`; espressif/esp-idf
+`components/esp_hid`.
+
 ## Repository conventions
 
 - Work on branch `claude/esphome-pr-outdated-mdq36w`, then merge into `main`
