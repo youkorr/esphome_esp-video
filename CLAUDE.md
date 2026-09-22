@@ -7766,6 +7766,108 @@ the mechanism, on the browser the add-on ships, against pages built to their
 shape. And a site that moves focus without swallowing costs one press before
 the stand-down, which nothing here has seen in the wild.
 
+## The last 30 to 40% is the whole panel, and four candidates are dead
+
+**Reported after the arrow fix: *"c'est un peut mieux sur tous les link a vu
+de toucher et manette, et telecommande iphone il manque environ 30 a 40% de
+fluidite"*.** The useful half is **au toucher** -- a finger uses no arrows, no
+`SPATNAV_JS` and no key at all, so whatever is left is shared by all three
+input paths, which means it is the picture path.
+
+Six measurements at 800x1280 with the shipped code, on a page that never stops
+moving. Four of them kill a candidate, which is most of the value.
+
+**A moving page is whole panels, always.** 127 of 128 pictures during a swipe,
+62 of 62, 66 of 66 -- whatever the quality. A scroll moves every pixel, so
+every tile differs and the rule gives up on rectangles on the first test. A
+dashboard-shaped whole panel at quality 80 is **130 KiB**, measured, which
+matches what this file already records. So a swipe asks for 130 KiB times
+twenty-odd a second -- **2.6 to 3.2 MB/s** -- against a busiest window ever
+recorded on one of these panels of 2.5 MB/s.
+
+**The frame limit does nothing at all when something is short.** Against a
+model panel drained by a token bucket at 1500 KiB/s, driving the SHIPPED
+`Screencast`:
+
+| | pictures reaching the panel | median gap |
+|---|---|---|
+| `--fps 30`, quality 80 | 7.3/s | 134 ms |
+| `--fps 15`, quality 80 | **7.5/s** | **134 ms** |
+| `--fps 30`, quality 40 | **12.8/s** | 77 ms |
+| the same at 6000 KiB/s, quality 80 | **18.0/s** | 50 ms |
+
+The first two rows are the finding: the writer's own back-pressure already
+paces the loop, and the gaps are already even -- median 134, nine in ten under
+149, worst 152. So `fps:` on a link is not the lever here, and neither is the
+erratic-versus-steady argument this file makes about video: **there was
+nothing erratic to fix.** The rate is bytes-per-whole-panel divided by what
+the far end takes, and the last two rows are the only two ways to move it.
+
+**And that is exactly why the answer is not "lower the quality".** Halving the
+bytes nearly doubles the rate *when the WIRE is what is short*, which is what
+a token bucket models. A panel's own earlier log says the wire was not what
+was short: 918 KiB/s at `panel wait 42%` against 1429 KiB/s at 1% on the same
+panel minutes apart -- fewer bytes, more waiting. That is the BOARD's fixed
+cost per whole panel, one decode of the entire screen and one write of the
+entire screen, which no quality touches. It is also why *"malgre mis en
+qualite 20 c'est saccade"* was a true report of a real experiment.
+
+So `--stats` during one swipe is the line that decides it, and nothing here
+can stand in for it: `panel wait` high with KiB/s near 2.5 MB/s is the wire,
+where `quality:` on that link doubles the rate; `panel wait` high with KiB/s
+well under it is the board, where only a smaller picture helps.
+
+**And a smaller picture is available on a rotated panel after all, which this
+file implies it is not.** `_validate_render_size` refuses `render_width:`
+together with `rotation:` -- but that is the BOARD's rotation. A panel whose
+turn is done by the sender (`rotate:` on its add-on entry, `--rotate` on the
+sender) has `rotation: 0` and is not refused. Measured here, per picture at
+800x1280: **16.1 ms of sender work and 344 KiB against 3.3 ms and 72.7 KiB**
+at 400x640, which is the same 5x this file records. Read off the validator
+rather than run -- there is no esphome in this container this time.
+
+### The three candidates that were wrong, in the order they were tried
+
+Each is written down because each is the natural next guess.
+
+- **This session's own arrow script.** `SPATNAV_JS` walks the document and
+  every shadow root on every press, in the renderer, at the moment a fresh
+  frame is wanted. Measured inside the page: **0.5 ms median** on a grid,
+  **1.9 ms** on four hundred nested shadow roots, worst 3.4. Not it, and worth
+  knowing before the next person suspects it.
+- **The wheel pacing, which is worse the other way round.** A dispatch blocks
+  until Chromium acknowledges it on its next display frame -- 16.6 ms, already
+  recorded here -- and `WHEEL_MIN_INTERVAL_S = 0.030` permits 33 a second, so
+  it looked like up to half of every second spent on input. Raising it makes
+  the panel WORSE: 25.5 pictures/s at 30 ms against 15.6 at 80 ms, with the
+  median gap going from 36 ms to 71. Fewer, larger wheels move the page in
+  jumps, and a page that changes less often hands over fewer frames. The
+  distance scrolled is the same at every pacing (4962, 4939, 4927, 4962 px),
+  which is the summing being exact. **30 ms is right and the reasoning that
+  said otherwise was arithmetic without a measurement**, which is the shape
+  this file records more than any other.
+- **The rotation, in the sender.** Their page is opened at 1280x800 for an
+  800x1280 panel, so every frame is transposed before anything else touches
+  it, and nothing here had ever measured that half -- only the board's PPA.
+  **0.86 ms a picture**, against a 7.65 ms decode. Not it either.
+
+**A fourth was a fault in the harness and is worth recording as one.** Reusing
+one `Screencast` across configurations read **0.5 pictures/s** at `--fps 15`,
+which looked exactly like a stall in the shipped pacing. It is the object's
+own carried state -- its `lead` and its unacknowledged frames -- not the
+sender's. A fresh page and a fresh `Screencast` per run reads 7.5. **A
+measurement that accuses shipped code should be re-run against a clean
+fixture before it is believed**, which is the ruler-before-the-code lesson in
+its fifth costume here.
+
+One thing seen on the way and NOT acted on: on a short link the browser still
+paints and encodes **22 frames a second for 7.3 delivered**. The acknowledgement
+gate asks `pending is None`, which goes true the instant a picture is taken,
+so the browser is let go while the panel is still taking the last one. Gating
+it on the writer as well would cut two thirds of the host's paint and encode
+during motion and change nothing the panel sees. Identified, not built, and
+nobody asked for it.
+
 ## Repository conventions
 
 - Work on branch `claude/esphome-pr-outdated-mdq36w`, then merge into `main`
