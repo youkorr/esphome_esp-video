@@ -7760,6 +7760,48 @@ the real `Control` at the far end.
 Sources: nikf86/homekit-tv-remote README (the widget's five buttons);
 home-assistant.io `homekit.markdown`; HAP-python 5.0.0 RemoteKey ValidValues.
 
+## The widget's volume and mute had nothing to send to
+
+**Reported as the one inactive control: *"il y un seul button qui es inactif
+c'est le son et mute"*.** The accessory was a `Television` service and nothing
+else, and a HomeKit television carries no volume of its own: the iPhone's
+volume buttons and the widget's mute go to a **`TelevisionSpeaker` linked to
+it**. With none, iOS had nowhere to send them.
+
+Built exactly as Home Assistant's `TelevisionMediaPlayer` builds it for a
+player that can step and mute but not set a level (`type_media_players.py`,
+read in their tree): Name, Active, VolumeControlType 2, VolumeSelector, and
+Mute, which is the service's required characteristic. VolumeSelector carries
+only up (0) or down (1), so the LEVEL is kept by the add-on -- ten steps,
+squared into a gain because loudness is heard on a log scale -- and what
+crosses to the sender is `volume <gain>` on the control channel.
+
+**The gain is applied to the page's sound in the sender**, in `PageAudio.take()`,
+which is the one place every block passes. Muted is gain 0 and is counted as
+silence and not sent, so a muted panel costs the network nothing and a
+Bluetooth speaker behind it suspends on its own ten-second clock. It sits in
+front of the board's own volume, which is unchanged; the two multiply.
+
+**A volume is a setting and a key is a moment**, and `run.Remote` treats them
+differently for that reason: a key pressed while the sender is down is
+dropped, while the last volume is re-sent to every sender that starts, or a
+restart would put a panel somebody had turned down back at full.
+
+pyhap bumps the accessory's `c#` when its services change
+(`State.set_accessories_hash`), so an already paired iPhone should read the new
+speaker without re-pairing. **Not verified on an iPhone** -- nothing here can
+pair. What is verified, in `tools/checkhomekit.py`: the speaker built by the
+real pyhap and linked, both characteristics pressed through it, the gain
+across the real pipe into the real `Control`, the re-send after a restart,
+and `PageAudio` scaling samples (negatives included) and sending nothing when
+muted. Run against the previous code, the speaker case fails.
+
+**The panel's sound is mono end to end, and a YAML saying stereo changes
+nothing.** The capture is one channel (`AUDIO_CHANNELS = 1`), the wire carries
+one, and `portall_bt`'s speaker writes each sample to both sides of the A2DP
+stream. `channel: stereo` on an I2S speaker governs that speaker only, and on
+the Guition that speaker is not the one the page's sound reaches.
+
 ## Three presses a row, and the row that said so was already in this file
 
 **Reported from panels other people are running: *"le deplacement up, down,

@@ -619,6 +619,15 @@ What the widget's buttons do:
 | **Retour / Back** | **back to this panel's own page, the launcher** |
 | ⓘ | Escape -- back *within* the page, where a page listens for it |
 | play/pause, next, previous | the browser's own media keys |
+| the iPhone's volume buttons | the page's sound on this panel, up or down |
+| mute | silences the page's sound; unmute returns to the same level |
+
+The volume here is the **page's** sound, in ten steps, and the add-on keeps
+it, so a panel does not come back at full volume when its sender restarts.
+It sits in front of the panel's own volume slider in Home Assistant, which
+is unchanged: the two multiply. An accessory paired before 4.19.4 announces
+the new speaker on its own; if the volume still does nothing, remove it from
+the Home app and pair it again once.
 
 The pairing code is kept, so it is the same one after a restart. Each panel
 gets a code of its own, on a port of its own, starting at 21180.

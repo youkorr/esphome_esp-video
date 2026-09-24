@@ -149,6 +149,23 @@ def read_pin(path, make_pin):
     return pin.encode()
 
 
+# The volume the telephone's own buttons step through. The iOS remote sends a
+# bare "up" or "down" per press -- HomeKit's VolumeSelector carries no level --
+# so the level is kept here, and what crosses to the sender is the GAIN it
+# means. Squared rather than linear because loudness is heard on a log scale:
+# a linear step from 10% to 0% is a cliff and from 100% to 90% is nothing.
+# Ten steps is 1.0, 0.81, 0.64 ... 0.04, 0.01, 0 -- about 4 dB a press near
+# the top, which is what a television's volume button does.
+VOLUME_STEPS = 10
+
+
+def gain_for(level, muted):
+    """The factor the page's sound is multiplied by at this level."""
+    if muted or level <= 0:
+        return 0.0
+    return (min(level, VOLUME_STEPS) / VOLUME_STEPS) ** 2
+
+
 class Television:
     """One panel's HomeKit accessory, driven from its own thread."""
 
@@ -165,6 +182,12 @@ class Television:
         self._thread = None
         self._seen = set()
         self._active = True
+        # Full volume and not muted, which is what the page sounded like
+        # before a telephone ever touched it. Held here rather than in the
+        # sender because a sender restarts and the telephone does not.
+        self.level = VOLUME_STEPS
+        self.muted = False
+        self._volume_said = False
 
     # -- what the widget presses ------------------------------------------
 
@@ -191,6 +214,43 @@ class Television:
             self._send(kind, body)
         except Exception as problem:  # noqa: BLE001
             self._say(f"[{self.name}] HomeKit remote key would not reach the "
+                      f"panel ({problem})")
+            return False
+        return True
+
+    def volume_step(self, value):
+        """A press of the iPhone's volume button. 0 is up, 1 is down.
+
+        HomeKit's own ValidValues: Increment 0, Decrement 1. Pressing up while
+        muted unmutes, the way every television does -- a volume button that
+        moved a number nobody can hear would read as a broken button.
+        """
+        if value == 0:
+            self.level = min(VOLUME_STEPS, self.level + 1)
+            self.muted = False
+        elif value == 1:
+            self.level = max(0, self.level - 1)
+        else:
+            return False
+        return self._send_volume()
+
+    def set_mute(self, value):
+        """HomeKit's Mute. The level is kept, so unmuting returns to it."""
+        self.muted = bool(value)
+        return self._send_volume()
+
+    def _send_volume(self):
+        gain = gain_for(self.level, self.muted)
+        if not self._volume_said:
+            # Once, so the first press says the path works; every press after
+            # is the level, which the panel itself makes audible.
+            self._volume_said = True
+            self._say(f"[{self.name}] HomeKit remote: volume and mute reach "
+                      f"this panel's page sound")
+        try:
+            self._send("volume", f"{gain:.4f}")
+        except Exception as problem:  # noqa: BLE001
+            self._say(f"[{self.name}] HomeKit volume would not reach the "
                       f"panel ({problem})")
             return False
         return True
@@ -283,6 +343,28 @@ def _accessory(driver, television):
             # ActiveIdentifier is left unconfigured on purpose: Home
             # Assistant's own accessory does exactly this when there are no
             # input sources, and a panel has none.
+
+            # The volume. A Television carries no volume of its own: the
+            # iPhone's volume buttons and the widget's mute go to a
+            # TelevisionSpeaker LINKED to it, and with none the widget has
+            # nothing to send them to -- which is the one control that did
+            # nothing. Built exactly as Home Assistant's own
+            # TelevisionMediaPlayer builds it for a player that can step and
+            # mute but not set a level: Name, Active, VolumeControlType and
+            # VolumeSelector, Mute being the service's required one, and a
+            # control type of 2 (RelativeWithCurrent) because no Volume
+            # characteristic is offered.
+            speaker = self.add_preload_service(
+                "TelevisionSpeaker",
+                chars=["Name", "Active", "VolumeControlType", "VolumeSelector"])
+            service.add_linked_service(speaker)
+            speaker.configure_char("Name", value=f"{television.name} Volume")
+            speaker.configure_char("Active", value=1)
+            speaker.configure_char("VolumeControlType", value=2)
+            speaker.configure_char("Mute", value=television.muted,
+                                   setter_callback=television.set_mute)
+            speaker.configure_char("VolumeSelector",
+                                   setter_callback=television.volume_step)
 
         def _pressed(self, value):
             television.remote_key(value, table)

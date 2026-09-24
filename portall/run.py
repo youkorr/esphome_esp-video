@@ -961,15 +961,32 @@ class Remote:
         self._process = None
         self._lock = threading.Lock()
         self._complained = False
+        # The last volume the telephone set, re-sent to every sender that
+        # starts. A key is a moment and is dropped when nobody is there; a
+        # volume is a SETTING, and a sender that restarted at full volume
+        # after somebody had turned it down would be the panel shouting.
+        self._volume = None
 
     def set_process(self, process):
         with self._lock:
             self._process = process
             if process is not None:
                 self._complained = False
+                if self._volume is not None and process.stdin is not None:
+                    try:
+                        process.stdin.write(self._volume)
+                        process.stdin.flush()
+                    except (OSError, ValueError):
+                        pass
 
     def send(self, kind, body):
-        line = "home\n" if kind == "home" else f"key {body}\n"
+        if kind == "home":
+            line = "home\n"
+        elif kind == "volume":
+            line = f"volume {body}\n"
+            self._volume = line
+        else:
+            line = f"key {body}\n"
         with self._lock:
             process = self._process
             if process is None or process.stdin is None:
