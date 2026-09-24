@@ -7827,7 +7827,19 @@ against a stand-in for the rest of the class (`tools/audiotest/`, whose
 constants are copied out of the real `portall.h` each run) and switched
 mono -> stereo -> mono through a recording speaker. `portall.cpp`'s parser
 change is NOT compiled -- the real class needs the JPEG decoder and the PPA.
-Nothing has been heard.
+**Heard, and correct**: on the Guition through a Bluetooth headset, left and
+right each on their own side. The board's log shows every link of it --
+`The page's sound is stereo now`, `First audio: ... 2 channel, played 1920 at
+a time`, both ring buffers at 19200 (100 ms of stereo), and `Playing 44100 Hz,
+16 bit, 2 channel over Bluetooth`. So the option stays. `--stats` cannot say
+mono from stereo: `sound 50/s` counts 20 ms blocks either way.
+
+A `Dropped a block: the speaker is not draining (100 times so far)` came about
+eleven minutes into that first stereo run. The count is since boot and each
+block is 10 ms, so it is a second of sound over the whole run. It is NOT
+diagnosed yet: stereo doubles the resampler's work and the bytes on the wire,
+and it could just as well be one Wi-Fi stall. What settles it is how fast the
+count climbs, against the same page in mono.
 
 To remove it: the option, `--stereo`, and `channels` on `build_audio_header`
 and `PageAudio`; the board can keep reading width, which costs nothing.
