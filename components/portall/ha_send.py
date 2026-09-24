@@ -4721,7 +4721,22 @@ def main():
                     if (pending is not None and free
                             and started - last_send >= limit):
                         shot, pending = pending, None
-                        last_send = started
+                        # Keep to the SCHEDULE, not to the turn that happened
+                        # to notice the picture. The loop looks every fifteen
+                        # milliseconds or so, so restarting the interval from
+                        # `started` rounded every one of them up to the next
+                        # turn: 33 ms became about 42, and --fps 30 delivered
+                        # 23.6 pictures a second to a panel that never once
+                        # made it wait. Measured against the same page and a
+                        # fake panel that takes everything: 23.6 -> 29.4 at
+                        # --fps 30, 13.9 -> 15.0 at --fps 15, worst gap no
+                        # longer. A turn late by more than a whole interval --
+                        # a page that stood still, a panel that was busy --
+                        # starts a fresh schedule, or the time it missed would
+                        # come back as a burst.
+                        last_send = (last_send + limit
+                                     if started - last_send < 2 * limit
+                                     else started)
 
                     # Ask for another picture only once there is somewhere to
                     # put it. Holding the acknowledgement back is what stops

@@ -1,5 +1,16 @@
 # Changelog
 
+## 4.19.2
+
+- **Up to a quarter more pictures a second while something moves.** The frame
+  limit restarted from whichever turn of the sender's loop noticed a new
+  picture, and the loop looks only every fifteen milliseconds or so -- so every
+  interval was rounded up: at `fps: 30` the panel received about 23.6 pictures
+  a second even when nothing else was short. The limit now keeps to its
+  schedule. Measured against a panel that never makes the sender wait: 23.6 ->
+  30.0 at 30, 13.9 -> 15.0 at 15, the longest gap no longer; unchanged on a
+  slow link, where the link is what decides. Nothing to configure.
+
 ## 4.19.1
 
 - **The settings page speaks French (and English), in six numbered sections.**

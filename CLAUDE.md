@@ -7868,6 +7868,48 @@ it on the writer as well would cut two thirds of the host's paint and encode
 during motion and change nothing the panel sees. Identified, not built, and
 nobody asked for it.
 
+## `--fps 30` delivered 23.6, and the panel's own stats are what said so
+
+**Reported with `stats` on during a swipe down Home Assistant's entity list:**
+
+    13.0 pictures/s, 27.6 made/s, 16.4 rectangles/s, 15 whole, 1050.9 KiB/s,
+    panel wait 18%, 4 skipped, worst gap 133 ms, worst turn 67 ms, loop 80.4 Hz
+
+and a dozen lines like it, `panel wait` between 0 and 18% in every one. That
+retired the hypothesis offered just before it -- that pictures pile up between
+the server and the glass (writer, kernel send buffer, the board's 512000-byte
+window, `frame_buffers: 4`). A panel that the writer waits on less than a fifth
+of the time is a panel WAITING for the server, not one with a queue in front
+of it. The theory was read out of the code and was plausible; one log line
+from the house killed it, which is the order this file keeps asking for. The
+long gaps in those logs (480, 742, 1773 ms) all sit in windows where a page
+was being opened, not scrolled.
+
+**So the server was measured against a panel that never makes it wait**, with
+a page that scrolls itself and the shipped `ha_send.py`: **23.6 pictures a
+second at `--fps 30`**, 37 at `--fps 60`. The limit was not being reached. The
+per-picture work is not why -- decode 5.9 ms, diff 1.4, whole-panel encode 3
+at 800x1280 -- and neither is the browser, whose `lead` read 13 to 23 ms.
+
+**It is the schedule.** `last_send = started` restarted the interval from
+whichever turn of the loop NOTICED the picture, and the loop turns every
+fifteen milliseconds or so -- so every interval was rounded up to the next
+turn, 33 ms becoming about 42. `last_send += limit` keeps the schedule, and a
+turn late by more than a whole interval starts a fresh one, or a page that
+stood still would come back as a burst. **23.6 -> 30.0 at 30, 13.9 -> 15.0 at
+15**, worst gap 65-75 ms against 66-94 before; against a panel draining 1500
+KiB/s the two are the same within noise, because there the link decides.
+
+The loss scales with how long a turn is, so it is larger on a slower machine
+than here -- the panel above ran its loop at 80 Hz where this ran at 65, with
+turns up to 112 ms. Whether this is all of that panel's missing third is what
+its next stats line says; the fix is real either way.
+
+`tools/checkpacing.py` runs any copy of the sender against that fake panel and
+fails below nine tenths of the limit. Against the previous release it reads
+23.5 at 30 and fails; at 15 the old rule loses only one picture a second and
+passes, which is why 30 is the case that matters.
+
 ## The C6 already gives a panel Bluetooth, and ESPHome already wires it
 
 **Proposed after the dongle turned out to be the obstacle: *"je confronte a un
