@@ -24,6 +24,15 @@
 #include <cerrno>
 #include <cstring>
 
+// Present only when the wifi component was built with runtime roaming
+// suppression, which portall asks for from its schema whenever `port:` is set.
+// Guarded on the define rather than on wifi being there at all: a panel on
+// Ethernet, or an ESPHome older than the API, compiles none of this.
+#if defined(USE_ESP32) && defined(USE_WIFI) && defined(USE_WIFI_RUNTIME_ROAMING_SUPPRESSION)
+#include "esphome/components/wifi/wifi_component.h"
+#define PORTALL_HOLDS_ROAMING 1
+#endif
+
 extern "C" {
 #include "freertos/task.h"
 #include <lwip/sockets.h>
@@ -38,6 +47,41 @@ static const char *const TAG = "portall.net";
 // OPTIMISATION : Augmentation de la taille de lecture (32 Ko) pour saturer le débit du C6/Wi-Fi
 static constexpr size_t NET_READ_SIZE = 32768;
 static constexpr int NET_RECV_TIMEOUT_S = 30;
+
+// ESPHome looks for a better access point every five minutes while the signal
+// is below -49 dBm, and the radio leaves its channel for most of a second to
+// do it. Nothing arrives meanwhile, then everything arrives at once: a panel
+// log put 200 dropped blocks of sound -- two seconds -- and a picture rate of
+// 12 in the second after one "Roam scan", with "wifi took 642 ms" beside it.
+//
+// So roaming is held off while something is actually streaming, and let go
+// once only heartbeats have arrived for ROAM_QUIET_MS. That is what sendspin
+// does for its own stream. A still dashboard sends nothing but a heartbeat,
+// so a panel sitting idle still roams -- its checks are simply moved to the
+// moments when nobody is watching. A read no longer than one header is a
+// heartbeat; anything longer carries a picture or sound.
+static constexpr uint32_t ROAM_QUIET_MS = 15000;
+static constexpr int HEARTBEAT_BYTES = sizeof(udisp_frame_header_t);
+
+static void hold_roaming(bool &held, bool want) {
+#ifdef PORTALL_HOLDS_ROAMING
+  if (held == want || wifi::global_wifi_component == nullptr)
+    return;
+  // Counted by the wifi component, so every request must be released exactly
+  // once or roaming stays off for good -- hence the flag, and the release on
+  // every way out of a connection.
+  if (want) {
+    wifi::global_wifi_component->request_roaming_suppression();
+  } else {
+    wifi::global_wifi_component->release_roaming_suppression();
+  }
+  held = want;
+  ESP_LOGD(TAG, "%s", want ? "Streaming: Wi-Fi roaming scans held off" : "Idle: Wi-Fi roaming scans allowed again");
+#else
+  (void) held;
+  (void) want;
+#endif
+}
 
 #ifdef USE_TOUCHSCREEN
 void Portall::queue_touch_(const touchscreen::TouchPoints_t &points) {
@@ -275,6 +319,8 @@ void Portall::run_network_task() {
       this->status_pending_ = true;
       
       TickType_t last_recv_time = xTaskGetTickCount();
+      TickType_t last_stream_time = last_recv_time;
+      bool roaming_held = false;
 
       while (true) {
         fd_set readable;
@@ -285,6 +331,9 @@ void Portall::run_network_task() {
         int ready = ::select(client + 1, &readable, nullptr, nullptr, &slice);
 
         this->send_queued_messages_(client);
+
+        if (roaming_held && (xTaskGetTickCount() - last_stream_time) > pdMS_TO_TICKS(ROAM_QUIET_MS))
+          hold_roaming(roaming_held, false);
 
         if (ready == 0) {
           if ((xTaskGetTickCount() - last_recv_time) > pdMS_TO_TICKS(NET_RECV_TIMEOUT_S * 1000)) {
@@ -302,6 +351,10 @@ void Portall::run_network_task() {
         int received = ::recv(client, buffer, NET_READ_SIZE, 0);
         if (received > 0) {
           last_recv_time = xTaskGetTickCount();
+          if (received > HEARTBEAT_BYTES) {
+            last_stream_time = last_recv_time;
+            hold_roaming(roaming_held, true);
+          }
           this->feed_(buffer, (size_t) received, true);
           continue;
         }
@@ -310,6 +363,7 @@ void Portall::run_network_task() {
         break;
       }
 
+      hold_roaming(roaming_held, false);
       this->reset_stream_();
       ::close(client);
     }
