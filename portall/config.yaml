@@ -1,5 +1,5 @@
 name: Portall
-version: "4.17.0"
+version: "4.18.0"
 # Home Assistant identifies an add-on by its slug, so this one moving from
 # usb_display_panel to portall makes the Supervisor see a NEW add-on: options
 # are not carried over and /data starts empty, which means the browser
@@ -55,6 +55,10 @@ options:
       # launcher for the page of links this add-on builds, or an address of
       # this panel's own.
       url: launcher
+      # Which links this panel's launcher shows, by their names under links:
+      # below, separated by commas -- "Home Assistant, Jellyfin". Each panel
+      # chooses its own; empty shows every link.
+      # links: Home Assistant, Jellyfin
       width: 1024
       height: 600
       rotate: "180"
@@ -95,10 +99,6 @@ options:
       # opens a DIFFERENT Home Assistant from the rest of the house. Leave it
       # empty unless that is what you mean.
       token: ""
-      # Which panels show this link, by their name, separated by commas --
-      # "salon" or "salon, cuisine". Empty shows it on every panel, which is
-      # what every link did before this existed.
-      # panels: salon
   # The page of links this add-on builds, for a panel whose url is
   # "launcher". Appearance only -- what the tiles open is links: above.
   launcher:
@@ -300,6 +300,7 @@ schema:
     - name: str
       host: str
       url: str
+      links: str?
       width: int(16,4096)
       height: int(16,4096)
       rotate: list(0|90|180|270)
@@ -333,7 +334,6 @@ schema:
       quality: int(1,95)?
       fps: float?
       user_agent: str?
-      panels: str?
   launcher:
     theme: list(dark|light)?
     columns: int(0,6)?

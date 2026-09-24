@@ -8,6 +8,12 @@ second half is visible rather than a matter of taste: at four across on
 1024x600 the tiles are 220 px wide and the names break INSIDE words,
 "Jellyfi|n", "YouTu|be", "Proxm|ox".
 
+4.17.0 answered the first half with a panels: field on each LINK, and it
+worked -- this file passed against it -- and was reported straight back as
+"chaque panel ne dispose pas de ses propres links choisis independamment".
+The choice was on the wrong side: somebody changing one screen goes to that
+screen's entry. So a panel carries links: now, the names of what it shows.
+
 So this drives the shipped code the way the add-on does -- the options file
 read by run.load_panels(), the launcher started by run.start_launcher(), each
 panel sent to its address by run.route_to_launcher() -- and then opens each
@@ -52,27 +58,31 @@ def check(what, ok):
 # panel's exceptions under advanced:. Two panels of the two shapes reported.
 OPTIONS = {
     "panels": [
+        # Capitals and stray spaces: the same tile to whoever typed it.
         {"name": "salon", "host": "127.0.0.2", "url": "launcher",
+         "links": "Home Assistant, Jellyfin,  youtube , Proxmox",
          "width": 1280, "height": 800, "rotate": "0",
          "touch": {"rotate": "0"}, "advanced": {"home_assistant": True}},
+        # A name that is no link, which must be said out loud rather than
+        # simply never appear.
         {"name": "cuisine", "host": "127.0.0.3", "url": "launcher",
+         "links": "Home Assistant, Recettes, YouTube, Proxmox, Netflx",
          "width": 1024, "height": 600, "rotate": "0",
          "touch": {"rotate": "0"}, "advanced": {"columns": 3}},
+        # Chose nothing, so shows everything: every configuration written
+        # before the field existed.
+        {"name": "bureau", "host": "127.0.0.4", "url": "launcher",
+         "links": " ", "width": 800, "height": 1280, "rotate": "0",
+         "touch": {"rotate": "0"}},
     ],
     "links": [
         {"name": "Home Assistant", "url": "http://x/ha", "icon": "home"},
-        {"name": "Jellyfin", "url": "http://x/jf", "icon": "jellyfin",
-         "panels": "salon"},
-        # Capitals and a stray space: the same room to whoever typed it.
-        {"name": "Recettes", "url": "http://x/re", "icon": "cuisine",
-         "panels": " Cuisine "},
-        {"name": "YouTube", "url": "http://x/yt", "icon": "youtube",
-         "panels": "salon, cuisine"},
-        {"name": "Proxmox", "url": "http://x/px", "icon": "proxmox",
-         "panels": ""},
-        # A typo, which must be said out loud rather than hide the tile.
-        {"name": "Chambre", "url": "http://x/ch", "icon": "bed",
-         "panels": "chambre"},
+        {"name": "Jellyfin", "url": "http://x/jf", "icon": "jellyfin"},
+        {"name": "Recettes", "url": "http://x/re", "icon": "cuisine"},
+        {"name": "YouTube", "url": "http://x/yt", "icon": "youtube"},
+        {"name": "Proxmox", "url": "http://x/px", "icon": "proxmox"},
+        # Chosen by no panel that chose, so only on the one that did not.
+        {"name": "Chambre", "url": "http://x/ch", "icon": "bed"},
     ],
     "launcher": {"columns": 4},
 }
@@ -123,17 +133,20 @@ def main():
 
     # -- the choosing, on its own ------------------------------------------
     links = OPTIONS["links"]
-    names = lambda who: [l["name"] for l in launcher.links_for(links, who)]
-    check("a link with no panels: is on every panel",
-          "Home Assistant" in names("salon") and "Home Assistant" in names("cuisine"))
-    check("an EMPTY panels: is the same as none",
-          "Proxmox" in names("salon") and "Proxmox" in names("cuisine"))
-    check("a link for one panel is on that one and not the other",
-          "Jellyfin" in names("salon") and "Jellyfin" not in names("cuisine"))
+    chose = {p["name"]: p.get("links", "") for p in OPTIONS["panels"]}
+    names = lambda who: [l["name"] for l in launcher.links_for(links, chose[who])]
+    check("a panel shows the links it names and no others",
+          names("salon") == ["Home Assistant", "Jellyfin", "YouTube", "Proxmox"])
     check("a name is matched without case or surrounding spaces",
-          "Recettes" in names("cuisine") and "Recettes" not in names("salon"))
-    check("two names separated by a comma reach both panels",
-          "YouTube" in names("salon") and "YouTube" in names("cuisine"))
+          "YouTube" in names("salon"))
+    check("the two panels choose independently",
+          "Jellyfin" in names("salon") and "Jellyfin" not in names("cuisine")
+          and "Recettes" in names("cuisine") and "Recettes" not in names("salon"))
+    check("the house's order is kept, not the order typed",
+          [l["name"] for l in launcher.links_for(links, "Proxmox, Jellyfin")]
+          == ["Jellyfin", "Proxmox"])
+    check("a panel that chose nothing shows every link",
+          len(names("bureau")) == len(links))
     check("a page asked for with no panel shows every link",
           len(launcher.links_for(links, "")) == len(links))
     check("the two panels are sent to different addresses",
@@ -154,14 +167,18 @@ def main():
         run.route_to_launcher(panels, where)
     log = said.getvalue()
     check("the launcher starts", where is not None)
-    check("a link naming no panel here is said out loud, with its name",
-          "chambre" in log and "Chambre" in log)
+    check("a panel naming a link that is not there is said out loud",
+          "[cuisine]" in log and "netflx" in log and "Recettes" in log)
+    check("and the panel's own count is said at startup",
+          "[salon] launcher: 4 link(s)" in log
+          and "[bureau] launcher: 6 link(s)" in log)
     by_name = {p["name"]: p for p in panels}
     check("each panel is handed its own address",
           by_name["salon"]["url"] != by_name["cuisine"]["url"]
           and "cuisine" in by_name["cuisine"]["url"])
-    check("and a panel's column count reaches no sender",
-          "--columns" not in run.command_for(by_name["cuisine"]))
+    check("and neither its column count nor its links reach a sender",
+          "--columns" not in run.command_for(by_name["cuisine"])
+          and "--links" not in run.command_for(by_name["cuisine"]))
 
     with sync_playwright() as pw:
         browser = (pw.chromium.launch(executable_path=BROWSER)
@@ -192,8 +209,11 @@ def main():
               "Recettes" in cuisine["names"]
               and "Jellyfin" not in cuisine["names"])
         check("the kitchen takes its own three across", cuisine["across"] == 3)
-        check("the typo'd link is on neither panel",
+        check("a link neither of them chose is on neither",
               "Chambre" not in salon["names"] + cuisine["names"])
+        bureau = open_as(by_name["bureau"])
+        check("the panel that chose nothing shows every link",
+              len(bureau["names"]) == len(links) and "Chambre" in bureau["names"])
 
         # The reported look, kept rather than remembered: the SAME panel at
         # the launcher's four across breaks names inside words. Every link

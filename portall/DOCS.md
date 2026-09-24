@@ -289,40 +289,48 @@ links:
     group: Media
     description: Films et series
     quality: 40                 # a film needs far fewer bytes than text
-    panels: salon               # only on this panel; empty = every panel
 panels:
   - name: salon
     host: ""
     url: launcher
+    links: Home Assistant, Jellyfin   # what this panel shows; empty = every link
     width: 800
     height: 1280
 ```
 
 ### Each panel its own links, and its own number across
 
-Several panels share one list of links, and **each one shows only the links
-meant for it**. A link with `panels:` empty is the house's and appears on every
-panel -- which is what every link did before 4.17.0, so nothing you already
-have changes. A link that names panels appears on those and nowhere else:
+Several panels share one list of links, and **each panel chooses the ones it
+shows, in its own entry**. `links:` on a panel is the names of those links,
+spelt as they are under `links:` and separated by commas. Left empty, the
+panel shows every link -- which is what every panel did before, so nothing you
+already have changes:
 
 ```yaml
+panels:
+  - name: salon
+    url: launcher
+    links: Home Assistant, Jellyfin, YouTube
+  - name: cuisine
+    url: launcher
+    links: Home Assistant, Recettes, YouTube
+  - name: bureau
+    url: launcher               # no links: -- every link
 links:
-  - name: Home Assistant        # no panels: -- on every panel
+  - name: Home Assistant
     url: http://homeassistant:8123/lovelace/0
   - name: Jellyfin
     url: http://192.168.1.3:8096
-    panels: salon               # only the living room
   - name: Recettes
     url: https://www.marmiton.org
-    panels: cuisine             # only the kitchen
   - name: YouTube
     url: https://www.youtube.com/tv
-    panels: salon, cuisine      # both, separated by a comma
 ```
 
-The names are the panels' own `name:`, without regard to capitals. A name that
-matches no panel would hide the link everywhere, so the add-on's log says so
-at startup, naming the panels that do exist.
+Capitals and spaces around a name do not matter. The tiles keep the order of
+the list under `links:`, not the order they are named in, so the groups stay
+together. A name that matches no link is said in the add-on's log at startup,
+with the links that do exist, rather than simply never appearing.
 
 **The number across belongs to the screen.** `launcher: columns:` is the
 house's; a panel sets its own under `advanced:` when its screen needs another:

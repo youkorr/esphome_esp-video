@@ -8016,17 +8016,18 @@ path on purpose: every other thing the page asks for -- `/weather.json`,
 for all of them. The corner gesture brings a panel home to its own `url:`,
 which is now that address, so it stays its own without anything else knowing.
 
-- **A link takes `panels:`**, a comma-separated string of panel names, matched
-  without case or surrounding spaces. **Empty means every panel**, which is
-  what every configuration written before it means -- no migration, and a
-  string rather than a list because a stored value the schema no longer
-  accepts stops the add-on, which this file records under the launcher's size
-  scale.
+- **A panel takes `links:`** (4.18.0; see the correction below), a
+  comma-separated string of link NAMES, matched without case or surrounding
+  spaces. **Empty means every link**, which is what every configuration
+  written before it means -- no migration, and a string rather than a list
+  because a stored value the schema no longer accepts stops the add-on, which
+  this file records under the launcher's size scale. The house's order is
+  kept rather than the order typed, so groups stay together.
 - **A page asked for with no panel shows every link.** Showing a link somebody
   did not want is recoverable from the glass; hiding one they did is not.
-- **A name that matches no panel is said at startup, with the panels that do
-  exist**, because a typo there hides the tile everywhere and from the glass
-  that is a link that simply went missing.
+- **A name that matches no link is said at startup, with the links that do
+  exist**, because from the glass a typo there is a tile that simply never
+  appears.
 - **A panel takes `columns:` under `advanced:`**, overriding `launcher:
   columns:` for that screen. It is read by `run.py` for the launcher and
   reaches no sender -- `tools/checkaddon.py` lists it in `ITS_OWN` with that
@@ -8047,6 +8048,38 @@ tiles three across two across. The widest row is the number.
 **Reproduced against the previous commit** in a `git worktree`: one address
 for every panel, the kitchen's page byte-identical to the living room's,
 carrying the living room's link and four across.
+
+### The choice was on the wrong side, and it worked
+
+**4.17.0 put it on the LINK -- `panels: salon, cuisine` -- and it was reported
+straight back: *"chaque panel ne dispose pas c'est propre link choisi
+independamment"*.** Nothing was broken: `tools/checkpanels.py` passed against
+it, each panel was handed its own address and showed its own tiles. The fault
+was where the setting sat. Somebody changing what ONE screen shows goes to
+that screen's entry, and with the choice on the links they had to visit every
+link and add or remove the panel's name there -- which does not read as each
+panel choosing at all.
+
+That is the **ninth** time this user has asked for a setting on the thing it
+belongs to, after the quality, the user agent and the frame limit per link,
+the stylesheet, the token, `keys: true`, `homekit: true` and `columns:` per
+panel. The shape to learn is narrower than "ask first": **when a setting
+relates two things, put it on the one the reader is looking at when they want
+to change it.** Here that is the panel -- columns had just been put there, for
+the same reason, in the same release.
+
+So `links:` on a panel, and `panels:` on a link is **removed rather than kept
+beside it**: two places to choose the same thing, which could disagree, is
+worse than one, and it was one day old. Removing it is safe, and that was
+read rather than assumed -- Supervisor `supervisor/apps/options.py`,
+`_nested_validate_dict`: an unknown key inside a list item is logged
+(`Unknown option ...`) and skipped, exactly like one at the top level. What
+cannot be carried across is the value itself, which the Supervisor drops
+before run.py sees it; the changelog says to move it.
+
+**Reproduced against 4.17.0** in a `git worktree` with the new
+`checkpanels.py`: a panel's `links:` meant nothing there, both panels showed
+all six links, and eight cases fail; all pass on 4.18.0.
 
 ## Repository conventions
 

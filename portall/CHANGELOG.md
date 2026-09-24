@@ -1,5 +1,18 @@
 # Changelog
 
+## 4.18.0
+
+- **Each panel chooses its own links, in its own entry.** Reported on 4.17.0:
+  each panel still did not have its own links chosen independently. 4.17.0
+  put the choice on each LINK, as a list of panels, so changing what one
+  screen shows meant visiting every link. A panel now takes `links:` -- the
+  names of the links it shows, separated by commas -- and every panel chooses
+  on its own. Left empty it shows every link, as before. A name that matches
+  no link is said in the log at startup.
+- **`panels:` on a link is gone.** If you set it in 4.17.0, move the choice to
+  the panels' own `links:`. The Supervisor drops the old field with a warning
+  in its log; it does not stop the add-on.
+
 ## 4.17.0
 
 - **Each panel shows its own links.** Reported: with several panels, every one

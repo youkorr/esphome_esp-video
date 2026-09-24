@@ -246,6 +246,8 @@ def check_reaches_sender(folder):
         # across on this panel's own page. No sender ever sees it;
         # tools/checkpanels.py opens that page and counts them.
         "columns",
+        # The same, for which links that page shows. The launcher's business.
+        "links",
     }
 
     def leaves(spec, path=()):

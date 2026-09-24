@@ -363,24 +363,34 @@ def panel_columns_from(panels):
     return columns
 
 
-def check_link_panels(links, panels):
-    """Say so when a link names a panel that does not exist.
+def panel_links_from(panels):
+    """Each panel's own choice of links, for the ones that made one.
 
-    A typo in a link's panels: hides it from every panel in the house, which
-    from the glass is a tile that simply went missing -- the silent no-op this
-    project keeps having to break. So each name that matches no panel is
-    named, once, with the ones that do exist.
+    A blank field is no choice at all -- every link -- so it is left out
+    rather than handed on as an empty string that means the same thing.
     """
-    known = {str(p.get("name", "")).strip().lower(): str(p.get("name", ""))
-             for p in panels}
-    for link in links:
-        wanted = launcher._names(link.get("panels")) if launcher else set()
+    return {str(panel.get("name", "")).strip(): str(panel.get("links"))
+            for panel in panels if given(panel.get("links"))}
+
+
+def check_panel_links(links, panels):
+    """Say so when a panel asks for a link that does not exist.
+
+    A typo in a panel's links: is a tile that simply never appears on that
+    panel -- the silent no-op this project keeps having to break. So each name
+    that matches no link is named, once, with the links that do exist, spelt
+    the way the panel has to spell them.
+    """
+    known = {str(link.get("name", "")).strip().lower(): str(link.get("name", ""))
+             for link in links}
+    for panel in panels:
+        wanted = launcher._names(panel.get("links")) if launcher else set()
         missing = sorted(wanted - set(known))
         if missing:
-            say(f"Launcher: link \"{link.get('name', '?')}\" is for "
-                f"{', '.join(missing)}, which is no panel here -- the panels "
-                f"are {', '.join(sorted(known.values())) or 'none'}. A name "
-                f"that matches no panel hides the link everywhere.")
+            say(f"[{panel.get('name', 'panel')}] links: {', '.join(missing)} "
+                f"is no link here -- the links are "
+                f"{', '.join(known.values()) or 'none'}. A name that matches "
+                f"no link is simply not shown.")
 
 
 def start_launcher(config, panels=()):
@@ -424,6 +434,7 @@ def start_launcher(config, panels=()):
         rescan=config.get("launcher_slideshow_rescan", 60),
         urls=config.get("launcher_slideshow_urls") or [],
         panel_columns=panel_columns_from(panels),
+        panel_links=panel_links_from(panels),
         weather=Weather(
             # The dashboard's own link is what has the address and the
             # token now, and it is the only thing here that ever had a use
@@ -434,7 +445,7 @@ def start_launcher(config, panels=()):
     )
     if where is not None:
         say(f"Launcher: {len(links)} link(s) at {where}")
-        check_link_panels(links, panels)
+        check_panel_links(links, panels)
     return where
 
 
@@ -1008,14 +1019,16 @@ def route_to_launcher(panels, where):
             # brings it home to this same address, so it stays its own.
             name = str(panel.get("name", "")).strip()
             panel["url"] = launcher.address_for(name) if name else where
-            mine = launcher.links_for(_config.get("links") or [], name)
+            mine = launcher.links_for(_config.get("links") or [],
+                                      panel.get("links"))
             columns = panel_columns_from([panel]).get(name)
             say(f"[{name or 'panel'}] launcher: {len(mine)} link(s)"
                 + (f", {columns} across" if columns else ""))
             if not mine:
-                say(f"[{name or 'panel'}] no link is for this panel, so its "
-                    f"launcher is empty. Leave a link's panels: blank to "
-                    f"show it everywhere, or add this panel's name to it.")
+                say(f"[{name or 'panel'}] none of the links this panel asks "
+                    f"for exists, so its launcher is empty. Leave its links: "
+                    f"blank to show every link, or name them as they are "
+                    f"spelt under links.")
             # Not a form field: the supervisor never sees this, it is what the
             # rewrite above already knows. A page of links does not paint in
             # stages, and the sender otherwise spends three seconds waiting
