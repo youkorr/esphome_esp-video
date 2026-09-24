@@ -211,6 +211,28 @@ Guarded on `USE_WIFI_RUNTIME_ROAMING_SUPPRESSION`, so a panel on Ethernet or
 an ESPHome without the API compiles none of it. Present in 2026.8.2 and
 2026.10.0-dev alike. **Not compiled** -- the define was read off the codegen.
 
+**The radio's power saving is held with it, which is sendspin's other half.**
+Reading `sendspin` for more found `on_request_high_performance()`: it calls
+`request_high_performance()` beside the roaming request, which puts the radio
+at `power_save_mode: none` while the stream lasts and gives the YAML's mode
+back afterwards. ESPHome's default is `light`, and this file already records
+`none` as what a panel needs -- so a panel whose YAML never said so now gets
+it for the length of a stream, and saves power again when it goes quiet. A
+YAML that already says `none` makes both calls do nothing (checked in
+`WiFiComponent::request_high_performance`). `enable_runtime_power_save_
+control()` at validation, `USE_WIFI_RUNTIME_POWER_SAVE` in C++, both present
+in 2026.8.2 and 2026.10.0-dev. `hold_wifi_for_stream()` was extracted and
+compiled with `-Werror` against a stub wifi component in all four
+combinations of the two defines, with a double request and a double release
+each producing exactly one call.
+
+What sendspin also has and was left: a single-frame insert or drop blended
+into its neighbour to follow clock drift, instead of dropping a whole 10 ms
+block (only worth it if steady drops reappear -- they came from roaming), and
+timestamped audio against a Kalman-filtered server clock with a fixed
+playback delay (`sendspin-cpp` `time_filter.cpp`, Apache 2.0), which is the
+shape lip sync here would take.
+
 **And the error that opened every stream was a false alarm.** "The speaker
 has not taken a single byte in 1 blocks. It is refusing this stream" printed
 at the top of a stream that then played perfectly: the first block is handed
