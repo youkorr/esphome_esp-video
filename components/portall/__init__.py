@@ -335,9 +335,12 @@ def _request_fast_network(config):
     buffer and the receive mailbox to match.
 
     Every part of that was self-imposed. ESPHome turns window scaling on and
-    uses 512000 with 512-deep mailboxes when PSRAM is guaranteed, which every
-    board this runs on has -- so the hand-set values were not a floor being
-    raised, they were a ceiling being lowered, by a factor of eight. It capped
+    uses 512000 with 512-deep mailboxes when PSRAM is guaranteed -- so the
+    hand-set values were not a floor being raised, they were a ceiling being
+    lowered, by a factor of eight. "Guaranteed" means `psram:` carries
+    `ignore_not_found: false`, and its default is true: without that line
+    ESPHome falls back to a 65534 window whatever this asks for. Read off the
+    generated sdkconfig of a real panel's YAML at 2026.8.2, which had it off. It capped
     what could arrive at about 26 Mbit/s at a 20 ms round trip, which is what a
     panel was measured receiving, and the user's own VLC capture of the same
     board serving its camera at 25 932 kb/s is what said the radio was not the
@@ -359,6 +362,15 @@ def _request_fast_network(config):
     except (ImportError, AttributeError):
         # Older ESPHome has no such request. Nothing is set instead: the
         # values this used to set were the problem, not the fix.
+        pass
+    try:
+        # Lets network.cpp hold off Wi-Fi roaming scans while pictures or
+        # sound are arriving; see ROAM_QUIET_MS there for why. Only a define
+        # in the wifi component: a panel on Ethernet ignores it.
+        from esphome.components import wifi
+
+        wifi.enable_runtime_roaming_suppression()
+    except (ImportError, AttributeError):
         pass
     return config
 

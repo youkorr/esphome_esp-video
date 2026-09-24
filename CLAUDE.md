@@ -136,8 +136,7 @@ multiple of the 1440-byte MSS that fits the 16-bit window field of a TCP header
 **without window scaling** — and that premise was simply wrong. ESPHome's
 `network` component turns window scaling on (`CONFIG_LWIP_WND_SCALE`,
 `CONFIG_LWIP_TCP_RCV_SCALE 3`) and uses **512000** with 512-deep mailboxes and
-a 65534 send buffer whenever PSRAM is guaranteed, which every board this runs
-on has. So those four lines were not a floor being raised. They were a
+a 65534 send buffer whenever PSRAM is guaranteed. So those four lines were not a floor being raised. They were a
 **ceiling being lowered by a factor of eight**, and it is what limited a panel
 to about 26 Mbit/s at a 20 ms round trip.
 
@@ -168,6 +167,58 @@ ceiling nobody asked for is a bug even when the reasoning behind it is sound.**
 Both were arithmetic, both were self-imposed, and both were defended for
 releases. Before hand-setting anything device-wide, look at what ESPHome
 already sets.
+
+**CORRECTED: "PSRAM is guaranteed, which every board this runs on has" stood
+above, and it is false.** Guaranteed means `psram: ignore_not_found: false`,
+and the default is **true** -- so a panel that never wrote that line gets
+ESPHome's fallback, a 65534 window with no scaling and 64-deep mailboxes, and
+`require_high_performance_networking()` changes nothing. Not one example in
+`yaml/` carried it. Found by running the codegen on a real panel's YAML at
+2026.8.2 and reading the resulting sdkconfig, rather than trusting the
+docstring. That panel also set `CONFIG_LWIP_TCP_WND_DEFAULT: "65534"` in its
+own `sdkconfig_options`, and **a user's sdkconfig_options win** over the
+network component's: with `ignore_not_found: false` alone it still read 65534.
+Both lines had to go before it read 512000.
+
+**Wi-Fi roaming scans are what dropped the sound, and portall now holds them
+off while it streams.** From the same panel, one second of log:
+
+    23:44:37  Roam scan (-59 dBm, attempt 1/3)
+    23:44:39  Dropped a block: the speaker is not draining (100 times so far)
+    23:44:40  Dropped a block: the speaker is not draining (200 times so far)
+    23:44:41  wifi took a long time for an operation (642 ms)
+
+ESPHome 2025+ scans every channel for a better access point every five
+minutes while the signal is below -49 dBm (`post_connect_roaming`, default
+true; `ROAMING_CHECK_INTERVAL`, `ROAMING_GOOD_RSSI` in `wifi_component.h`).
+The radio is off its channel for most of a second, the stream stops, then
+arrives at once and overflows the mixer, the resampler and the Bluetooth ring
+together. 100 blocks of 10 ms each second: two seconds of sound, and the
+picture fell to 12 per second in the same window. With `post_connect_roaming:
+false` the next 6 minutes of 25 fps video had no roam scan and no dropped
+block.
+
+ESPHome has the mechanism for a stream: `wifi.enable_runtime_roaming_
+suppression()` at validation, then `request_roaming_suppression()` /
+`release_roaming_suppression()` at runtime, which is what `sendspin` does.
+`_request_fast_network()` asks for it whenever `port:` is set, and
+`network.cpp` requests it on the first read longer than a header -- a
+heartbeat is exactly one header -- and releases it after `ROAM_QUIET_MS` of
+heartbeats only, and on every disconnect, because the count is the wifi
+component's and an unmatched request would stop roaming for good. A still
+dashboard therefore still roams; its scans move to when nobody is watching.
+Guarded on `USE_WIFI_RUNTIME_ROAMING_SUPPRESSION`, so a panel on Ethernet or
+an ESPHome without the API compiles none of it. Present in 2026.8.2 and
+2026.10.0-dev alike. **Not compiled** -- the define was read off the codegen.
+
+**And the error that opened every stream was a false alarm.** "The speaker
+has not taken a single byte in 1 blocks. It is refusing this stream" printed
+at the top of a stream that then played perfectly: the first block is handed
+over the instant `start()` is called, and a mixer source starts from its own
+loop afterwards, so it is refused on every panel every time. The diagnosis
+now waits for a second of refusals (`NEVER_ACCEPTED_BLOCKS`) and the
+underrun warning stays quiet until the speaker has taken something. It also
+pointed at `yaml/guition-10-home-assistant.yaml`, which no longer exists.
 
 **Sleep/wake.** `portall.sleep` / `portall.wake` actions, registered
 `synchronous=True`. The board sends `'S'` + a byte so the sender can stop

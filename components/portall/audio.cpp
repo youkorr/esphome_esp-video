@@ -45,6 +45,9 @@ static const char *const TAG = "portall.audio";
 // delay -- and small next to whatever buffer the speaker keeps, because a block
 // that fills most of it cannot survive the slightest jitter.
 static constexpr uint32_t AUDIO_BLOCK_MS = 10;
+// One second of blocks: how long a speaker that has never taken anything is
+// given before it is called a speaker that refuses the stream.
+static constexpr uint32_t NEVER_ACCEPTED_BLOCKS = 1000 / AUDIO_BLOCK_MS;
 
 #if CFG_TUD_AUDIO
 namespace {
@@ -173,7 +176,9 @@ void Portall::flush_audio_block_() {
   this->audio_block_used_ = carried;
 
   this->audio_underruns_++;
-  if (this->audio_underruns_ == 1 || this->audio_underruns_ % 500 == 0) {
+  // Not before the speaker has ever taken anything: until then the block
+  // below says what is wrong, and says it once.
+  if (this->audio_ever_accepted_ && (this->audio_underruns_ == 1 || this->audio_underruns_ % 500 == 0)) {
     ESP_LOGW(TAG, "The speaker took %u of %u bytes, %u carried over (%u times so far)", (unsigned) written,
              (unsigned) length, (unsigned) carried, (unsigned) this->audio_underruns_);
   }
@@ -185,7 +190,15 @@ void Portall::flush_audio_block_() {
   if (written == 0 && carried >= this->audio_block_size_) {
     this->audio_block_used_ = 0;
     this->audio_resyncs_++;
-    if (this->audio_resyncs_ == 1 || this->audio_resyncs_ % 100 == 0) {
+    // A speaker that has never taken anything is judged after a second of
+    // refusing, not on the first block. That first block is handed over the
+    // instant start() is called, and a mixer source starts from its own loop
+    // afterwards, so it is refused every time on every panel -- which printed
+    // the error below at the top of each stream that then played perfectly.
+    const bool report = this->audio_ever_accepted_
+                            ? (this->audio_resyncs_ == 1 || this->audio_resyncs_ % 100 == 0)
+                            : (this->audio_resyncs_ == NEVER_ACCEPTED_BLOCKS || this->audio_resyncs_ % 500 == 0);
+    if (report) {
       if (this->audio_ever_accepted_) {
         // It has worked before, so this is the speaker falling behind: the
         // panel is busy, or something else is holding the bus.
@@ -204,14 +217,16 @@ void Portall::flush_audio_block_() {
         // run their I2S at 44100 -- so a speaker_id: pointing straight at a
         // mixer input, or at the raw I2S speaker under one, can never work.
         //
-        // The fix is a resampler between the two, which is what
-        // yaml/guition-10-home-assistant.yaml wires up.
+        // The fix is for every source of one mixer to share a rate: run the
+        // mixer at 48000 and put a resampler AFTER it, which is what
+        // yaml/tab5-portall-bluetooth.yaml wires up, or put one between
+        // portall and its mixer input.
         ESP_LOGE(TAG,
                  "The speaker has not taken a single byte in %u blocks. It is refusing this stream rather than "
                  "falling behind: portall sends %d Hz, %d bit, %d channel, and an ESPHome mixer refuses a source "
-                 "whose rate is not the one it already runs at. Point speaker_id: at a resampler whose "
-                 "output_speaker: is the mixer input, not at the mixer input or the I2S speaker itself -- see "
-                 "yaml/guition-10-home-assistant.yaml. Look for \"Incompatible audio streams\" on the speaker "
+                 "whose rate is not the one it already runs at. Give every mixer source 48000 and put a "
+                 "resampler after the mixer (see yaml/tab5-portall-bluetooth.yaml), or point speaker_id: at a "
+                 "resampler in front of the mixer input. Look for \"Incompatible audio streams\" on the speaker "
                  "component above.",
                  (unsigned) this->audio_resyncs_, PORTALL_AUDIO_RATE, PORTALL_AUDIO_BITS, PORTALL_AUDIO_CHANNELS);
       }
