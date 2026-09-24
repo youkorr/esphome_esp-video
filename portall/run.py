@@ -1022,8 +1022,17 @@ def route_to_launcher(panels, where):
             mine = launcher.links_for(_config.get("links") or [],
                                       panel.get("links"))
             columns = panel_columns_from([panel]).get(name)
+            # A panel that chose nothing shows every link, and says HOW to
+            # choose: the field is optional, so the Supervisor's form never
+            # shows it, and a household with two panels reported "it does
+            # not work" from a configuration that simply had no links: in it.
+            chose = given(panel.get("links"))
             say(f"[{name or 'panel'}] launcher: {len(mine)} link(s)"
-                + (f", {columns} across" if columns else ""))
+                + (f", {columns} across" if columns else "")
+                + ("" if chose else
+                   " -- every link, because this panel chooses none. To "
+                   "choose, add under this panel: links: Home Assistant, "
+                   "Jellyfin (the names as they are spelt under links)"))
             if not mine:
                 say(f"[{name or 'panel'}] none of the links this panel asks "
                     f"for exists, so its launcher is empty. Leave its links: "
