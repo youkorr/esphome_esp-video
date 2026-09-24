@@ -344,61 +344,85 @@ def truthy(value):
     return str(value).strip().lower() not in ("false", "no", "0", "off", "")
 
 
-def panel_columns_from(panels):
-    """Each panel's own column count, for the ones that set one.
+# What a launchers: entry may set, each the house launcher's own flat name
+# without its prefix -- theme is launcher_theme, clock_size is
+# launcher_clock_size -- so an entry is the house launcher with that panel's
+# own values laid over it, and there is no second table to keep in step.
+LAUNCHER_OWN = (
+    "theme", "columns", "align",
+    "clock", "clock_size", "clock_color", "date_size", "date_color",
+    "weather", "weather_size",
+    "background", "background_motion", "background_blur", "background_dim",
+    "slideshow", "slideshow_urls", "slideshow_seconds", "slideshow_fade",
+    "slideshow_rescan",
+)
 
-    Nought is a value here -- it means "let the panel decide" -- so only a
-    field somebody left empty is skipped, never a zero.
+
+def own_launchers(config, panels):
+    """Each panel's own launchers: entry, keyed by the panel's name.
+
+    A launcher belongs to ONE panel, independent of every other: its links,
+    its columns, its clock, its wallpaper, all of it. Asked for as "panels
+    salon has its own links, buttons, columns, every option, and panel 2 its
+    own, independent, not the first panel's" -- after a shared list with a
+    per-panel choice of names was reported as still not being that.
+
+    It is a list of its own rather than a group inside a panel's entry for a
+    reason in the Supervisor, not in taste: a list or a group nested inside a
+    panel is REQUIRED there (supervisor/apps/options.py,
+    _check_missing_options, only treats a plain "...?" as optional), so every
+    configuration already saved would stop the add-on on this update. A new
+    top-level list takes its default -- empty -- from this add-on's own
+    options instead.
+
+    An entry naming no panel, or a second entry for the same one, is said out
+    loud: from the glass either is a launcher that never appears.
     """
-    columns = {}
-    for panel in panels:
-        value = panel.get("columns")
-        if value is None or not given(value):
+    names = {str(p.get("name", "")).strip().lower(): str(p.get("name", ""))
+             for p in panels}
+    out = {}
+    for entry in config.get("launchers") or []:
+        if not isinstance(entry, dict):
             continue
-        try:
-            columns[str(panel.get("name", "")).strip()] = int(value)
-        except (TypeError, ValueError):
-            say(f"[{panel.get('name', 'panel')}] columns {value!r} is not a "
-                f"number, so this panel takes the launcher's own")
-    return columns
+        who = str(entry.get("panel", "")).strip().lower()
+        if who not in names:
+            say(f"Launcher: launchers: has an entry for panel "
+                f"\"{entry.get('panel', '')}\", which is no panel here -- the "
+                f"panels are {', '.join(sorted(names.values())) or 'none'}. "
+                f"The name has to be the panel's own name:.")
+            continue
+        if who in out:
+            say(f"[{names[who]}] launchers: has two entries for this panel; "
+                f"the first is the one shown.")
+            continue
+        out[who] = entry
+    return out
 
 
-def panel_links_from(panels):
-    """Each panel's own choice of links, for the ones that made one.
+def launcher_config(config, entry):
+    """The house's settings with one panel's own launcher laid over them.
 
-    A blank field is no choice at all -- every link -- so it is left out
-    rather than handed on as an empty string that means the same thing.
+    Only what the entry sets replaces the house's, so an entry that says
+    nothing but its links still has the house's clock and wallpaper. An empty
+    list counts as not set, which is what a form leaves behind.
     """
-    return {str(panel.get("name", "")).strip(): str(panel.get("links"))
-            for panel in panels if given(panel.get("links"))}
+    merged = dict(config)
+    for key in LAUNCHER_OWN:
+        value = entry.get(key)
+        if value is None or value == [] or not given(value):
+            continue
+        merged["launcher_" + key] = value
+    merged["links"] = entry.get("links") or []
+    return merged
 
 
-def check_panel_links(links, panels):
-    """Say so when a panel asks for a link that does not exist.
+def start_launcher(config, port=None, house_links=(), label=""):
+    """Serve one page of links, if there are any, and say where it is.
 
-    A typo in a panel's links: is a tile that simply never appears on that
-    panel -- the silent no-op this project keeps having to break. So each name
-    that matches no link is named, once, with the links that do exist, spelt
-    the way the panel has to spell them.
-    """
-    known = {str(link.get("name", "")).strip().lower(): str(link.get("name", ""))
-             for link in links}
-    for panel in panels:
-        wanted = launcher._names(panel.get("links")) if launcher else set()
-        missing = sorted(wanted - set(known))
-        if missing:
-            say(f"[{panel.get('name', 'panel')}] links: {', '.join(missing)} "
-                f"is no link here -- the links are "
-                f"{', '.join(known.values()) or 'none'}. A name that matches "
-                f"no link is simply not shown.")
-
-
-def start_launcher(config, panels=()):
-    """Serve the page of links, if there are any, and say where it is.
-
-    Returns the address, or None when nobody configured any links -- in which
-    case a panel asking for the launcher is told plainly rather than being
-    pointed at an empty page it cannot get out of.
+    Returns the address, or None when there are no links -- in which case a
+    panel asking for the launcher is told plainly rather than being pointed at
+    an empty page it cannot get out of. `house_links` are consulted for the
+    weather's address when this launcher's own links carry none.
     """
     links = config.get("links") or []
     if not links:
@@ -433,20 +457,60 @@ def start_launcher(config, panels=()):
         fade=config.get("launcher_slideshow_fade", 1),
         rescan=config.get("launcher_slideshow_rescan", 60),
         urls=config.get("launcher_slideshow_urls") or [],
-        panel_columns=panel_columns_from(panels),
-        panel_links=panel_links_from(panels),
+        port=launcher.PORT if port is None else port,
         weather=Weather(
             # The dashboard's own link is what has the address and the
             # token now, and it is the only thing here that ever had a use
             # for either.
-            *home_assistant_link(config),
+            *home_assistant_link({"links": list(links) + list(house_links)}),
             config.get("launcher_weather"),
         ).start(),
     )
     if where is not None:
-        say(f"Launcher: {len(links)} link(s) at {where}")
-        check_panel_links(links, panels)
+        say(f"Launcher{label}: {len(links)} link(s) at {where}")
     return where
+
+
+def start_launchers(config, panels):
+    """The house's launcher, and one of its own for each panel that has one.
+
+    Returns the house's address (None when nothing needs it, or it has no
+    links) and, per panel name, its own address and its launchers: entry.
+    Only panels whose url is "launcher" are served; an entry for a panel that
+    shows a page of its own is said, not silently ignored.
+    """
+    entries = own_launchers(config, panels)
+    house = config.get("links") or []
+    own = {}
+    wants_house = False
+    for panel in panels:
+        name = str(panel.get("name", "")).strip()
+        entry = entries.get(name.lower())
+        on_launcher = (str(panel.get("url", "")).strip().lower()
+                       == LAUNCHER_KEYWORD)
+        if entry is None:
+            wants_house = wants_house or on_launcher
+            continue
+        if not on_launcher:
+            say(f"[{name}] has an entry under launchers:, but its url is not "
+                f"\"{LAUNCHER_KEYWORD}\", so it is not shown. Put "
+                f"\"{LAUNCHER_KEYWORD}\" in this panel's url to use it.")
+            continue
+        if not (entry.get("links") or []):
+            say(f"[{name}] its entry under launchers: has no links, so its "
+                f"launcher would be empty; it shows the house's instead.")
+            wants_house = True
+            continue
+        where = start_launcher(
+            launcher_config(config, entry),
+            port=launcher.ANY_PORT if launcher else None,
+            house_links=house, label=f" [{name}]")
+        if where is None:
+            wants_house = True
+        else:
+            own[name.lower()] = (where, entry)
+    shared = start_launcher(config) if wants_house else None
+    return shared, own
 
 
 def start_pulseaudio():
@@ -974,76 +1038,105 @@ def serve(panel, name, stop, remote=None):
             delay = min(delay * 2, MAX_RESTART_DELAY_S)
 
 
-def route_to_launcher(panels, where):
-    """Send every panel whose url is "launcher" to its own page on it.
+def route_to_launcher(panels, where, own=None):
+    """Send every panel whose url is "launcher" to its launcher.
 
-    A function rather than a stretch of main() so that the address each
-    panel is really handed can be checked without starting any sender.
+    Its own, from `own` (name -> (address, launchers: entry)), when it has
+    one; the house's at `where` otherwise. A function rather than a stretch
+    of main() so that the address each panel is really handed can be checked
+    without starting any sender.
     """
+    own = own or {}
     for panel in panels:
         if str(panel.get("url", "")).strip().lower() != LAUNCHER_KEYWORD:
             continue
-        if where is None:
+        name = str(panel.get("name", "")).strip()
+        address, entry = own.get(name.lower(), (None, None))
+        if address is None and where is None:
             # Say which of the two it is. Telling somebody who filled the
             # list in that it is empty sends them to look at the one thing
             # that is right.
             why = (
-                "no links are configured; add some under links"
+                "no links are configured; add some under links, or give this "
+                "panel its own under launchers"
                 if not (_config.get("links") or [])
                 else "the launcher could not be served, for the reason above"
             )
-            say(f"[{panel.get('name', 'panel')}] url is \"{LAUNCHER_KEYWORD}\" "
+            say(f"[{name or 'panel'}] url is \"{LAUNCHER_KEYWORD}\" "
                 f"but {why}, or point this panel at a page of its own")
             panel["url"] = ""
+            continue
+        mine = (entry.get("links") or []) if entry else \
+            (_config.get("links") or [])
+        # The token belongs to Home Assistant, and the page this panel now
+        # opens is the launcher. Without saying so, the sender would install
+        # the token for the launcher's own address -- and the frontend ignores
+        # a record whose hassUrl is not its own, so the dashboard behind a
+        # tile would ask to log in with the token sitting unused in its
+        # storage. The Home Assistant LINK is the house's dashboard address
+        # now, which is where the token lives too, so the two cannot disagree.
+        # A panel's own links are asked first, then the house's.
+        home, _ = home_assistant_link(
+            {"links": list(mine) + list(_config.get("links") or [])})
+        if given(panel.get("token")) and not given(panel.get("token_url")):
+            if given(home):
+                panel["token_url"] = home
+            else:
+                say(f"[{name or 'panel'}] this panel starts on the launcher "
+                    f"and has a token of its own, but no link carries a Home "
+                    f"Assistant address to attach it to. Give the dashboard's "
+                    f"link a token, or a tile opening it will ask to log in.")
+        if address is not None:
+            panel["url"] = address
+            panel["launcher_links"] = list(mine)
+            say(f"[{name}] launcher: its own, {len(mine)} link(s)")
         else:
-            # The token belongs to Home Assistant, and the page this panel now
-            # opens is the launcher. Without saying so, the sender would
-            # install the token for the launcher's own address -- and the
-            # frontend ignores a record whose hassUrl is not its own, so the
-            # dashboard behind a tile would ask to log in with the token
-            # sitting unused in its storage. The Home Assistant LINK is the
-            # house's dashboard address now, which is where the token lives
-            # too, so the two can no longer disagree.
-            home, _ = home_assistant_link(_config)
-            if given(panel.get("token")) and not given(panel.get("token_url")):
-                if given(home):
-                    panel["token_url"] = home
-                else:
-                    say(f"[{panel.get('name', 'panel')}] this panel starts on "
-                        f"the launcher and has a token of its own, but no "
-                        f"link carries a Home Assistant address to attach it "
-                        f"to. Give the dashboard's link a token, or a tile "
-                        f"opening it will ask to log in.")
-            # Its own page on the one server: the address names the panel, and
-            # that picks the links it shows and how many go across. The corner
-            # brings it home to this same address, so it stays its own.
-            name = str(panel.get("name", "")).strip()
-            panel["url"] = launcher.address_for(name) if name else where
-            mine = launcher.links_for(_config.get("links") or [],
-                                      panel.get("links"))
-            columns = panel_columns_from([panel]).get(name)
-            # A panel that chose nothing shows every link, and says HOW to
-            # choose: the field is optional, so the Supervisor's form never
-            # shows it, and a household with two panels reported "it does
-            # not work" from a configuration that simply had no links: in it.
-            chose = given(panel.get("links"))
-            say(f"[{name or 'panel'}] launcher: {len(mine)} link(s)"
-                + (f", {columns} across" if columns else "")
-                + ("" if chose else
-                   " -- every link, because this panel chooses none. To "
-                   "choose, add under this panel: links: Home Assistant, "
-                   "Jellyfin (the names as they are spelt under links)"))
-            if not mine:
-                say(f"[{name or 'panel'}] none of the links this panel asks "
-                    f"for exists, so its launcher is empty. Leave its links: "
-                    f"blank to show every link, or name them as they are "
-                    f"spelt under links.")
-            # Not a form field: the supervisor never sees this, it is what the
-            # rewrite above already knows. A page of links does not paint in
-            # stages, and the sender otherwise spends three seconds waiting
-            # for a staging it will never see -- every time the corner brings
-            # the panel home.
-            panel["on_launcher"] = True
+            panel["url"] = where
+            # Said on every panel sharing the house's launcher, because that
+            # is what was reported as each panel not having its own: the way
+            # to give it one is an entry under launchers:, and the form never
+            # shows an empty list's shape.
+            say(f"[{name or 'panel'}] launcher: the house's, {len(mine)} "
+                f"link(s). To give this panel its own links and settings, add "
+                f"an entry for it under launchers: -- panel: "
+                f"{name or '<name>'} with its own links:")
+        # Not a form field: the supervisor never sees this, it is what the
+        # rewrite above already knows. A page of links does not paint in
+        # stages, and the sender otherwise spends three seconds waiting for a
+        # staging it will never see -- every time the corner brings the panel
+        # home.
+        panel["on_launcher"] = True
+
+
+def give_page_settings(panels, config):
+    """Each panel's quality, frame limit, user agent and tokens per page.
+
+    Read from the links that panel opens: its own launcher's when it has one,
+    so a panel with its own launcher is independent in this too. Tokens are
+    the exception and are asked of the house's links as well, after the
+    panel's own: a token is a credential for an address rather than a look,
+    and a Home Assistant tile without one asks to log in. A panel that opted
+    out of Home Assistant carries none, which is all home_assistant: false
+    ever meant.
+    """
+    house = config.get("links") or []
+    for panel in panels:
+        mine = panel.get("launcher_links")
+        links = {"links": mine if mine is not None else house}
+        for key, values in (("page_quality", page_quality_from(links)),
+                            ("page_agent", page_agent_from(links)),
+                            ("page_fps", page_fps_from(links))):
+            if values:
+                panel.setdefault(key, values)
+        if str(panel.get("home_assistant", True)).strip().lower() \
+                in ("false", "no", "0"):
+            continue
+        keys = page_tokens_from(
+            {"links": list(mine or []) + list(house)} if mine is not None
+            else links)
+        if keys:
+            panel.setdefault("page_token", keys)
+
 
 def main():
     panels = load_panels()
@@ -1058,32 +1151,10 @@ def main():
 
     # Before the check below, because a panel asking for the launcher has no
     # url of its own until this has given it one.
-    where = start_launcher(_config, panels)
-    route_to_launcher(panels, where)
+    where, own = start_launchers(_config, panels)
+    route_to_launcher(panels, where, own)
 
-    # Every panel gets the same list: the links are the house's, not one
-    # screen's, and a panel that never opens a given page is unaffected by a
-    # quality set for it.
-    wanted = page_quality_from(_config)
-    if wanted:
-        for panel in panels:
-            panel.setdefault("page_quality", wanted)
-    agents = page_agent_from(_config)
-    if agents:
-        for panel in panels:
-            panel.setdefault("page_agent", agents)
-    limits = page_fps_from(_config)
-    if limits:
-        for panel in panels:
-            panel.setdefault("page_fps", limits)
-    # A panel that opted out of Home Assistant carries none of the house's
-    # tokens, which is the whole of what home_assistant: false ever meant.
-    keys = page_tokens_from(_config)
-    if keys:
-        for panel in panels:
-            if str(panel.get("home_assistant", True)).strip().lower() \
-                    not in ("false", "no", "0"):
-                panel.setdefault("page_token", keys)
+    give_page_settings(panels, _config)
 
     missing = [p for p in panels if not p.get("host") or not p.get("url")]
     if missing:

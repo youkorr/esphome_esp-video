@@ -1,5 +1,21 @@
 # Changelog
 
+## 4.19.0
+
+- **Each panel its own launcher, entirely.** Asked for as each panel having
+  its own links, buttons, columns and every launcher option, independent of
+  the others. A new list, `launchers:`, takes one entry per panel -- `panel:`
+  names it -- with its own `links:` and any launcher setting: `theme`,
+  `columns`, `align`, the clock, the date, the weather, the background and the
+  slideshow. What an entry leaves out is the house launcher's. Each panel's
+  launcher is served on its own, so its wallpaper and weather are its own too.
+  A panel with no entry shows the house's `links:` and `launcher:`, exactly as
+  before -- nothing already configured changes.
+- **Removed: `links:` on a panel (4.18.0) and `columns:` under a panel's
+  `advanced:` (4.17.0).** Both are an entry under `launchers:` now. If you set
+  either, move it there; Home Assistant drops the old fields with a warning in
+  its log and the add-on still starts.
+
 ## 4.18.1
 
 - **The log says how to choose a panel's links.** Reported as not working on
