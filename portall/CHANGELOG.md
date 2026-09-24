@@ -1,5 +1,18 @@
 # Changelog
 
+## 4.19.3
+
+- **Swiping sends up to 45 pictures a second instead of 30.** For the two
+  seconds after the screen is touched, the limit was 30; with 4.19.2 making
+  30 really mean 30, that limit was what still held a swipe back. It is 45 now.
+  Measured against a panel that never makes the add-on wait: 30 pictures a
+  second before, 36 to 39 after, and no more above 45 because there the
+  browser decides. On a slow link nothing changes. A link with its own `fps:`
+  still caps it, so a film is not affected.
+- **Documentation:** the Configuration page's YAML view does NOT pass unknown
+  settings through to the sender, as DOCS.md used to say. Home Assistant
+  removes any option the add-on does not declare.
+
 ## 4.19.2
 
 - **Up to a quarter more pictures a second while something moves.** The frame
