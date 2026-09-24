@@ -31,9 +31,9 @@ esp32:
       # Le serveur RTSP pousse le RTP directement dans lwIP : de la marge sur
       # les sockets et les buffers TCP évite les à-coups sur les trames JPEG.
       CONFIG_LWIP_MAX_SOCKETS: "16"
-      CONFIG_LWIP_SO_RCVBUF: "y"
-      CONFIG_LWIP_TCP_SND_BUF_DEFAULT: "65534"
-      CONFIG_LWIP_TCP_WND_DEFAULT: "65534"
+      # The TCP window and buffers are left to ESPHome on purpose: setting
+      # them here overrides its own 512000-byte window with a smaller one.
+      # See ignore_not_found under psram: below.
       CONFIG_WIFI_RMT_DYNAMIC_TX_BUFFER_NUM: "64"
       CONFIG_WIFI_RMT_AMPDU_TX_ENABLED: "y"
       CONFIG_WIFI_RMT_TX_BA_WIN: "32"
@@ -48,7 +48,7 @@ logger:
 
 api:
   encryption:
-    key: "k5W1m8ug2wUNSsVuQkpHnaStm6HyK5BWKrunv6vaMUU="
+    key: !secret api_encryption_key
 
 ota:
   - platform: esphome
@@ -59,7 +59,7 @@ wifi:
   power_save_mode: none
   ap:
     ssid: HA_ESP32P4 Fallback Hotspot
-    password: "CEKYolvf0Q1d"
+    password: !secret ap_password
 
 captive_portal:
   
@@ -84,6 +84,12 @@ esp_ldo:
     
 psram:
   speed: 200MHz
+  # Tells ESPHome the PSRAM is really there (the board refuses to boot
+  # without it). Only then does it apply its high-performance network
+  # settings: a 512000-byte TCP window with window scaling and 512-deep
+  # mailboxes, where it otherwise falls back to 65534 -- eight times less
+  # room for the pictures and the sound arriving from the add-on.
+  ignore_not_found: false
 
 
     
