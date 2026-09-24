@@ -7802,6 +7802,36 @@ one, and `portall_bt`'s speaker writes each sample to both sides of the A2DP
 stream. `channel: stereo` on an I2S speaker governs that speaker only, and on
 the Guition that speaker is not the one the page's sound reaches.
 
+**Stereo is now a test, on at ONE place: `stereo: true` in a panel's
+Advanced** (4.19.5, asked as *"ont test la stereo si ont vois que ce n'est pas
+bon ont l'enleve"* -- so it is built to be removed). The sender captures two
+channels and says so in the PCM header's **width** field, the one geometry
+field a sound block had never used; mono leaves it 0, so a mono header is
+byte for byte what it always was. The board reads it and re-tells its speaker
+the shape when it changes (stopping it first if it is playing the other one,
+dropping what arrives meanwhile), with its block buffer allocated once for two
+channels -- so the board has no setting to keep in step, the pair-of-constants
+fault this file keeps recording. What the YAML needs is two channels at the
+END of its chain: `num_channels: 2` on a `portall_bt` speaker, which the
+resampler and the mixer above it inherit (read off the resolved config at
+2026.8.2: mixer, resampler and all three mixer sources come out 2).
+
+**An old board fed stereo plays it at half speed**: it ignores width. That is
+why the documentation says flash first, and it is the one hazard the design
+cannot remove from this end.
+
+`tools/checkstereo.py` checks the wire (mono bytes unchanged against a header
+packed by hand), the capture's block size, the volume on interleaved samples,
+the add-on's command line, and **the shipped `audio.cpp` compiled with g++**
+against a stand-in for the rest of the class (`tools/audiotest/`, whose
+constants are copied out of the real `portall.h` each run) and switched
+mono -> stereo -> mono through a recording speaker. `portall.cpp`'s parser
+change is NOT compiled -- the real class needs the JPEG decoder and the PPA.
+Nothing has been heard.
+
+To remove it: the option, `--stereo`, and `channels` on `build_audio_header`
+and `PageAudio`; the board can keep reading width, which costs nothing.
+
 ## Three presses a row, and the row that said so was already in this file
 
 **Reported from panels other people are running: *"le deplacement up, down,

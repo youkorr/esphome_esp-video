@@ -1,5 +1,15 @@
 # Changelog
 
+## 4.19.5
+
+- **Stereo sound for a panel, as a test.** A panel's *Advanced* gains
+  **`stereo`**: the page's sound goes out in two channels instead of one, at
+  192 KiB/s instead of 96. Off by default, so nothing changes unless it is
+  turned on. **Flash the panel with the latest `portall` first** -- an older
+  board plays stereo at half speed -- and give the speaker at the end two
+  channels (`num_channels: 2` on a Bluetooth speaker). See *Stereo* in the
+  documentation.
+
 ## 4.19.4
 
 - **The iPhone's volume buttons and mute now work on the HomeKit remote.**

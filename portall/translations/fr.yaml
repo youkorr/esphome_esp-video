@@ -72,6 +72,10 @@ configuration:
           import_profile:
             name: Importer un profil de navigateur
             description: Voir la documentation.
+          stereo:
+            name: 🔊 Son en stéréo
+            description: 'Le double de données. Carte à jour obligatoire, et num_channels: 2 sur l''enceinte
+              Bluetooth.'
           stats:
             name: 🐞 Statistiques
           show_media:

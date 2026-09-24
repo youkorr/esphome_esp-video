@@ -88,7 +88,7 @@ def build_header(width, height, payload_len, frame_id, x=0, y=0):
     return _HEADER.pack(0, UDISP_TYPE_JPG, 0, x, y, width, height, packed)
 
 
-def build_audio_header(payload_len):
+def build_audio_header(payload_len, channels=AUDIO_CHANNELS):
     """One block of sound's header.
 
     The same sixteen bytes as a rectangle, and deliberately so: one definition
@@ -101,13 +101,22 @@ def build_audio_header(payload_len):
     channel. Mono because these panels have one speaker, and because it halves
     what the network carries: 96 KiB/s beside a picture that can want two
     megabytes.
+
+    Stereo is the one exception to "the geometry goes out as zero": WIDTH
+    carries the channel count, interleaved left then right, and is left at 0
+    for mono, so a mono header is byte for byte what it always was. A board
+    that predates this reads 0 there too and plays mono -- which is also why
+    stereo must not be turned on before the board is flashed.
     """
     if payload_len >= 1 << 22:
         raise ValueError(
             f"payload of {payload_len} bytes does not fit the 22-bit length field"
         )
+    if channels not in (1, 2):
+        raise ValueError(f"{channels} channels: a panel plays one or two")
     packed = (payload_len & 0x3FFFFF) << 10
-    return _HEADER.pack(0, UDISP_TYPE_PCM, 0, 0, 0, 0, 0, packed)
+    width = channels if channels > 1 else 0
+    return _HEADER.pack(0, UDISP_TYPE_PCM, 0, 0, 0, width, 0, packed)
 
 
 def build_heartbeat():

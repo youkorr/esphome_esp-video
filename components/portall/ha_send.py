@@ -1822,11 +1822,12 @@ class PageAudio:
     # rounding error rather than a third of what goes out.
     BLOCK_MS = 20
 
-    def __init__(self, name):
+    def __init__(self, name, channels=AUDIO_CHANNELS):
+        self.channels = channels
         self.sink = "portall_" + "".join(
             c if c.isalnum() else "_" for c in name
         )[:32]
-        self.block = AUDIO_RATE * self.BLOCK_MS // 1000 * (AUDIO_BITS // 8) * AUDIO_CHANNELS
+        self.block = AUDIO_RATE * self.BLOCK_MS // 1000 * (AUDIO_BITS // 8) * channels
         self._module = None
         self._parec = None
         self._blocks = collections.deque(maxlen=25)  # half a second, no more
@@ -1860,7 +1861,7 @@ class PageAudio:
         try:
             self._parec = subprocess.Popen(
                 ["parec", f"--device={self.sink}.monitor", "--format=s16le",
-                 f"--rate={AUDIO_RATE}", f"--channels={AUDIO_CHANNELS}",
+                 f"--rate={AUDIO_RATE}", f"--channels={self.channels}",
                  f"--latency-msec={self.BLOCK_MS}"],
                 stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
             )
@@ -1872,7 +1873,8 @@ class PageAudio:
                                         daemon=True)
         self._thread.start()
         print(f"Audio: capturing the page through {self.sink} at "
-              f"{AUDIO_RATE} Hz, {AUDIO_BITS} bit, {AUDIO_CHANNELS} channel")
+              f"{AUDIO_RATE} Hz, {AUDIO_BITS} bit, "
+              f"{'stereo' if self.channels > 1 else 'mono'}")
         return True
 
     def _read(self):
@@ -1955,6 +1957,10 @@ class PanelWriter:
     until the thirty-second redraw -- the same reason the board's own rate
     limit decides per picture and not per rectangle.
     """
+
+    # What the sound blocks carry. Set to the capture's own count once both
+    # exist, so the header can never disagree with the samples behind it.
+    audio_channels = AUDIO_CHANNELS
 
     def __init__(self, endpoint):
         self._endpoint = endpoint
@@ -2051,7 +2057,8 @@ class PanelWriter:
                 if not self._audio:
                     return
                 block = self._audio.popleft()
-            self._endpoint.write(build_audio_header(len(block)) + block)
+            self._endpoint.write(
+                build_audio_header(len(block), self.audio_channels) + block)
             self._audio_sent += 1
 
     def take_audio(self):
@@ -3985,6 +3992,14 @@ def main():
         "name one exactly, or 'off' to keep Playwright's whatever is installed",
     )
     parser.add_argument(
+        "--stereo",
+        action="store_true",
+        help="send the page's sound in stereo rather than mono: twice the "
+        "bytes, 192 KiB/s instead of 96. The board needs portall built from "
+        "this release or later -- an older one plays it at half speed -- and "
+        "to be heard as stereo the speaker behind it has to have two channels",
+    )
+    parser.add_argument(
         "--audio",
         default="auto",
         choices=["auto", "off"],
@@ -4369,7 +4384,7 @@ def main():
         # sink and a sink that does not exist yet cannot be.
         audio = None
         if args.audio != "off":
-            candidate = PageAudio(args.host)
+            candidate = PageAudio(args.host, 2 if args.stereo else 1)
             if candidate.start():
                 audio = candidate
 
@@ -4619,6 +4634,8 @@ def main():
         while True:
             endpoint = connect_tcp(args.host, args.port)
             writer = PanelWriter(endpoint)
+            if audio is not None:
+                writer.audio_channels = audio.channels
             previous = None
             last_full = 0.0
             rectangles_sent = 0
