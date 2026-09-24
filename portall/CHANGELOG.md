@@ -1,5 +1,13 @@
 # Changelog
 
+## 4.18.1
+
+- **The log says how to choose a panel's links.** Reported as not working on
+  4.18.0, from a configuration whose panels had no `links:` line at all --
+  so every panel showed every link, which is what an empty choice means.
+  The field is optional, so the form never shows it. At startup a panel that
+  chooses nothing now says so and names the line to add under it.
+
 ## 4.18.0
 
 - **Each panel chooses its own links, in its own entry.** Reported on 4.17.0:

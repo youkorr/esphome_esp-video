@@ -327,6 +327,11 @@ links:
     url: https://www.youtube.com/tv
 ```
 
+`links:` is an optional field, so Home Assistant's form does not show it: add
+the line yourself, under the panel's `url:`, in **Edit in YAML**. Until you
+do, the add-on's log says `[salon] launcher: 8 link(s) -- every link, because
+this panel chooses none` at startup.
+
 Capitals and spaces around a name do not matter. The tiles keep the order of
 the list under `links:`, not the order they are named in, so the groups stay
 together. A name that matches no link is said in the add-on's log at startup,

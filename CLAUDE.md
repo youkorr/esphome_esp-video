@@ -8081,6 +8081,17 @@ before run.py sees it; the changelog says to move it.
 `checkpanels.py`: a panel's `links:` meant nothing there, both panels showed
 all six links, and eight cases fail; all pass on 4.18.0.
 
+**And 4.18.0 was reported as not working, from a configuration with no
+`links:` in either panel.** Run through `load_panels()`, `start_launcher()`
+and `route_to_launcher()` exactly as pasted -- token replaced -- both panels
+got their own address and every link, which is what an empty choice means;
+with the two lines added, 6 and 4 links, 4 and 3 across. Nothing was broken.
+The field is OPTIONAL, and the Supervisor's form does not show an optional
+field nobody has set, so the feature existed and could not be found. This
+file's most-recorded shape, again: a capability not reachable from where the
+reader stands has not been delivered. 4.18.1 names the line to add in the
+startup log, on every panel that chooses nothing.
+
 ## Repository conventions
 
 - Work on branch `claude/esphome-pr-outdated-mdq36w`, then merge into `main`

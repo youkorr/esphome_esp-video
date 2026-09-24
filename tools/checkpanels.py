@@ -172,6 +172,14 @@ def main():
     check("and the panel's own count is said at startup",
           "[salon] launcher: 4 link(s)" in log
           and "[bureau] launcher: 6 link(s)" in log)
+    # Reported from two panels whose entries had no links: at all -- the
+    # field is optional, so the form never showed it. The log is where the
+    # way to choose has to be named.
+    said_how = [l for l in log.splitlines() if "add under this panel" in l]
+    check("a panel that chose nothing is told how to choose",
+          any("[bureau]" in l for l in said_how))
+    check("and a panel that chose is not",
+          not any("[salon]" in l or "[cuisine]" in l for l in said_how))
     by_name = {p["name"]: p for p in panels}
     check("each panel is handed its own address",
           by_name["salon"]["url"] != by_name["cuisine"]["url"]
