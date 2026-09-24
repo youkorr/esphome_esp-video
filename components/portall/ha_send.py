@@ -1033,6 +1033,14 @@ def _agent_metadata(page, version, agent=None):
     }
 
 
+def _is_gain(text):
+    try:
+        value = float(text)
+    except ValueError:
+        return False
+    return 0.0 <= value <= 1.0
+
+
 class Control:
     """Keys handed to this sender on stdin by whatever started it.
 
@@ -1070,6 +1078,12 @@ class Control:
                     self._queue.append(("key", rest))
                 elif word == "home":
                     self._queue.append(("home", True))
+                elif word == "volume" and _is_gain(rest):
+                    # A telephone's volume button, turned into a gain by the
+                    # add-on, which keeps the level across restarts of this
+                    # process. Only this channel carries it: the board has a
+                    # volume of its own, in its own YAML.
+                    self._queue.append(("volume", float(rest)))
                 elif word:
                     # Never silently. A control line nobody acts on is the
                     # exact silence this project keeps having to break, and
@@ -1767,6 +1781,21 @@ def calibrate(endpoint, page_w, page_h, panel_w, panel_h, transpose, quality):
     return best
 
 
+def scale_pcm(block, gain):
+    """16-bit little-endian samples multiplied by `gain`, 0 to 1.
+
+    Only ever turned DOWN, so nothing can clip and no clamp is needed. The
+    last odd byte, which a whole block never has, is passed through rather
+    than read as half a sample.
+    """
+    import numpy as np  # noqa: PLC0415 -- imported where used, like the rest
+
+    whole = len(block) - len(block) % 2
+    samples = np.frombuffer(block[:whole], dtype="<i2").astype(np.float32)
+    scaled = np.round(samples * gain).astype("<i2").tobytes()
+    return scaled + block[whole:]
+
+
 class PageAudio:
     """The sound of the page, taken from a sink nothing is listening to.
 
@@ -1806,6 +1835,10 @@ class PageAudio:
         self.captured = 0
         # Blocks that were nothing but silence and were not sent.
         self.silent = 0
+        # What the page's sound is multiplied by before it leaves: 1.0 is the
+        # page as it plays, 0.0 is muted. Set from a telephone's volume
+        # buttons through the add-on's HomeKit remote.
+        self.gain = 1.0
 
     def start(self):
         """True if there is sound to be had; False, with a reason, if not."""
@@ -1876,6 +1909,15 @@ class PageAudio:
             if not block.strip(b"\x00"):
                 self.silent += 1
                 continue
+            if self.gain <= 0.0:
+                # Muted. Counted as silence and not sent, the same as a page
+                # playing nothing -- so a muted panel costs the network
+                # nothing, and a Bluetooth speaker behind it suspends its
+                # stream on its own ten-second clock.
+                self.silent += 1
+                continue
+            if self.gain < 1.0:
+                block = scale_pcm(block, self.gain)
             out.append(block)
         return out
 
@@ -4886,6 +4928,15 @@ def main():
                             # resolved, because only this end knows what a
                             # browser calls a key.
                             keys.append(body)
+                            continue
+                        if kind == "volume":
+                            # The add-on's HomeKit remote: a telephone's
+                            # volume buttons, as a gain on the page's sound.
+                            if audio is not None:
+                                if audio.gain != body:
+                                    print(f"Audio: volume {round(body * 100)}%"
+                                          if body > 0 else "Audio: muted")
+                                audio.gain = body
                             continue
                         if kind == "home":
                             # portall.home on the board. Until now the way back

@@ -32,7 +32,7 @@ sys.path.insert(0, str(HERE / "components" / "portall"))
 import homekit  # noqa: E402
 import run  # noqa: E402
 from udisp_send import BROWSER_KEYS  # noqa: E402
-from ha_send import Control  # noqa: E402
+from ha_send import Control, PageAudio  # noqa: E402
 
 
 # What each HomeKit key is FOR, stated here rather than read out of the table
@@ -263,6 +263,138 @@ def control_cases():
     check("and draining twice does not repeat them", control.drain() == [])
 
 
+# -- the volume and mute, which the widget had nothing to send to --------
+
+# What each press should leave the page at, stated here rather than read out
+# of homekit.gain_for: ten steps, squared, so one press down from full is
+# 0.9 squared.
+AFTER_ONE_DOWN = 0.81
+AFTER_TWO_DOWN = 0.64
+
+
+def volume_accessory_cases():
+    """The TelevisionSpeaker, built with the real pyhap and pressed through it."""
+    if not _has_pyhap():
+        return
+    folder = tempfile.mkdtemp()
+    seen = []
+    television = homekit.Television(
+        "Salon", lambda kind, body: seen.append((kind, body)), quiet,
+        homekit.FIRST_PORT, folder)
+    driver = homekit._driver(homekit.FIRST_PORT,
+                             os.path.join(folder, "salon.state"),
+                             os.path.join(folder, "salon.pin"))
+    accessory = homekit._accessory(driver, television)
+    tv = accessory.get_service("Television")
+    speaker = accessory.get_service("TelevisionSpeaker")
+
+    # THE case. With no speaker service the widget's volume and mute have
+    # nothing to go to, which is the one control a panel reported dead.
+    check("there is a TelevisionSpeaker, which is where volume and mute go",
+          speaker is not None)
+    if speaker is None:
+        return
+    check("and it is LINKED to the television, or the widget never finds it",
+          speaker in tv.linked_services)
+    present = sorted(c.display_name for c in speaker.characteristics)
+    check("it carries what Home Assistant's own carries for step and mute",
+          present == ["Active", "Mute", "Name", "VolumeControlType",
+                      "VolumeSelector"])
+    check("relative control, as Home Assistant's with no level offered",
+          speaker.get_characteristic("VolumeControlType").value == 2)
+
+    selector = speaker.get_characteristic("VolumeSelector")
+    mute = speaker.get_characteristic("Mute")
+    values = selector.properties["ValidValues"]
+    up, down = values["Increment"], values["Decrement"]
+
+    seen.clear()
+    selector.client_update_value(down)
+    check("the iPhone's volume-down lowers the page's sound",
+          seen == [("volume", f"{AFTER_ONE_DOWN:.4f}")])
+    seen.clear()
+    selector.client_update_value(down)
+    check("and a second press lowers it further",
+          seen == [("volume", f"{AFTER_TWO_DOWN:.4f}")])
+    seen.clear()
+    mute.client_update_value(True)
+    check("mute silences it", seen == [("volume", "0.0000")])
+    seen.clear()
+    mute.client_update_value(False)
+    check("and unmute returns to the level it was at, not to full",
+          seen == [("volume", f"{AFTER_TWO_DOWN:.4f}")])
+    mute.client_update_value(True)
+    seen.clear()
+    selector.client_update_value(up)
+    check("volume-up while muted unmutes, as a television does",
+          seen == [("volume", f"{AFTER_ONE_DOWN:.4f}")] and not television.muted)
+    for _ in range(20):
+        selector.client_update_value(up)
+    seen.clear()
+    selector.client_update_value(up)
+    check("and it never goes past the page's own level",
+          seen == [("volume", "1.0000")])
+    for _ in range(20):
+        selector.client_update_value(down)
+    check("nor below nothing", television.level == 0
+          and homekit.gain_for(television.level, False) == 0.0)
+
+
+def volume_round_trip_cases():
+    """From the accessory to the gain the sender applies, across the pipe."""
+    process = FakeProcess()
+    remote = run.Remote("Salon")
+    remote.set_process(process)
+    television = homekit.Television("Salon", remote.send, quiet,
+                                    homekit.FIRST_PORT, tempfile.mkdtemp())
+    television.volume_step(1)
+    television.remote_key(-1, {})  # an unknown key between, sending nothing
+    control = Control(io.StringIO(process.stdin.getvalue()))
+    control._thread.join(timeout=2)
+    got = control.drain()
+    check("a volume press reaches the send loop as a gain",
+          got == [("volume", AFTER_ONE_DOWN)])
+
+    # A sender that restarts must not come back at full volume.
+    process.close()
+    remote.set_process(None)
+    second = FakeProcess()
+    remote.set_process(second)
+    check("a restarted sender is told the volume at once, with no press",
+          second.stdin.getvalue() == f"volume {AFTER_ONE_DOWN:.4f}\n")
+
+    control = Control(io.StringIO("volume 0.25\nvolume 7\nvolume loud\n"))
+    control._thread.join(timeout=2)
+    check("a gain outside 0..1 is refused, not applied",
+          control.drain() == [("volume", 0.25)])
+
+
+def gain_cases():
+    """What PageAudio actually sends at a gain, sample by sample."""
+    audio = PageAudio("salon")
+    samples = [1000, -1000, 32767, -32768, 7, 0]
+    block = b"".join(v.to_bytes(2, "little", signed=True) for v in samples)
+
+    def sent(gain):
+        audio.gain = gain
+        audio._blocks.append(block)
+        out = audio.take()
+        if not out:
+            return None
+        data = out[0]
+        return [int.from_bytes(data[i:i + 2], "little", signed=True)
+                for i in range(0, len(data), 2)]
+
+    check("at full volume the page's samples go out untouched",
+          sent(1.0) == samples)
+    check("at a quarter every sample is a quarter, negatives included",
+          sent(0.25) == [250, -250, 8192, -8192, 2, 0])
+    before = audio.silent
+    check("muted, nothing is sent at all", sent(0.0) is None)
+    check("and it is counted as silence, like a page playing nothing",
+          audio.silent == before + 1)
+
+
 # -- the restart, which is the fault a naive version would have ----------
 
 def restart_cases():
@@ -351,6 +483,9 @@ def main():
     name_cases()
     control_cases()
     round_trip_cases()
+    volume_accessory_cases()
+    volume_round_trip_cases()
+    gain_cases()
     restart_cases()
     nothing_running_cases()
     command_cases()

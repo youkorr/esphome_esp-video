@@ -1,5 +1,18 @@
 # Changelog
 
+## 4.19.4
+
+- **The iPhone's volume buttons and mute now work on the HomeKit remote.**
+  The accessory had no speaker, so the widget had nothing to send them to --
+  the one control that did nothing. They now turn the page's sound on that
+  panel up and down, in ten steps, and mute it; unmuting returns to the same
+  level, and volume-up while muted unmutes. The level is kept by the add-on,
+  so a panel whose sender restarts does not come back at full volume. The
+  panel's own volume slider in Home Assistant is separate and unchanged.
+  Nothing to do: the accessory announces that it changed, so the iPhone reads
+  it again by itself. If the volume still does nothing after the update,
+  remove the panel from the Home app and pair it again once.
+
 ## 4.19.3
 
 - **Swiping sends up to 45 pictures a second instead of 30.** For the two
