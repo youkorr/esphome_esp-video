@@ -8151,6 +8151,19 @@ given three links cannot show four across, and the page's ground computes to
 Against 4.18.1 it cannot run at all -- `start_launchers` did not exist -- which
 is the fault being an absence again.
 
+**And the schema was run through the Supervisor's own validator, not only
+read.** `supervisor/apps/options.py` loaded with its package imports stubbed
+(one line of Python 3.14 `except A, B:` syntax rewritten for 3.11), defaults
+merged the way `App.options` does, and the household's pasted configuration
+with its token replaced: **valid** as it stands (`launchers: []` from the
+default), **valid** carrying 4.18's `links:` and 4.17's `columns:` (two
+`Unknown option` warnings), **valid** with two entries -- and a list nested
+inside a panel's entry **refused** with `Missing option 'own_links' in
+panels`, which is the premise of this whole design measured rather than read.
+The Supervisor tree is fetched blobless (`git clone --filter=blob:none
+--no-checkout`, then `git checkout HEAD -- supervisor/apps/options.py`);
+checking out the whole of `supervisor/` that way takes minutes.
+
 ## Repository conventions
 
 - Work on branch `claude/esphome-pr-outdated-mdq36w`, then merge into `main`
