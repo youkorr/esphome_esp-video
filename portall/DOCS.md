@@ -299,6 +299,12 @@ panels:
 
 ### Each panel its own launcher
 
+In the settings form this is section **🧩 4**, under the name the form shows in
+your language; the key in **Edit in YAML** is `launchers:`. The form's six
+sections, in order: 🖥️ 1 screens (`panels`), 🔗 2 shared links (`links`),
+🎨 3 look of the page of links (`launcher`), 🧩 4 a screen's own page of links
+(`launchers`), ⚙️ 5 common settings (`defaults`), 🐞 6 diagnostics (`debug`).
+
 `links:` and `launcher:` at the top are the **house's** launcher, shown on
 every panel that has nothing of its own. To give a panel a launcher of its own
 -- its own links, its own number across, its own clock, background and

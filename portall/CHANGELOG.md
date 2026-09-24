@@ -1,5 +1,17 @@
 # Changelog
 
+## 4.19.1
+
+- **The settings page speaks French (and English), in six numbered sections.**
+  Reported as not organised: the form showed raw keys -- panels, links,
+  launcher, launchers. Every setting now has a name and a one-line
+  explanation, down to the fields inside a screen or a link:
+  🖥️ 1 · Mes écrans, 🔗 2 · Liens communs, 🎨 3 · Apparence de la page de
+  liens, 🧩 4 · Page de liens propre à un écran, ⚙️ 5 · Réglages communs,
+  🐞 6 · Diagnostic. The page follows Home Assistant's language. Nothing you
+  have saved changes: the names are what the form shows, the keys in
+  **Edit in YAML** are the same as before.
+
 ## 4.19.0
 
 - **Each panel its own launcher, entirely.** Asked for as each panel having
