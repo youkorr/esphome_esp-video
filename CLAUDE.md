@@ -7910,6 +7910,18 @@ fails below nine tenths of the limit. Against the previous release it reads
 23.5 at 30 and fails; at 15 the old rule loses only one picture a second and
 passes, which is why 30 is the case that matters.
 
+**The panel's next line, after 4.19.2, swiping the same Home Assistant pages:**
+
+    24.6 pictures/s, 35.1 made/s, 71.9 rectangles/s, 8 whole, 457.0 KiB/s,
+    panel wait 7%, 5 skipped, worst gap 90 ms, worst turn 90 ms, loop 92.1 Hz
+
+against 13 to 17 pictures a second and worst gaps of 480-742 ms in the windows
+before. Not a controlled A/B -- a household swiping at a different moment --
+but it is the direction and roughly the size the fixture predicted, with the
+panel still waiting on the server less than a tenth of the time. The one long
+gap in the same log (863 ms) sits in the window where the ESPHome dashboard
+was being OPENED, which is a page loading rather than the picture path.
+
 ## The C6 already gives a panel Bluetooth, and ESPHome already wires it
 
 **Proposed after the dongle turned out to be the obstacle: *"je confronte a un
