@@ -7990,6 +7990,64 @@ Sources: espressif/esp-hosted-mcu `docs/features/bluetooth.md` and
 `tests/components/bluetooth_proxy/test.esp32-p4-idf.yaml`; espressif/esp-idf
 `components/esp_hid`.
 
+## One launcher server, one page per panel
+
+**Reported as two halves of one fault: *"chaque panels n'a pas de profile
+dedie il reprend tous les links du premier panels"*, and four columns that
+*"correspond tres bien pour un grand display de 1280x800 mais pas pour un 7"
+de 1024x600"*.** Both were true by construction: `launcher.start()` served ONE
+page at one address, `run.py` handed that same address to every panel whose
+url was `launcher`, and `columns:` lived on the launcher rather than on the
+screen. The links were never "the first panel's" -- they sat at the top of the
+form above every panel, which reads as belonging to the first one.
+
+**The four columns were not a preference, they were broken words.** Measured
+in the shipped browser at 1024x600 with eight ordinary service names: four
+across gives 220 px tiles and breaks **seven** names inside the word --
+`Assistant, Jellyfin, YouTube, Netflix, Orange, Proxmox, Unraid` -- where
+three across gives 298 px and breaks none. Auto (`0`) gives two across there,
+which is why somebody set four in the first place.
+
+**Still one server, and the panel is named in the address.**
+`launcher.address_for(name)` is `http://127.0.0.1:8099/?panel=<name>`, and the
+handler picks the links and the column count from that. A QUERY rather than a
+path on purpose: every other thing the page asks for -- `/weather.json`,
+`/wallpaper`, `/slides.json`, `/report` -- is absolute and must stay the same
+for all of them. The corner gesture brings a panel home to its own `url:`,
+which is now that address, so it stays its own without anything else knowing.
+
+- **A link takes `panels:`**, a comma-separated string of panel names, matched
+  without case or surrounding spaces. **Empty means every panel**, which is
+  what every configuration written before it means -- no migration, and a
+  string rather than a list because a stored value the schema no longer
+  accepts stops the add-on, which this file records under the launcher's size
+  scale.
+- **A page asked for with no panel shows every link.** Showing a link somebody
+  did not want is recoverable from the glass; hiding one they did is not.
+- **A name that matches no panel is said at startup, with the panels that do
+  exist**, because a typo there hides the tile everywhere and from the glass
+  that is a link that simply went missing.
+- **A panel takes `columns:` under `advanced:`**, overriding `launcher:
+  columns:` for that screen. It is read by `run.py` for the launcher and
+  reaches no sender -- `tools/checkaddon.py` lists it in `ITS_OWN` with that
+  reason, and `tools/checkpanels.py` checks `--columns` is not on the line.
+
+**The rewrite that sends a panel to the launcher is `route_to_launcher()`
+now**, lifted out of `main()` so the address each panel is really handed can
+be checked without starting a sender -- the same reason `heard_device()` was
+lifted out of `gap_cb`: a decision no test can reach has never been tested.
+
+`tools/checkpanels.py` drives the add-on's own path -- an options file in the
+grouped form the Supervisor writes, `load_panels()`, `start_launcher()`,
+`route_to_launcher()` -- then opens each panel's address at its own size in a
+real browser and reads the tiles off the page. **Its ruler was wrong first**,
+the usual way: it computed "across" as tiles divided by rows, which calls four
+tiles three across two across. The widest row is the number.
+
+**Reproduced against the previous commit** in a `git worktree`: one address
+for every panel, the kitchen's page byte-identical to the living room's,
+carrying the living room's link and four across.
+
 ## Repository conventions
 
 - Work on branch `claude/esphome-pr-outdated-mdq36w`, then merge into `main`

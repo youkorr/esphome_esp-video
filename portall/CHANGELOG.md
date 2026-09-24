@@ -1,5 +1,20 @@
 # Changelog
 
+## 4.17.0
+
+- **Each panel shows its own links.** Reported: with several panels, every one
+  showed every link. A link now takes `panels:` -- a panel's name, or several
+  separated by commas -- and appears on those panels only. Left empty it
+  appears on every panel, exactly as before, so nothing already configured
+  changes. A name that matches no panel is said in the log at startup rather
+  than silently hiding the link.
+- **Each panel its own number of columns.** Reported: four across suits a
+  1280x800 and not a 1024x600. Measured in the add-on's own browser, four
+  across at 1024x600 makes tiles 220 px wide and breaks names inside words
+  ("Jellyfi n", "YouTu be"); three across gives 298 px and breaks none. A
+  panel now takes `columns:` under `advanced:`, overriding `launcher:
+  columns:` for that screen only.
+
 ## 4.16.0
 
 - **One arrow, one move, inside every link.** Reported from panels using the
