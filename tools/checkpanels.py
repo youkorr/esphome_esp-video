@@ -54,37 +54,59 @@ def check(what, ok):
         faults.append(what)
 
 
+# Not a real token: the right shape, and nothing it opens.
+FAKE_TOKEN = "eyJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJ0ZXN0In0." + "a" * 43
+
 # The shape the Supervisor writes /data/options.json in: grouped, with a
-# panel's exceptions under advanced:. Two panels of the two shapes reported.
+# panel's exceptions under advanced:. Two panels with launchers of their own,
+# of the two shapes reported, and a third that has none and takes the house's.
 OPTIONS = {
     "panels": [
-        # Capitals and stray spaces: the same tile to whoever typed it.
         {"name": "salon", "host": "127.0.0.2", "url": "launcher",
-         "links": "Home Assistant, Jellyfin,  youtube , Proxmox",
-         "width": 1280, "height": 800, "rotate": "0",
-         "touch": {"rotate": "0"}, "advanced": {"home_assistant": True}},
-        # A name that is no link, which must be said out loud rather than
-        # simply never appear.
+         "width": 800, "height": 1280, "rotate": "90",
+         "touch": {"rotate": "90"}, "advanced": {"home_assistant": True}},
         {"name": "cuisine", "host": "127.0.0.3", "url": "launcher",
-         "links": "Home Assistant, Recettes, YouTube, Proxmox, Netflx",
-         "width": 1024, "height": 600, "rotate": "0",
-         "touch": {"rotate": "0"}, "advanced": {"columns": 3}},
-        # Chose nothing, so shows everything: every configuration written
-        # before the field existed.
+         "width": 1024, "height": 600, "rotate": "180",
+         "touch": {"rotate": "180"}},
         {"name": "bureau", "host": "127.0.0.4", "url": "launcher",
-         "links": " ", "width": 800, "height": 1280, "rotate": "0",
+         "width": 800, "height": 1280, "rotate": "0",
          "touch": {"rotate": "0"}},
     ],
+    # The house's: what a panel with no entry of its own shows.
     "links": [
-        {"name": "Home Assistant", "url": "http://x/ha", "icon": "home"},
-        {"name": "Jellyfin", "url": "http://x/jf", "icon": "jellyfin"},
-        {"name": "Recettes", "url": "http://x/re", "icon": "cuisine"},
-        {"name": "YouTube", "url": "http://x/yt", "icon": "youtube"},
+        {"name": "Home Assistant", "url": "http://homeassistant:8123/lovelace/6",
+         "icon": "home-assistant", "quality": 60, "token": FAKE_TOKEN},
+        {"name": "Spotify", "url": "https://open.spotify.com/", "icon": "spotify"},
         {"name": "Proxmox", "url": "http://x/px", "icon": "proxmox"},
-        # Chosen by no panel that chose, so only on the one that did not.
-        {"name": "Chambre", "url": "http://x/ch", "icon": "bed"},
     ],
-    "launcher": {"columns": 4},
+    "launcher": {"theme": "dark", "columns": 4,
+                 "clock": {"show": True, "size": "large", "color": "white"}},
+    "launchers": [
+        # Its own links, and nothing else set: everything else is the house's.
+        {"panel": "salon",
+         "links": [
+             {"name": "Jellyfin", "url": "http://192.168.1.2:8096/", "icon": "jellyfin",
+              "quality": 40},
+             {"name": "YouTube", "url": "https://www.youtube.com/tv", "icon": "youtube",
+              "fps": 20},
+             {"name": "netflix", "url": "https://www.netflix.com/fr/", "icon": "netflix"},
+             {"name": "Orange TV", "url": "https://tv.orange.fr/", "icon": "tv"},
+         ]},
+        # Capitals in the panel's name, and a look of its own.
+        {"panel": " Cuisine ", "columns": 3, "theme": "light",
+         "clock_size": "small", "background": "http://x/cuisine-wall.jpg",
+         "links": [
+             {"name": "Recettes", "url": "http://x/re", "icon": "cuisine"},
+             {"name": "Reolink", "url": "https://192.168.1.22/", "icon": "reolink",
+              "quality": 30},
+             {"name": "Immich", "url": "http://192.168.1.158:8080/", "icon": "immich"},
+             {"name": "Home Assistant", "url": "http://homeassistant:8123/lovelace/2",
+              "icon": "home-assistant"},
+         ]},
+        # A panel that does not exist, which must be said out loud.
+        {"panel": "chambre",
+         "links": [{"name": "Chambre", "url": "http://x/ch", "icon": "bed"}]},
+    ],
 }
 
 WORDS_SPLIT_JS = """() => {
@@ -118,9 +140,17 @@ TILES_JS = """() => {
     rows[top] = (rows[top] || 0) + 1;
   }
   const name = e => (e.querySelector('.name') || e).textContent.trim();
+  const clock = document.querySelector('.time');
+  // The INK rather than the ground: the ground is mixed with color-mix and
+  // computes to color(srgb ...), while the ink is a plain rgb(), and a light
+  // theme is the one whose ink is dark.
+  const ink = getComputedStyle(document.body).color
+    .match(/\\d+/g).slice(0, 3).map(Number);
   return {names: t.map(name),
           across: Math.max(0, ...Object.values(rows)),
-          first: t.length ? Math.round(t[0].getBoundingClientRect().width) : 0};
+          first: t.length ? Math.round(t[0].getBoundingClientRect().width) : 0,
+          clock: clock ? parseFloat(getComputedStyle(clock).fontSize) : 0,
+          light: ink.reduce((a, b) => a + b, 0) < 3 * 128};
 }"""
 
 
@@ -131,31 +161,6 @@ def main():
 
     print("Each panel its own launcher:")
 
-    # -- the choosing, on its own ------------------------------------------
-    links = OPTIONS["links"]
-    chose = {p["name"]: p.get("links", "") for p in OPTIONS["panels"]}
-    names = lambda who: [l["name"] for l in launcher.links_for(links, chose[who])]
-    check("a panel shows the links it names and no others",
-          names("salon") == ["Home Assistant", "Jellyfin", "YouTube", "Proxmox"])
-    check("a name is matched without case or surrounding spaces",
-          "YouTube" in names("salon"))
-    check("the two panels choose independently",
-          "Jellyfin" in names("salon") and "Jellyfin" not in names("cuisine")
-          and "Recettes" in names("cuisine") and "Recettes" not in names("salon"))
-    check("the house's order is kept, not the order typed",
-          [l["name"] for l in launcher.links_for(links, "Proxmox, Jellyfin")]
-          == ["Jellyfin", "Proxmox"])
-    check("a panel that chose nothing shows every link",
-          len(names("bureau")) == len(links))
-    check("a page asked for with no panel shows every link",
-          len(launcher.links_for(links, "")) == len(links))
-    check("the two panels are sent to different addresses",
-          launcher.address_for("salon") != launcher.address_for("cuisine"))
-    check("a name with a space in it survives the address",
-          "salle+de+bain" in launcher.address_for("salle de bain")
-          or "salle%20de%20bain" in launcher.address_for("salle de bain"))
-
-    # -- the add-on's own path, from an options file -----------------------
     folder = tempfile.mkdtemp()
     path = pathlib.Path(folder) / "options.json"
     path.write_text(json.dumps(OPTIONS))
@@ -163,70 +168,94 @@ def main():
     panels = run.load_panels()
     said = io.StringIO()
     with redirect_stdout(said):
-        where = run.start_launcher(run._config, panels)
-        run.route_to_launcher(panels, where)
+        where, own = run.start_launchers(run._config, panels)
+        run.route_to_launcher(panels, where, own)
+        run.give_page_settings(panels, run._config)
     log = said.getvalue()
-    check("the launcher starts", where is not None)
-    check("a panel naming a link that is not there is said out loud",
-          "[cuisine]" in log and "netflx" in log and "Recettes" in log)
-    check("and the panel's own count is said at startup",
-          "[salon] launcher: 4 link(s)" in log
-          and "[bureau] launcher: 6 link(s)" in log)
-    # Reported from two panels whose entries had no links: at all -- the
-    # field is optional, so the form never showed it. The log is where the
-    # way to choose has to be named.
-    said_how = [l for l in log.splitlines() if "add under this panel" in l]
-    check("a panel that chose nothing is told how to choose",
-          any("[bureau]" in l for l in said_how))
-    check("and a panel that chose is not",
-          not any("[salon]" in l or "[cuisine]" in l for l in said_how))
     by_name = {p["name"]: p for p in panels}
-    check("each panel is handed its own address",
-          by_name["salon"]["url"] != by_name["cuisine"]["url"]
-          and "cuisine" in by_name["cuisine"]["url"])
-    check("and neither its column count nor its links reach a sender",
-          "--columns" not in run.command_for(by_name["cuisine"])
-          and "--links" not in run.command_for(by_name["cuisine"]))
+    urls = {name: p["url"] for name, p in by_name.items()}
+
+    check("the house's launcher starts, for the panel that has no entry",
+          where == launcher.ADDRESS)
+    check("each panel is handed an address of its own",
+          len(set(urls.values())) == 3)
+    check("a panel with its own launcher is not on the house's",
+          urls["salon"] != launcher.ADDRESS and urls["cuisine"] != launcher.ADDRESS)
+    check("and the panel with none is", urls["bureau"] == launcher.ADDRESS)
+    check("an entry naming no panel is said out loud, with the panels there are",
+          "\"chambre\", which is no panel here" in log and "salon" in log)
+    check("a panel on the house's launcher is told how to have its own",
+          any("[bureau]" in l and "launchers:" in l for l in log.splitlines()))
+    check("and a panel with its own is not",
+          not any("[salon]" in l and "add an entry" in l for l in log.splitlines()))
+
+    # What each panel's SENDER is handed, off the command line the add-on
+    # really builds. Printed nowhere: it carries a token.
+    line = {name: " ".join(run.command_for(p)) for name, p in by_name.items()}
+    check("a panel's own link sets the quality on its own page",
+          "http://192.168.1.2:8096/=40" in line["salon"])
+    check("and the house's links set nothing on a panel with its own",
+          "lovelace/6=60" not in line["salon"]
+          and "lovelace/6=60" not in line["cuisine"])
+    check("each panel's settings are its own, not the other's",
+          "192.168.1.22/=30" in line["cuisine"]
+          and "192.168.1.22/=30" not in line["salon"]
+          and "8096/=40" not in line["cuisine"])
+    check("the house's token still reaches a panel whose links carry none",
+          "--page-token http://homeassistant:8123/lovelace/6=" in line["salon"])
+    check("the panel with no entry keeps the house's settings",
+          "lovelace/6=60" in line["bureau"])
+    check("nothing of the launcher reaches a sender as a flag",
+          not any(f in l for l in line.values()
+                  for f in ("--columns", "--links", "--launcher")))
 
     with sync_playwright() as pw:
         browser = (pw.chromium.launch(executable_path=BROWSER)
                    if BROWSER else pw.chromium.launch())
 
-        def open_as(panel, url=None):
-            page = browser.new_page(viewport={"width": panel["width"],
-                                              "height": panel["height"]})
-            page.goto(url or panel["url"])
+        def open_as(panel):
+            w, h = panel["width"], panel["height"]
+            if str(panel.get("rotate")) in ("90", "270"):
+                w, h = h, w
+            page = browser.new_page(viewport={"width": w, "height": h})
+            page.goto(panel["url"])
             got = page.evaluate(TILES_JS)
             got["split"] = page.evaluate(WORDS_SPLIT_JS)
+            got["size"] = f"{w}x{h}"
             page.close()
             return got
 
-        salon = open_as(by_name["salon"])
-        print(f"         salon   1280x800: {salon['across']} across, "
-              f"{salon['names']}")
-        check("salon shows its own links and not the kitchen's",
-              "Jellyfin" in salon["names"]
-              and "Recettes" not in salon["names"])
-        check("salon takes the launcher's four across",
-              salon["across"] == 4)
-
-        cuisine = open_as(by_name["cuisine"])
-        print(f"         cuisine 1024x600: {cuisine['across']} across, "
-              f"tiles {cuisine['first']} px, {cuisine['names']}")
-        check("the kitchen shows its own links and not the living room's",
-              "Recettes" in cuisine["names"]
-              and "Jellyfin" not in cuisine["names"])
+        seen = {name: open_as(p) for name, p in by_name.items()}
+        for name, got in seen.items():
+            print(f"         {name:8} {got['size']}: {got['across']} across, "
+                  f"clock {got['clock']:.0f}px, "
+                  f"{'light' if got['light'] else 'dark'}, {got['names']}")
+        salon, cuisine, bureau = seen["salon"], seen["cuisine"], seen["bureau"]
+        check("salon shows exactly its own links",
+              salon["names"] == ["Jellyfin", "YouTube", "netflix", "Orange TV"])
+        check("the kitchen shows exactly its own links",
+              cuisine["names"] == ["Recettes", "Reolink", "Immich",
+                                   "Home Assistant"])
+        check("the panel with no entry shows the house's",
+              bureau["names"] == ["Home Assistant", "Spotify", "Proxmox"])
+        check("salon inherits the house's four across", salon["across"] == 4)
         check("the kitchen takes its own three across", cuisine["across"] == 3)
-        check("a link neither of them chose is on neither",
-              "Chambre" not in salon["names"] + cuisine["names"])
-        bureau = open_as(by_name["bureau"])
-        check("the panel that chose nothing shows every link",
-              len(bureau["names"]) == len(links) and "Chambre" in bureau["names"])
+        check("the kitchen takes its own theme, the others keep the house's",
+              cuisine["light"] and not salon["light"] and not bureau["light"])
+        check("the kitchen takes its own clock size, salon inherits the house's",
+              0 < cuisine["clock"] < salon["clock"])
+        import urllib.request
+        body = {name: urllib.request.urlopen(url, timeout=5).read().decode()
+                for name, url in urls.items()}
+        check("the kitchen's own wallpaper is on its page and nobody else's",
+              "cuisine-wall.jpg" in body["cuisine"]
+              and "cuisine-wall.jpg" not in body["salon"] + body["bureau"])
+        check("the kitchen's own page breaks no word in half",
+              not cuisine["split"])
 
         # The reported look, kept rather than remembered: the SAME panel at
         # the launcher's four across breaks names inside words. Every link
         # is shown here, because that is what the kitchen was given before.
-        long_names = dict(by_name["cuisine"])
         page = browser.new_page(viewport={"width": 1024, "height": 600})
         page.set_content(launcher.render(
             [{"name": n, "url": "http://x/", "icon": "home"} for n in
@@ -244,7 +273,6 @@ def main():
         check("the premise: four across on 1024x600 breaks words in half",
               bool(split_at_four))
         check("and three across breaks none", not split_at_three)
-        check("the kitchen's own page breaks none", not cuisine["split"])
         browser.close()
 
     print()

@@ -8016,7 +8016,8 @@ path on purpose: every other thing the page asks for -- `/weather.json`,
 for all of them. The corner gesture brings a panel home to its own `url:`,
 which is now that address, so it stays its own without anything else knowing.
 
-- **A panel takes `links:`** (4.18.0; see the correction below), a
+- **SUPERSEDED in 4.19.0 by `launchers:` -- see below.** A panel took
+  `links:` (4.18.0), a
   comma-separated string of link NAMES, matched without case or surrounding
   spaces. **Empty means every link**, which is what every configuration
   written before it means -- no migration, and a string rather than a list
@@ -8091,6 +8092,77 @@ field nobody has set, so the feature existed and could not be found. This
 file's most-recorded shape, again: a capability not reachable from where the
 reader stands has not been delivered. 4.18.1 names the line to add in the
 startup log, on every panel that chooses nothing.
+
+### And the ask was never a choice among shared links -- 4.19.0
+
+**Said a third time, and plainly: *"panels salon a sont propre links button
+collonne toutes option prevus et il faut que panels 2 dispose de ces propre
+link button collonne toutes option prevus independant qui ne correspond pas au
+premier panel"*.** Two rounds were spent choosing WHICH of one shared list a
+panel shows -- from the link side in 4.17, from the panel side in 4.18 -- and
+the ask all along was a launcher PER PANEL: its own links, its own columns,
+its own clock and wallpaper and everything else. The misreading survived
+because each round fixed the sentence that was literally in front of it
+("each panel its own links chosen") rather than the thing the sentence
+described. The top of the form reads as belonging to the first panel, which
+is why every phrasing of it mentioned "the first panel".
+
+**It could not go inside a panel's entry, and the Supervisor's source is why,
+not taste.** `supervisor/apps/options.py`, `_check_missing_options`: a key is
+optional only when its schema is a plain `"...?"` string. A LIST or a GROUP
+nested in a panel entry is compulsory, so adding `links: [...]` or a
+`launcher:` group to panels would have stopped every saved configuration on
+this update with "Missing option". A new TOP-LEVEL list does not, because
+`App.options` merges the add-on's defaults under the user's (`_OPTIONS_MERGER`,
+dicts merged, lists replaced), and the default is `launchers: []`. Read in the
+Supervisor's own tree, not remembered. The same reason makes an entry FLAT
+(`clock_size`, not `clock: {size}`): a group inside a list item would be
+compulsory in every entry.
+
+**One server per panel launcher, on a port the system picks.** A page per
+panel on one shared server could keep links and columns apart through the
+address, and could not keep the wallpaper, the slideshow or the weather apart:
+the page fetches `/wallpaper`, `/slides.json` and `/weather.json` by absolute
+path. `launcher.start(port=ANY_PORT)` is the whole of it -- each call already
+carried its own closure of everything -- and port 0 cannot collide with
+anything else the Home Assistant machine runs, since only this add-on's own
+senders are ever handed the address. The house's keeps 8099.
+
+`launchers:` entries override the house launcher key by key
+(`launcher_<key>`, so there is no second table), their links drive that
+panel's quality, fps and user agent alone, and tokens are the one exception:
+the panel's own first, then the house's -- a credential for an address rather
+than a look, and a Home Assistant tile without one asks to log in.
+
+4.18's panel `links:` and 4.17's `advanced: columns:` are removed rather than
+kept beside it: two places to set the same thing is worse than one, both were
+days old, and an unknown key inside a list item only warns
+(`_nested_validate_dict`). `address_for`, `links_for` and the `?panel=` query
+went with them.
+
+`tools/checkpanels.py` drives `load_panels()`, `start_launchers()`,
+`route_to_launcher()` and `give_page_settings()`, reads every panel's command
+line (never printing it -- it carries a token), and opens each panel's own
+address at its own size: exact links per panel, 4 and 3 across, a light
+theme on one and dark on the others, a smaller clock, and a wallpaper on one
+page and on no other. Two faults were in its ruler first, as usual: a panel
+given three links cannot show four across, and the page's ground computes to
+`color(srgb ...)` rather than `rgb()`, so the theme is read off the ink.
+Against 4.18.1 it cannot run at all -- `start_launchers` did not exist -- which
+is the fault being an absence again.
+
+**And the schema was run through the Supervisor's own validator, not only
+read.** `supervisor/apps/options.py` loaded with its package imports stubbed
+(one line of Python 3.14 `except A, B:` syntax rewritten for 3.11), defaults
+merged the way `App.options` does, and the household's pasted configuration
+with its token replaced: **valid** as it stands (`launchers: []` from the
+default), **valid** carrying 4.18's `links:` and 4.17's `columns:` (two
+`Unknown option` warnings), **valid** with two entries -- and a list nested
+inside a panel's entry **refused** with `Missing option 'own_links' in
+panels`, which is the premise of this whole design measured rather than read.
+The Supervisor tree is fetched blobless (`git clone --filter=blob:none
+--no-checkout`, then `git checkout HEAD -- supervisor/apps/options.py`);
+checking out the whole of `supervisor/` that way takes minutes.
 
 ## Repository conventions
 

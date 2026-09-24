@@ -1,5 +1,5 @@
 name: Portall
-version: "4.18.1"
+version: "4.19.0"
 # Home Assistant identifies an add-on by its slug, so this one moving from
 # usb_display_panel to portall makes the Supervisor see a NEW add-on: options
 # are not carried over and /data starts empty, which means the browser
@@ -55,10 +55,6 @@ options:
       # launcher for the page of links this add-on builds, or an address of
       # this panel's own.
       url: launcher
-      # Which links this panel's launcher shows, by their names under links:
-      # below, separated by commas -- "Home Assistant, Jellyfin". Each panel
-      # chooses its own; empty shows every link.
-      # links: Home Assistant, Jellyfin
       width: 1024
       height: 600
       rotate: "180"
@@ -76,11 +72,6 @@ options:
         # it such a panel inherits the tokens the links carry and is treated
         # as a dashboard.
         home_assistant: true
-        # How many links across on THIS panel's launcher, when it should not
-        # be the launcher's own number. A 1280x800 takes four; a 1024x600 at
-        # four breaks words in half inside the tiles, and takes three. Leave it
-        # empty to use launcher: columns.
-        # columns: 3
   links:
     - name: Home Assistant
       # From inside an add-on this is the name Home Assistant answers to. Use
@@ -208,6 +199,21 @@ options:
       # How often the folder is looked at again, in minutes, so a photograph
       # dropped in appears without restarting the add-on.
       rescan: 60
+  # A launcher of a panel's OWN: its links, its columns, its clock, its
+  # wallpaper, everything -- independent of every other panel. One entry per
+  # panel, named by the panel's name. A panel with no entry here shows the
+  # house's links: and launcher: above. Every setting but panel and links is
+  # optional and, left out, is the house launcher's.
+  #
+  #   - panel: cuisine
+  #     columns: 3
+  #     clock_size: medium
+  #     background: http://192.168.1.3:8080/cuisine.jpg
+  #     links:
+  #       - name: Recettes
+  #         url: https://www.marmiton.org
+  #         icon: cuisine
+  launchers: []
   # What every panel inherits unless its own advanced: says otherwise.
   defaults:
     # Set once here and every panel inherits it. A panel may still override any
@@ -300,7 +306,6 @@ schema:
     - name: str
       host: str
       url: str
-      links: str?
       width: int(16,4096)
       height: int(16,4096)
       rotate: list(0|90|180|270)
@@ -323,7 +328,6 @@ schema:
         stats: bool?
         show_media: bool?
         show_touches: bool?
-        columns: int(0,6)?
   links:
     - name: str
       url: str
@@ -360,6 +364,38 @@ schema:
       seconds: int(5,3600)?
       fade: int(0,10)?
       rescan: int(1,1440)?
+  launchers:
+    - panel: str
+      links:
+        - name: str
+          url: str
+          icon: str?
+          group: str?
+          description: str?
+          token: password?
+          quality: int(1,95)?
+          fps: float?
+          user_agent: str?
+      theme: list(dark|light)?
+      columns: int(0,6)?
+      align: list(left|center|right)?
+      clock: bool?
+      clock_size: list(small|medium|large|huge)?
+      clock_color: list(theme|slate|gray|zinc|neutral|stone|red|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose|white|black)?
+      date_size: list(small|medium|large|huge)?
+      date_color: list(theme|slate|gray|zinc|neutral|stone|red|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose|white|black)?
+      weather: str?
+      weather_size: list(small|medium|large|huge)?
+      background: str?
+      background_motion: bool?
+      background_blur: list(off|sm|md|xl)?
+      background_dim: int(0,100)?
+      slideshow: bool?
+      slideshow_urls:
+        - str?
+      slideshow_seconds: int(5,3600)?
+      slideshow_fade: int(0,10)?
+      slideshow_rescan: int(1,1440)?
   defaults:
     port: port?
     fps: float?

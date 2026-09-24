@@ -242,12 +242,6 @@ def check_reaches_sender(folder):
         # is not named after it. tools/checkhomekit.py runs command_for and
         # requires that flag, so it is checked somewhere rather than nowhere.
         "homekit",
-        # Read by the launcher this file serves, to pick how many tiles go
-        # across on this panel's own page. No sender ever sees it;
-        # tools/checkpanels.py opens that page and counts them.
-        "columns",
-        # The same, for which links that page shows. The launcher's business.
-        "links",
     }
 
     def leaves(spec, path=()):
@@ -329,8 +323,10 @@ def check_reaches_sender(folder):
     for path, spec in leaves(schema):
         # The launcher's appearance is the PAGE's, built here and served from
         # 127.0.0.1; no sender ever sees it. links: and a panel's identity are
-        # this file's business too.
-        if path[0] in ("launcher", "links") or path[-1] in ITS_OWN:
+        # this file's business too, and so is a panel's own launcher under
+        # launchers: -- tools/checkpanels.py opens those pages and reads them.
+        if path[0] in ("launcher", "links", "launchers") \
+                or path[-1] in ITS_OWN:
             continue
         flag = "--" + flat_name(path).replace("_", "-")
         value = probe_for(spec)

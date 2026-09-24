@@ -293,72 +293,92 @@ panels:
   - name: salon
     host: ""
     url: launcher
-    links: Home Assistant, Jellyfin   # what this panel shows; empty = every link
     width: 800
     height: 1280
 ```
 
-### Each panel its own links, and its own number across
+### Each panel its own launcher
 
-Several panels share one list of links, and **each panel chooses the ones it
-shows, in its own entry**. `links:` on a panel is the names of those links,
-spelt as they are under `links:` and separated by commas. Left empty, the
-panel shows every link -- which is what every panel did before, so nothing you
-already have changes:
+`links:` and `launcher:` at the top are the **house's** launcher, shown on
+every panel that has nothing of its own. To give a panel a launcher of its own
+-- its own links, its own number across, its own clock, background and
+everything else, independent of every other panel -- add an entry for it under
+`launchers:`, named by the panel's `name:`:
 
 ```yaml
 panels:
   - name: salon
     url: launcher
-    links: Home Assistant, Jellyfin, YouTube
+    width: 800
+    height: 1280
+    ...
   - name: cuisine
     url: launcher
-    links: Home Assistant, Recettes, YouTube
-  - name: bureau
-    url: launcher               # no links: -- every link
-links:
-  - name: Home Assistant
-    url: http://homeassistant:8123/lovelace/0
-  - name: Jellyfin
-    url: http://192.168.1.3:8096
-  - name: Recettes
-    url: https://www.marmiton.org
-  - name: YouTube
-    url: https://www.youtube.com/tv
-```
-
-`links:` is an optional field, so Home Assistant's form does not show it: add
-the line yourself, under the panel's `url:`, in **Edit in YAML**. Until you
-do, the add-on's log says `[salon] launcher: 8 link(s) -- every link, because
-this panel chooses none` at startup.
-
-Capitals and spaces around a name do not matter. The tiles keep the order of
-the list under `links:`, not the order they are named in, so the groups stay
-together. A name that matches no link is said in the add-on's log at startup,
-with the links that do exist, rather than simply never appearing.
-
-**The number across belongs to the screen.** `launcher: columns:` is the
-house's; a panel sets its own under `advanced:` when its screen needs another:
-
-```yaml
-panels:
-  - name: salon                 # 1280x800: takes the launcher's 4
-    width: 1280
-    height: 800
-    url: launcher
-  - name: cuisine               # 1024x600
     width: 1024
     height: 600
-    url: launcher
-    advanced:
-      columns: 3
+    ...
+launchers:
+  - panel: salon
+    columns: 4
+    links:
+      - name: Jellyfin
+        url: http://192.168.1.2:8096/web/#/home
+        icon: jellyfin
+        quality: 40
+      - name: YouTube
+        url: https://www.youtube.com/tv
+        icon: youtube
+  - panel: cuisine
+    columns: 3
+    theme: light
+    clock_size: medium
+    background: http://192.168.1.3:8080/cuisine.jpg
+    links:
+      - name: Home Assistant
+        url: http://homeassistant:8123/lovelace/2
+        icon: home-assistant
+      - name: Reolink
+        url: https://192.168.1.22/
+        icon: reolink
 ```
 
-Four across suits a 1280x800 and does not suit a 1024x600: measured in the
-add-on's own browser, the tiles are 220 px wide there and the names break
-**inside** words -- "Jellyfi n", "YouTu be", "Proxm ox". At three across they
-are 298 px and no word breaks. `0` lets the panel decide, which gives three
-across at 1280x800 and two at 1024x600.
+An entry's links take the same settings as the house's -- `icon`, `group`,
+`description`, `quality`, `fps`, `user_agent`, `token` -- and apply to that
+panel only. Everything else in an entry is optional; left out, it is the house
+launcher's:
+
+| in an entry | the house's setting it replaces |
+|---|---|
+| `theme`, `columns`, `align` | `launcher: theme`, `columns`, `align` |
+| `clock`, `clock_size`, `clock_color` | `launcher: clock: show`, `size`, `color` |
+| `date_size`, `date_color` | `launcher: date: size`, `color` |
+| `weather`, `weather_size` | `launcher: weather: entity`, `size` |
+| `background`, `background_motion`, `background_blur`, `background_dim` | `launcher: background: source`, `motion`, `blur`, `dim` |
+| `slideshow`, `slideshow_urls`, `slideshow_seconds`, `slideshow_fade`, `slideshow_rescan` | `launcher: slideshow: enabled`, `urls`, `seconds`, `fade`, `rescan` |
+
+They are written flat rather than in groups because a group inside a list
+entry is compulsory in Home Assistant's add-on options: every entry would have
+to spell out every group.
+
+**Tokens are the one thing shared.** A panel with its own launcher is also
+given the house's link tokens, after its own: a token is a key to an address,
+not a look, and a Home Assistant tile without one asks to log in. So the Home
+Assistant token only needs to be written once, on the house's link.
+
+Each panel's launcher is served on its own, so nothing on one reaches the
+other. At startup the log says which launcher each panel is on:
+
+    [salon] launcher: its own, 2 link(s)
+    [bureau] launcher: the house's, 8 link(s). To give this panel its own ...
+
+An entry whose `panel:` names no panel is said in the log, with the panels
+there are.
+
+**The number across belongs to the screen.** Four across suits a 1280x800 and
+does not suit a 1024x600: measured in the add-on's own browser, the tiles are
+220 px wide there and the names break **inside** words -- "Jellyfi n", "YouTu
+be", "Proxm ox". At three across they are 298 px and no word breaks. `0` lets
+the panel decide, which gives three across at 1280x800 and two at 1024x600.
 
 ### Coming back
 
