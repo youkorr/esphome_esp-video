@@ -344,7 +344,46 @@ def truthy(value):
     return str(value).strip().lower() not in ("false", "no", "0", "off", "")
 
 
-def start_launcher(config):
+def panel_columns_from(panels):
+    """Each panel's own column count, for the ones that set one.
+
+    Nought is a value here -- it means "let the panel decide" -- so only a
+    field somebody left empty is skipped, never a zero.
+    """
+    columns = {}
+    for panel in panels:
+        value = panel.get("columns")
+        if value is None or not given(value):
+            continue
+        try:
+            columns[str(panel.get("name", "")).strip()] = int(value)
+        except (TypeError, ValueError):
+            say(f"[{panel.get('name', 'panel')}] columns {value!r} is not a "
+                f"number, so this panel takes the launcher's own")
+    return columns
+
+
+def check_link_panels(links, panels):
+    """Say so when a link names a panel that does not exist.
+
+    A typo in a link's panels: hides it from every panel in the house, which
+    from the glass is a tile that simply went missing -- the silent no-op this
+    project keeps having to break. So each name that matches no panel is
+    named, once, with the ones that do exist.
+    """
+    known = {str(p.get("name", "")).strip().lower(): str(p.get("name", ""))
+             for p in panels}
+    for link in links:
+        wanted = launcher._names(link.get("panels")) if launcher else set()
+        missing = sorted(wanted - set(known))
+        if missing:
+            say(f"Launcher: link \"{link.get('name', '?')}\" is for "
+                f"{', '.join(missing)}, which is no panel here -- the panels "
+                f"are {', '.join(sorted(known.values())) or 'none'}. A name "
+                f"that matches no panel hides the link everywhere.")
+
+
+def start_launcher(config, panels=()):
     """Serve the page of links, if there are any, and say where it is.
 
     Returns the address, or None when nobody configured any links -- in which
@@ -384,6 +423,7 @@ def start_launcher(config):
         fade=config.get("launcher_slideshow_fade", 1),
         rescan=config.get("launcher_slideshow_rescan", 60),
         urls=config.get("launcher_slideshow_urls") or [],
+        panel_columns=panel_columns_from(panels),
         weather=Weather(
             # The dashboard's own link is what has the address and the
             # token now, and it is the only thing here that ever had a use
@@ -394,6 +434,7 @@ def start_launcher(config):
     )
     if where is not None:
         say(f"Launcher: {len(links)} link(s) at {where}")
+        check_link_panels(links, panels)
     return where
 
 
@@ -922,20 +963,12 @@ def serve(panel, name, stop, remote=None):
             delay = min(delay * 2, MAX_RESTART_DELAY_S)
 
 
-def main():
-    panels = load_panels()
-    if not panels:
-        say("No panels configured. Set them in the add-on options, or point "
-            "$UDISP_CONFIG at a JSON file, or set HOST, URL and TOKEN.")
-        return 1
+def route_to_launcher(panels, where):
+    """Send every panel whose url is "launcher" to its own page on it.
 
-    # Before anything is started, and after the list is known to be a real
-    # one: a browser holding a profile open is not a folder to be removing.
-    sweep_profiles(panels)
-
-    # Before the check below, because a panel asking for the launcher has no
-    # url of its own until this has given it one.
-    where = start_launcher(_config)
+    A function rather than a stretch of main() so that the address each
+    panel is really handed can be checked without starting any sender.
+    """
     for panel in panels:
         if str(panel.get("url", "")).strip().lower() != LAUNCHER_KEYWORD:
             continue
@@ -970,13 +1003,41 @@ def main():
                         f"link carries a Home Assistant address to attach it "
                         f"to. Give the dashboard's link a token, or a tile "
                         f"opening it will ask to log in.")
-            panel["url"] = where
+            # Its own page on the one server: the address names the panel, and
+            # that picks the links it shows and how many go across. The corner
+            # brings it home to this same address, so it stays its own.
+            name = str(panel.get("name", "")).strip()
+            panel["url"] = launcher.address_for(name) if name else where
+            mine = launcher.links_for(_config.get("links") or [], name)
+            columns = panel_columns_from([panel]).get(name)
+            say(f"[{name or 'panel'}] launcher: {len(mine)} link(s)"
+                + (f", {columns} across" if columns else ""))
+            if not mine:
+                say(f"[{name or 'panel'}] no link is for this panel, so its "
+                    f"launcher is empty. Leave a link's panels: blank to "
+                    f"show it everywhere, or add this panel's name to it.")
             # Not a form field: the supervisor never sees this, it is what the
             # rewrite above already knows. A page of links does not paint in
             # stages, and the sender otherwise spends three seconds waiting
             # for a staging it will never see -- every time the corner brings
             # the panel home.
             panel["on_launcher"] = True
+
+def main():
+    panels = load_panels()
+    if not panels:
+        say("No panels configured. Set them in the add-on options, or point "
+            "$UDISP_CONFIG at a JSON file, or set HOST, URL and TOKEN.")
+        return 1
+
+    # Before anything is started, and after the list is known to be a real
+    # one: a browser holding a profile open is not a folder to be removing.
+    sweep_profiles(panels)
+
+    # Before the check below, because a panel asking for the launcher has no
+    # url of its own until this has given it one.
+    where = start_launcher(_config, panels)
+    route_to_launcher(panels, where)
 
     # Every panel gets the same list: the links are the house's, not one
     # screen's, and a panel that never opens a given page is unaffected by a

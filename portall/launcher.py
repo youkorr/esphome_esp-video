@@ -31,7 +31,7 @@ import mimetypes
 import os
 import threading
 import urllib.request
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, urlencode, urlsplit
 
 import logos
 
@@ -50,6 +50,51 @@ WALLPAPER_PATH = "/wallpaper"
 REPORT_PATH = "/report"
 # What the page asks to find out how many pictures the folder holds now.
 SLIDES_PATH = "/slides.json"
+# Which panel is asking, carried in the address a panel is sent to. One server
+# serves every panel, and this is the only thing that tells their pages apart:
+# the links each one shows and how many of them go across. A query rather than
+# a path, because every other address the page asks for -- the weather, the
+# wallpaper, the slideshow -- is absolute and must stay the same for all of
+# them.
+PANEL_QUERY = "panel"
+
+
+def address_for(panel):
+    """The address a panel is sent to: the launcher, as seen by that panel."""
+    if not str(panel or "").strip():
+        return ADDRESS
+    return f"{ADDRESS}?{urlencode({PANEL_QUERY: str(panel).strip()})}"
+
+
+def _names(value):
+    """A panels: field as the set of names it lists, empty when it is blank.
+
+    A form field, so it is a string somebody types -- "salon, cuisine" -- and
+    commas and spaces are both what a person would put between two names.
+    Compared without case, because "Salon" and "salon" are the same room.
+    """
+    if isinstance(value, (list, tuple)):
+        value = ",".join(str(v) for v in value)
+    return {part.strip().lower()
+            for part in str(value or "").replace(";", ",").split(",")
+            if part.strip()}
+
+
+def links_for(links, panel):
+    """The links one panel shows.
+
+    A link with no panels: is the house's and appears on every one of them,
+    which is what every configuration written before this option existed
+    means. A link that names panels appears on those and nowhere else. A page
+    asked for without a panel -- a hand run, an old address -- shows them all,
+    because showing a link somebody did not want is recoverable and hiding one
+    they did is not.
+    """
+    if not str(panel or "").strip():
+        return list(links)
+    who = str(panel).strip().lower()
+    return [link for link in links
+            if not _names(link.get("panels")) or who in _names(link.get("panels"))]
 
 # Homepage names its palettes after Tailwind's, so these do too. Only the
 # middle shade is given: the surfaces, the borders and the text are mixed from
@@ -1276,12 +1321,20 @@ def start(links, title="", subtitle="", theme="dark",
           date_size=DEFAULT_SIZE, date_color=FOLLOW_THEME,
           weather_size=DEFAULT_SIZE, align="left",
           motion=False, slideshow=False, every=30, fade=1, rescan=60,
-          urls=()):
+          urls=(), panel_columns=None):
     """Serve the page for as long as the add-on runs. Returns its address.
 
-    One server for every panel: they all come home to the same list, and a
-    second copy of it would only be a second thing to keep in step.
+    One server for every panel, and one page per panel on it: the address a
+    panel is sent to names it (see address_for), and that picks the links it
+    shows and how many go across. A 1280x800 and a 1024x600 in the same house
+    were given one list and one column count, and four across that suited the
+    big one broke words in half on the small one.
+
+    panel_columns maps a panel's name to its own column count; a panel not in
+    it takes columns.
     """
+    panel_columns = {str(k).strip().lower(): v
+                     for k, v in (panel_columns or {}).items()}
     addresses = _addresses(urls)
     if addresses:
         print(f"Launcher: {len(addresses)} picture(s) by address"
@@ -1329,14 +1382,15 @@ def start(links, title="", subtitle="", theme="dark",
     # at all on a panel with no weather.
     cache = {}
 
-    def page():
+    def page(panel=""):
         state = weather() if weather is not None else None
         key = weather_block(state) if state else None
-        if "bytes" not in cache or cache["key"] != key:
-            cache["key"] = key
-            cache["bytes"] = render(
-                links, title, subtitle, theme, color, background, blur,
-                dim, columns, clock,
+        view = str(panel or "").strip().lower()
+        held = cache.get(view)
+        if held is None or held[0] != key:
+            body = render(
+                links_for(links, panel), title, subtitle, theme, color,
+                background, blur, dim, panel_columns.get(view, columns), clock,
                 state if weather is not None else None,
                 clock_size, clock_color, date_size, date_color,
                 weather_size, align,
@@ -1344,7 +1398,8 @@ def start(links, title="", subtitle="", theme="dark",
                 # the complaint about an address that is not one.
                 motion, slideshow, every, fade, rescan, addresses,
                 mirrored).encode()
-        return cache["bytes"]
+            held = cache[view] = (key, body)
+        return held[1]
 
     # Once here, so a fault in the page is reported at startup rather than
     # the first time somebody comes home to it.
@@ -1482,7 +1537,9 @@ def start(links, title="", subtitle="", theme="dark",
                 # megabyte again.
                 self._reply(picture, mime)
                 return
-            self._reply(page(), "text/html; charset=utf-8")
+            who = (parse_qs(urlsplit(self.path).query).get(PANEL_QUERY)
+                   or [""])[0]
+            self._reply(page(who), "text/html; charset=utf-8")
 
     try:
         server = http.server.ThreadingHTTPServer(("127.0.0.1", PORT), Handler)

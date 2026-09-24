@@ -242,6 +242,10 @@ def check_reaches_sender(folder):
         # is not named after it. tools/checkhomekit.py runs command_for and
         # requires that flag, so it is checked somewhere rather than nowhere.
         "homekit",
+        # Read by the launcher this file serves, to pick how many tiles go
+        # across on this panel's own page. No sender ever sees it;
+        # tools/checkpanels.py opens that page and counts them.
+        "columns",
     }
 
     def leaves(spec, path=()):
