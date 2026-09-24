@@ -487,7 +487,7 @@ void Portall::feed_(const uint8_t *data, size_t len, bool may_wait) {
     // has to hold a whole picture before it means anything.
     if (this->audio_want_ > 0) {
       const size_t take = this->audio_want_ < len ? this->audio_want_ : len;
-      this->on_audio_samples(data, take);
+      this->on_audio_samples(data, take, this->pcm_channels_);
       this->audio_want_ -= take;
       data += take;
       len -= take;
@@ -529,8 +529,20 @@ void Portall::feed_(const uint8_t *data, size_t len, bool may_wait) {
     }
 #ifdef USE_SPEAKER
     if (header->type == UDISP_TYPE_PCM) {
-      // Not a rectangle: x, y, width and height mean nothing here and are sent
-      // as zero, so none of the geometry below applies. Only the length does.
+      // Not a rectangle, so none of the geometry below applies: x, y and
+      // height mean nothing and the length is what matters. Width is the one
+      // exception -- it carries how many channels follow, and 0, which every
+      // sender before stereo sends, means one.
+      const unsigned channels = header->width == 0 ? 1 : header->width;
+      if (channels > PORTALL_AUDIO_MAX_CHANNELS) {
+        if (!this->logged_bad_channels_) {
+          this->logged_bad_channels_ = true;
+          ESP_LOGW(TAG, "Ignoring sound with %u channels: this panel plays one or two", channels);
+        }
+        this->skipping_ = header->payload_total;
+        continue;
+      }
+      this->pcm_channels_ = (uint8_t) channels;
       this->audio_want_ = header->payload_total;
       continue;
     }

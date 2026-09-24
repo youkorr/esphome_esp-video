@@ -24,6 +24,12 @@
 #define PORTALL_AUDIO_RATE 48000
 #define PORTALL_AUDIO_BITS 16
 #define PORTALL_AUDIO_CHANNELS 1
+/* What a network payload MAY carry. A sender asked for stereo says so in the
+ * PCM header's width field (0, which every sender before it sends, means one),
+ * and the speaker is re-told the shape when it changes -- so stereo is chosen
+ * in ONE place, the add-on, and nothing on the board has to agree with it. The
+ * USB audio class stays at PORTALL_AUDIO_CHANNELS. */
+#define PORTALL_AUDIO_MAX_CHANNELS 2
 
 extern "C" {
 #include "sdkconfig.h"
@@ -131,7 +137,7 @@ class Portall : public Component
    * only in how the bytes got here -- the blocking, the volume and the
    * underrun handling below are the same work either way, and were written
    * once for USB before there was another way in. */
-  void on_audio_samples(const uint8_t *data, size_t length);
+  void on_audio_samples(const uint8_t *data, size_t length, uint8_t channels = PORTALL_AUDIO_CHANNELS);
   /* Both ways in share one volume. on_usb_audio_volume is the USB class's
    * callback and set_audio_volume is what everything else calls -- the number
    * entity, the action, and anything added later. */
@@ -430,6 +436,11 @@ class Portall : public Component
   // gathering them: samples are a stream, so a payload split across two reads
   // is two writes to the speaker and nothing else.
   size_t audio_want_{0};
+  // How many channels the payload being read carries, from its header.
+  uint8_t pcm_channels_{PORTALL_AUDIO_CHANNELS};
+  // How many the speaker was last told to expect.
+  uint8_t audio_channels_{PORTALL_AUDIO_CHANNELS};
+  bool logged_bad_channels_{false};
 #endif
 
 #ifdef USE_TOUCHSCREEN

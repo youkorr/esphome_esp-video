@@ -71,6 +71,10 @@ configuration:
           import_profile:
             name: Import a browser profile
             description: See the documentation.
+          stereo:
+            name: 🔊 Stereo sound
+            description: 'Twice the data. Needs the board updated, and num_channels: 2 on the Bluetooth
+              speaker.'
           stats:
             name: 🐞 Statistics
           show_media:

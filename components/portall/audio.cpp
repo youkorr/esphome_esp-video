@@ -49,6 +49,10 @@ static constexpr uint32_t AUDIO_BLOCK_MS = 10;
 // given before it is called a speaker that refuses the stream.
 static constexpr uint32_t NEVER_ACCEPTED_BLOCKS = 1000 / AUDIO_BLOCK_MS;
 
+static size_t audio_block_bytes(unsigned channels) {
+  return (size_t) (PORTALL_AUDIO_RATE / 1000) * AUDIO_BLOCK_MS * (PORTALL_AUDIO_BITS / 8) * channels;
+}
+
 #if CFG_TUD_AUDIO
 namespace {
 
@@ -80,9 +84,10 @@ void Portall::setup_speaker_() {
    */
   if (this->speaker_ == nullptr || this->audio_block_ != nullptr)
     return;
-  this->audio_block_size_ = (size_t) (PORTALL_AUDIO_RATE / 1000) * AUDIO_BLOCK_MS *
-                            (PORTALL_AUDIO_BITS / 8) * PORTALL_AUDIO_CHANNELS;
-  this->audio_block_ = new uint8_t[this->audio_block_size_];
+  // Allocated for the most channels a stream may carry, once, so a change of
+  // shape never allocates on the audio path; only the size in use moves.
+  this->audio_block_ = new uint8_t[audio_block_bytes(PORTALL_AUDIO_MAX_CHANNELS)];
+  this->audio_block_size_ = audio_block_bytes(this->audio_channels_);
 
   // Tell the speaker what is coming before a byte of it does. Without this it
   // keeps ESPHome's historical default of 16 kHz mono, and a mixer asked to
@@ -90,9 +95,10 @@ void Portall::setup_speaker_() {
   // both the "Incompatible audio streams" error and the noise that comes out
   // when the samples are read at the wrong rate.
   this->speaker_->set_audio_stream_info(
-      audio::AudioStreamInfo(PORTALL_AUDIO_BITS, PORTALL_AUDIO_CHANNELS, PORTALL_AUDIO_RATE));
-  ESP_LOGCONFIG(TAG, "Speaker: %d Hz, %d bit, %d channel, %u byte blocks", PORTALL_AUDIO_RATE, PORTALL_AUDIO_BITS,
-                PORTALL_AUDIO_CHANNELS, (unsigned) this->audio_block_size_);
+      audio::AudioStreamInfo(PORTALL_AUDIO_BITS, this->audio_channels_, PORTALL_AUDIO_RATE));
+  ESP_LOGCONFIG(TAG, "Speaker: %d Hz, %d bit, %u channel, %u byte blocks (a sender may switch it to stereo)",
+                PORTALL_AUDIO_RATE, PORTALL_AUDIO_BITS, (unsigned) this->audio_channels_,
+                (unsigned) this->audio_block_size_);
 }
 
 #if CFG_TUD_AUDIO
@@ -120,13 +126,31 @@ void Portall::setup_uac_() {
 }
 #endif  // CFG_TUD_AUDIO
 
-void Portall::on_audio_samples(const uint8_t *data, size_t length) {
-  if (this->speaker_ == nullptr || length == 0)
+void Portall::on_audio_samples(const uint8_t *data, size_t length, uint8_t channels) {
+  if (this->speaker_ == nullptr || length == 0 || this->audio_block_ == nullptr)
     return;
   // Before the mute and volume checks: the host is sending, whatever this board
   // then decides to do with it.
   this->last_audio_ms_ = millis();
   this->last_packet_len_ = length;
+
+  if (channels != this->audio_channels_) {
+    // The sender changed between mono and stereo -- which happens when the
+    // add-on's setting changes, not while anything plays. The speaker is told
+    // the new shape before a byte of it arrives, exactly as at setup: fed two
+    // channels while expecting one, it plays at half speed. A speaker still
+    // running the old shape is stopped first, and what arrives while it
+    // stops is dropped -- a few blocks, once, at the switch.
+    if (!this->speaker_->is_stopped()) {
+      this->speaker_->stop();
+      return;
+    }
+    this->audio_channels_ = channels;
+    this->audio_block_used_ = 0;
+    this->audio_block_size_ = audio_block_bytes(channels);
+    this->speaker_->set_audio_stream_info(audio::AudioStreamInfo(PORTALL_AUDIO_BITS, channels, PORTALL_AUDIO_RATE));
+    ESP_LOGI(TAG, "The page's sound is %s now", channels >= 2 ? "stereo" : "mono");
+  }
   if (this->audio_muted_ || this->audio_volume_ <= 0.0f)
     return;
 
@@ -147,8 +171,8 @@ void Portall::on_audio_samples(const uint8_t *data, size_t length) {
 
   if (!this->logged_first_audio_) {
     this->logged_first_audio_ = true;
-    ESP_LOGI(TAG, "First audio: %u byte packets at %d Hz, %d bit, %d channel, played %u at a time",
-             (unsigned) this->last_packet_len_, PORTALL_AUDIO_RATE, PORTALL_AUDIO_BITS, PORTALL_AUDIO_CHANNELS,
+    ESP_LOGI(TAG, "First audio: %u byte packets at %d Hz, %d bit, %u channel, played %u at a time",
+             (unsigned) this->last_packet_len_, PORTALL_AUDIO_RATE, PORTALL_AUDIO_BITS, (unsigned) this->audio_channels_,
              (unsigned) this->audio_block_size_);
   }
 }
@@ -223,12 +247,13 @@ void Portall::flush_audio_block_() {
         // portall and its mixer input.
         ESP_LOGE(TAG,
                  "The speaker has not taken a single byte in %u blocks. It is refusing this stream rather than "
-                 "falling behind: portall sends %d Hz, %d bit, %d channel, and an ESPHome mixer refuses a source "
+                 "falling behind: portall sends %d Hz, %d bit, %u channel, and an ESPHome mixer refuses a source "
                  "whose rate is not the one it already runs at. Give every mixer source 48000 and put a "
                  "resampler after the mixer (see yaml/tab5-portall-bluetooth.yaml), or point speaker_id: at a "
                  "resampler in front of the mixer input. Look for \"Incompatible audio streams\" on the speaker "
                  "component above.",
-                 (unsigned) this->audio_resyncs_, PORTALL_AUDIO_RATE, PORTALL_AUDIO_BITS, PORTALL_AUDIO_CHANNELS);
+                 (unsigned) this->audio_resyncs_, PORTALL_AUDIO_RATE, PORTALL_AUDIO_BITS,
+                 (unsigned) this->audio_channels_);
       }
     }
   }

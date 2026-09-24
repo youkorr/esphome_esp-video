@@ -166,6 +166,12 @@ speaker:
   - platform: portall_bt
     id: bt_speaker
     portall_bt_id: dongle
+    # Two channels, so the resampler and the mixer above it -- which take
+    # their channel count from here -- carry the page's stereo through to the
+    # car receiver instead of folding it to mono. Only heard as stereo with
+    # stereo: true on this panel in the add-on; with mono coming in, the mixer
+    # simply puts the same sound on both sides.
+    num_channels: 2
 
   - platform: resampler
     id: to_bluetooth

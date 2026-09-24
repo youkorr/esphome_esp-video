@@ -1442,6 +1442,40 @@ been measured on a panel. What a lower `fps` does help is the *variation*: an
 898 ms gap between pictures is far more visible against steady sound than a
 constant small offset is.
 
+#### Stereo
+
+The page's sound is **mono** unless a panel asks otherwise: one channel, 96
+KiB/s. Turning on **`stereo`** in that panel's *Advanced* sends both
+channels, at 192 KiB/s -- small beside the 1.5 to 2 MB/s a playing video's
+pictures cost.
+
+Two things have to be true for it to be heard as stereo, and both are on the
+board:
+
+1. **The board is built from this release or later.** An older `portall`
+   reads the stereo as mono and plays it at half speed. Flash the panel first,
+   then turn the option on.
+2. **The speaker at the end of the chain has two channels.** On a Bluetooth
+   speaker that is one line, and the resampler and the mixer above it take
+   their channel count from it:
+
+   ```yaml
+   speaker:
+     - platform: portall_bt
+       id: bt_speaker
+       portall_bt_id: dongle
+       num_channels: 2
+   ```
+
+   With `num_channels: 2` and the option off, nothing changes: the mixer puts
+   the same mono sound on both sides.
+
+The board follows whatever arrives -- the sound says in its own header how
+many channels it carries -- so there is no setting to keep in step on the
+panel. Switching the option drops a few milliseconds of sound once, while the
+speaker is told the new shape. `channel: stereo` on an I2S speaker is a
+different thing: it governs that speaker only.
+
 #### Why `quality: 20`
 
 Start there and raise it if you want to. Full motion is the one thing this
