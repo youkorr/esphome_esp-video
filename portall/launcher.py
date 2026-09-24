@@ -67,11 +67,13 @@ def address_for(panel):
 
 
 def _names(value):
-    """A panels: field as the set of names it lists, empty when it is blank.
+    """A panel's links: field as the set of names it lists, empty when blank.
 
-    A form field, so it is a string somebody types -- "salon, cuisine" -- and
-    commas and spaces are both what a person would put between two names.
-    Compared without case, because "Salon" and "salon" are the same room.
+    A form field, so it is a string somebody types -- "Jellyfin, YouTube" --
+    and a comma is what a person puts between two names; a name itself may
+    hold spaces, "Home Assistant". Compared without case or surrounding
+    spaces, because "youtube " and "YouTube" are the same tile to whoever
+    typed it.
     """
     if isinstance(value, (list, tuple)):
         value = ",".join(str(v) for v in value)
@@ -80,21 +82,26 @@ def _names(value):
             if part.strip()}
 
 
-def links_for(links, panel):
-    """The links one panel shows.
+def links_for(links, chosen):
+    """The links one panel shows, given what that panel chose.
 
-    A link with no panels: is the house's and appears on every one of them,
-    which is what every configuration written before this option existed
-    means. A link that names panels appears on those and nowhere else. A page
-    asked for without a panel -- a hand run, an old address -- shows them all,
-    because showing a link somebody did not want is recoverable and hiding one
-    they did is not.
+    `chosen` is the panel's own links: field -- the names of the links it
+    wants, separated by commas. The choice belongs to the PANEL, in its own
+    entry, because that is where somebody looking at one screen goes to change
+    what is on it; 4.17.0 put it on each link instead, as a list of panels,
+    which worked and was reported as not being each panel's own choice.
+
+    Empty shows every link, which is what every configuration written before
+    this existed means, and what a page asked for with no panel shows too:
+    showing a link somebody did not want is recoverable from the glass and
+    hiding one they did is not. The house's order is kept rather than the
+    order typed, so the groups stay together.
     """
-    if not str(panel or "").strip():
+    wanted = _names(chosen)
+    if not wanted:
         return list(links)
-    who = str(panel).strip().lower()
     return [link for link in links
-            if not _names(link.get("panels")) or who in _names(link.get("panels"))]
+            if str(link.get("name", "")).strip().lower() in wanted]
 
 # Homepage names its palettes after Tailwind's, so these do too. Only the
 # middle shade is given: the surfaces, the borders and the text are mixed from
@@ -1321,7 +1328,7 @@ def start(links, title="", subtitle="", theme="dark",
           date_size=DEFAULT_SIZE, date_color=FOLLOW_THEME,
           weather_size=DEFAULT_SIZE, align="left",
           motion=False, slideshow=False, every=30, fade=1, rescan=60,
-          urls=(), panel_columns=None):
+          urls=(), panel_columns=None, panel_links=None):
     """Serve the page for as long as the add-on runs. Returns its address.
 
     One server for every panel, and one page per panel on it: the address a
@@ -1331,10 +1338,13 @@ def start(links, title="", subtitle="", theme="dark",
     big one broke words in half on the small one.
 
     panel_columns maps a panel's name to its own column count; a panel not in
-    it takes columns.
+    it takes columns. panel_links maps a panel's name to its own links: field;
+    a panel not in it shows every link.
     """
     panel_columns = {str(k).strip().lower(): v
                      for k, v in (panel_columns or {}).items()}
+    panel_links = {str(k).strip().lower(): v
+                   for k, v in (panel_links or {}).items()}
     addresses = _addresses(urls)
     if addresses:
         print(f"Launcher: {len(addresses)} picture(s) by address"
@@ -1389,7 +1399,8 @@ def start(links, title="", subtitle="", theme="dark",
         held = cache.get(view)
         if held is None or held[0] != key:
             body = render(
-                links_for(links, panel), title, subtitle, theme, color,
+                links_for(links, panel_links.get(view, "")), title, subtitle,
+                theme, color,
                 background, blur, dim, panel_columns.get(view, columns), clock,
                 state if weather is not None else None,
                 clock_size, clock_color, date_size, date_color,
