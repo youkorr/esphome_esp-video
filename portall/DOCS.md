@@ -242,9 +242,10 @@ That is the whole form, on purpose. `ha_send.py` has a dozen more settings --
 `render_width`/`render_height`, `rect_cost`, `freeze_animations` -- and every
 one of them has a default that is right for a panel. A form nobody can read is
 a form where the setting that matters gets missed, so they are not offered
-here. Run `ha_send.py --help` to see them, and if you really need one from the
-add-on, the Configuration page's YAML view will pass any key straight through
-to the sender.
+here. Run `ha_send.py --help` to see them. They cannot be added through the
+Configuration page's YAML view either: Home Assistant removes any option the
+add-on does not declare, with a warning in its own log, before the add-on ever
+sees it.
 
 ## A panel as a launcher, and the way back
 

@@ -7922,6 +7922,26 @@ panel still waiting on the server less than a tenth of the time. The one long
 gap in the same log (863 ms) sits in the window where the ESPHome dashboard
 was being OPENED, which is a page loading rather than the picture path.
 
+**And then the limit itself was what was left: `URGENT_FPS` 30 -> 45.** The
+same household reported a swipe still short by about a quarter, *"au doigt et
+visuel"*. With the schedule fixed, 30 meant 30 -- and 30 was the ceiling the
+urgent window imposed on every swipe. Measured against the same panel that
+never makes the sender wait: **30.0 pictures a second at 30, 36-39 at 45,
+35-38 at 60**, so above 45 the browser and the machine decide and a bigger
+number buys nothing; against a panel draining 1500 KiB/s, 30 and 45 are the
+same within noise. The loop runs near 50 Hz at 45 rather than 65, which is
+still as fast as a finger reports. `fps:` on a link still caps it, so a film
+link is untouched. Measured through `--fps` rather than through a real press:
+the urgent window only swaps which interval the same gate uses.
+
+**`urgent_fps` cannot be set from the add-on, and DOCS.md said it could.** It
+claimed the Configuration page's YAML view "will pass any key straight
+through to the sender". The Supervisor's own `options.py` drops every option
+the schema does not declare, top level and inside list items alike -- the
+same `continue` this file already records under `launchers:`. So the default
+is the only value a household ever gets, which is why the default had to move
+rather than a setting being offered.
+
 ## The C6 already gives a panel Bluetooth, and ESPHome already wires it
 
 **Proposed after the dongle turned out to be the obstacle: *"je confronte a un

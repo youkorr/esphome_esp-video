@@ -186,7 +186,18 @@ URGENT_AFTER_INPUT = True
 # for as long as the movement lasts, and the standing limit is left free to be
 # low -- which is the whole point of having two numbers instead of one.
 URGENT_WINDOW_S = 2.0
-URGENT_FPS = 30.0
+# 45 rather than 30, and the reason is the pacing fix beside it. While the
+# limit restarted from whichever turn noticed a picture, 30 delivered about 24
+# and a higher number would have bought little. Keeping to the schedule made 30
+# mean 30, and a swipe was then reported as still short of fluid by about a
+# quarter -- which is what the limit itself was holding back. Measured against
+# a panel that never makes the sender wait, on a page scrolling a whole panel
+# every frame: 30.0 pictures a second at 30, 36-39 at 45 and 35-38 at 60, so
+# above 45 it is the browser and this machine that decide and a higher number
+# buys nothing. Against a panel draining 1500 KiB/s, 30 and 45 are the same
+# within noise, because there the link decides. It only applies for the two
+# seconds after a contact, and a link with its own fps: still caps it.
+URGENT_FPS = 45.0
 # How the browser is started.
 #
 # The defaults are written for a browser somebody is looking at, and this one
