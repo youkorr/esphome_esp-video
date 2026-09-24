@@ -8164,6 +8164,49 @@ The Supervisor tree is fetched blobless (`git clone --filter=blob:none
 --no-checkout`, then `git checkout HEAD -- supervisor/apps/options.py`);
 checking out the whole of `supervisor/` that way takes minutes.
 
+### The form is the add-on's first page, and it showed raw keys -- 4.19.1
+
+**Reported as *"je vois panel et launcher ce n'est pas organise ... mieux
+compris pour une personne qui du mal avec home assistant n'hesite pas a
+ajouter des couleurs des switch"*.** `panels`, `links`, `launcher`,
+`launchers`, `defaults`, `debug`: six English keys, two of them one letter
+apart, on the page a household opens first.
+
+**Home Assistant has the mechanism and this add-on had never used it.**
+`translations/<lang>.yaml` beside config.yaml, read by the Supervisor
+(`store/data.py`, `_read_app_translations`; shape
+`SCHEMA_TRANSLATION_CONFIGURATION` in `apps/validate.py`: `name`, optional
+`description`, recursive `fields`). The frontend
+(`supervisor-app-config.ts`, read in its own tree) puts `name` in place of the
+key and `description` under it -- for a top-level group (an expandable
+section), for every field of a list entry (the object selector's `fields`) and
+for groups inside those. Booleans were already toggles and `list()` options
+already dropdowns, so "des switch" was already true; what was missing was
+words. "Des couleurs" is an emoji per section, which is the only colour a
+Supervisor form can carry.
+
+**The keys do not move, and that is why this is free.** A translation changes
+what the form SHOWS, never what is stored, so no saved configuration has to be
+touched -- where renaming a key would have been the migration this file warns
+about under the launcher's size scale.
+
+**And it needs a version bump, which is not obvious.** An INSTALLED add-on
+keeps the copy of its store data taken at install or update
+(`apps/data.py`: `system[slug] = deepcopy(app.data)` in both), so a
+translation that lands without a bump reaches nobody who already has the
+add-on. `tools/checkaddon.py` now counts `translations/` among what the
+version must move for, beside config.yaml.
+
+`tools/maketranslations.py` writes both languages from ONE table, so a field
+cannot have a French name and no English one; `check_translations()` in
+`tools/checkaddon.py` walks the schema and fails on any setting with no name
+and any name for no setting -- reproduced on a copy with one field deleted
+and one invented, both caught. Both files were also run through the
+Supervisor's own `SCHEMA_APP_TRANSLATIONS`, extracted from its source, and
+come back unchanged: nothing would be dropped. **What is NOT verified** is the
+page as drawn -- there is no Home Assistant frontend here -- so how it looks
+is one update away.
+
 ## Repository conventions
 
 - Work on branch `claude/esphome-pr-outdated-mdq36w`, then merge into `main`

@@ -418,6 +418,12 @@ def check_version_moved(folder):
     # making a correction to them force a version bump would mean every reader
     # of the documentation re-downloading a browser for nothing.
     shipped = [rel]
+    # The settings page's translations are the other thing an INSTALLED
+    # add-on only picks up on a new version: the Supervisor keeps the copy it
+    # took at install or update (apps/data.py, system[slug] = app.data), so a
+    # corrected name would reach nobody until the next bump.
+    if (folder / "translations").is_dir():
+        shipped.append(f"{folder.name}/translations")
     for line in (folder / "Dockerfile").read_text().splitlines():
         words = line.split()
         if not words or words[0].upper() not in ("COPY", "ADD"):
@@ -450,10 +456,69 @@ def check_version_moved(folder):
     return 0
 
 
+def check_translations(folder):
+    """Every setting has a name in every language, and no name is for nothing.
+
+    The settings page shows a translation's `name` in place of the key, and
+    falls back to the raw key for anything missing -- so a field left out is a
+    word like `blank_after` in the middle of a French form, and a name for a
+    key the schema dropped is one nobody will ever see. Both are silent in
+    Home Assistant, which is why they are checked here. The shape is the
+    Supervisor's own, SCHEMA_TRANSLATION_CONFIGURATION: a `name` that is a
+    string, an optional `description`, and `fields` for what sits inside.
+    """
+    here = folder / "translations"
+    if not here.is_dir():
+        print(f"  ECHEC  {here}  (missing: the settings page shows raw keys)")
+        return 1
+    schema = yaml.safe_load((folder / "config.yaml").read_text())["schema"]
+
+    def inner(spec):
+        if isinstance(spec, list) and spec and isinstance(spec[0], dict):
+            return spec[0]
+        return spec if isinstance(spec, dict) else None
+
+    def walk(spec, words, where, faults):
+        for key, sub in spec.items():
+            entry = (words or {}).get(key)
+            at = ".".join(where + [key])
+            if not isinstance(entry, dict) or not isinstance(entry.get("name"), str) \
+                    or not entry["name"].strip():
+                faults.append(f"{at} has no name")
+                continue
+            if not isinstance(entry.get("description", ""), (str, type(None))):
+                faults.append(f"{at} has a description that is not text")
+            children = inner(sub)
+            if children:
+                walk(children, entry.get("fields"), where + [key], faults)
+        for key in set(words or {}) - set(spec):
+            faults.append(f"{'.'.join(where + [key])} is named but is no setting")
+
+    bad = 0
+    files = sorted(here.glob("*.yaml"))
+    for lang in ("en", "fr"):
+        if not (here / f"{lang}.yaml").exists():
+            print(f"  ECHEC  {here}/{lang}.yaml  (missing)")
+            bad += 1
+    for path in files:
+        faults = []
+        words = (yaml.safe_load(path.read_text()) or {}).get("configuration")
+        walk(schema, words, [], faults)
+        if faults:
+            print(f"  ECHEC  {path}")
+            for fault in faults[:12]:
+                print(f"         {fault}")
+            bad += 1
+        else:
+            print(f"  ok     {path}  (every setting has a name)")
+    return bad
+
+
 if __name__ == "__main__":
     files = sys.argv[1:] or ["portall/config.yaml"]
     bad = sum(check(f) for f in files)
     bad += sum(check_image(pathlib.Path(f).parent) for f in files)
     bad += sum(check_reaches_sender(pathlib.Path(f).parent) for f in files)
+    bad += sum(check_translations(pathlib.Path(f).parent) for f in files)
     bad += sum(check_version_moved(pathlib.Path(f).parent) for f in files)
     sys.exit(bad)
