@@ -57,6 +57,12 @@ wifi:
   ssid: !secret wifi_ssid
   password: !secret wifi_password
   power_save_mode: none
+  # ESPHome scans every channel for a better access point every five minutes
+  # while the signal is below -49 dBm. The radio leaves the channel for most
+  # of a second to do it, the stream from the add-on stops, then arrives all
+  # at once -- 200 blocks of sound were dropped in the second after one.
+  # With a single access point there is nothing better to find.
+  post_connect_roaming: false
   ap:
     ssid: HA_ESP32P4 Fallback Hotspot
     password: !secret ap_password
