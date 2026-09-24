@@ -364,14 +364,19 @@ def _request_fast_network(config):
         # values this used to set were the problem, not the fix.
         pass
     try:
-        # Lets network.cpp hold off Wi-Fi roaming scans while pictures or
-        # sound are arriving; see ROAM_QUIET_MS there for why. Only a define
-        # in the wifi component: a panel on Ethernet ignores it.
+        # Lets network.cpp hold off Wi-Fi roaming scans and the radio's power
+        # saving while pictures or sound are arriving, and give both back
+        # when the panel goes quiet -- what sendspin does for its stream; see
+        # ROAM_QUIET_MS there for why. Only defines in the wifi component: a
+        # panel on Ethernet ignores them. Asked for separately so an ESPHome
+        # that has one of the two still gets it.
         from esphome.components import wifi
-
-        wifi.enable_runtime_roaming_suppression()
-    except (ImportError, AttributeError):
-        pass
+    except ImportError:
+        wifi = None
+    for enable in ("enable_runtime_roaming_suppression", "enable_runtime_power_save_control"):
+        request = getattr(wifi, enable, None)
+        if request is not None:
+            request()
     return config
 
 

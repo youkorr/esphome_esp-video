@@ -24,13 +24,18 @@
 #include <cerrno>
 #include <cstring>
 
-// Present only when the wifi component was built with runtime roaming
-// suppression, which portall asks for from its schema whenever `port:` is set.
-// Guarded on the define rather than on wifi being there at all: a panel on
-// Ethernet, or an ESPHome older than the API, compiles none of this.
+// Present only when the wifi component was built with the runtime controls
+// portall asks for from its schema whenever `port:` is set. Guarded on each
+// define rather than on wifi being there at all: a panel on Ethernet, or an
+// ESPHome older than the API, compiles none of this.
 #if defined(USE_ESP32) && defined(USE_WIFI) && defined(USE_WIFI_RUNTIME_ROAMING_SUPPRESSION)
-#include "esphome/components/wifi/wifi_component.h"
 #define PORTALL_HOLDS_ROAMING 1
+#endif
+#if defined(USE_ESP32) && defined(USE_WIFI) && defined(USE_WIFI_RUNTIME_POWER_SAVE)
+#define PORTALL_HOLDS_POWER_SAVE 1
+#endif
+#if defined(PORTALL_HOLDS_ROAMING) || defined(PORTALL_HOLDS_POWER_SAVE)
+#include "esphome/components/wifi/wifi_component.h"
 #endif
 
 extern "C" {
@@ -54,29 +59,51 @@ static constexpr int NET_RECV_TIMEOUT_S = 30;
 // log put 200 dropped blocks of sound -- two seconds -- and a picture rate of
 // 12 in the second after one "Roam scan", with "wifi took 642 ms" beside it.
 //
-// So roaming is held off while something is actually streaming, and let go
-// once only heartbeats have arrived for ROAM_QUIET_MS. That is what sendspin
-// does for its own stream. A still dashboard sends nothing but a heartbeat,
-// so a panel sitting idle still roams -- its checks are simply moved to the
+// The same goes for the radio's power saving. ESPHome's default is `light`:
+// the radio sleeps between the access point's beacons, which adds latency,
+// lets the access point buffer, and makes a burst of pictures fragile --
+// which is why the examples here have carried `power_save_mode: none`, and
+// why a panel whose YAML never said so stutters where one that did does not.
+// ESPHome lets a component ask for no power saving while it needs it and
+// give it back afterwards; a YAML that already says `none` makes both calls
+// do nothing. Asked for and given back together with roaming, since both
+// answer the same question: is something arriving that somebody is watching.
+//
+// So both are held while something is actually streaming, and let go once
+// only heartbeats have arrived for ROAM_QUIET_MS. That is what sendspin does
+// for its own stream. A still dashboard sends nothing but a heartbeat, so a
+// panel sitting idle still roams and saves power -- both simply move to the
 // moments when nobody is watching. A read no longer than one header is a
 // heartbeat; anything longer carries a picture or sound.
 static constexpr uint32_t ROAM_QUIET_MS = 15000;
 static constexpr int HEARTBEAT_BYTES = sizeof(udisp_frame_header_t);
 
-static void hold_roaming(bool &held, bool want) {
-#ifdef PORTALL_HOLDS_ROAMING
+static void hold_wifi_for_stream(bool &held, bool want) {
+#if defined(PORTALL_HOLDS_ROAMING) || defined(PORTALL_HOLDS_POWER_SAVE)
   if (held == want || wifi::global_wifi_component == nullptr)
     return;
-  // Counted by the wifi component, so every request must be released exactly
-  // once or roaming stays off for good -- hence the flag, and the release on
-  // every way out of a connection.
+  // Both are counted by the wifi component, so every request must be released
+  // exactly once or roaming stays off, or the radio stays awake, for good --
+  // hence the flag, and the release on every way out of a connection.
   if (want) {
+#ifdef PORTALL_HOLDS_ROAMING
     wifi::global_wifi_component->request_roaming_suppression();
+#endif
+#ifdef PORTALL_HOLDS_POWER_SAVE
+    wifi::global_wifi_component->request_high_performance();
+#endif
   } else {
+#ifdef PORTALL_HOLDS_ROAMING
     wifi::global_wifi_component->release_roaming_suppression();
+#endif
+#ifdef PORTALL_HOLDS_POWER_SAVE
+    wifi::global_wifi_component->release_high_performance();
+#endif
   }
   held = want;
-  ESP_LOGD(TAG, "%s", want ? "Streaming: Wi-Fi roaming scans held off" : "Idle: Wi-Fi roaming scans allowed again");
+  ESP_LOGD(TAG, "%s",
+           want ? "Streaming: Wi-Fi roaming scans and power saving held off"
+                : "Idle: Wi-Fi roaming scans and power saving allowed again");
 #else
   (void) held;
   (void) want;
@@ -320,7 +347,7 @@ void Portall::run_network_task() {
       
       TickType_t last_recv_time = xTaskGetTickCount();
       TickType_t last_stream_time = last_recv_time;
-      bool roaming_held = false;
+      bool wifi_held = false;
 
       while (true) {
         fd_set readable;
@@ -332,8 +359,8 @@ void Portall::run_network_task() {
 
         this->send_queued_messages_(client);
 
-        if (roaming_held && (xTaskGetTickCount() - last_stream_time) > pdMS_TO_TICKS(ROAM_QUIET_MS))
-          hold_roaming(roaming_held, false);
+        if (wifi_held && (xTaskGetTickCount() - last_stream_time) > pdMS_TO_TICKS(ROAM_QUIET_MS))
+          hold_wifi_for_stream(wifi_held, false);
 
         if (ready == 0) {
           if ((xTaskGetTickCount() - last_recv_time) > pdMS_TO_TICKS(NET_RECV_TIMEOUT_S * 1000)) {
@@ -353,7 +380,7 @@ void Portall::run_network_task() {
           last_recv_time = xTaskGetTickCount();
           if (received > HEARTBEAT_BYTES) {
             last_stream_time = last_recv_time;
-            hold_roaming(roaming_held, true);
+            hold_wifi_for_stream(wifi_held, true);
           }
           this->feed_(buffer, (size_t) received, true);
           continue;
@@ -363,7 +390,7 @@ void Portall::run_network_task() {
         break;
       }
 
-      hold_roaming(roaming_held, false);
+      hold_wifi_for_stream(wifi_held, false);
       this->reset_stream_();
       ::close(client);
     }
