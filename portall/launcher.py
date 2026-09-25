@@ -550,14 +550,30 @@ PAGE = """<!doctype html>
          overflow-wrap: anywhere; }
  .desc { display: block; margin-top: .25em; color: var(--faint);
          font-size: clamp(12px, 2vw, 17px); overflow-wrap: anywhere; }
- /* Too narrow for the name beside the icon: put it UNDER the icon, the way
-    a phone lays out an app, and size the words to the tile rather than to
-    the panel. 290px is where "Assistant" stops fitting beside a full-size
-    icon at the name's full size -- measured, not reckoned: a 272px tile
-    (1280x800, four columns) cut it and a 296px one (1024x600, three) did
-    not. overflow-wrap stays as the last resort, so a name nobody could fit
-    still wraps rather than running out of its tile. */
+ /* Three widths, three layouts. Above 290px nothing changes: that is where
+    "Assistant" still fits beside a full-size icon at the name's full size --
+    measured, a 272px tile (1280x800, four columns) cut it and a 296px one
+    (1024x600, three) did not.
+
+    Between 218 and 290 the icon STAYS beside the name and both shrink to
+    the tile. The first version of this stacked every tile under 290, which
+    fixed the cut words and made four columns 34%% taller than they had
+    been -- reported straight back as the tiles being too big. Four columns
+    is 274px at 1280x800 and 220px at 1024x600, so both keep their row.
+
+    Under 218 the name goes UNDER the icon, the way a phone lays out an
+    app: five columns at 1280x800 is 215px and six is 176, which is where
+    the photographs of "Jellyfi n" came from, and stacked they were
+    accepted. overflow-wrap stays as the last resort, so a name nobody could
+    fit still wraps rather than running out of its tile. */
  @container (max-width: 290px) {
+   .in { gap: 4cqi; }
+   .icon { width: clamp(44px, 22cqi, 74px); height: clamp(44px, 22cqi, 74px);
+           font-size: clamp(24px, 13cqi, 40px); }
+   .name { font-size: clamp(16px, 8.5cqi, 23px); }
+   .desc { font-size: clamp(12px, 6.5cqi, 17px); }
+ }
+ @container (max-width: 217px) {
    .in { flex-direction: column; justify-content: center; text-align: center;
          gap: 1.4vmin; padding: 7cqi 6cqi; }
    .icon { width: clamp(34px, 40cqi, 74px); height: clamp(34px, 40cqi, 74px);

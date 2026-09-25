@@ -1,5 +1,14 @@
 # Changelog
 
+## 4.19.7
+
+- **Four columns are compact again.** 4.19.6 put the icon above the name
+  on every narrow tile, which made four columns a third taller than before.
+  At four columns the icon now stays beside the name and both shrink a
+  little to fit, so no word is cut and the tiles are no taller than with
+  three. Only five and six columns put the icon above the name. One to
+  three columns are unchanged.
+
 ## 4.19.6
 
 - **Tile names are no longer cut in the middle of a word.** With 4 to 6
