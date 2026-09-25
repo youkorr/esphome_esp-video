@@ -452,9 +452,22 @@ PAGE = """<!doctype html>
    border-bottom: 2px solid var(--edge);
  }
  .group { display: grid; gap: 2.4vmin; grid-template-columns: %(columns)s; }
+ /* A tile is a CONTAINER, so what is inside it is laid out for the width it
+    really got rather than for the panel's. Reported from a 1280x800 panel
+    with two photographs: at `columns: 5` the names read "Jellyfi n" and
+    "Reoli nk", and at 6 they ran one letter a line down the side of the
+    tile. The icon sat BESIDE the name whatever the width, so a narrow tile
+    left the name a sliver, and `overflow-wrap: anywhere` then cut words
+    wherever it liked. Measured by tools/checktiles.py, which asks the
+    browser whether every word of every name landed on one line.
+
+    Being a container also means the tile's own content no longer sets how
+    narrow its column may be, so no column count can push a tile off the
+    side of the panel. The padding lives on .in for that reason: padding on
+    the container itself cannot answer to the container's width. */
  a.tile {
-   display: flex; align-items: center; gap: 3vmin;
-   min-height: 13vh; padding: 2.6vmin 3.4vmin; border-radius: 3vmin;
+   display: flex; align-items: center; container-type: inline-size;
+   min-height: 13vh; border-radius: 3vmin;
    background: %(tile_bg)s; border: 1px solid var(--edge);
    color: inherit; text-decoration: none;
    %(tile_blur)s
@@ -497,6 +510,10 @@ PAGE = """<!doctype html>
    border-color: var(--accent);
    box-shadow: 0 0 0 .5vmin var(--accent);
  }
+ .in {
+   display: flex; align-items: center; gap: 3vmin; width: 100%%;
+   padding: 2.6vmin 3.4vmin;
+ }
  .icon {
    flex: none; width: clamp(44px, 9vw, 74px); height: clamp(44px, 9vw, 74px);
    display: grid; place-items: center; border-radius: 28%%;
@@ -533,6 +550,21 @@ PAGE = """<!doctype html>
          overflow-wrap: anywhere; }
  .desc { display: block; margin-top: .25em; color: var(--faint);
          font-size: clamp(12px, 2vw, 17px); overflow-wrap: anywhere; }
+ /* Too narrow for the name beside the icon: put it UNDER the icon, the way
+    a phone lays out an app, and size the words to the tile rather than to
+    the panel. 290px is where "Assistant" stops fitting beside a full-size
+    icon at the name's full size -- measured, not reckoned: a 272px tile
+    (1280x800, four columns) cut it and a 296px one (1024x600, three) did
+    not. overflow-wrap stays as the last resort, so a name nobody could fit
+    still wraps rather than running out of its tile. */
+ @container (max-width: 290px) {
+   .in { flex-direction: column; justify-content: center; text-align: center;
+         gap: 1.4vmin; padding: 7cqi 6cqi; }
+   .icon { width: clamp(34px, 40cqi, 74px); height: clamp(34px, 40cqi, 74px);
+           font-size: clamp(20px, 24cqi, 40px); }
+   .name { font-size: clamp(13px, 14cqi, 23px); }
+   .desc { font-size: clamp(11px, 10.5cqi, 17px); }
+ }
  .empty { color: var(--faint); font-size: clamp(14px, 2.4vw, 20px); }
  /* The clock, the date and the weather, on one line above the links.
     Deliberately without seconds: a digit that changes every second is a
@@ -887,10 +919,10 @@ PRESS_JS = """<script>
 })();
 </script>"""
 
-TILE = ('<a class="tile" href="%(url)s">'
+TILE = ('<a class="tile" href="%(url)s"><span class="in">'
         '<span class="icon%(icon_long)s">%(icon)s</span>'
         '<span class="text"><span class="name">%(name)s</span>%(desc)s</span>'
-        '</a>')
+        '</span></a>')
 
 EMPTY = ('<p class="empty">No links yet. Add them under <b>links</b> in this '
          "add-on's configuration, then restart it.</p>")

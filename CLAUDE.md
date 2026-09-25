@@ -8438,6 +8438,34 @@ come back unchanged: nothing would be dropped. **What is NOT verified** is the
 page as drawn -- there is no Home Assistant frontend here -- so how it looks
 is one update away.
 
+## A narrow tile puts its icon above its name -- 4.19.6
+
+**Reported with two photographs of a 1280x800 panel**: at `columns: 5` the
+names read "Jellyfi n", "Reoli nk", "YouT ube"; at 6 they ran one letter a
+line. The icon sat BESIDE the name at every width, so a narrow tile left the
+name a sliver, and `overflow-wrap: anywhere` cut words wherever it liked.
+The per-panel `columns:` of 4.19.0 let a household avoid it; it did not stop
+a household that asked for five.
+
+A tile is a CSS **container** now (`container-type: inline-size`), and below
+**290px** the content stacks, the way a phone lays out an app, with the icon
+and the words sized in `cqi` to the tile rather than to the panel. 290 is
+measured, not reckoned: a 272px tile (1280x800, four columns) cut
+"Assistant" beside a full icon, a 296px one (1024x600, three) did not. The
+padding moved from `a.tile` to an inner `.in`, because padding on the
+container cannot answer to the container's width -- and being a container
+also means a tile's content can no longer widen its column, so no column
+count pushes a tile off the panel.
+
+`tools/checktiles.py` asks the browser, through a Range over each word,
+whether every word of every name and description landed on one line, at
+three panel shapes and 0 to 6 columns. **Against the shipped launcher it
+fails nine cases, the two photographs among them**; after, none. And
+`checkpanels.py` had a case asserting the OLD fault -- "four across on
+1024x600 breaks words in half", kept as the premise for per-panel columns --
+which now asserts the opposite. A check that pins a fault down as a fact has
+to be turned round the day the fault is fixed, or it fails the fix.
+
 ## Repository conventions
 
 - Work on branch `claude/esphome-pr-outdated-mdq36w`, then merge into `main`

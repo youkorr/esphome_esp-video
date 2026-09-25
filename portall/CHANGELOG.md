@@ -1,5 +1,15 @@
 # Changelog
 
+## 4.19.6
+
+- **Tile names are no longer cut in the middle of a word.** With 4 to 6
+  columns, a tile was too narrow for its name to sit beside the icon, and
+  names came out as "Jellyfi n" or one letter per line. A narrow tile now
+  puts its icon above its name, like apps on a phone, and sizes the text to
+  the tile. Wide tiles look exactly as before. Checked at 1280x800,
+  1024x600 and 800x1280 with 3 to 6 columns: no cut word, no tile off the
+  screen.
+
 ## 4.19.5
 
 - **Stereo sound for a panel, as a test.** A panel's *Advanced* gains

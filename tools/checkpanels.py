@@ -254,8 +254,11 @@ def main():
               not cuisine["split"])
 
         # The reported look, kept rather than remembered: the SAME panel at
-        # the launcher's four across breaks names inside words. Every link
-        # is shown here, because that is what the kitchen was given before.
+        # the launcher's four across USED to break names inside words, which
+        # is why a panel was given columns of its own. A narrow tile now puts
+        # its icon above its name instead (tools/checktiles.py), so four
+        # across must break none either -- the per-panel setting stays, and
+        # is no longer the only thing between a panel and a cut word.
         page = browser.new_page(viewport={"width": 1024, "height": 600})
         page.set_content(launcher.render(
             [{"name": n, "url": "http://x/", "icon": "home"} for n in
@@ -270,8 +273,8 @@ def main():
         page.close()
         print(f"         1024x600, words broken in half: at four across "
               f"{split_at_four}, at three {split_at_three}")
-        check("the premise: four across on 1024x600 breaks words in half",
-              bool(split_at_four))
+        check("four across on 1024x600 breaks no word in half any more",
+              not split_at_four)
         check("and three across breaks none", not split_at_three)
         browser.close()
 
