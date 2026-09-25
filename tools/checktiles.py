@@ -105,28 +105,41 @@ CASES = [  # panel size, columns asked for
     ((800, 1280), 0), ((800, 1280), 3), ((800, 1280), 4),
 ]
 
+# A button is a fixed shape, so what it holds can outgrow it where a card
+# would simply grow taller: the icon and the name must fit inside the button.
+SPILLS = """() => [...document.querySelectorAll('a.tile')]
+  .filter(t => t.querySelector('.in').scrollHeight > t.clientHeight + 1)
+  .map(t => t.querySelector('.name').textContent)"""
+
 servers = {}
 with sync_playwright() as pw:
     b = pw.chromium.launch(executable_path=BROWSER) if BROWSER \
         else pw.chromium.launch()
-    for (w, h), columns in CASES:
-        if columns not in servers:
-            servers[columns] = launcher.start(LINKS, columns=columns,
-                                              port=launcher.ANY_PORT)
-        page = b.new_page(viewport={"width": w, "height": h})
-        page.goto(servers[columns])
-        page.wait_for_selector("a.tile")
-        page.evaluate("document.fonts.ready")
-        across = page.evaluate(ACROSS)
-        cut = page.evaluate(CUT_WORDS)
-        off = page.evaluate(OVERFLOW)
-        label = f"{w}x{h}, columns {columns or 'auto'} ({across} across)"
-        ok(f"{label}: no word is cut", not cut, ", ".join(cut))
-        ok(f"{label}: no tile runs off the panel", not off, ", ".join(off))
-        if columns:
-            ok(f"{label}: the columns asked for are the columns shown",
-               across == min(columns, len(LINKS)), f"{across}")
-        page.close()
+    for tiles in ("cards", "buttons"):
+        for (w, h), columns in CASES:
+            if (tiles, columns) not in servers:
+                servers[tiles, columns] = launcher.start(
+                    LINKS, columns=columns, tiles=tiles,
+                    port=launcher.ANY_PORT)
+            page = b.new_page(viewport={"width": w, "height": h})
+            page.goto(servers[tiles, columns])
+            page.wait_for_selector("a.tile")
+            page.evaluate("document.fonts.ready")
+            across = page.evaluate(ACROSS)
+            cut = page.evaluate(CUT_WORDS)
+            off = page.evaluate(OVERFLOW)
+            label = (f"{tiles} {w}x{h}, columns {columns or 'auto'} "
+                     f"({across} across)")
+            ok(f"{label}: no word is cut", not cut, ", ".join(cut))
+            ok(f"{label}: no tile runs off the panel", not off, ", ".join(off))
+            if tiles == "buttons":
+                spill = page.evaluate(SPILLS)
+                ok(f"{label}: everything fits inside its button", not spill,
+                   ", ".join(spill))
+            if columns:
+                ok(f"{label}: the columns asked for are the columns shown",
+                   across == min(columns, len(LINKS)), f"{across}")
+            page.close()
     b.close()
 
 print("all passed" if not fails else f"{fails} failed")

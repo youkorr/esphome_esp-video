@@ -8478,6 +8478,35 @@ household had accepted). `checktiles.py` still finds no cut word anywhere.
 The lesson is the one about unasked-for changes in a smaller costume: a fix
 for five and six columns reached into four, which nobody had complained of.
 
+## Links as buttons, the household's own LVGL layout -- 4.20.0
+
+**Asked with their own panel as the model**: *"reduire la taille des buttons
+ou par exemple comme je le fais avec lvgl, icone et le button et le texte en
+bas, c'est juste un exemple pour ce qu'ils veulent choisir"*. So a CHOICE,
+not a replacement: `tiles: cards|buttons` on the house launcher and on every
+`launchers:` entry, default `cards`, so nothing changes for anybody who
+does not ask. A new `list()` key is safe to add; changing an existing one's
+members is not (see the size scale above).
+
+`buttons` copies their `waveshare.yaml` in `youkorr/lvgl_9.5` rather than a
+guess at "an LVGL look": a 150x100 button on 1024x600 (26vmin at 3:2),
+radius 15 (2.5vmin), a vertical gradient, the icon at the top and the name
+along the bottom, and `pressed: translate_y: 5` -- measured at 4.8 px in the
+browser -- with the shorter shadow of LVGL master's own
+`lv_example_button_styling.c`. A button keeps its size: a column count caps
+how many sit on a row (`repeat(N, minmax(0, 26vmin))`) instead of stretching
+them. The description is not drawn on a button.
+
+**Two faults, both invisible from reading.** The option reached `render()`
+and did nothing, because `render()` already had a local called `tiles` --
+the HTML of the tiles -- which overwrote the parameter before it was read;
+it is `shape` inside `render()` now. And the first radius was `10cqi`, which
+made every button a pill: a container's OWN size units resolve against its
+ancestor's container, not itself. Both were seen on a screenshot, not in a
+test -- `checktiles.py` now runs every case in both shapes and adds that
+the icon and the name fit INSIDE a button, which a fixed shape can fail
+where a card would just grow taller.
+
 ## Repository conventions
 
 - Work on branch `claude/esphome-pr-outdated-mdq36w`, then merge into `main`
