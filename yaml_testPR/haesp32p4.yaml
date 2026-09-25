@@ -139,6 +139,14 @@ audio_dac:
     id: es8311_dac
     i2c_id: i2c_bus
     address: 0x18
+    # Must match the I2S speaker's sample_rate below. The ES8311 does not
+    # follow the stream: it programs its clock dividers ONCE at boot from
+    # this number, and ESPHome's default is 16000. Left at that, the codec
+    # runs its DAC set up for 16 kHz (DAC oversampling 0x20) while the bus
+    # delivers 44.1 kHz, where its own table wants 0x10 -- a codec clocked
+    # for the wrong rate, and the first suspect for the crackle on the
+    # built-in speaker (not yet confirmed by ear).
+    sample_rate: 44100
 
 
 
