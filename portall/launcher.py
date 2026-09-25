@@ -581,6 +581,45 @@ PAGE = """<!doctype html>
    .name { font-size: clamp(13px, 14cqi, 23px); }
    .desc { font-size: clamp(11px, 10.5cqi, 17px); }
  }
+ /* BUTTONS, the second way to lay out a launcher, chosen with `tiles:`.
+    Asked for with the household's own LVGL panel as the model: "icone et
+    le button et le texte en bas", as in their waveshare.yaml -- a button of
+    150x100 on a 1024x600 screen, the icon at the top, the name along the
+    bottom, a gradient, and a press that pushes it down 5 px. So a button is
+    a fixed size rather than a share of the row: 26vmin wide at 3:2, which
+    is their 150x100 on that screen and scales with the panel, and a column
+    count caps how many sit on a row without stretching them to fill it.
+
+    The description is not shown: a button carries a name and an icon, and
+    a third line is what makes a card a card. Qualified by main.buttons, so
+    every rule here outranks the container queries above, which size a CARD
+    to its width. */
+ main.buttons .group { justify-content: start; }
+ main.buttons a.tile {
+   /* 15 px on a 600 px screen, their own radius. In vmin rather than cqi:
+      a container's own size units read its ANCESTOR's container, which
+      turned every button into a pill. */
+   aspect-ratio: 3 / 2; min-height: 0; border-radius: 2.5vmin;
+   background-image: linear-gradient(to bottom,
+       rgba(255, 255, 255, .08), rgba(0, 0, 0, .14));
+   box-shadow: 0 .8vmin 1.6vmin rgba(0, 0, 0, .35);
+ }
+ main.buttons .in {
+   flex-direction: column; justify-content: center; text-align: center;
+   gap: 2.5cqi; padding: 4cqi 5cqi; height: 100%%;
+ }
+ main.buttons .icon {
+   width: 34cqi; height: 34cqi; font-size: 22cqi; background: none;
+ }
+ main.buttons .name { font-size: clamp(12px, 11cqi, 24px); line-height: 1.15; }
+ main.buttons .desc { display: none; }
+ /* Their `pressed: translate_y: 5`, and LVGL's own pressed style, which
+    shortens the shadow as the button goes down: a button that is pushed
+    in, rather than the card's shrink. */
+ main.buttons a.tile:active, main.buttons a.tile.press {
+   transform: translateY(.8vmin);
+   box-shadow: 0 .2vmin .6vmin rgba(0, 0, 0, .35);
+ }
  .empty { color: var(--faint); font-size: clamp(14px, 2.4vw, 20px); }
  /* The clock, the date and the weather, on one line above the links.
     Deliberately without seconds: a digit that changes every second is a
@@ -609,7 +648,7 @@ PAGE = """<!doctype html>
 <body>
 <div class="wall" id="wa">%(movie)s</div><div class="wall b" id="wb"></div>
 <header>%(now)s%(heading)s</header>
-<main>%(groups)s</main>
+<main class="%(tiles)s">%(groups)s</main>
 %(clockjs)s</body></html>
 """
 
@@ -1109,7 +1148,7 @@ def render(links, title="", subtitle="", theme="dark",
            date_size=DEFAULT_SIZE, date_color=FOLLOW_THEME,
            weather_size=DEFAULT_SIZE, align="left",
            motion=False, slideshow=False, every=30, fade=1, rescan=60,
-           urls=(), mirrored=False):
+           urls=(), mirrored=False, shape="cards"):
     """The page, as one string.
 
     Every value is escaped. These come from a configuration file a person
@@ -1215,6 +1254,12 @@ def render(links, title="", subtitle="", theme="dark",
         columns = 0
     grid = (f"repeat({columns}, 1fr)" if columns > 0
             else "repeat(auto-fit, minmax(min(42vw, 300px), 1fr))")
+    # Buttons keep their own size: a column count says how many may sit on
+    # a row, and each is 26vmin or its share of the row, whichever is less.
+    buttons = str(shape or "").strip().lower() == "buttons"
+    if buttons:
+        grid = (f"repeat({columns}, minmax(0, 26vmin))" if columns > 0
+                else "repeat(auto-fill, 26vmin)")
 
     try:
         dim = max(0, min(100, int(dim)))
@@ -1292,6 +1337,7 @@ def render(links, title="", subtitle="", theme="dark",
         "fade": max(0.0, fade),
         "groups": "".join(body) or EMPTY,
         "columns": grid,
+        "tiles": "buttons" if buttons else "cards",
         "scheme": "dark" if dark else "light",
         "accent": accent,
         # The end of the scale everything is mixed towards, and a plain value
@@ -1329,7 +1375,7 @@ def start(links, title="", subtitle="", theme="dark",
           date_size=DEFAULT_SIZE, date_color=FOLLOW_THEME,
           weather_size=DEFAULT_SIZE, align="left",
           motion=False, slideshow=False, every=30, fade=1, rescan=60,
-          urls=(), port=PORT):
+          urls=(), port=PORT, tiles="cards"):
     """Serve the page for as long as the add-on runs. Returns its address.
 
     One call is one launcher: its links, its look, its weather, its
@@ -1400,7 +1446,7 @@ def start(links, title="", subtitle="", theme="dark",
                 # Already sifted just above, so the page does not repeat
                 # the complaint about an address that is not one.
                 motion, slideshow, every, fade, rescan, addresses,
-                mirrored).encode()
+                mirrored, shape=tiles).encode()
             held = cache["page"] = (key, body)
         return held[1]
 

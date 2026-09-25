@@ -55,6 +55,9 @@ LOOK = dict(
               "0 = automatique. 4 pour un grand écran 1280x800, 3 pour un 7 pouces 1024x600.",
               "0 = automatic. 4 for a large 1280x800 screen, 3 for a 7-inch 1024x600."),
     align=T("Position de l'horloge", "Clock position", "À gauche, au centre ou à droite.", "Left, centre or right."),
+    tiles=T("Forme des liens", "Shape of the links",
+            "cards : grandes cartes, icône à côté du nom. buttons : petits boutons, icône en haut et nom en dessous.",
+            "cards: wide cards, the icon beside the name. buttons: small buttons, the icon on top and the name underneath."),
 )
 
 cfg = dict(

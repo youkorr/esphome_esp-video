@@ -257,6 +257,7 @@ launcher:
   theme: dark                 # dark or light
   columns: 0                  # 0 lets the panel decide
   align: left                 # left, center, right
+  tiles: cards                # cards, or buttons (icon on top, name below)
   clock:
     show: true                # the time and the date above the links
     size: medium              # small, medium, large, huge
@@ -297,6 +298,14 @@ panels:
     width: 800
     height: 1280
 ```
+
+**Two shapes of link, `tiles:`.** `cards` (the default) are wide cards with
+the icon beside the name and the description underneath. `buttons` are
+smaller buttons, laid out like a panel built with LVGL: the icon on top, the
+name underneath, a light gradient, and a press that pushes the button down.
+A button is always the same size (about 150x100 on a 1024x600 screen) and
+does not show the description; `columns:` says how many sit on a row
+without stretching them. Each panel's own launcher can choose its own.
 
 ### Each panel its own launcher
 
@@ -356,7 +365,7 @@ launcher's:
 
 | in an entry | the house's setting it replaces |
 |---|---|
-| `theme`, `columns`, `align` | `launcher: theme`, `columns`, `align` |
+| `theme`, `columns`, `align`, `tiles` | `launcher: theme`, `columns`, `align`, `tiles` |
 | `clock`, `clock_size`, `clock_color` | `launcher: clock: show`, `size`, `color` |
 | `date_size`, `date_color` | `launcher: date: size`, `color` |
 | `weather`, `weather_size` | `launcher: weather: entity`, `size` |

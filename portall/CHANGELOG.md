@@ -1,5 +1,14 @@
 # Changelog
 
+## 4.20.0
+
+- **Links can be buttons.** A new setting, **`tiles`**, under *Launcher*
+  and in each screen's own launcher: `cards` (as before) or `buttons` --
+  smaller buttons with the icon on top and the name underneath, like a
+  panel built with LVGL, pushed down when pressed. A button keeps its size
+  instead of filling the row, and does not show the description. Nothing
+  changes unless you choose `buttons`.
+
 ## 4.19.7
 
 - **Four columns are compact again.** 4.19.6 put the icon above the name

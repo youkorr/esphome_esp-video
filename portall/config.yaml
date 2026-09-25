@@ -1,5 +1,5 @@
 name: Portall
-version: "4.19.7"
+version: "4.20.0"
 # Home Assistant identifies an add-on by its slug, so this one moving from
 # usb_display_panel to portall makes the Supervisor see a NEW add-on: options
 # are not carried over and /data starts empty, which means the browser
@@ -113,6 +113,9 @@ options:
     columns: 0
     # Where the bar sits: left, center or right.
     align: left
+    # cards: wide cards, the icon beside the name and a description.
+    # buttons: smaller buttons, the icon on top and the name underneath.
+    tiles: cards
     clock:
       # The time and the date, above the links. Formatted by the browser, so they
       # follow `locale:` -- a French panel writes "lundi 2 septembre" without this
@@ -343,6 +346,7 @@ schema:
     theme: list(dark|light)?
     columns: int(0,6)?
     align: list(left|center|right)?
+    tiles: list(cards|buttons)?
     clock:
       show: bool?
       size: list(small|medium|large|huge)?
@@ -380,6 +384,7 @@ schema:
       theme: list(dark|light)?
       columns: int(0,6)?
       align: list(left|center|right)?
+      tiles: list(cards|buttons)?
       clock: bool?
       clock_size: list(small|medium|large|huge)?
       clock_color: list(theme|slate|gray|zinc|neutral|stone|red|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose|white|black)?

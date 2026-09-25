@@ -131,6 +131,10 @@ configuration:
       align:
         name: Position de l'horloge
         description: À gauche, au centre ou à droite.
+      tiles:
+        name: Forme des liens
+        description: 'cards : grandes cartes, icône à côté du nom. buttons : petits boutons, icône en
+          haut et nom en dessous.'
       clock:
         name: 🕒 Horloge
         fields:
@@ -236,6 +240,10 @@ configuration:
       align:
         name: Position de l'horloge
         description: À gauche, au centre ou à droite.
+      tiles:
+        name: Forme des liens
+        description: 'cards : grandes cartes, icône à côté du nom. buttons : petits boutons, icône en
+          haut et nom en dessous.'
       clock:
         name: 🕒 Afficher l'horloge
       clock_size:
