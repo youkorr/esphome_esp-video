@@ -1,5 +1,14 @@
 # Changelog
 
+## 4.20.1
+
+- **Icons are full size again.** 4.19.7 and 4.20.0 made the icons smaller
+  on narrow tiles and on buttons. They are back to the size they have
+  everywhere else, at every column count and in both shapes. Only the
+  words and the spacing shrink on a narrow tile now, so no word is cut and
+  four columns are no taller than before. A button can be a little taller
+  than 150x100 so the full-size icon and a two-line name fit.
+
 ## 4.20.0
 
 - **Links can be buttons.** A new setting, **`tiles`**, under *Launcher*

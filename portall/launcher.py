@@ -555,11 +555,18 @@ PAGE = """<!doctype html>
     measured, a 272px tile (1280x800, four columns) cut it and a 296px one
     (1024x600, three) did not.
 
-    Between 218 and 290 the icon STAYS beside the name and both shrink to
-    the tile. The first version of this stacked every tile under 290, which
-    fixed the cut words and made four columns 34%% taller than they had
-    been -- reported straight back as the tiles being too big. Four columns
-    is 274px at 1280x800 and 220px at 1024x600, so both keep their row.
+    Between 218 and 290 the icon STAYS beside the name, at its full size,
+    and only the words and the padding shrink to the tile. The first
+    version of this stacked every tile under 290, which fixed the cut words
+    and made four columns 34%% taller than they had been -- reported
+    straight back as the tiles being too big. The second shrank the icon
+    with the words, and that was reported too: "fallait les garder". The
+    icon is the part read across a room, so it is never what gives way.
+    Four columns is 274px at 1280x800 and 220px at 1024x600, so both keep
+    their row.
+
+    Under 218 too, and on a button, the icon keeps the size it has on
+    every other tile.
 
     Under 218 the name goes UNDER the icon, the way a phone lays out an
     app: five columns at 1280x800 is 215px and six is 176, which is where
@@ -567,17 +574,13 @@ PAGE = """<!doctype html>
     accepted. overflow-wrap stays as the last resort, so a name nobody could
     fit still wraps rather than running out of its tile. */
  @container (max-width: 290px) {
-   .in { gap: 4cqi; }
-   .icon { width: clamp(44px, 22cqi, 74px); height: clamp(44px, 22cqi, 74px);
-           font-size: clamp(24px, 13cqi, 40px); }
+   .in { gap: 4cqi; padding: 2.6vmin 5cqi; }
    .name { font-size: clamp(16px, 8.5cqi, 23px); }
    .desc { font-size: clamp(12px, 6.5cqi, 17px); }
  }
  @container (max-width: 217px) {
    .in { flex-direction: column; justify-content: center; text-align: center;
          gap: 1.4vmin; padding: 7cqi 6cqi; }
-   .icon { width: clamp(34px, 40cqi, 74px); height: clamp(34px, 40cqi, 74px);
-           font-size: clamp(20px, 24cqi, 40px); }
    .name { font-size: clamp(13px, 14cqi, 23px); }
    .desc { font-size: clamp(11px, 10.5cqi, 17px); }
  }
@@ -586,9 +589,11 @@ PAGE = """<!doctype html>
     le button et le texte en bas", as in their waveshare.yaml -- a button of
     150x100 on a 1024x600 screen, the icon at the top, the name along the
     bottom, a gradient, and a press that pushes it down 5 px. So a button is
-    a fixed size rather than a share of the row: 26vmin wide at 3:2, which
-    is their 150x100 on that screen and scales with the panel, and a column
-    count caps how many sit on a row without stretching them to fill it.
+    a fixed width rather than a share of the row: 26vmin, which is their 150
+    on that screen and scales with the panel, and a column count caps how
+    many sit on a row without stretching them to fill it. Its height is AT
+    LEAST their 100 and grows to hold the full-size icon and a name on two
+    lines; the row keeps every button in it the same height.
 
     The description is not shown: a button carries a name and an icon, and
     a third line is what makes a card a card. Qualified by main.buttons, so
@@ -599,7 +604,7 @@ PAGE = """<!doctype html>
    /* 15 px on a 600 px screen, their own radius. In vmin rather than cqi:
       a container's own size units read its ANCESTOR's container, which
       turned every button into a pill. */
-   aspect-ratio: 3 / 2; min-height: 0; border-radius: 2.5vmin;
+   min-height: 17.3vmin; border-radius: 2.5vmin;
    background-image: linear-gradient(to bottom,
        rgba(255, 255, 255, .08), rgba(0, 0, 0, .14));
    box-shadow: 0 .8vmin 1.6vmin rgba(0, 0, 0, .35);
@@ -608,9 +613,7 @@ PAGE = """<!doctype html>
    flex-direction: column; justify-content: center; text-align: center;
    gap: 2.5cqi; padding: 4cqi 5cqi; height: 100%%;
  }
- main.buttons .icon {
-   width: 34cqi; height: 34cqi; font-size: 22cqi; background: none;
- }
+ main.buttons .icon { background: none; }
  main.buttons .name { font-size: clamp(12px, 11cqi, 24px); line-height: 1.15; }
  main.buttons .desc { display: none; }
  /* Their `pressed: translate_y: 5`, and LVGL's own pressed style, which

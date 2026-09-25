@@ -8507,6 +8507,26 @@ test -- `checktiles.py` now runs every case in both shapes and adds that
 the icon and the name fit INSIDE a button, which a fixed shape can fail
 where a card would just grow taller.
 
+### The icon is the part that never gives way -- 4.20.1
+
+**Reported in one line: *"tu as diminue les tailles des icones, fallait les
+garder"*.** 4.19.7's middle band and 4.20.0's buttons both sized the icon
+in `cqi`, so it shrank with the tile -- 48 px at four columns on 1024x600,
+53 px on a button, against the 74 it has everywhere else. The complaint
+was about height, and the fix reached for the one thing across a room
+that nobody had asked to change: this file's unasked-for-change lesson
+again, this time inside a fix.
+
+The icon keeps `clamp(44px, 9vw, 74px)` everywhere now, and the narrow
+bands shrink only the words and the side padding. Measured against the
+launcher before 4.19.6: the icon is 74 px at every column count and panel
+shape, and four columns are **118 px tall at 1280x800 and 107 at 1024x600,
+against 137 and 145 before** -- shorter than the original, with no cut
+word. A button keeps its 26vmin width, is at least 17.3vmin tall (their
+100 px on 1024x600), and grows to hold the icon and a two-line name: 131
+px there. `aspect-ratio: 3/2` could not, and `checktiles.py`'s "fits inside
+its button" case is what said so, nine times.
+
 ## Repository conventions
 
 - Work on branch `claude/esphome-pr-outdated-mdq36w`, then merge into `main`
