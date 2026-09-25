@@ -1606,6 +1606,88 @@ def quality_for(url, page_quality, default):
     return default
 
 
+class RateControl:
+    """Hold what a panel is sent under a byte rate by lowering the quality.
+
+    A fixed quality makes the RATE follow the scene: at 50 an 800x1280 whole
+    panel weighs 80 KiB on a plain shot and past 100 on water, leaves or a
+    crowd. Measured on a panel watching YouTube at 30 pictures a second, up to
+    2.7 MB/s it was perfect -- 0% panel wait, worst gap 42-47 ms -- and past
+    about 2.9 the ESP32-C6's SDIO link started throwing whole reads away
+    (H_SDIO_DRV "task still writing Rx data to queue") and every window had
+    340-400 ms holes in it. Espressif's own figure for that link is 30 Mbit/s
+    of TCP, and full motion at that size sits right on it.
+
+    So the busy scenes are sent a little softer, and only they are: each
+    picture is weighed against the rate times the time it covers, a heavy one
+    takes the next picture's quality down in proportion to how far over it
+    was, and a light one lets it climb back a step at a time towards what the
+    page asked for. Coming down fast and going up slowly is deliberate: over
+    the limit costs a hole a third of a second long, under it costs a little
+    sharpness nobody sees in motion.
+
+    The time a picture covers is bounded both ways: never less than the frame
+    interval, so a burst is not judged against a sliver, and never more than
+    MAX_SPAN_S, so the first picture after a still page -- a whole panel after
+    a long gap -- is not waved through as though it had seconds to spread
+    over. A still dashboard never comes near the rate at all.
+    """
+
+    MIN_QUALITY = 25
+    MAX_SPAN_S = 0.25
+    # Room under the rate before the quality climbs again, so a scene that
+    # sits right at the limit does not bounce a step up and down every frame.
+    CLIMB_BELOW = 0.8
+
+    def __init__(self, rate_kib):
+        self.rate = max(0.0, float(rate_kib or 0)) * 1024.0
+        self.current = None
+        # The lowest and highest quality actually used since last asked, for
+        # --stats: the one thing that shows this at work.
+        self.low = self.high = None
+
+    def quality(self, wanted):
+        """The quality to encode the next picture at."""
+        if self.rate <= 0:
+            used = wanted
+        else:
+            if self.current is None or self.current > wanted:
+                self.current = wanted
+            used = self.current
+        self.low = used if self.low is None else min(self.low, used)
+        self.high = used if self.high is None else max(self.high, used)
+        return used
+
+    def note(self, size, span, interval, wanted):
+        """Weigh a picture of `size` bytes that went out `span` s after the last."""
+        if self.rate <= 0 or self.current is None:
+            return
+        span = min(max(span, interval), self.MAX_SPAN_S)
+        ratio = size / (self.rate * span)
+        if ratio > 1.0:
+            step = max(1, min(15, round((ratio - 1.0) * 25)))
+            self.current = max(self.MIN_QUALITY, self.current - step)
+        elif ratio < self.CLIMB_BELOW and self.current < wanted:
+            self.current += 1
+
+    def take_range(self):
+        """The quality range used since the last call, or None if unchanged."""
+        low, high = self.low, self.high
+        self.low = self.high = None
+        return low, high
+
+
+def rate_for(url, page_rate):
+    """The byte rate this address asks for in KiB/s, or None for the panel's.
+
+    Prefix-matched and first-match-wins, like the quality and the frame limit.
+    """
+    for prefix, rate in page_rate:
+        if url.startswith(prefix):
+            return rate
+    return None
+
+
 def fps_for(url, page_fps):
     """The frame limit this address asks for, or None for the panel's own.
 
@@ -4094,6 +4176,25 @@ def main():
         "it, so a touch does not lift it past its own limit either",
     )
     parser.add_argument(
+        "--max-rate",
+        type=float,
+        default=0.0,
+        metavar="KIB",
+        help="the most a panel is sent a second, in KiB. A busy scene is sent "
+        "at a lower quality to stay under it, and the quality climbs back when "
+        "the scene gets simpler. 0, the default here, turns it off. Meant for "
+        "the ESP32-C6's SDIO link, which throws reads away and stalls for a "
+        "third of a second each time full motion goes past about 2.8 MB/s",
+    )
+    parser.add_argument(
+        "--page-rate",
+        action="append",
+        default=[],
+        metavar="PREFIX=KIB",
+        help="--max-rate for one address only. Repeatable, first match wins, "
+        "0 turns it off for that address",
+    )
+    parser.add_argument(
         "--page-agent",
         action="append",
         default=[],
@@ -4334,6 +4435,23 @@ def main():
                 f"this one is {pair!r}"
             )
         page_fps.append((prefix, fps))
+
+    page_rate = []
+    for pair in args.page_rate:
+        prefix, _, value = pair.partition("=")
+        try:
+            kib = float(value)
+        except ValueError:
+            kib = -1.0
+        if not prefix or kib < 0:
+            parser.error(
+                f"--page-rate wants an address and a number of KiB a second "
+                f"joined by =, like https://www.youtube.com=2400, and this one "
+                f"is {pair!r}"
+            )
+        page_rate.append((prefix, kib))
+    if args.max_rate < 0:
+        parser.error("--max-rate cannot be negative")
 
     page_agent = []
     for pair in args.page_agent:
@@ -4579,6 +4697,12 @@ def main():
         # Both only move when --page-quality is in use.
         send_quality = args.quality
         quality_url = None
+        # The byte rate, and what it is at on this page. See RateControl.
+        rate = RateControl(args.max_rate)
+        if args.max_rate > 0:
+            print(f"Rate: at most {args.max_rate:g} KiB/s, the quality coming "
+                  f"down from {args.quality} on scenes that would pass it",
+                  flush=True)
         # The panel's own limits, to return to when a page asks for nothing.
         base_interval, base_urgent = interval, urgent_interval
         hint = (None if args.no_touch
@@ -4758,7 +4882,7 @@ def main():
                     # when somebody configured any: page.url is local to
                     # Playwright rather than a round trip, but a comparison
                     # nobody needs is still a comparison.
-                    if page_quality or page_fps:
+                    if page_quality or page_fps or page_rate:
                         here = page.url
                         if here != quality_url:
                             quality_url = here
@@ -4769,6 +4893,15 @@ def main():
                                     send_quality = wanted
                                     print(f"Quality: {send_quality} for "
                                           f"{here[:70]}", flush=True)
+                            if page_rate:
+                                kib = rate_for(here, page_rate)
+                                kib = args.max_rate if kib is None else kib
+                                if kib * 1024.0 != rate.rate:
+                                    rate = RateControl(kib)
+                                    print(f"Rate: {kib:g} KiB/s for "
+                                          f"{here[:70]}" if kib > 0 else
+                                          f"Rate: no limit for {here[:70]}",
+                                          flush=True)
                             if page_fps:
                                 want = fps_for(here, page_fps)
                                 if want is None:
@@ -4885,10 +5018,12 @@ def main():
                                 fulls += 1
 
                         blobs = []
+                        picture_quality = rate.quality(send_quality)
+                        picture_bytes = 0
                         for x, y, w, h in rectangles:
                             buffer = io.BytesIO()
                             image.crop((x, y, x + w, y + h)).save(
-                                buffer, format="JPEG", quality=send_quality
+                                buffer, format="JPEG", quality=picture_quality
                             )
                             payload = buffer.getvalue()
                             blobs.append(
@@ -4897,6 +5032,9 @@ def main():
                             )
                             rectangles_sent += 1
                             bytes_sent += len(payload)
+                            picture_bytes += len(payload)
+                        rate.note(picture_bytes, started - last_sent, limit,
+                                  send_quality)
                         # The whole picture in one handover, so the writer
                         # cannot be interrupted halfway through it.
                         writer.offer(blobs)
@@ -5228,6 +5366,13 @@ def main():
                         # second is the whole of it arriving. Fewer means the
                         # browser produced less; `lost` means the link was too
                         # busy to take it and the oldest half-second went.
+                        low, high = rate.take_range()
+                        if rate.rate > 0 and low is not None \
+                                and low < send_quality:
+                            # Only when the rate actually bit: the qualities
+                            # used, so a reader can see it working and how far.
+                            line += (f", quality {low}" if low == high
+                                     else f", quality {low}-{high}")
                         sound, lost = writer.take_audio()
                         if sound or lost:
                             line += (f", sound {sound / elapsed:.0f}/s"

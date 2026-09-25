@@ -1,5 +1,16 @@
 # Changelog
 
+## 4.21.0
+
+- **Steadier video on ESP32-C6 panels.** New setting **`max_rate`** under
+  *Common settings*, 2400 KiB/s by default, and on every link. A busy video
+  scene is now sent a little softer so the panel's Wi-Fi is never asked for
+  more than it can take; the quality comes back as soon as the scene is
+  simpler, and the number of pictures a second does not change. Before, a
+  busy scene went past what the ESP32-C6 carries and froze the picture and
+  the sound for a third of a second at a time. `0` turns it off. With `stats`
+  on, `quality 38-50` at the end of a line shows it working.
+
 ## 4.20.1
 
 - **Icons are full size again.** 4.19.7 and 4.20.0 made the icons smaller

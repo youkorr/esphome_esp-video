@@ -8527,6 +8527,57 @@ word. A button keeps its 26vmin width, is at least 17.3vmin tall (their
 px there. `aspect-ratio: 3/2` could not, and `checktiles.py`'s "fits inside
 its button" case is what said so, nine times.
 
+## A byte rate, because a fixed quality makes the rate follow the scene -- 4.21.0
+
+**Reported after hours of YouTube at quality 50 and 30 pictures a second:
+*"le wifi du C6 plafonne ... il faut un debit stabilise"*.** The add-on's own
+stats settled where the edge is, in one run:
+
+| sent | panel wait | skipped | worst gap |
+|---|---|---|---|
+| 2.3-2.7 MB/s | 0-1% | 0 | 42-47 ms |
+| 2.9-3.2 MB/s | 17-30% | 4-8 | 340-400 ms |
+
+YouTube's own stats for nerds read 40 Mbit/s and 90 s buffered, so the source
+was never short. And Espressif's performance guide gives P4 + C6 over SDIO at
+2.4 GHz **30 Mbit/s of TCP inbound** -- the link sits exactly where the stalls
+begin. A fixed quality weighs 80 KiB on a calm shot and past 100 on water or
+a crowd, so it is the SCENE that crosses the line, not the settings.
+
+`RateControl` in ha_send.py: each picture is weighed against the rate times
+the time it covers (at least one frame interval, at most `MAX_SPAN_S` so a
+whole panel after a still page is neither waved through nor punished), a heavy
+one lowers the next picture's quality in proportion, a light one lets it climb
+back a step at a time, never above what the page asked for and never below
+`MIN_QUALITY`. Down fast and up slow on purpose: over the line costs a third
+of a second, under it costs sharpness nobody sees in motion.
+
+`max_rate` under defaults (2400 KiB/s), per panel and per link, `--max-rate` /
+`--page-rate` on the sender, whose own default is 0 so a hand run is
+unchanged. Adding a key with a default to the `defaults` DICT reaches existing
+installs, because the Supervisor merges dicts under what is stored.
+
+`tools/checkrate.py` measured the shipped sender against a fake panel and a
+page of moving discs: **3519 KiB/s with no limit, 1437 with `--max-rate 1500`,
+at 28.9 pictures a second against 28.8**, qualities 27-31 printed by `stats`;
+a link given 0 turns it off, a still page is never touched. Its first failure
+was the ruler: it expected a 250 KiB picture after ten still seconds to lower
+the quality, which over a quarter second is 1 MB/s and should not.
+
+**What the esp-hosted reading found, kept here because it will be asked
+again:** the `H_SDIO_DRV: task still writing Rx data to queue!` drop is a
+two-slot double buffer in `sdio_drv.c`, identical in 2.12.12 and 2.12.13
+(what ESPHome 2026.8.2 and dev pin). esp-hosted 3.x replaces it with a ring
+that waits instead of dropping (`ESP_HOSTED_HOST_SDIO_RX_STAGING_SLOTS`), and
+its migration table says a **3.x host works with a 2.x co-processor** while a
+2.x host with a 3.x co-processor does not. And ESPHome's high-performance
+Wi-Fi options are `CONFIG_ESP_WIFI_*`, which do not exist on a P4 build: the
+C6 takes its RX buffers and RX block-ack window from the host's
+`CONFIG_WIFI_RMT_*` ("always use value from host", `slave_wifi_std.c`), which
+nothing set. Espressif's own iperf example sets them 16 / 64 / 32 with SACK.
+The ESP32-P4 errata list is identical for v1.0 and v1.3 and touches none of
+this.
+
 ## Repository conventions
 
 - Work on branch `claude/esphome-pr-outdated-mdq36w`, then merge into `main`

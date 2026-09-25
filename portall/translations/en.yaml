@@ -53,6 +53,9 @@ configuration:
           quality:
             name: ✨ Picture quality
             description: 1 to 95.
+          max_rate:
+            name: 📶 Maximum rate (KiB/s)
+            description: 0 = no limit.
           keyboard:
             name: ⌨️ On-screen keyboard
             description: azerty, qwerty, or off for none.
@@ -111,6 +114,10 @@ configuration:
       fps:
         name: 🎬 Pictures per second
         description: For this page only. Lower = steadier on video; empty = the screen's own.
+      max_rate:
+        name: 📶 Maximum rate (KiB/s)
+        description: For this page only. A busy scene is sent a little softer to stay under it; 0 = no
+          limit, empty = the screen's own.
       user_agent:
         name: Present itself as…
         description: Rarely needed. For YouTube's television mode, see the documentation.
@@ -223,6 +230,10 @@ configuration:
           fps:
             name: 🎬 Pictures per second
             description: For this page only. Lower = steadier on video; empty = the screen's own.
+          max_rate:
+            name: 📶 Maximum rate (KiB/s)
+            description: For this page only. A busy scene is sent a little softer to stay under it; 0
+              = no limit, empty = the screen's own.
           user_agent:
             name: Present itself as…
             description: Rarely needed. For YouTube's television mode, see the documentation.
@@ -286,6 +297,10 @@ configuration:
       quality:
         name: ✨ Picture quality
         description: 1 to 95. Lower = smoother, less sharp.
+      max_rate:
+        name: 📶 Maximum rate (KiB/s)
+        description: What a screen's Wi-Fi takes without stalling. A busy video is sent a little softer
+          to stay under it. 2400 suits the ESP32-C6; 0 = no limit.
       keyboard:
         name: ⌨️ On-screen keyboard
       keep_profile:
