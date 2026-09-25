@@ -54,6 +54,9 @@ configuration:
           quality:
             name: ✨ Qualité de l'image
             description: 1 à 95.
+          max_rate:
+            name: 📶 Débit maximum (Ko/s)
+            description: 0 = sans limite.
           keyboard:
             name: ⌨️ Clavier à l'écran
             description: azerty, qwerty, ou off pour aucun.
@@ -114,6 +117,10 @@ configuration:
         name: 🎬 Images par seconde
         description: Pour cette page seulement. Plus bas = plus régulier sur une vidéo ; vide = celui
           de l'écran.
+      max_rate:
+        name: 📶 Débit maximum (Ko/s)
+        description: Pour cette page seulement. Une scène chargée est envoyée un peu moins nette pour
+          rester dessous ; 0 = sans limite, vide = celui de l'écran.
       user_agent:
         name: Se présenter comme…
         description: Rarement utile. Pour YouTube en mode télévision, voir la documentation.
@@ -228,6 +235,10 @@ configuration:
             name: 🎬 Images par seconde
             description: Pour cette page seulement. Plus bas = plus régulier sur une vidéo ; vide = celui
               de l'écran.
+          max_rate:
+            name: 📶 Débit maximum (Ko/s)
+            description: Pour cette page seulement. Une scène chargée est envoyée un peu moins nette pour
+              rester dessous ; 0 = sans limite, vide = celui de l'écran.
           user_agent:
             name: Se présenter comme…
             description: Rarement utile. Pour YouTube en mode télévision, voir la documentation.
@@ -291,6 +302,10 @@ configuration:
       quality:
         name: ✨ Qualité de l'image
         description: 1 à 95. Plus bas = plus fluide, moins net.
+      max_rate:
+        name: 📶 Débit maximum (Ko/s)
+        description: Ce que le Wi-Fi d'un écran reçoit sans décrocher. Une vidéo chargée est envoyée un
+          peu moins nette pour rester dessous. 2400 convient à l'ESP32-C6 ; 0 = sans limite.
       keyboard:
         name: ⌨️ Clavier à l'écran
       keep_profile:

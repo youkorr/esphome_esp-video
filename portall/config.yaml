@@ -1,5 +1,5 @@
 name: Portall
-version: "4.20.1"
+version: "4.21.0"
 # Home Assistant identifies an add-on by its slug, so this one moving from
 # usb_display_panel to portall makes the Supervisor see a NEW add-on: options
 # are not carried over and /data starts empty, which means the browser
@@ -243,6 +243,15 @@ options:
     # a panel of yours only ever shows a dashboard.
     fps: 25
     quality: 80
+    # The most a panel is sent a second, in KiB. A busy scene in a video is
+    # sent at a lower quality to stay under it, and the quality climbs back
+    # as soon as the scene gets simpler; a dashboard never comes near it.
+    #
+    # Measured on a panel watching YouTube: up to about 2.7 MB/s the picture
+    # was perfect, and past 2.9 the ESP32-C6's link threw data away and froze
+    # for a third of a second at a time. 2400 stays under that with room.
+    # 0 turns it off.
+    max_rate: 2400
     # The on-screen keyboard, drawn by the browser whenever a text field takes
     # focus -- the dashboard's search, Assist, the search box of an ordinary
     # site. A panel has no keys, so without it those are dead ends. It takes no
@@ -322,6 +331,7 @@ schema:
         home_assistant: bool?
         fps: float?
         quality: int(1,95)?
+        max_rate: int(0,20000)?
         keyboard: list(off|qwerty|azerty)?
         blank_after: float?
         keep_profile: bool?
@@ -341,6 +351,7 @@ schema:
       token: password?
       quality: int(1,95)?
       fps: float?
+      max_rate: int(0,20000)?
       user_agent: str?
   launcher:
     theme: list(dark|light)?
@@ -380,6 +391,7 @@ schema:
           token: password?
           quality: int(1,95)?
           fps: float?
+          max_rate: int(0,20000)?
           user_agent: str?
       theme: list(dark|light)?
       columns: int(0,6)?
@@ -406,6 +418,7 @@ schema:
     port: port?
     fps: float?
     quality: int(1,95)?
+    max_rate: int(0,20000)?
     keyboard: list(off|qwerty|azerty)?
     keep_profile: bool?
     locale: str?

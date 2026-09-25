@@ -193,6 +193,7 @@ Assistant dashboard to appear; without one it does neither.
 | `touch_rotate`, `touch_mirror_x`, `touch_mirror_y` | From `--calibrate` |
 | `fps` | Upper bound on how often a change is acted on. 25 by default; the one setting that decides whether video looks like video. See below |
 | `quality` | JPEG quality, 1..95 |
+| `max_rate` | The most a panel is sent a second, in KiB. 2400 by default; a busy video scene is sent a little softer to stay under it. `0` turns it off. See below |
 | `keyboard` | The on-screen keyboard's layout, or `off`. See below |
 | `blank_after` | Seconds dark before a sleeping panel's page is let go of, 300 by default. **Per panel only** -- it is not the same thing as the timer that turns your backlight off, see below |
 | `keep_profile` | Keep the browser signed in between restarts. See below |
@@ -359,7 +360,7 @@ launchers:
 ```
 
 An entry's links take the same settings as the house's -- `icon`, `group`,
-`description`, `quality`, `fps`, `user_agent`, `token` -- and apply to that
+`description`, `quality`, `fps`, `max_rate`, `user_agent`, `token` -- and apply to that
 panel only. Everything else in an entry is optional; left out, it is the house
 launcher's:
 
@@ -745,6 +746,23 @@ from the same launcher, read off the socket by a fake panel:
 It matches on the start of the address, because a site is not one address:
 YouTube walks from its search page to `/watch?v=...` without becoming a
 different place. Leave it out and nothing changes.
+
+**`max_rate` is what keeps a video steady on a panel whose Wi-Fi is an
+ESP32-C6.** A fixed quality makes the amount sent follow the scene: a calm
+shot is light, water, leaves or a crowd are heavy. Measured on a panel
+watching YouTube at 30 pictures a second, up to about 2.7 MB/s the picture was
+perfect, and past 2.9 the C6 dropped data and froze for a third of a second at
+a time. Espressif's own figure for that link is about 30 Mbit/s.
+
+So the add-on holds what it sends under `max_rate` (KiB a second, 2400 by
+default): a heavy scene goes out a little softer, and the quality climbs back
+to yours as soon as the scene gets simpler. The number of pictures a second
+does not change. A dashboard never comes near the limit, so it is never
+touched. With `stats` on, a line ends in `quality 38-50` when the limit was
+working, and says nothing about quality when it was not.
+
+Set it lower on a link if a video still stutters, higher if a panel has a
+faster link, or `0` to turn it off.
 
 `icon` takes a **name from the list below, in French or in English** --
 `cuisine` or `kitchen`, `serrure` or `lock`, `reglages` or `settings` -- or

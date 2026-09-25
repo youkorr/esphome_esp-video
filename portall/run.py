@@ -94,6 +94,7 @@ SHARED_KEYS = (
     "port",
     "fps",
     "quality",
+    "max_rate",
     "capture_quality",
     "urgent_fps",
     "urgent_window",
@@ -158,6 +159,21 @@ def page_fps_from(config):
         url, fps = link.get("url"), link.get("fps")
         if given(url) and given(fps):
             out.append(f"{str(url).strip()}={float(fps):g}")
+    return out
+
+
+def page_rate_from(config):
+    """--page-rate arguments for every link that asked for one.
+
+    The byte rate belongs on the link for the reason the frame limit does: a
+    film is where it bites, and a dashboard never comes near it. Zero is a
+    value here -- it turns the limit off for that link -- so it is kept.
+    """
+    out = []
+    for link in config.get("links") or []:
+        url, rate = link.get("url"), link.get("max_rate")
+        if given(url) and given(rate):
+            out.append(f"{str(url).strip()}={float(rate):g}")
     return out
 
 
@@ -574,7 +590,8 @@ _GROUPED = {
     },
     # These two carry the same names on both sides: they are grouped for the
     # eye, not renamed.
-    "defaults": {k: k for k in ("port", "fps", "quality", "keyboard",
+    "defaults": {k: k for k in ("port", "fps", "quality", "max_rate",
+                                "keyboard",
                                 "keep_profile", "locale", "homekit")},
     "debug": {k: k for k in ("stats", "show_media", "show_touches")},
 }
@@ -836,6 +853,7 @@ def command_for(panel):
         "render_height",
         "fps",
         "quality",
+        "max_rate",
         "capture_quality",
         "urgent_fps",
         "urgent_window",
@@ -872,6 +890,9 @@ def command_for(panel):
     # And a frame limit per link, for the same reason again.
     for link in panel.get("page_fps") or []:
         argv += ["--page-fps", link]
+    # And a byte rate per link, for the film that needs one.
+    for link in panel.get("page_rate") or []:
+        argv += ["--page-rate", link]
     # And the token of the Home Assistant a link opens. Not a panel setting:
     # a token belongs to an origin, and the link is what names one.
     for link in panel.get("page_token") or []:
@@ -1145,7 +1166,8 @@ def give_page_settings(panels, config):
         links = {"links": mine if mine is not None else house}
         for key, values in (("page_quality", page_quality_from(links)),
                             ("page_agent", page_agent_from(links)),
-                            ("page_fps", page_fps_from(links))):
+                            ("page_fps", page_fps_from(links)),
+                            ("page_rate", page_rate_from(links))):
             if values:
                 panel.setdefault(key, values)
         if str(panel.get("home_assistant", True)).strip().lower() \
