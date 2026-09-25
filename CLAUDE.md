@@ -8466,6 +8466,18 @@ fails nine cases, the two photographs among them**; after, none. And
 which now asserts the opposite. A check that pins a fault down as a fact has
 to be turned round the day the fault is fixed, or it fails the fix.
 
+**And stacking at 290 made four columns too tall -- 4.19.7.** Reported
+with a photograph of a 1280x800 panel at four columns: *"tu as change pour
+les tuiles de 1 a 4, elles sont grandes"*. Measured against the launcher
+before 4.19.6, one to three columns were identical to the pixel; only four
+had moved, 137 -> 183 px tall at 1280x800 and 145 -> 177 at 1024x600. So
+there are three bands now: above 290px as it always was; 218-290 keeps the
+icon BESIDE the name with both sized in `cqi` (four columns: 274px and
+220px wide, 106 and 83 tall); under 218 stacks (five and six, which the
+household had accepted). `checktiles.py` still finds no cut word anywhere.
+The lesson is the one about unasked-for changes in a smaller costume: a fix
+for five and six columns reached into four, which nobody had complained of.
+
 ## Repository conventions
 
 - Work on branch `claude/esphome-pr-outdated-mdq36w`, then merge into `main`
