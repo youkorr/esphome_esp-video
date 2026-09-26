@@ -431,6 +431,12 @@ class Portall : public Component
   // Buffers the speaker would not take whole. A few are normal at the start of
   // a stream; a steady stream of them is the board not keeping up.
   uint32_t audio_underruns_{0};
+  // A speaker that will not even stay started. Counted in blocks refused
+  // while it was not running, and answered by leaving it alone for a while
+  // rather than starting it again fifty times a second -- see audio.cpp.
+  uint32_t audio_refusals_{0};
+  uint32_t audio_hold_until_ms_{0};
+  uint32_t audio_hold_ms_{0};
   // How much of a UDISP_TYPE_PCM payload is still to come. The parser's fourth
   // state, and the only one that hands its bytes straight on rather than
   // gathering them: samples are a stream, so a payload split across two reads

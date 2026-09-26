@@ -82,8 +82,11 @@ def addon_cases():
           "--stereo" not in run.command_for(dict(base)))
 
 
-def board_cases():
-    """The shipped audio.cpp, compiled and switched between shapes."""
+def board_cases(harness="switch.cpp", source=None):
+    """The shipped audio.cpp, compiled and driven by one harness.
+
+    `source` replaces the shipped audio.cpp, so a check can be run against an
+    older one to show that it fails there."""
     header = (ROOT / "components" / "portall" / "portall.h").read_text()
     constants = "\n".join(line for line in header.splitlines()
                           if re.match(r"#define PORTALL_AUDIO_", line))
@@ -95,12 +98,13 @@ def board_cases():
         # A copy, beside the stand-in header, so its own #include "portall.h"
         # finds the stand-in rather than the real one next to the original.
         (tmp / "audio.cpp").write_text(
+            source if source is not None else
             (ROOT / "components" / "portall" / "audio.cpp").read_text())
         flags = ["-std=gnu++20", "-Wall", "-DUSE_SPEAKER", f"-I{tmp}",
                  f"-I{ROOT / 'tools' / 'btstub'}"]
         built = subprocess.run(
             ["g++", *flags, str(tmp / "audio.cpp"),
-             str(ROOT / "tools" / "audiotest" / "switch.cpp"),
+             str(ROOT / "tools" / "audiotest" / harness),
              "-o", str(tmp / "switch")],
             capture_output=True, text=True)
         if built.returncode != 0:

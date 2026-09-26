@@ -8916,6 +8916,54 @@ with no transition, so it snaps both ways like a blink: `checkavatar.py`'s
 cost case reads 9 changed pictures in 15 s of a still launcher with it.
 `sad` and `sleepy` are untouched -- nothing produces them.
 
+### Voice first, then YouTube, rebooted the panel: a refused mixer source, started fifty times a second
+
+**Reported as *"quant je passe de voice assistant a youtube il plante reboot
+et le son revient pour youtube"*, with *"je pense qu'il faut un duplex?"*.**
+Not duplex: that is the microphone and the panel's own I2S loudspeaker
+sharing a bus, and this panel's sound goes to Bluetooth. The log said what it
+was in its one repeated line:
+
+    [W][portall.audio]: Dropped a block: the speaker is not draining (700 times so far)
+    [D][ring_buffer:035]: Created ring buffer with size 19200     (fifty a second, two seconds)
+    assert failed: spinlock_acquire spinlock.h:142 (lock->count == 0)
+
+**19200 is 100 ms of 48 kHz stereo**, and nothing else logged beside it --
+no resampler "Starting", no mixer "Stopped". That is a mixer SOURCE at 48000
+being refused: `SourceSpeaker::start_()` makes its ring buffer, the mixer's
+`start()` returns `ESP_ERR_INVALID_ARG` because it already runs at another
+rate, `enter_stopping_state_()` drops the buffer, and the next `play()` --
+every ESPHome speaker starts itself from play() when stopped -- does it all
+again. Read in 2026.8.2, `mixer_speaker.cpp`. Fifty blocks a second is fifty
+ring buffers a second made on the loop and written from portall's network
+task, through a `weak_ptr` that is assigned on one and locked on the other;
+the assert is what that churn ends in.
+
+**The mixer's rate is set by the first source to play after boot, and never
+reset.** So the ORDER is the trigger, which is exactly the report: the voice
+assistant's answer played first at its pipeline's rate, then the page at
+48000 was locked out -- and after a reboot the page played first and worked.
+The YAML that does this is one where portall feeds a mixer input directly
+(`speaker_id: portall_mixing_input`, the older layout of
+`guition-voice-bluetooth.yaml` and the household's own file) beside
+announcement pipelines at another rate. The current example cannot: every
+source is 44100 and the page goes through a resampler first.
+
+**Firmware half: a speaker that will not STAY started is left alone.**
+`flush_audio_block_()` counts blocks refused while the speaker is not
+running; at `REFUSED_BLOCKS` (200 ms -- a healthy start takes one or two turns
+of the loop) it holds off for 2 s, doubling to 30 s, back to 2 once it really
+plays, and says why in one line naming the mixer and the resampler. A speaker
+that is running and full is untouched -- that is falling behind, not refusing.
+
+`tools/checkrefuse.py` compiles the shipped `audio.cpp` against
+`tools/audiotest/refuse.cpp`: **1500 starts in ten seconds against the
+previous file, 90 now**, three short attempts in all, with the recovery, a
+late starter and a full speaker unchanged. `--ref REV` runs it against an
+older file. **Not compiled by a real toolchain and not run on the panel**; it
+is the YAML that removes the cause, and the guard only stops sound costing
+the panel when the YAML is wrong.
+
 ### "Ouvre Jellyfin" -- the Jarvis shape, with the parts already here -- 4.25.0
 
 **Asked as how to control the launcher's links, answered with "not yet", and

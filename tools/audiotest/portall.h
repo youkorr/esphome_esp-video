@@ -32,6 +32,9 @@ class Portall {
   uint32_t audio_resyncs_{0};
   bool audio_ever_accepted_{false};
   uint32_t audio_underruns_{0};
+  uint32_t audio_refusals_{0};
+  uint32_t audio_hold_until_ms_{0};
+  uint32_t audio_hold_ms_{0};
   uint8_t audio_channels_{PORTALL_AUDIO_CHANNELS};
   uint32_t last_audio_ms_{0};
 };

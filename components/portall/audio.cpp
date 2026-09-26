@@ -48,6 +48,14 @@ static constexpr uint32_t AUDIO_BLOCK_MS = 10;
 // One second of blocks: how long a speaker that has never taken anything is
 // given before it is called a speaker that refuses the stream.
 static constexpr uint32_t NEVER_ACCEPTED_BLOCKS = 1000 / AUDIO_BLOCK_MS;
+// A speaker that refuses this many blocks in a row WITHOUT ever reaching
+// running is one that will not stay started, and is left alone for a while.
+// A healthy start takes one or two turns of ESPHome's loop, a few blocks.
+static constexpr uint32_t REFUSED_BLOCKS = 200 / AUDIO_BLOCK_MS;
+// How long it is left alone: doubling from the first to the last, and back to
+// the first once it really plays.
+static constexpr uint32_t REFUSED_HOLD_FIRST_MS = 2000;
+static constexpr uint32_t REFUSED_HOLD_MAX_MS = 30000;
 
 static size_t audio_block_bytes(unsigned channels) {
   return (size_t) (PORTALL_AUDIO_RATE / 1000) * AUDIO_BLOCK_MS * (PORTALL_AUDIO_BITS / 8) * channels;
@@ -154,6 +162,13 @@ void Portall::on_audio_samples(const uint8_t *data, size_t length, uint8_t chann
   if (this->audio_muted_ || this->audio_volume_ <= 0.0f)
     return;
 
+  // Left alone after refusing to stay started; see flush_audio_block_().
+  if (this->audio_hold_until_ms_ != 0) {
+    if ((int32_t) (millis() - this->audio_hold_until_ms_) < 0)
+      return;
+    this->audio_hold_until_ms_ = 0;
+  }
+
   if (!this->speaker_->is_running())
     this->speaker_->start();
 
@@ -186,6 +201,53 @@ void Portall::flush_audio_block_() {
   const size_t written = this->speaker_->play(this->audio_block_, length);
   if (written > 0)
     this->audio_ever_accepted_ = true;
+
+  /* A speaker that will not STAY started is left alone, and the reason is a
+   * panel that rebooted.
+   *
+   * Every ESPHome speaker starts itself from play() when it is stopped. A
+   * mixer source that its mixer refuses -- a sample rate other than the one
+   * the mixer is already running at, "Incompatible audio streams" -- goes
+   * from starting straight back to stopped inside one turn of the loop,
+   * creating its ring buffer and throwing it away on the way. Fed fifty
+   * blocks a second, that is fifty ring buffers a second made on the loop and
+   * written to from this task, and a panel logged exactly that for two
+   * seconds before `assert failed: spinlock_acquire` took it down.
+   *
+   * The mixer takes its rate from the first source to play after boot, so
+   * the order decides: an announcement at 44100 before the page at 48000
+   * locks the page out until a restart, and the other way round silences the
+   * answer. The fix is in the YAML; what belongs here is that sound must
+   * never cost the panel. */
+  if (written > 0 || this->speaker_->is_running()) {
+    this->audio_refusals_ = 0;
+    if (written > 0)
+      this->audio_hold_ms_ = 0;
+  } else if (++this->audio_refusals_ >= REFUSED_BLOCKS) {
+    const bool first = this->audio_hold_ms_ == 0;
+    this->audio_hold_ms_ = first ? REFUSED_HOLD_FIRST_MS
+                                 : (this->audio_hold_ms_ * 2 > REFUSED_HOLD_MAX_MS ? REFUSED_HOLD_MAX_MS
+                                                                                   : this->audio_hold_ms_ * 2);
+    this->audio_hold_until_ms_ = millis() + this->audio_hold_ms_;
+    if (this->audio_hold_until_ms_ == 0)
+      this->audio_hold_until_ms_ = 1;
+    this->audio_refusals_ = 0;
+    this->audio_block_used_ = 0;
+    if (first) {
+      ESP_LOGW(TAG,
+               "The speaker went back to stopped every time it was started (%u blocks in a row), so it is left "
+               "alone for %u s at a time rather than started again fifty times a second, which is what rebooted "
+               "a panel. The usual cause is a mixer: it runs at the rate of the first source to play after boot "
+               "and refuses any other (look for \"Incompatible audio streams\"). portall sends %d Hz; give every "
+               "source of that mixer one rate, with a resampler between portall and its mixer input as "
+               "yaml/guition-voice-bluetooth.yaml does.",
+               (unsigned) REFUSED_BLOCKS, (unsigned) (this->audio_hold_ms_ / 1000), PORTALL_AUDIO_RATE);
+    } else {
+      ESP_LOGW(TAG, "The speaker still will not stay started; trying again in %u s",
+               (unsigned) (this->audio_hold_ms_ / 1000));
+    }
+    return;
+  }
   if (written == length) {
     this->audio_block_used_ = 0;
     return;
@@ -235,8 +297,10 @@ void Portall::flush_audio_block_() {
         // An ESPHome mixer refuses a source whose sample rate is not the one
         // it is already running at: MixerSpeaker::start() returns
         // ESP_ERR_INVALID_ARG, the source speaker is marked "Incompatible
-        // audio streams" and never gets a ring buffer, so every play() after
-        // that returns zero for as long as the board is up. portall sends
+        // audio streams" and every play() after that returns zero for as long
+        // as the board is up. A source that falls straight back to stopped is
+        // caught by the hold above before this is reached; this is what is
+        // left of that case, a speaker that says it runs and takes nothing. portall sends
         // 48000 Hz because that is what a browser produces, and these panels
         // run their I2S at 44100 -- so a speaker_id: pointing straight at a
         // mixer input, or at the raw I2S speaker under one, can never work.
