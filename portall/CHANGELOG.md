@@ -1,5 +1,12 @@
 # Changelog
 
+## 4.26.2
+
+- **The avatar's eyes are round, like your LVGL face**: a round white eye, a
+  large blue iris with a darker ring, an oval pupil and two highlights, and
+  the closed eye drawn as the same arc. The eyebrows keep the fine stroke of
+  4.26.1, sized to the new eye.
+
 ## 4.26.1
 
 - **The avatar's eyebrows are drawn the way your LVGL face draws them**:

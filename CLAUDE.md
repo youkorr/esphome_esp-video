@@ -1779,7 +1779,7 @@ the dashboard, where it is invisible while the keys go on working.
 ahead of the `pip install` as well as the `ADD`s, so a bump refetches
 everything — at the cost of the browser download on each update.
 `present_browser()` prints the Chromium version at startup and warns below 114,
-so this is never diagnosed by guesswork again. Currently **4.26.1**.
+so this is never diagnosed by guesswork again. Currently **4.26.2**.
 
 **The image carried two Playwright browsers and needed one.** `playwright
 install chromium` fetches the full Chromium **and** the headless shell -- 597
@@ -8927,6 +8927,19 @@ centre as they do, the brow lands on the eye. `thinking` keeps its tilt and
 drops its 3 px lowering, since theirs has room only because working_hard
 narrows the eye to 65 percent; a squashed eye was tried and squashes the iris.
 Compared as rendered, four moods, before and after.
+
+**And the eyes were the other half of the same report (4.26.2)**, said as
+*"les yeux normalement sont [ronds] et les sourcils sont fins"* with their
+`yaml/lvgl-kawaii.yaml` as the reference, whose `external_components` points
+at that same branch. `draw_eye()` draws a ROUND eye (radius CIRCLE, height =
+width at openness 100) 0.306 of the face wide, an iris 0.55 of it with a
+2 px darker ring, a pupil 0.5 x 0.6 of the iris, two highlights, and a shut
+eye as an arc from 200 to 340 degrees over 0.3 of the eye's height. Ours was
+a 28 x 36 rounded rectangle, which is why "from the eye's TOP" above was
+needed at all -- with the eye round, the brow now sits where theirs does,
+fs(6) above it. Scaled to a face of 106.7 units so the eye centres stay 60
+apart and the mouth and cheeks do not move; the mouth was not asked about and
+is untouched.
 
 ### Voice first, then YouTube, rebooted the panel: a refused mixer source, started fifty times a second
 
