@@ -1104,7 +1104,14 @@ AVATAR_CSS = """
     Their SHAPE is the household's own LVGL face
     (youkorr/esphome-lvgl-kawaii, lvgl_kawaii_face.c), which they preferred:
     nine tenths of the eye's width, a stroke a tenth of it, and a gap above
-    the eye of fs(6) on its 135 px reference.
+    the eye of fs(6) on its 135 px reference. And POINTED at the outer end,
+    which the C never asks for: it draws a plain round-capped line, but
+    inside each eye's own canvas and only a few pixels below its top, so a
+    brow that tilts has its outer end cut off by the canvas edge -- a wedge,
+    full and round at the nose, running to a point. That is the face on the
+    household's panel, so that is the shape drawn here, 0.12 of the eye at
+    its widest -- measured off a video of that panel, where the round cap's
+    fs(4) reads that full once the rest of the brow runs to nothing.
     Thinking keeps its tilt and not its drop: that face also narrows its eye
     to two thirds, which leaves the room, and this one's eye stays open -- lowered,
     the brow would rest on it. */
@@ -1134,10 +1141,10 @@ AVATAR_CSS = """
 # the shut eye an arc from 200 to 340 degrees over 0.3 of the eye's height.
 AVATAR_HTML = """<div id="av" data-mood="neutral" aria-hidden="true">
 <svg viewBox="0 0 150 100">
- <g class="lift l"><rect class="brow l" x="30.3" y="25.4" width="29.4" height="3.2"
-  rx="1.6" fill="#7a89a0"/></g>
- <g class="lift r"><rect class="brow r" x="90.3" y="25.4" width="29.4" height="3.2"
-  rx="1.6" fill="#7a89a0"/></g>
+ <g class="lift l"><path class="brow l" d="M30.3 29 L57.7 25 A2 2 0 0 1 57.7 29 Z"
+  fill="#7a89a0"/></g>
+ <g class="lift r"><path class="brow r" d="M119.7 29 L92.3 25 A2 2 0 0 0 92.3 29 Z"
+  fill="#7a89a0"/></g>
  <g class="eye">
   <circle cx="45" cy="48" r="16.35" fill="#fff"/>
   <g class="look"><circle cx="45" cy="48" r="8.2" fill="#32b4ff"

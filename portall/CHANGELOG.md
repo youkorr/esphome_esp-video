@@ -1,5 +1,10 @@
 # Changelog
 
+## 4.26.3
+
+- **The avatar's eyebrows are pointed, like your LVGL panel shows them**:
+  full and round at the nose, running to a point at the outer end.
+
 ## 4.26.2
 
 - **The avatar's eyes are round, like your LVGL face**: a round white eye, a
