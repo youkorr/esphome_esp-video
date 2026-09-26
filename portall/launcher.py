@@ -388,6 +388,35 @@ def icon_for(value):
     return glyph
 
 
+def icon_kind(value, dark):
+    """The class that sizes an icon: a picture, a character, or a word.
+
+    A logo or an emoji is a PICTURE and fills the whole square, the size
+    Reolink's badge always had -- beside it the others were reported as very
+    small, 43 px of logo and 50 of emoji in the same 74 px square. Letters are
+    not pictures: "HA" at that size is wider than the square and would be
+    clipped, so letters and the quiet empty-field bullet keep the size and the
+    tinted ground they had. Beyond two characters it is a word, set smaller
+    still -- measured on what will be drawn, not on what was typed, so a name
+    from the list is one glyph however long the name is.
+
+    Not called "text": the page already has a .text class, the block holding
+    the name and the description, and an icon wearing it became a block with
+    its bullet in the top corner.
+    """
+    if logo_markup(value, dark) is not None:
+        return " picture"
+    glyph = icon_for(value).rstrip("\uFE0F")
+    if len(glyph) > 2:
+        return " long"
+    # Everything below U+2100 is letters, digits, punctuation and the bullet;
+    # the old symbols that became emoji (arrows, snowflake, cog...) sit above
+    # it and are asked for in colour by icon_for().
+    if all(ord(c) < 0x2100 for c in glyph):
+        return " letters"
+    return " picture"
+
+
 PAGE = """<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -518,24 +547,37 @@ PAGE = """<!doctype html>
    padding: 2.6vmin 3.4vmin;
  }
  .icon {
-   flex: none; width: clamp(44px, 9vw, 74px); height: clamp(44px, 9vw, 74px);
+   --side: clamp(44px, 9vw, 74px);
+   flex: none; width: var(--side); height: var(--side);
    display: grid; place-items: center; border-radius: 28%%;
    background: color-mix(in srgb, var(--accent) 28%%, transparent);
-   font-size: clamp(24px, 5vw, 40px); line-height: 1;
+   /* Every kind of icon as big as Reolink's, which is the whole square: that
+      one was the right size and the rest were reported as "very small" beside
+      it -- a logo drew 43 px and an emoji 50 in the same 74 px square. An
+      emoji's ink is about 1.25 times its font size, so .78 of the square
+      draws it about the square's width and no wider, where the clip below
+      would cut it. */
+   font-size: calc(var(--side) * .78); line-height: 1;
    /* The field asks for a character and somebody will type a word into it,
       because nothing stops them. Left alone that word runs straight across
       the name beside it. Clipped, and set smaller below when it is long, so
       the worst case is a shortened label rather than two overlapping ones. */
    overflow: hidden;
  }
+ /* A picture brings its own shape and fills the square, so the tinted ground
+    would only peek out round its corners as a frame that does not match it. */
+ .icon.picture { background: none; }
+ .icon.letters { font-size: clamp(24px, 5vw, 40px); }
  .icon.long { font-size: clamp(12px, 2vw, 17px); font-weight: 700;
               letter-spacing: -.02em; }
  /* A logo is a shape rather than a character, so it is sized as a fraction of
-    the square it sits in rather than by a font size. */
- .icon .logo { width: 58%%; height: 58%%; display: block; }
+    the square it sits in rather than by a font size -- the whole of it, the
+    size a badge like Reolink's already had. It was 58%%, which left the mark
+    at 43 px beside Reolink's 74. */
+ .icon .logo { width: 100%%; height: 100%%; display: block; }
  /* A carried picture keeps its aspect ratio inside whatever square it gets;
-    the transparent margin is cropped off before it is embedded, so at 58%% it
-    has the same ink as a path and needs nothing more. Immich was reported as
+    the transparent margin is cropped off before it is embedded, so at the
+    same size as a path it has the same ink and needs nothing more. Immich was reported as
     too small purely because that margin was still on it -- 33 px of drawn ink
     against a glyph's 43. */
  .icon img.logo { object-fit: contain; }
@@ -1258,13 +1300,7 @@ def render(links, title="", subtitle="", theme="dark",
                 # has to be set smaller to stay inside its square. Measured on
                 # what will be drawn, not on what was typed: a name from the
                 # list is one glyph however long the name is.
-                "icon_long": (
-                    ""
-                    if logo_markup(entry.get("icon"), dark) is not None
-                    else " long"
-                    if len(icon_for(entry.get("icon")).rstrip("\uFE0F")) > 2
-                    else ""
-                ),
+                "icon_long": icon_kind(entry.get("icon"), dark),
                 "name": html.escape(str(entry.get("name") or entry["url"])),
                 "desc": (
                     '<span class="desc">%s</span>'

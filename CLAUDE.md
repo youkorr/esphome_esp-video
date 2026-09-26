@@ -8626,6 +8626,44 @@ real arrow press, through `regroup()` / `launcher_config()` /
 `start_launcher()`; against 4.21.2 five of its eight cases fail, the buttons
 one among them. The ring and the shadow are drawn together now.
 
+### Every icon as big as Reolink's -- 4.22.2
+
+**Reported as *"il faut aussi que les icone soit de la meme dimension que celui
+de reolink ... je les trouve tres petit"*.** Measured in the browser, one
+74 px square each: Reolink's badge **74 px**, every logo **43**, every emoji
+about **50**. 4.20.1's note records Reolink being made the whole square
+because a badge IS the icon; the rest stayed a fraction of it, and beside it
+they read as small. Logos are 100% of the square now and emoji
+`calc(var(--side) * .78)` -- an emoji's ink is about 1.25 times its font size,
+so that draws it the square's width and no wider than the clip.
+
+`icon_kind()` sorts them, and the reason is that a letter is not a picture:
+"AB" at that size is wider than the square. **picture** (a logo, or anything
+above U+2100) fills the square and drops the tinted ground, which would only
+peek out round its corners as a frame that does not match; **letters**
+(below U+2100, the empty-field bullet included) keep the old size and ground;
+**long** is unchanged. The class was first called `text` -- and the page
+already has a `.text`, the block holding the name, so the empty-field bullet
+became a block in the top corner. Seen on a screenshot, not in a test.
+
+## The corner mark was shown at start and at home, and never inside a link -- 4.22.2
+
+**Reported as the white corner going *"invisible"* and coming back only
+*"dès que vous rebooter"*, with a guess that `focus_color` was the cause.** It
+was not: the mark is white with its own shadow and reads no colour setting.
+`hint_until` was set at start and in the home branch and nowhere else, and
+`HomeHint._at` remembered what it had last drawn -- so following a tile was a
+new document nobody told the mark about. Inside a link, the one place the
+way out is needed, it never appeared; worse, a tile tapped inside the first
+five seconds left `_at` at 0.0 and the new page's `set(0.0)` did nothing.
+
+`HomeHint` listens for **`domcontentloaded`** and `take_arrival()` forgets
+what was drawn and restarts the five seconds. A new DOCUMENT rather than any
+navigation: a dashboard changing view inside one page keeps its mark and
+should not flash it again. `tools/checkhint.py` drives the shipped class and
+script in a real browser -- follow a link, come back, change view -- and
+three of its six cases fail against 4.22.1.
+
 ## A byte rate, because a fixed quality makes the rate follow the scene -- 4.21.0
 
 **Reported after hours of YouTube at quality 50 and 30 pictures a second:
