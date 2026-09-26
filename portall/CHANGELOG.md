@@ -1,5 +1,16 @@
 # Changelog
 
+## 4.21.1
+
+- **`max_rate` is now a real ceiling.** In 4.21.0 a scene so heavy that it
+  was still over the limit at the lowest quality (25) went over it anyway --
+  measured on a panel at 2400: two windows at 2759 and 2854 KiB/s, with the
+  picture frozen for a quarter of a second. Now the next picture waits the
+  few milliseconds the link needs instead, so that scene loses a few pictures
+  a second and the rate never goes past `max_rate`. `fps: 30` can stay on a
+  video link. With `stats` on, `12 held` at the end of a line counts the
+  pictures that waited.
+
 ## 4.21.0
 
 - **Steadier video on ESP32-C6 panels.** New setting **`max_rate`** under

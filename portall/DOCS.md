@@ -761,6 +761,13 @@ does not change. A dashboard never comes near the limit, so it is never
 touched. With `stats` on, a line ends in `quality 38-50` when the limit was
 working, and says nothing about quality when it was not.
 
+The quality does not go below 25. A scene still too heavy at 25 does not go
+over the limit either: the next picture waits the few milliseconds the link
+needs, so that scene loses a few pictures a second for as long as it lasts
+and the rest of the video keeps its full rate. `stats` then ends in
+`12 held` -- the number of pictures that waited. So keep `fps: 30` on a video
+link: lowering it would cost every scene what only the heaviest ones need.
+
 Set it lower on a link if a video still stutters, higher if a panel has a
 faster link, or `0` to turn it off.
 

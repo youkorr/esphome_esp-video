@@ -1631,10 +1631,27 @@ class RateControl:
     MAX_SPAN_S, so the first picture after a still page -- a whole panel after
     a long gap -- is not waved through as though it had seconds to spread
     over. A still dashboard never comes near the rate at all.
+
+    And the quality has a floor, so on its own this is not a ceiling. On a
+    panel at quality 70, 30 pictures a second and 2400 KiB/s, most windows
+    held at 2170-2415 -- and the two whose scenes weighed about 95 KiB even at
+    quality 25 went out at 2759 and 2854, with 223 and 270 ms holes: the
+    budget at 30 a second is 80 KiB a picture, and with the quality at its
+    floor there was nothing left to give. So there is a second lever, used
+    only once the first has run out in practice: a byte budget that refills
+    at the rate, which each picture spends and which a picture has to wait
+    for when it is in debt (allows()). The wait is the size of the overshoot
+    -- 15 KiB over at 2400 KiB/s is 6 ms -- so a scene that is too heavy
+    loses a few pictures a second rather than the link losing a third of one.
     """
 
     MIN_QUALITY = 25
     MAX_SPAN_S = 0.25
+    # How much the budget may save up while a page sends less than the rate:
+    # enough for a whole panel after a still page to go out at once, not so
+    # much that a busy scene starting after a quiet one bursts far past the
+    # rate before the budget is spent.
+    BURST_S = 0.15
     # Room under the rate before the quality climbs again, so a scene that
     # sits right at the limit does not bounce a step up and down every frame.
     CLIMB_BELOW = 0.8
@@ -1645,6 +1662,14 @@ class RateControl:
         # The lowest and highest quality actually used since last asked, for
         # --stats: the one thing that shows this at work.
         self.low = self.high = None
+        # The byte budget: what may be sent now, as of `credit_at`. Starts
+        # full, so the first picture on a page is never held.
+        self.credit = self.rate * self.BURST_S
+        self.credit_at = None
+        # Whether the picture now waiting has been held by the budget, and
+        # how many were since last asked (for --stats).
+        self.waiting = False
+        self.held = 0
 
     def quality(self, wanted):
         """The quality to encode the next picture at."""
@@ -1658,10 +1683,40 @@ class RateControl:
         self.high = used if self.high is None else max(self.high, used)
         return used
 
-    def note(self, size, span, interval, wanted):
+    def _credit(self, now):
+        if self.credit_at is None:
+            return self.credit
+        return min(self.credit + (now - self.credit_at) * self.rate,
+                   self.rate * self.BURST_S)
+
+    def allows(self, now):
+        """Whether the budget lets a picture go out now.
+
+        Asked only once the frame limit would already release one, so what it
+        holds is a picture that was otherwise ready.
+        """
+        if self.rate <= 0 or self._credit(now) >= 0:
+            return True
+        if not self.waiting:
+            self.waiting = True
+            self.held += 1
+        return False
+
+    def note(self, size, span, interval, wanted, now=None):
         """Weigh a picture of `size` bytes that went out `span` s after the last."""
         if self.rate <= 0 or self.current is None:
             return
+        if now is not None:
+            self.credit = self._credit(now) - size
+            self.credit_at = now
+        # A picture the budget held went out late BECAUSE it was heavy, so
+        # its lateness must not count in its favour: judged against the time
+        # it really covered it would read as exactly at the rate, and the
+        # quality would sit where it is while the frame rate paid for it. The
+        # quality is the first lever and the wait only the second.
+        if self.waiting:
+            span = interval
+            self.waiting = False
         span = min(max(span, interval), self.MAX_SPAN_S)
         ratio = size / (self.rate * span)
         if ratio > 1.0:
@@ -1675,6 +1730,11 @@ class RateControl:
         low, high = self.low, self.high
         self.low = self.high = None
         return low, high
+
+    def take_held(self):
+        """Pictures the budget made wait since the last call."""
+        held, self.held = self.held, 0
+        return held
 
 
 def rate_for(url, page_rate):
@@ -4921,8 +4981,11 @@ def main():
                     # latest, so a frame held here is replaced rather than
                     # queued.
                     shot = None
+                    # The byte budget last, so it is asked only about a
+                    # picture that would otherwise go -- see RateControl.
                     if (pending is not None and free
-                            and started - last_send >= limit):
+                            and started - last_send >= limit
+                            and rate.allows(started)):
                         shot, pending = pending, None
                         # Keep to the SCHEDULE, not to the turn that happened
                         # to notice the picture. The loop looks every fifteen
@@ -5034,7 +5097,7 @@ def main():
                             bytes_sent += len(payload)
                             picture_bytes += len(payload)
                         rate.note(picture_bytes, started - last_sent, limit,
-                                  send_quality)
+                                  send_quality, now=started)
                         # The whole picture in one handover, so the writer
                         # cannot be interrupted halfway through it.
                         writer.offer(blobs)
@@ -5373,6 +5436,11 @@ def main():
                             # used, so a reader can see it working and how far.
                             line += (f", quality {low}" if low == high
                                      else f", quality {low}-{high}")
+                        held = rate.take_held()
+                        if held:
+                            # Pictures that waited for the byte budget: the
+                            # quality was at its floor and still too heavy.
+                            line += f", {held} held"
                         sound, lost = writer.take_audio()
                         if sound or lost:
                             line += (f", sound {sound / elapsed:.0f}/s"

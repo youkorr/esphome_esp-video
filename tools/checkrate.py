@@ -114,6 +114,51 @@ ok("a rate of 0 changes nothing", rc.quality(80) == 80)
 low, high = RateControl(2400).take_range()
 ok("a controller never asked reports no range", low is None and high is None)
 
+# The budget: what the panel reported. Quality at its floor, every picture
+# still 95 KiB where 30 a second at 2400 KiB/s leaves 80.
+rc = RateControl(2400)
+now, sent, released = 0.0, 0, 0
+for turn in range(3000):          # ten seconds of 1/300 s loop turns
+    now = turn / 300
+    if now - released * FRAME >= 0 and rc.allows(now):
+        rc.quality(80)
+        rc.note(95 * 1024, FRAME, FRAME, 80, now=now)
+        sent += 95 * 1024
+        released += 1
+# Anything faster than one per FRAME is refused above, so this is the most it
+# could have sent without the budget: 30 a second.
+rate_sent = sent / 1024 / now
+ok("with the quality at its floor, the budget holds the rate",
+   rate_sent <= 2400 * 1.02, f"{rate_sent:.0f} KiB/s")
+ok("by sending fewer pictures, not none",
+   22 <= released / now <= 26, f"{released / now:.1f} pictures/s")
+ok("and says how many it made wait", rc.take_held() > 0)
+ok("and the count starts again once read", rc.take_held() == 0)
+
+rc = RateControl(2400)
+rc.quality(80)
+ok("a first picture is never held", rc.allows(0.0))
+rc.note(250 * 1024, 10.0, FRAME, 80, now=0.0)
+ok("a whole panel after a still page does not stop the one after it for long",
+   rc.allows(0.1), rc._credit(0.1))
+
+rc = RateControl(2400)
+rc.quality(60)
+rc.note(400 * 1024, FRAME, FRAME, 60, now=0.0)
+# 400 KiB against a full budget of 360 leaves 40 KiB of debt, which the rate
+# refills in about 16 ms.
+ok("a picture far over the budget makes the next one wait",
+   not rc.allows(0.005))
+ok("and only as long as the debt takes to refill", rc.allows(0.02))
+before = rc.current
+rc.note(95 * 1024, 0.2, FRAME, 60, now=0.2)
+ok("and a picture that waited is still judged on its weight, so the quality "
+   "goes down first", rc.current < before, f"{before} -> {rc.current}")
+
+rc = RateControl(0)
+rc.note(10 ** 8, FRAME, FRAME, 80, now=0.0)
+ok("a rate of 0 never holds anything", rc.allows(0.0) and rc.take_held() == 0)
+
 # ------------------------------------------------------------ the real sender
 # Hundreds of soft coloured discs moving every frame over a gradient: the
 # kind of picture JPEG pays for -- water, leaves, a crowd -- and a whole panel
@@ -224,6 +269,16 @@ ok("at the same number of pictures a second",
    f"{mean(fps):.1f} against {mean(free_fps):.1f}")
 ok("and --stats says which qualities it used", bool(quality), quality)
 ok("the log says the limit is on", "Rate: at most 1500 KiB/s" in out)
+
+# The panel's report: a scene too heavy for the rate even at the lowest
+# quality. 4.21.0 sent about 1330 KiB/s here, at quality 25.
+out, kib, fps, quality = run(busy, "--max-rate", "900")
+ok("with the quality at its floor, --max-rate 900 still holds 900",
+   kib and max(kib) <= 900 * 1.08,
+   f"windows {', '.join(f'{k:.0f}' for k in kib)}, "
+   f"{mean(fps):.1f} pictures/s, quality {quality}")
+ok("and --stats says pictures were held",
+   bool(re.search(r"\d+ held", out)))
 
 _, kib, fps, quality = run(busy, "--max-rate", "1500",
                            "--page-rate", f"http://127.0.0.1:{port}/busy=0")
