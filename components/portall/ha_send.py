@@ -2988,6 +2988,31 @@ class HomeHint:
         self._at = None
         self.broken = False
         self._warned = False
+        # Set by the page itself each time a new document arrives in it, so
+        # the mark is shown on every page somebody lands on and not only on
+        # the first one. It was shown at start and on coming home and nowhere
+        # else -- so inside a link, which is the one place the way out is
+        # needed, it had faded on the launcher five seconds after boot and
+        # never came back. Reported as the white corner being "invisible
+        # until a reboot". DOMContentLoaded rather than every navigation: a
+        # new DOCUMENT is what has no mark drawn, while a dashboard changing
+        # view inside one page keeps it and should not flash it again.
+        self._arrived = False
+        try:
+            page.on("domcontentloaded", self._on_arrival)
+        except Exception:  # noqa: BLE001 - an accessory, never the picture
+            pass
+
+    def _on_arrival(self, _page=None):
+        self._arrived = True
+
+    def take_arrival(self):
+        """Whether a new document arrived since last asked; forgets it if so."""
+        if not self._arrived:
+            return False
+        self._arrived = False
+        self.forget()
+        return True
 
     def _css(self):
         # The wedge is anchored in the corner and drawn no larger than the
@@ -5531,6 +5556,8 @@ def main():
                     # after a page arrives, and gone the rest of the time. Only
                     # while the panel is awake -- a dark screen is shown
                     # nothing at all.
+                    if hint is not None and hint.take_arrival():
+                        hint_until = time.monotonic() + HOME_HINT_SECONDS
                     if hint is not None and awake:
                         held = (None if injector is None
                                 else injector.corner_progress(now))

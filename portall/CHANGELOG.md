@@ -1,5 +1,18 @@
 # Changelog
 
+## 4.22.2
+
+- **The white corner that says "hold here to go home" now shows on every page
+  a link opens**, for five seconds, the way it does when the add-on starts.
+  It used to show only at start and on coming home, so inside a link -- the
+  one place it is needed -- it had faded on the launcher and never came back
+  until a restart. It has nothing to do with `focus_color`.
+- **Every icon on the launcher is as big as Reolink's.** Logos and emoji now
+  fill their whole square (74 px) instead of 43-50 px inside it, and lose the
+  tinted square behind them, as Reolink's already did. Letters typed as an
+  icon (`AB`) and the dot of an empty icon keep their size and their square,
+  since at full size they would be cut off.
+
 ## 4.22.1
 
 - **Up on Netflix goes up one row per press, and the chosen row is always
