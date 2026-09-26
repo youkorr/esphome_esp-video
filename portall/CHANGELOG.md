@@ -1,5 +1,12 @@
 # Changelog
 
+## 4.27.1
+
+- **"Ouvrez Home Assistant" and "ouvre-moi Jellyfin" open the link**: the
+  voice sentences only knew the "tu" forms, so "ouvrez", "lancez",
+  "affichez", "montrez" and "mettez", and "moi" after any verb, missed every
+  link.
+
 ## 4.27.0
 
 - **The avatar has a body, and you choose which**: `avatar_shape:` is

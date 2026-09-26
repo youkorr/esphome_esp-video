@@ -156,6 +156,12 @@ def sentences():
                        ("Ok Nabu, ouvre gelée fine.", "link:Jellyfin"),
                        ("lance jellyfin", "link:Jellyfin"),
                        ("Lance jelly fin", "link:Jellyfin"),
+                       # Both forms of address, and "moi" -- measured
+                       # through hassil, all four missed every link.
+                       ("Ouvrez Home Assistant.", "link:Home Assistant"),
+                       ("Ouvre-moi Home Assistant.", "link:Home Assistant"),
+                       ("Ok Nabu, lancez-moi Jellyfin.", "link:Jellyfin"),
+                       ("Affichez l'accueil.", "home"),
                        ("allume la télé du salon", None),
                        ("ouvre la télé du salon", "link:télé du salon")):
         got = heard(text)
@@ -166,7 +172,8 @@ def sentences():
                  "allume la lumière de l'accueil",
                  "turn on the light at home",
                  "ok nabu ouvre Jellyfin et allume la lumière",
-                 "allume la lumière du salon", "ouvre Spotify"):
+                 "allume la lumière du salon", "ouvre Spotify",
+                 "ouvrez le volet du salon", "ouvre-moi le portail"):
         got = heard(text)
         check(f"\"{text}\" is left to Home Assistant", got is None, repr(got))
 
