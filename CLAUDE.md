@@ -1779,7 +1779,7 @@ the dashboard, where it is invisible while the keys go on working.
 ahead of the `pip install` as well as the `ADD`s, so a bump refetches
 everything — at the cost of the browser download on each update.
 `present_browser()` prints the Chromium version at startup and warns below 114,
-so this is never diagnosed by guesswork again. Currently **4.25.2**.
+so this is never diagnosed by guesswork again. Currently **4.26.0**.
 
 **The image carried two Playwright browsers and needed one.** `playwright
 install chromium` fetches the full Chromium **and** the headless shell -- 597
@@ -9042,6 +9042,19 @@ and never in front of the bare "accueil" or "home", where it would have made
 "allume la lumière de l'accueil" go home. Four cases fail against 4.25.1;
 "ok nabu, ouvre le volet du salon" and "turn on the light at home" still do
 not match.
+
+**And `voice:` on a link -- 4.26.0 -- because no grammar can guess
+"gelée fine".** That is what the speech engine wrote for "Jellyfin", and the
+user named the cause: *"a cause de la prononciation"*. So the words go on the
+LINK, comma-separated, read off the panel's own `Speech recognised as:` line
+-- the named-thing-on-the-thing-it-belongs-to shape this file has now
+recorded ten times. Each word joins the name in the trigger's alternatives
+(run-together form too) and the id stays `link:<name>`, so nothing past the
+automation changes. A word that is another link's name or word is refused
+and said, since it would open whichever trigger Home Assistant tried first;
+the link's own name spelt apart ("jelly fin") is not a clash. An emoji name
+takes its first word, and `find_link` finds it by that. `voice` is in
+`checkaddon`'s `ITS_OWN`: run.py reads it, no sender does.
 
 ## A byte rate, because a fixed quality makes the rate follow the scene -- 4.21.0
 

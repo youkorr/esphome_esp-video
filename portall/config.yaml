@@ -1,5 +1,5 @@
 name: Portall
-version: "4.25.2"
+version: "4.26.0"
 # Home Assistant identifies an add-on by its slug, so this one moving from
 # usb_display_panel to portall makes the Supervisor see a NEW add-on: options
 # are not carried over and /data starts empty, which means the browser
@@ -369,6 +369,7 @@ schema:
       fps: float?
       max_rate: int(0,20000)?
       user_agent: str?
+      voice: str?
   launcher:
     theme: list(dark|light)?
     columns: int(0,6)?
@@ -413,6 +414,7 @@ schema:
           fps: float?
           max_rate: int(0,20000)?
           user_agent: str?
+          voice: str?
       theme: list(dark|light)?
       columns: int(0,6)?
       align: list(left|center|right)?

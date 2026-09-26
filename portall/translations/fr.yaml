@@ -124,6 +124,10 @@ configuration:
       user_agent:
         name: Se présenter comme…
         description: Rarement utile. Pour YouTube en mode télévision, voir la documentation.
+      voice:
+        name: 🗣️ Autres noms à dire
+        description: 'Pour l''ouvrir à la voix : ce que l''assistant vocal comprend quand vous dites le
+          nom, séparé par des virgules. Par exemple « gelée fine, jelly fin » pour Jellyfin.'
   launcher:
     name: 🎨 3 · Apparence de la page de liens
     description: Couleurs, horloge, météo, fond d'écran. S'applique à tous les écrans ; un écran peut
@@ -260,6 +264,10 @@ configuration:
           user_agent:
             name: Se présenter comme…
             description: Rarement utile. Pour YouTube en mode télévision, voir la documentation.
+          voice:
+            name: 🗣️ Autres noms à dire
+            description: 'Pour l''ouvrir à la voix : ce que l''assistant vocal comprend quand vous dites
+              le nom, séparé par des virgules. Par exemple « gelée fine, jelly fin » pour Jellyfin.'
       theme:
         name: Thème
         description: Sombre (dark) ou clair (light).
