@@ -1779,7 +1779,7 @@ the dashboard, where it is invisible while the keys go on working.
 ahead of the `pip install` as well as the `ADD`s, so a bump refetches
 everything — at the cost of the browser download on each update.
 `present_browser()` prints the Chromium version at startup and warns below 114,
-so this is never diagnosed by guesswork again. Currently **4.25.0**.
+so this is never diagnosed by guesswork again. Currently **4.25.1**.
 
 **The image carried two Playwright browsers and needed one.** `playwright
 install chromium` fetches the full Chromium **and** the headless shell -- 597
@@ -9010,6 +9010,21 @@ page. Against the previous sender it fails three cases now. **Not run against
 a real Home Assistant**: what is not proved is HA accepting the automation's
 exact shape (the `triggers`/`actions` keys, `set_conversation_response` as a
 template); a refusal is logged with HA's own message.
+
+**"Ouvre YouTube" worked and "ouvre Home Assistant" did not -- 4.25.1.** The
+LLM answered instead, and that alone says no trigger matched: the pipeline
+tries sentence triggers BEFORE any conversation agent, LLM or not, whatever
+`prefer_local_intents` says (`default_pipeline.py`, read in HA's own tree).
+The plain sentence matches through hassil, so the fault is what the speech
+engine wrote: a two-word English name in French speech comes out as
+"l'Home Assistant", "HomeAssistant", "la page de Home Assistant" or with a
+"s'il te plaît" on the end, and each missed. The template now takes `l'`, a
+run-together form of a name with spaces, optional fillers (la page,
+l'application, l'appli, l'interface, le site, l'écran, then de/du/d') and
+politeness after. Five cases in `checkvoicelinks.py` fail against 4.25.0.
+**Not settled**: the panel's own `Speech recognised as:` line was not seen, so
+which of these it was -- or a mishearing like "homme assistant" that no
+grammar can guess -- is still one log line away.
 
 ## A byte rate, because a fixed quality makes the rate follow the scene -- 4.21.0
 
