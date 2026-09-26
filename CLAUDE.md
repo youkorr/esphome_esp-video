@@ -1779,7 +1779,7 @@ the dashboard, where it is invisible while the keys go on working.
 ahead of the `pip install` as well as the `ADD`s, so a bump refetches
 everything — at the cost of the browser download on each update.
 `present_browser()` prints the Chromium version at startup and warns below 114,
-so this is never diagnosed by guesswork again. Currently **4.26.0**.
+so this is never diagnosed by guesswork again. Currently **4.26.1**.
 
 **The image carried two Playwright browsers and needed one.** `playwright
 install chromium` fetches the full Chromium **and** the headless shell -- 597
@@ -8915,6 +8915,18 @@ The resting lift is a class on the box and a transform on a wrapping `<g>`
 with no transition, so it snaps both ways like a blink: `checkavatar.py`'s
 cost case reads 9 changed pictures in 15 s of a still launcher with it.
 `sad` and `sleepy` are untouched -- nothing produces them.
+
+**Their shape then came from the household's own LVGL face (4.26.1)**, asked
+as *"regarde les sourcils de avatar que j'avais modifie en lvgl, ils sont
+mieux"* -- `youkorr/esphome-lvgl-kawaii`, branch
+`claude/lvgl-kawaii-face-bugs-j225qm`, `draw_eye()`: a brow 0.9 of the eye's
+width, a stroke of fs(4) (a tenth of the eye), fs(6) above the eye. Ours were
+30 x 5 on a 28-wide eye, set 10 units above it. The gap is measured from the
+eye's TOP, because this eye is 28 x 36 and theirs is round: taken from the
+centre as they do, the brow lands on the eye. `thinking` keeps its tilt and
+drops its 3 px lowering, since theirs has room only because working_hard
+narrows the eye to 65 percent; a squashed eye was tried and squashes the iris.
+Compared as rendered, four moods, before and after.
 
 ### Voice first, then YouTube, rebooted the panel: a refused mixer source, started fifty times a second
 

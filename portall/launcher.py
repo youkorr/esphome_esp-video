@@ -1099,7 +1099,17 @@ AVATAR_CSS = """
     135 px reference face, which is 0.74 of a unit on this 100-unit one. Its
     left brow at +A tilts clockwise and its right brow at +A the other way,
     so the pair is written rotate(L) and rotate(-R). Their colour is the
-    original's for a dark panel, rgb(122,137,160). */
+    original's for a dark panel, rgb(122,137,160).
+
+    Their SHAPE is the household's own LVGL face
+    (youkorr/esphome-lvgl-kawaii, lvgl_kawaii_face.c), which they preferred:
+    nine tenths of the eye's width, a stroke a tenth of it, and a gap above
+    the eye of fs(6) on its 135 px reference. Measured from the eye's TOP
+    here rather than its centre, because this eye is taller than it is wide
+    and theirs is round -- from the centre the brow would sit on the eye.
+    Thinking keeps its tilt and not its drop: that face also narrows its eye
+    to two thirds, which leaves the room, and this one's eye stays open -- lowered,
+    the brow would rest on it. */
  #av[data-mood="happy"] .brow.l { transform: translateY(-3.7px) rotate(-2deg); }
  #av[data-mood="happy"] .brow.r { transform: translateY(-3.7px) rotate(2deg); }
  #av[data-mood="surprised"] .brow { transform: translateY(-7.4px); }
@@ -1107,7 +1117,7 @@ AVATAR_CSS = """
  #av[data-mood="surprised"] .o { opacity: 1; }
  #av[data-mood="thinking"] .look { transform: translate(4px, -5px); }
  #av[data-mood="thinking"] .brow {
-   transform: translateY(3px) rotate(10.6deg);
+   transform: rotate(10.6deg);
  }
  #av[data-mood="thinking"] .mouth { d: path("M66 78 Q75 78 86 75"); }
  #av[data-mood="sleepy"] .eye { transform: scaleY(.25); }
@@ -1121,10 +1131,10 @@ AVATAR_CSS = """
 # is its own group, so an expression is a class on the box and nothing more.
 AVATAR_HTML = """<div id="av" data-mood="neutral" aria-hidden="true">
 <svg viewBox="0 0 150 100">
- <g class="lift l"><rect class="brow l" x="30" y="17" width="30" height="5"
-  rx="2.5" fill="#7a89a0"/></g>
- <g class="lift r"><rect class="brow r" x="90" y="17" width="30" height="5"
-  rx="2.5" fill="#7a89a0"/></g>
+ <g class="lift l"><rect class="brow l" x="32.4" y="24.5" width="25.2" height="3"
+  rx="1.5" fill="#7a89a0"/></g>
+ <g class="lift r"><rect class="brow r" x="92.4" y="24.5" width="25.2" height="3"
+  rx="1.5" fill="#7a89a0"/></g>
  <g class="eye">
   <rect x="31" y="30" width="28" height="36" rx="12" fill="#f4f7fb"/>
   <g class="look"><circle cx="45" cy="50" r="10" fill="#3b9eff"/>
