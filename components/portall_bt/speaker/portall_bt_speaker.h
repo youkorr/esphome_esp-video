@@ -52,7 +52,19 @@ class PortallBTSpeaker : public Component, public speaker::Speaker {
 
   void set_parent(PortallBT *parent) { this->parent_ = parent; }
 
+  void loop() override;
+
+  /* Takes only what fits, and says how much -- which is what every ESPHome
+   * speaker does and what this one did not. It used to accept everything:
+   * right for the page's sound, which arrives in real time from the network,
+   * and wrong for an announcement, which a FLAC decoder produces as fast as
+   * it can. The ring kept a tenth of a second of it and the rest was thrown
+   * away, so the answer reached the car in fragments and sounded too fast.
+   * Now the caller keeps what did not fit and offers it again. */
   size_t play(const uint8_t *data, size_t length) override;
+#ifdef USE_ESP32
+  size_t play(const uint8_t *data, size_t length, TickType_t ticks_to_wait) override;
+#endif
   void start() override;
   void stop() override;
   bool has_buffered_data() const override;
@@ -86,6 +98,14 @@ class PortallBTSpeaker : public Component, public speaker::Speaker {
    * goes out twice, 4 when it is already stereo -- and it is the unit the
    * carry above is kept in. */
   void play_frames_(const uint8_t *data, size_t length, uint8_t in_frame);
+  /// play() with a wait, counted in ticks, for room in the ring.
+  size_t play_waiting_(const uint8_t *data, size_t length, uint32_t ticks_to_wait);
+  /* Frames this speaker threw away itself -- nothing paired to send them to --
+   * reported in loop() with the ones Bluedroid took, for the same reason: a
+   * caller counting frames it handed on must see every one of them come
+   * back, played or not, or it never finishes. Written on the caller's task,
+   * read on the loop. */
+  std::atomic<uint32_t> dropped_frames_{0};
   /// Write one A2DP frame, with the gain applied, and return the bytes used.
   size_t emit_frame_(uint8_t *out, const uint8_t *in, uint8_t in_frame) const;
   /// A 16-bit sample with volume and mute applied.

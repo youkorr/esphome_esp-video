@@ -8805,6 +8805,56 @@ mixer takes it to the dongle's 44100, which is the path their panel already
 plays through. Validated at 2026.8.2 and dev, codegen at 2026.8.2. **Not run
 on a board**, and the microphone's slot is the same unknown as before.
 
+### The answer played too fast and never ended: the Bluetooth speaker owed its caller two things
+
+**Reported from the first run where Assist understood the question: *"il
+essaie de me repondre mais audio est mauvais ou rapide et le lecteur media
+player reste bloquer sur lecture"*.** The board's log was clean -- `Reading
+FLAC file type`, `1 channels, 48000 Hz`, `audio stream started` -- and the
+media player sat in `ANNOUNCING` for good. Both faults were in
+`PortallBTSpeaker`, and both were invisible until something other than the
+page played through it.
+
+- **`play()` accepted everything.** Right for the page's sound, which arrives
+  in real time off the network; wrong for an announcement, which a FLAC
+  decoder produces as fast as it can. The ring kept a tenth of a second
+  (`PCM_HIGH_WATER`) and the consumer skipped the rest, so the answer reached
+  the car as fragments -- "too fast". An ESPHome speaker applies back-pressure
+  by returning what it TOOK; `play()` now takes up to the high-water mark,
+  waits a tick at a time up to the caller's `ticks_to_wait` (the resampler
+  passes one), and the caller offers the rest again.
+- **Nothing ever reported a frame played.** `MixerSpeaker`'s source counts
+  `pending_playback_frames_` and leaves RUNNING only when that count is zero
+  (`mixer_speaker.cpp`, read at 2026.8.2), and it is decremented only by the
+  output speaker's `audio_output_callback_`. This speaker never called it, so
+  an announcement could not finish. `fill_pcm` now counts the frames the
+  encoder takes (skipped ones too -- they will never be played either) and the
+  speaker's `loop()` reports them, from the loop rather than from Bluedroid's
+  task, whose stack nobody downstream was written for. Frames dropped with
+  nothing connected are reported the same way, and `has_buffered_data()` is
+  false with nothing connected, or a disconnection mid-answer would hang the
+  player instead.
+
+A caller waiting for room also counts as being fed, so a stream suspended for
+quiet is restarted rather than leaving a full ring and a waiting caller.
+
+`tools/bttest/speaker.cpp` offers three seconds of a ramp the way the
+resampler does while draining in Bluedroid's 512-byte reads, and requires
+every sample once and in order; then counts the callback. **Against the
+flashed component, four cases fail**, both reported symptoms among them.
+The stand-in `speaker.h` gained the tick overload and the output callback,
+which it had left out as "not touched" -- true until it was the fault.
+
+The same round moved `yaml/guition-voice-bluetooth.yaml` onto the layout of
+ESPHome's own voice assistants (`esphome/wake-word-voice-assistants`,
+esp32-s3-box-3.yaml): the wake word started on `on_client_connected`, stopped
+by a detection, started again on `on_end` once the announcement is over,
+`voice_assistant.start` given the phrase, and `noise_suppression_level`,
+`auto_gain` and `volume_multiplier` as they set them. `esphome config` at
+2026.8.2 and dev, codegen at 2026.8.2. **Not heard on a board.** The first
+question was transcribed as *"Qu'attend peut-il ?"*, which is the microphone
+half still unproven -- `channel: left` stays the one line to try.
+
 ## A byte rate, because a fixed quality makes the rate follow the scene -- 4.21.0
 
 **Reported after hours of YouTube at quality 50 and 30 pictures a second:

@@ -343,10 +343,12 @@ uint32_t PortallBT::fill_pcm(uint8_t *buf, uint32_t len) {
    * this path is willing to add, so it is skipped -- in whole frames, from
    * the index this task owns. The producer never touches it. */
   uint32_t used = pcm_used(g_pcm_head, tail);
+  uint32_t skipped = 0;
   if (used > PCM_HIGH_WATER) {
     const uint32_t skip = (used - PCM_HIGH_WATER) / A2DP_BYTES_PER_FRAME * A2DP_BYTES_PER_FRAME;
     tail = (tail + skip) % PCM_RING;
     this->pcm_dropped_ += skip;
+    skipped = skip;
     used -= skip;
   }
 
@@ -363,6 +365,12 @@ uint32_t PortallBT::fill_pcm(uint8_t *buf, uint32_t len) {
     tail = (tail + run) % PCM_RING;
   }
   g_pcm_tail = tail;
+  /* Reported to the speaker as played. Skipped frames count too: they have
+   * left the ring and never will be, and a mixer source waiting for its count
+   * to come back to zero would otherwise wait for ever for sound that was
+   * dropped. Silence and the test tone below are not anybody's frames. */
+  if (take + skipped != 0)
+    this->pcm_played_frames_.fetch_add((take + skipped) / A2DP_BYTES_PER_FRAME);
 
   if (written < len && this->test_tone_hz_ != 0) {
     // A sine, in frames rather than bytes, so the two channels cannot drift
@@ -482,6 +490,24 @@ void PortallBT::feed_audio(const uint8_t *data, uint32_t len) {
   (void) len;
 #endif
 }
+
+uint32_t PortallBT::pcm_room() const {
+#if defined(CONFIG_BT_BLUEDROID_ENABLED) && defined(CONFIG_BT_A2DP_ENABLE)
+  /* Up to the high-water mark and no further. The mark is the latency this
+   * path is willing to add, so filling past it only hands the consumer
+   * sound to skip; stopping here is what makes a caller that waits lose
+   * nothing at all. Whole frames, like everything else in the ring. */
+  const uint32_t used = pcm_used(g_pcm_head, g_pcm_tail);
+  if (used >= PCM_HIGH_WATER)
+    return 0;
+  return (PCM_HIGH_WATER - used) / A2DP_BYTES_PER_FRAME * A2DP_BYTES_PER_FRAME;
+#else
+  // Nothing is built to drain it, so nothing should ever wait on it.
+  return UINT32_MAX / 2;
+#endif
+}
+
+void PortallBT::note_waiting_to_play() { this->pcm_fed_at_ = millis(); }
 
 uint32_t PortallBT::pcm_queued() const {
 #if defined(CONFIG_BT_BLUEDROID_ENABLED) && defined(CONFIG_BT_A2DP_ENABLE)

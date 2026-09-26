@@ -4,6 +4,7 @@
 #include "esphome/core/automation.h"
 #include "esphome/core/preferences.h"
 
+#include <atomic>
 #include <functional>
 #include <new>
 #include <string>
@@ -275,6 +276,28 @@ class PortallBT : public Component {
   /// How many bytes are waiting to be encoded. The speaker platform answers
   /// has_buffered_data() with this.
   uint32_t pcm_queued() const;
+  /* The two halves an ESPHome speaker owes its caller, and the reason both
+   * exist is an answer that played too fast and a media player that never
+   * left "playing".
+   *
+   * pcm_room() is how many bytes may be added before the ring passes its
+   * high-water mark, so the speaker can refuse the rest and let its caller
+   * wait -- the way every ESPHome speaker applies back-pressure. Without it an
+   * announcement, which a FLAC decoder produces far faster than real time,
+   * was accepted whole and then mostly thrown away above the mark, and what
+   * reached the car was fragments: the answer "too fast".
+   *
+   * take_played_frames() is how many frames Bluedroid has taken since it was
+   * last asked, which the speaker reports through its audio output callback.
+   * A mixer source counts the frames it hands on and finishes only when that
+   * count comes back to zero -- so with nothing reporting, an announcement
+   * never finished and the media player stayed "playing" for ever. */
+  uint32_t pcm_room() const;
+  uint32_t take_played_frames() { return this->pcm_played_frames_.exchange(0); }
+  /// Somebody has sound and is waiting for room. Counts as being fed, so a
+  /// stream suspended for quiet is asked to start again rather than leaving
+  /// a full ring and a waiting caller with nothing to drain either.
+  void note_waiting_to_play();
   /// Whether a sink is connected. PCM handed over with nothing at the other
   /// end has nowhere to go, and a speaker platform that says so in its own
   /// log is better than one that quietly fills a ring for ever.
@@ -602,6 +625,8 @@ class PortallBT : public Component {
   uint16_t test_tone_hz_{0};
   uint32_t pcm_starved_{0};
   uint32_t pcm_dropped_{0};
+  // Written on Bluedroid's A2DP task, read on the ESPHome loop.
+  std::atomic<uint32_t> pcm_played_frames_{0};
   float media_volume_{1.0f};
   bool media_volume_fresh_{false};
   std::vector<Trigger<uint8_t, bool> *> media_key_triggers_;

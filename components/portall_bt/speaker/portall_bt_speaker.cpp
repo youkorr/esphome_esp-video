@@ -7,6 +7,10 @@
 #include <cinttypes>
 #include <cstring>
 
+#include <esp_timer.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
+
 namespace esphome {
 namespace portall_bt {
 
@@ -47,10 +51,33 @@ void PortallBTSpeaker::stop() {
 }
 
 bool PortallBTSpeaker::has_buffered_data() const {
-  return this->parent_ != nullptr && this->parent_->pcm_queued() > 0;
+  // With nothing connected nobody will ever drain what is left, and a caller
+  // waiting for it to empty would wait for ever.
+  return this->parent_ != nullptr && this->parent_->speaker_connected() && this->parent_->pcm_queued() > 0;
 }
 
-size_t PortallBTSpeaker::play(const uint8_t *data, size_t length) {
+/* Reported from the loop rather than from Bluedroid's task, where the frames
+ * are really taken: the callbacks behind this are a resampler's, a mixer's
+ * and a media player's, and none of them was written to run on a Bluetooth
+ * stack's own task and stack. A loop's worth of delay is nothing against the
+ * seconds an announcement lasts. */
+void PortallBTSpeaker::loop() {
+  if (this->parent_ == nullptr)
+    return;
+  const uint32_t frames = this->parent_->take_played_frames() + this->dropped_frames_.exchange(0);
+  if (frames != 0)
+    this->audio_output_callback_(frames, esp_timer_get_time());
+}
+
+size_t PortallBTSpeaker::play(const uint8_t *data, size_t length) { return this->play_waiting_(data, length, 0); }
+
+#ifdef USE_ESP32
+size_t PortallBTSpeaker::play(const uint8_t *data, size_t length, TickType_t ticks_to_wait) {
+  return this->play_waiting_(data, length, (uint32_t) ticks_to_wait);
+}
+#endif
+
+size_t PortallBTSpeaker::play_waiting_(const uint8_t *data, size_t length, uint32_t ticks_to_wait) {
   if (this->parent_ == nullptr || data == nullptr || length == 0)
     return length;
 
@@ -75,6 +102,8 @@ size_t PortallBTSpeaker::play(const uint8_t *data, size_t length) {
                     "portall_bt.pair action.");
     }
     this->carry_len_ = 0;
+    const uint8_t unit = (uint8_t) (this->audio_stream_info_.get_channels() >= 2 ? 4 : 2);
+    this->dropped_frames_.fetch_add((uint32_t) (length / unit));
     return length;
   }
   this->said_nowhere_ = false;
@@ -103,8 +132,32 @@ size_t PortallBTSpeaker::play(const uint8_t *data, size_t length) {
     }
   }
 
-  this->play_frames_(data, length, this->audio_stream_info_.get_channels() >= 2 ? 4 : 2);
-  return length;
+  const uint8_t in_frame = this->audio_stream_info_.get_channels() >= 2 ? 4 : 2;
+
+  /* How many whole A2DP frames fit, waiting a tick at a time for the encoder
+   * to make room -- up to what the caller allowed, never longer. Every frame
+   * that goes into the ring is four bytes whatever arrived, so the room is
+   * counted in frames and turned back into the caller's bytes. */
+  uint32_t frames = this->parent_->pcm_room() / 4;
+  for (uint32_t waited = 0; frames == 0 && waited < ticks_to_wait; waited++) {
+    vTaskDelay(1);
+    frames = this->parent_->pcm_room() / 4;
+  }
+  if (frames == 0) {
+    // The caller keeps it and offers it again. A stream suspended for quiet
+    // must hear that there is sound, or the ring never drains.
+    this->parent_->note_waiting_to_play();
+    return 0;
+  }
+
+  /* The first frame may be partly in the carry already, so it costs fewer of
+   * the caller's bytes. Taking exactly this many leaves the carry empty and
+   * the grid where it was. */
+  size_t take = (size_t) frames * in_frame - this->carry_len_;
+  if (take > length)
+    take = length;
+  this->play_frames_(data, take, in_frame);
+  return take;
 }
 
 void PortallBTSpeaker::set_volume(float volume) {

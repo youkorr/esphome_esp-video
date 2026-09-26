@@ -9,13 +9,15 @@
  * that cannot build pass the only C++ check this repository has -- which is
  * the fault ESP_HIDH_DATA_IND_EVT's invented report id nearly became.
  *
- * Left out: the TickType_t overload (behind USE_ESP32 in the real header and
- * not overridden here), the audio_dac hooks and the output callback, none of
- * which portall_bt's speaker touches. */
+ * Left out: the audio_dac hooks. The output callback is in: it is how a mixer source
+ * learns its frames were played, and leaving it out once meant an
+ * announcement that never finished. */
 #include <cstddef>
 #include <cstdint>
 #include <vector>
 
+#include <freertos/FreeRTOS.h>
+#include "esphome/core/helpers.h"
 #include "esphome/components/audio/audio.h"
 
 namespace esphome {
@@ -30,6 +32,11 @@ enum State : uint8_t {
 
 class Speaker {
  public:
+#ifdef USE_ESP32
+  virtual size_t play(const uint8_t *data, size_t length, TickType_t ticks_to_wait) {
+    return this->play(data, length);
+  }
+#endif
   virtual size_t play(const uint8_t *data, size_t length) = 0;
   size_t play(const std::vector<uint8_t> &data) { return this->play(data.data(), data.size()); }
 
@@ -56,11 +63,16 @@ class Speaker {
   }
   audio::AudioStreamInfo &get_audio_stream_info() { return this->audio_stream_info_; }
 
+  template<typename F> void add_audio_output_callback(F &&callback) {
+    this->audio_output_callback_.add(std::forward<F>(callback));
+  }
+
  protected:
   State state_{STATE_STOPPED};
   audio::AudioStreamInfo audio_stream_info_;
   float volume_{1.0f};
   bool mute_state_{false};
+  CallbackManager<void(uint32_t, int64_t)> audio_output_callback_{};
 };
 
 }  // namespace speaker
