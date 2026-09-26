@@ -1,0 +1,2643 @@
+substitutions:
+  name: lvgl-kawaii-face
+  friendly_name: LVGL_Kawaii_Face
+  background_color: 0x000000
+  text_color: 0xFFFFFF
+  text_color_secondary: 0x767676
+
+  micro_wake_word_model: okay_nabu
+
+  cam_enable_xclk: "false"
+  cam_xclk_pin: GPIO36
+
+
+  allowed_characters: " []¿?¡!#%'()+,-—_./:µ³°ªº0123456789ABCDEFGHIJKLMNÑOPQRSTUVWXYZabcdefghijklmnñopqrstuvwxyzáéíóúÁÉÍÓÚäëïöüàâçèêîôùûÀÂÇÈÊÎÔÙÛ"
+  font_glyphsets: "GF_Latin_Core"
+  
+  # for Greek use "Noto Sans" for other languages use a compatible font family
+  font_family: Figtree  
+  
+
+  frigate: 
+ 
+  media_player_entity: "media_player.waveshare_esp32_p4_media_player"
+  weather_entity: weather.forecast_maison #weather
+
+
+
+  # Ken Burns animation parameters
+  anim_duration_ms: "3000"   # Duration of one zoom+pan phase (ms)
+  zoom_start: "256"          # 1.0x (Pas de zoom au début)
+  zoom_end: "332"            # ~1.3x (Zoom maximum à l'arrivée         # ~1.4x (256 * 1.4 = 358)
+  pan_range_x: "200"   # pixels to pan on X axis 160
+  pan_range_y: "90"          # pixels to pan on Y axis 90
+  
+  power_icon:        "\U0000e909"
+  play_icon:         "\U0000e90a"
+  pause_icon:        "\U0000e90b"
+  back_step_icon:    "\U0000e90c"
+  forward_step_icon: "\U0000e90d"
+  volume_off_icon:   "\U0000e90e"
+  volume_on_icon:    "\U0000e90f"
+  volume_minus_icon: "\U0000e910"
+  volume_plus_icon:  "\U0000e911"
+  repeat_all_icon:   "\U0000e912"
+  repeat_off_icon:   "\U0000e913"
+  repeat_one_icon:   "\U0000e914"
+  ha:                "\U0000e90b" # home assistant
+  ha_icon:           "\U000F07D0" # home assistant
+  humidity:          "\U0000e912" # humidity
+  humidity_icon:     "\U0000e938" 
+  temperature:       "\U0000e915" # temperature
+  temperature_icon:  "\U0000e939" 
+  tvoc:              "\U0000e914" # air quality
+  co2:               "\U0000e913" # co2
+  door:              "\U000F081A"
+  garage:            "\U000F06D9"
+  shutter:           "\U000F1A8B"
+  setting:           "\U000F08D6"
+  alarm:             "\U000F0BC4"
+  exit_icon:         "\U0000e902"
+  recognition:       "\U000F0C7B"
+  vlc:               "\U000F057C"
+  youtube:           "\U000F05C3"
+  application:       "\U000F0675"
+  call:              "\U000F0919" 
+ 
+
+  settings_icon:                 "\U0000e903"
+  info_icon:                     "\U0000e904"
+  devices_icon:                  "\U0000e905"
+  home_icon:                     "\U0000e906"
+  ceiling_icon:                  "\U0000e907"
+  lightbulb_icon:                "\U0000e908"
+  spotlight_group_icon:          "\U0000e915"
+  desk_lamp_icon:                "\U0000e916"
+  pendant_lamp_icon:             "\U0000e917" 
+  ceiling_lamp_icon:             "\U0000e918"
+  ceiling_lamp_variant_icon:     "\U0000e921"
+  night_lamp_icon:               "\U0000e919"
+  swipe_icon:                    "\U0000e91a"
+  brightness_icon:               "\U0000e900"
+ 
+
+  voice_assist_idle_phase_id: "1"
+  voice_assist_listening_phase_id: "2"
+  voice_assist_thinking_phase_id: "3"
+  voice_assist_replying_phase_id: "4"
+  voice_assist_not_ready_phase_id: "10"
+  voice_assist_error_phase_id: "11"
+  voice_assist_muted_phase_id: "12"
+  voice_assist_timer_finished_phase_id: "20"
+
+  loading_illustration_background_color: "000000"
+  idle_illustration_background_color: "000000"
+  listening_illustration_background_color: "FFFFFF"
+  thinking_illustration_background_color: "FFFFFF"
+  replying_illustration_background_color: "FFFFFF"
+  error_illustration_background_color: "000000"
+  timer_illustration_background_color: "FFFFFF"
+  
+  alarm_panel_entity:   "alarm_control_panel.alarmo" #"alarm_control_panel.security"
+  pin_code:             "1169"
+
+  unlock_pin_code: "1169" 
+
+  shield_home_icon:      "\U000F068A" # home
+  shield_away_icon:      "\U000F099D" # away
+  shield_night_icon:     "\U000F1828" # night
+  shield_vacation_icon:  "\U000F06BB" # vacation
+  shield_disarm_icon:    "\U000F099E" # disarmed
+  shield_arming_icon:    "\U000F0498" # arming
+  micro_sd:              "\U000F07DC"
+
+esphome:
+  name: lvgl-kawaii-face
+  friendly_name: lvgl-kawaii-face
+  #includes:
+    #- esp_wifi_tune.h 
+  on_boot:
+    priority: 850
+    then:
+      - logger.log: "Démarrage - Attente du montage de la carte SD..."
+      - delay: 5s
+      - logger.log: "Délai écoulé - Allumage du rétroéclairage"
+      - light.turn_on: backlight
+      # Démarrer le flux vidéo. Indispensable : face_detection attend le flux
+      # mais ne le lance pas (if (!camera_->is_streaming()) return;), et les
+      # dimensions de l'image ne sont renseignées qu'une fois le flux actif —
+      # d'où le "image 0x0" tant que personne ne l'a démarré.
+      - esp_cam_sensor.start_streaming:
+          id: tab5_cam
+      - delay: 500ms
+      # État caméra + FORMAT RÉEL des pixels. face_detection passe le buffer
+      # à esp-dl en DL_IMAGE_PIX_TYPE_RGB565 : si la caméra délivre du JPEG,
+      # l'inférence analyse des octets compressés et ne trouvera jamais rien.
+      # Un JPEG commence par FF D8 FF ; du RGB565 brut, non. Cette sonde
+      # tranche, là où « 0 visage » ne dit pas pourquoi.
+      - lambda: |-
+          const char *T = "kawaii.follow";
+          int w = id(tab5_cam).get_image_width();
+          int h = id(tab5_cam).get_image_height();
+          ESP_LOGI(T, "caméra au boot : %dx%d", w, h);
+
+          auto *buf = id(tab5_cam).acquire_buffer();
+          if (buf == nullptr) {
+            ESP_LOGW(T, "aucun buffer disponible — le flux ne tourne pas encore");
+          } else {
+            uint8_t *d = id(tab5_cam).get_buffer_data(buf);
+            if (d == nullptr) {
+              ESP_LOGW(T, "buffer sans données");
+            } else {
+              ESP_LOGI(T, "premiers octets : %02X %02X %02X %02X", d[0], d[1], d[2], d[3]);
+              if (d[0] == 0xFF && d[1] == 0xD8)
+                ESP_LOGE(T, "-> JPEG. La détection ne verra JAMAIS de visage. "
+                            "Mets pixel_format: RGB565 dans esp_cam_sensor.");
+              else
+                ESP_LOGI(T, "-> pixels bruts : format compatible avec esp-dl.");
+            }
+            id(tab5_cam).release_buffer(buf);
+          }
+
+
+
+esp32:
+  #variant: esp32p4
+  flash_size: 32MB
+  board: esp32-p4-evboard
+  cpu_frequency: 360MHz
+  engineering_sample: true
+  framework:
+    type: esp-idf
+    advanced:
+      enable_idf_experimental_features: true
+      disable_vfs_support_dir: false
+      #loop_task_stack_size: "16384" #"32768"
+      #disable_fatfs: False
+      include_builtin_idf_components:
+        - fatfs
+        - wear_levelling
+    sdkconfig_options:
+
+      CONFIG_COMPILER_OPTIMIZATION_PERF: y        # perf plutôt que taille
+      #CONFIG_CACHE_L2_CACHE_128KB: y              # + de cache L2
+      CONFIG_SPIRAM_XIP_FROM_PSRAM: y             # soulage le bus flash
+      #CONFIG_LCD_DSI_ISR_IRAM_SAFE: y             # pas de glitch DSI
+      CONFIG_GDMA_ISR_IRAM_SAFE: y    
+      
+      CONFIG_ESP_HOSTED_MEMPOOL_PREFER_SPIRAM: "y"
+      CONFIG_ESP_TASK_WDT_EN: "10"
+
+      CONFIG_SPIRAM_FETCH_INSTRUCTIONS: "n"
+      CONFIG_SPIRAM_RODATA: "n"
+      CONFIG_ESP32_SPIRAM_SUPPORT: "y"
+      CONFIG_SPIRAM_USE_MALLOC: "y"
+      CONFIG_FATFS_LFN_STACK: "y"
+      CONFIG_LWIP_SO_RCVBUF: "y"
+      CONFIG_LWIP_MAX_SOCKETS: "16"
+      CONFIG_VFS_SUPPORT_IO: "y"
+      CONFIG_VFS_MAX_COUNT: "16" 
+      CONFIG_ESP_MAIN_TASK_STACK_SIZE: "16384"
+      CONFIG_ESP_TIMER_TASK_STACK_SIZE: "4096"
+      #CONFIG_ESP_TASK_WDT_TIMEOUT_S: "60"
+      CONFIG_ESP_TASK_LOOP_STACK_SIZE: "16384"
+      CONFIG_FATFS_LFN_HEAP: "y"
+      #DCONFIG_USE_AUDIO_AAC_SUPPORT: "y"
+      DCONFIG_ESP_JPG_DECODE_ENABLE: "y"
+      DCONFIG_ESPHOME_ENABLE_PNGLE: "1"
+      CONFIG_SPIRAM_SPEED_200M: "y"  # ← NOUVEAU: 200 MHz au lieu de défaut
+      CONFIG_SPIRAM_SPEED: "200"
+
+      # Buffers WiFi distant (C6) + agrégation AMPDU = gros gain d'efficacité
+      CONFIG_WIFI_RMT_STATIC_RX_BUFFER_NUM: "16"
+      CONFIG_WIFI_RMT_DYNAMIC_RX_BUFFER_NUM: "64"
+      CONFIG_WIFI_RMT_DYNAMIC_TX_BUFFER_NUM: "64"
+      CONFIG_WIFI_RMT_AMPDU_TX_ENABLED: "y"
+      CONFIG_WIFI_RMT_TX_BA_WIN: "32"
+      CONFIG_WIFI_RMT_AMPDU_RX_ENABLED: "y"
+      CONFIG_WIFI_RMT_RX_BA_WIN: "32"
+      ## Buffers lwIP (UDP surtout pour toi)
+      CONFIG_LWIP_UDP_RECVMBOX_SIZE: "64"
+      CONFIG_LWIP_TCPIP_RECVMBOX_SIZE: "64"
+      CONFIG_LWIP_TCP_RECVMBOX_SIZE: "64"
+      CONFIG_LWIP_TCP_SND_BUF_DEFAULT: "65534"
+      CONFIG_LWIP_TCP_WND_DEFAULT: "65534"
+      CONFIG_LWIP_TCP_SACK_OUT: "y"   
+
+logger:
+
+api:
+  encryption:
+    key: ""
+
+ota:
+  - platform: esphome
+psram:
+  mode: hex
+  speed: 200MHz
+  
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  ap:
+    ssid: LVGL_Kawaii_Fac Fallback Hotspot
+    password: ""
+
+captive_portal:
+
+http_request:
+
+time:
+  - platform: homeassistant
+    id: ha_time
+    on_time:
+      - hours: 7
+        minutes: 0
+        then:
+          - lvgl_kawaii_face.set_emotion: { id: face, emotion: happy }
+      - hours: 13
+        minutes: 0
+        then:
+          - lvgl_kawaii_face.set_emotion: { id: face, emotion: cool }
+      - hours: 22
+        minutes: 30
+        then:
+          - lvgl_kawaii_face.set_emotion: { id: face, emotion: sleepy }  
+
+
+external_components:
+  - source:
+      type: git
+      url: https://github.com/youkorr/esphome-lvgl-kawaii
+      ref: claude/lvgl-kawaii-face-bugs-j225qm
+    components: [lvgl_kawaii_face]
+    refresh: 0s
+
+  - source:
+      type: git
+      url: https://github.com/youkorr/lvgl_9.5
+      ref: claude/jolly-lamport-ERZOC #claude/mit-license-face-to-face-p9fc6m  #lvgl-ppa-msync-fix #claude/jolly-lamport-ERZOC  #6dc5b02f3e6940e782d12fd6748154c0c384272d #claude/jolly-lamport-ERZOC  #claude/fix-lottie-esp32-crash-K7tM1 #claude/fix-lottie-esp32-crashes-8gqrJ #claude/fix-lottie-esp32-crash-vVG5Y #claude/fix-lottie-esp32-crashes-8gqrJ #claude/investigate-pr-conflicts-jyqoy #claude/add-lvgl-example-GJsCN #claude/create-sphere-BVofQ # claude/home-assistant-integration-6apll
+    components: [lvgl, font]
+    refresh: 0s   
+  - source:
+      type: git
+      url: https://github.com/youkorr/esphome_esp-video
+      ref: claude/usb-uvc-consumer-integration-gnbflf
+    components: [esp_video, esp_cam_sensor, lvgl_camera_display]
+    refresh: 0s
+
+  - source:
+      type: git
+      url: https://github.com/youkorr/face_detection
+      ref:  claude/esphome-face-detection-mit-71f1lr
+    components: [face_detection]
+    refresh: 0s  
+  - source:
+      type: git
+      url: https://github.com/youkorr/sd_mmc_card
+      ref: main
+    components: [sd_mmc_card, storage, webdavbox3]
+    refresh: 0s 
+
+
+
+lvgl_camera_display:
+  id: camera_display
+  camera_id: tab5_cam
+  canvas_id: camera_canvas
+  update_interval: 33ms 
+    
+# ============================================================================
+# webdavbox3
+# ============================================================================    
+webdavbox3:
+  id: sd_cards
+  root_path: "/sdcard"
+  url_prefix: "/"
+  port: 81
+  username: "youkorr"
+  password: "youkorr"
+
+
+#ppa_accelerator:
+  #id: ppa
+
+# ============================================================================
+# sd_mmc_card
+# ===========================================================================
+sd_mmc_card:
+  id: sd_card
+  clk_pin: GPIO43
+  cmd_pin: GPIO44
+  data0_pin: GPIO39
+  data1_pin: GPIO40
+  data2_pin: GPIO41
+  data3_pin: GPIO42
+  mode_1bit: false
+  slot: 0
+# ============================================================================
+# ============================================================================
+# Storage
+# ===========================================================================
+
+storage:
+  platform: sd_direct
+  id: my_storage
+  sd_component: sd_card
+  root_path: /sdcard
+  sd_images:
+    - id: peaceful
+      file_path: /jpg/peaceful.jpg
+      format: rgb565
+      byte_order: little_endian  
+
+
+
+    - id: exploration
+      file_path: /jpg/exploration.jpg
+      format: rgb565
+      byte_order: little_endian
+# ===========================================================================
+    
+esp32_hosted:
+  variant: ESP32C6
+  reset_pin: GPIO54
+  cmd_pin: GPIO19
+  clk_pin: GPIO18
+  d0_pin: GPIO14
+  d1_pin: GPIO15
+  d2_pin: GPIO16
+  d3_pin: GPIO17
+  active_high: true
+  use_psram: true
+  slot: 1
+
+i2c:
+  - id: bsp_bus
+    sda: GPIO07
+    scl: GPIO08
+    frequency: 400kHz 
+
+esp_ldo:
+  - voltage: 2.5V
+    channel: 3
+  - voltage: 2.5V
+    channel: 4  
+    
+output:
+  - platform: ledc
+    pin: GPIO32
+    id: backlight_pwm
+    frequency: 1000Hz
+    inverted: true
+
+light:
+  - platform: monochromatic
+    output: backlight_pwm
+    name: "Display Backlight"
+    id: backlight
+    restore_mode: RESTORE_DEFAULT_ON
+    default_transition_length: 250ms
+# =============================================================================
+# I2S AUDIO CONFIGURATION (ES7210 + ES8311)
+# =============================================================================
+i2s_audio:
+  - id: audio_bus
+    i2s_mclk_pin: GPIO13
+    i2s_lrclk_pin: GPIO10
+    i2s_bclk_pin: GPIO12
+
+audio_dac:
+  - platform: es8311
+    id: es8311_dac
+    i2c_id: bsp_bus
+    address: 0x18
+
+audio_adc:
+  - platform: es7210
+    id: es7210_adc
+    i2c_id: bsp_bus
+    address: 0x40
+
+microphone:
+  - platform: i2s_audio
+    id: esp32_microphone
+    i2s_audio_id: audio_bus
+    i2s_din_pin: GPIO11
+    sample_rate: 16000
+    bits_per_sample: 16bit
+    adc_type: external
+
+speaker:
+  - platform: i2s_audio
+    id: esp32_speaker
+    i2s_audio_id: audio_bus
+    i2s_dout_pin: GPIO9
+    audio_dac: es8311_dac
+    dac_type: external
+    channel: mono
+    buffer_duration: 500ms
+    bits_per_sample: 16bit
+    sample_rate: 48000
+
+  - platform: mixer
+    id: mixing_speaker
+    output_speaker: esp32_speaker
+    source_speakers:
+      - id: announcement_mixing_input
+        timeout: never
+      - id: media_mixing_input
+        timeout: never
+
+  - platform: resampler
+    id: announcement_resampling_speaker
+    output_speaker: announcement_mixing_input
+    sample_rate: 48000
+    bits_per_sample: 16
+
+  - platform: resampler
+    id: media_resampling_speaker
+    output_speaker: media_mixing_input
+    sample_rate: 48000
+    bits_per_sample: 16
+
+
+
+media_player:
+  - platform: speaker
+    name: "ESP32 P4 Media Player"
+    id: speaker_media_player
+    volume_min: 0.5
+    volume_max: 0.75
+    volume_increment: 0.05
+    announcement_pipeline:
+      speaker: announcement_resampling_speaker
+      format: FLAC
+      sample_rate: 48000
+      num_channels: 1
+    media_pipeline:
+      speaker: media_resampling_speaker
+      format: FLAC
+      num_channels: 1
+      sample_rate: 48000
+    on_announcement:
+      - if:
+          condition:
+            - microphone.is_capturing:
+          then:
+            - micro_wake_word.stop
+            - voice_assistant.stop
+      - mixer_speaker.apply_ducking:
+          id: media_mixing_input
+          decibel_reduction: 20
+          duration: 0.0s
+      - switch.turn_on: audio_amplifier
+      - delay: 100ms
+    on_state:
+      if:
+        condition:
+          and:
+            - not:
+                voice_assistant.is_running:
+            - not:
+                media_player.is_announcing:
+        then:
+          - mixer_speaker.apply_ducking:
+              id: media_mixing_input
+              decibel_reduction: 0
+              duration: 1.0s
+    on_play:
+      - logger.log: "Media player started playing, disabling microphone"
+      - switch.turn_on: audio_amplifier
+      - delay: 100ms
+      - micro_wake_word.stop
+      - voice_assistant.stop
+    on_idle:
+      - delay: 100ms
+      - switch.turn_off: audio_amplifier
+      - if:
+          condition:
+            not:
+              voice_assistant.is_running:
+          then:
+            - micro_wake_word.start
+
+
+
+micro_wake_word:
+  id: mww
+  models:
+    - okay_nabu
+#    - hey_mycroft
+#    - hey_jarvis
+  on_wake_word_detected:
+    - component.update: main_display
+    # Le mot d'éveil amène le visage à l'écran et le réveille.
+    - lvgl.page.show:
+        id: page_face
+        animation: MOVE_LEFT
+        time: 250ms
+    - lvgl_kawaii_face.set_emotion:
+        id: face
+        emotion: excited
+    - lambda: id(va_busy) = true;
+    - voice_assistant.start:
+        wake_word: !lambda return wake_word;
+
+voice_assistant:
+  microphone: esp32_microphone
+  media_player: speaker_media_player
+  micro_wake_word: mww
+  noise_suppression_level: 2
+  auto_gain: 31dBFS
+  volume_multiplier: 2.0
+  conversation_timeout: 300s
+
+  on_start:
+    - component.update: main_display
+
+  on_listening:
+    - component.update: main_display
+    - lvgl_kawaii_face.set_emotion:
+        id: face
+        emotion: listening
+
+  on_stt_end:
+    - component.update: main_display
+    - lvgl_kawaii_face.set_emotion:
+        id: face
+        emotion: thinking
+
+  # `x` = le texte prononcé : le visage suit le CONTENU de la réponse,
+  # et la bouche s'anime tant qu'il parle.
+  on_tts_start:
+    - component.update: main_display
+    - lvgl_kawaii_face.set_emotion_from_text:
+        id: face
+        text: !lambda return x;
+    - lvgl_kawaii_face.set_talking: true
+
+  on_tts_end:
+    - component.update: main_display
+    - lvgl_kawaii_face.set_talking: false
+
+
+  # --- End of flow → idle ---
+  on_end:
+    - wait_until:
+        condition:
+          - media_player.is_announcing:
+        timeout: 0.5s
+    - wait_until:
+        - and:
+            - not:
+                media_player.is_announcing:
+            - not:
+                media_player.is_playing:
+    - component.update: main_display
+    - lvgl_kawaii_face.set_emotion:
+        id: face
+        emotion: neutral
+    - lvgl_kawaii_face.set_talking: false
+    - lambda: |-
+        id(va_busy) = false;
+        id(last_interaction) = millis();
+
+    - micro_wake_word.start:
+
+  on_error:
+    - component.update: main_display
+    - lvgl_kawaii_face.set_talking: false
+    - lvgl_kawaii_face.set_emotion:
+        id: face
+        emotion: error
+    - lambda: id(va_busy) = false;
+
+
+  on_client_connected:
+    - micro_wake_word.start:
+  on_client_disconnected:
+    - micro_wake_word.stop:
+
+globals:
+  # Index courant dans la liste des 17 expressions (démo).
+  - id: demo_emotion_idx
+    type: int
+    restore_value: false
+    initial_value: '0'
+  - id: demo_emotion_name
+    type: std::string
+    restore_value: false
+  # Vrai pendant toute une conversation : la vie autonome se tait alors.
+  - id: va_busy
+    type: bool
+    restore_value: false
+    initial_value: 'false'
+  # Horodatage de la dernière sollicitation, pour l'endormissement.
+  - id: last_interaction
+    type: uint32_t
+    restore_value: false
+    initial_value: '0'
+  - id: idle_emotion
+    type: std::string
+    restore_value: false
+  # Diagnostic du suivi (affiché par le bandeau de debug).
+  - id: dbg_faces
+    type: int
+    restore_value: false
+    initial_value: '0'
+  - id: dbg_gx
+    type: int
+    restore_value: false
+    initial_value: '0'
+  - id: dbg_gy
+    type: int
+    restore_value: false
+    initial_value: '0'
+  # Dernière fois qu'un visage a été vu par la caméra.
+  - id: last_face_seen
+    type: uint32_t
+    restore_value: false
+    initial_value: '0'
+    
+color:
+
+  - id: color_sky_blue
+    hex: 3FA7F3
+  - id: color_slate_blue_gray
+    hex: 343645
+  - id: color_steel_blue
+    hex: 606682
+  - id: color_misty_blue
+    hex: 9BA2BC
+  - id: color_black
+    hex: 0d0d0d
+  - id: color_dark_gray
+    hex: 333333
+  - id: color_gray
+    hex: 666666
+  - id: color_light_gray
+    hex: 999999
+  - id: color_white
+    hex: f2f0eb
+  - id: color_red
+    hex: ff0000
+  - id: color_crimson
+    hex: f5075c
+  - id: color_light_blue
+    hex: 2fc0ff
+  - id: color_blue
+    hex: 4C9FFF
+  - id: color_yellow
+    hex: e7c12c
+  - id: color_light_yellow
+    hex: f0d45c
+  - id: color_amber
+    hex: f4a900
+  - id: color_mint
+    hex: 39d19c
+  - id: color_light_mint
+    hex: 66dcb3
+  - id: color_light_green
+    hex: 00ff00
+  - id: color_green
+    hex: 5CA848
+  - id: color_orange
+    hex: f07c40
+  - id: color_deep_orange
+    hex: ff6600
+  - id: color_violet
+    hex: 926BC7
+  - id: color_dark_blue
+    hex: 4867aa
+  - id: color_deep_purple
+    hex: 543D72  
+
+
+
+  - id: color_nova
+    hex: 93A4EC
+
+  - id: color_navy
+    hex: aad6ec
+
+  - id: color_cyan
+    hex: 00FFFF  
+  - id: color_magenta
+    hex: FF00FF  
+
+  - id: color_aqua
+    hex: "00ffff"          
+
+  # Nova Colors
+  - id: nova_color # pink
+    hex: "e38de3"
+  - id: pri_color # light (mantle)
+    hex: "24273a"
+  - id: sec_color # dark (crust)
+    hex: "181926"
+  - id: text_color
+    hex: "cad3f5"
+  - id: off_color
+    hex: "5b6078"
+
+
+  - id: blue_color
+    hex: "6b93e3"
+  - id: green_color
+    hex: "a6da95"
+  - id: yellow_color
+    hex: "ffd17a"
+  - id: orange_color
+    hex: "e0752b"
+  - id: red_color
+    hex: "de455c"  
+
+  - id: lcars_space_white
+    hex: "f5f6fa"
+  - id: lcars_violet_creme
+    hex: "ddbbff"
+  - id: lcars_green
+    hex: "33cc99"
+  - id: lcars_magenta
+    hex: "cc4499"
+  - id: lcars_blue
+    hex: "4455ff"
+  - id: lcars_yellow
+    hex: "ffcc33"
+  - id: lcars_violet
+    hex: "9944ff"
+  - id: lcars_orange
+    hex: "ff7700"
+  - id: lcars_african_violet
+    hex: "cc88ff"
+  - id: lcars_text_purple
+    hex: "cc77ff"
+  - id: lcars_red
+    hex: "dd4444"
+  - id: lcars_emerald
+    hex: "00bb00"
+  - id: lcars_crimson
+    hex: "cc0000"
+  - id: lcars_navy_gray
+    hex: "2C374B"
+  - id: lcars_slate_gray
+    hex: "6E748C"
+  - id: lcars_teal
+    hex: "2A7092"
+  - id: lcars_coral
+    hex: "FA6851"
+  - id: lcars_charcoal
+    hex: "51596C"
+
+  - id: color_primary
+    hex: '4A90E2'
+  - id: color_secondary
+    hex: '2ECC71'
+  - id: color_text
+    hex: 'FFFFFF'
+  - id: color_background
+    hex: '1A1A1A'
+  - id: color_inactive
+    hex: '666666'  
+
+  - id: active_timer_color
+    hex: "26ed3a"
+  - id: paused_timer_color
+    hex: "3b89e3"
+  - id: active_ota_color
+    hex: "ffff00"
+  - id: active_mute_color
+    hex: "ff0000"
+
+font:
+  - file: "gfonts://Kanit"
+    id: font_value
+    size: 60
+    glyphs: ${allowed_characters}
+
+  - file: "gfonts://Noto Sans"
+    id: font_device_status
+    size: 30
+    glyphs: ${allowed_characters}
+
+  - file: "gfonts://Kanit"
+    id: font_device_name
+    size: 35
+    glyphs: ${allowed_characters}
+  - file: "gfonts://Kanit"
+    id: font_values
+    size: 30
+    glyphs: ${allowed_characters}
+
+  - file: "gfonts://Kanit"
+    id: font_info_text
+    size: 35
+    glyphs: ${allowed_characters}
+
+  - file: "gfonts://Figtree"
+    id: font_notification
+    size: 70
+    glyphs: ${allowed_characters}
+
+  - file:
+      type: gfonts
+      family: ${font_family}
+      weight: 300
+      italic: true
+    id: font_request
+    size: 15
+    glyphsets:
+      - ${font_glyphsets}
+  - file:
+      type: gfonts
+      family: ${font_family}
+      weight: 300
+    id: font_response
+    size: 15
+    glyphsets:
+      - ${font_glyphsets}
+
+  - file:
+      type: gfonts
+      family: ${font_family}
+      weight: 300
+    id: nunito_16
+    size: 16
+    glyphsets:
+      - ${font_glyphsets}
+
+  - file:
+      type: gfonts
+      family: ${font_family}
+      weight: 300
+    id: nunito_18
+    size: 18
+    glyphsets:
+      - ${font_glyphsets}   
+
+
+  - file:
+      type: gfonts
+      family: ${font_family}
+      weight: 300
+    id: nunito_20
+    size: 20
+    glyphsets:
+      - ${font_glyphsets} 
+
+  - file:
+      type: gfonts
+      family: ${font_family}
+      weight: 300
+    id: nunito_23
+    size: 23
+    glyphsets:
+      - ${font_glyphsets}  
+
+
+  - file:
+      type: gfonts
+      family: ${font_family}
+      weight: 300
+    id: nunito_26
+    size: 26
+    glyphsets:
+      - ${font_glyphsets}   
+
+  - file:
+      type: gfonts
+      family: ${font_family}
+      weight: 300
+    id: nunito_28
+    size: 28
+    glyphsets:
+      - ${font_glyphsets}  
+
+  - file:
+      type: gfonts
+      family: ${font_family}
+      weight: 300
+    id: nunito_32
+    size: 32
+    glyphsets:
+      - ${font_glyphsets}                      
+
+  - file:
+      type: gfonts
+      family: ${font_family}
+      weight: 300
+    id: nunito_24
+    size: 24
+    glyphsets:
+      - ${font_glyphsets}           
+
+  - file:
+      type: gfonts
+      family: ${font_family}
+      weight: 300
+    id: nunito_36
+    size: 36
+    glyphsets:
+      - ${font_glyphsets} 
+
+  - file:
+      type: gfonts
+      family: ${font_family}
+      weight: 300
+    id: nunito_42
+    size: 42
+    glyphsets:
+      - ${font_glyphsets}                   
+
+  - file:
+      type: gfonts
+      family: ${font_family}
+      weight: 300
+    id: nunito_60
+    size: 60
+    glyphsets:
+      - ${font_glyphsets}      
+  - file:
+      type: gfonts
+      family: ${font_family}
+      weight: 300
+    id: font_timer
+    size: 30
+    glyphsets:
+      - ${font_glyphsets} 
+
+  - file: "https://github.com/BigBobbas/ESP32-S3-Box3-Custom-ESPHome/raw/main/fonts/materialdesignicons-webfont.ttf"
+    id: mdi46
+    size: 46
+    bpp: 4
+    glyphs: [
+      "\U000F0BC4",#alarm away
+      "\U000F0384",#music
+      "\U000F07C5",#sound
+      "\U000F1322",#tools
+      "\U000F07AE",#cctv
+      "\U000F0493",#settings cog
+      "\U000F05CB",#voice
+      "\U000F0502",#screen settings
+      "\U000F1C6F",#info
+      "\U000F0521",#scr 
+      "\U000F04B2",#sleep
+      "\U000F1110",#s_saver
+      "\U000F0D90",#screen off
+      "\U000F009E",#bell
+      "\U000F04DB",#stop
+      "\U000F18DD",#light_mut
+      "\U000F062C",#source
+      "\U000F10FE",#kubernetes
+      "\U000F02A4",#github
+      "\U000F06B2",#angular
+      "\U000F0439",#radio
+      "\U000F0BB1",#next
+      "\U000F036B",#videocall
+      "\U000F1A13",#heure
+      "\U000F0F30",#meteo
+      "\U000F1923",#timer
+      "\U000F056E",#dashboard
+      "\U000F07DC",#micro-sd
+      "\U000F0CB8",#music_play
+      "\U000F08D6",#settings
+      "\U000F0565",#arming
+      "\U000F050F",#temp sensor
+      "\U000F0150",#clock
+      "\U000F081A",#door
+      "\U000F06D9",#garage
+      "\U000F1A8B",#shutter
+      "\U000F02E9",#Gallery
+      "\U000F0C7B",#recognition
+      "\U000F057C",#vlc
+      "\U000F05C3",#youtube
+      "\U000F18DE",#light
+      "\U000F0675",#application
+      
+      ]
+
+  - file: "https://github.com/BigBobbas/ESP32-S3-Box3-Custom-ESPHome/raw/main/fonts/materialdesignicons-webfont.ttf"
+    id: mdi36
+    size: 36
+    bpp: 4
+    glyphs: [
+      "\U000F0BC4",#alarm away
+      "\U000F07D0", # home assistant
+      "\U000F0384",#music
+      "\U000F07C5",#sound
+      "\U000F1322",#tools
+      "\U000F07AE",#cctv
+      "\U000F0493",#settings cog
+      "\U000F05CB",#voice
+      "\U000F0502",#screen settings
+      "\U000F1C6F",#info
+      "\U000F0521",#scr 
+      "\U000F04B2",#sleep
+      "\U000F1110",#s_saver
+      "\U000F0D90",#screen off
+      "\U000F009E",#bell
+      "\U000F04DB",#stop
+      "\U000F18DD",#light_mut
+      "\U000F062C",#source
+      "\U000F10FE",#kubernetes
+      "\U000F02A4",#github
+      "\U000F06B2",#angular
+      "\U000F0439",#radio
+      "\U000F0BB1",#next
+      "\U000F036B",#videocall
+      "\U000F1A13",#heure
+      "\U000F0F30",#meteo
+      "\U000F1923",#timer
+      "\U000F056E",#dashboard
+      "\U000F07DC",#micro-sd
+      "\U000F0CB8",#music_play
+      "\U000F08D6",#settings
+      "\U000F0565",#arming
+      "\U000F050F",#temp sensor
+      "\U000F0150",#clock
+      "\U000F081A",#door
+      "\U000F06D9",#garage
+      "\U000F1A8B",#shutter
+      "\U000F02E9",#Gallery
+      "\U000F0C7B",#recognition
+      "\U000F057C",#vlc
+      "\U000F05C3",#youtube
+      "\U000F18DE",#light
+      "\U000F0675",#application
+      "\U000F00DF",
+      "\U000F0919", # call video
+      
+      ]      
+
+  - file: "fonts/materialdesignicons-webfont.ttf"
+    id: mdi_icons_24
+    size: 24
+    bpp: 4
+    glyphs: [
+      "\U000F068A", # shield home
+      "\U000F1828", # shield moon
+      "\U000F099D", # shield lock
+      "\U000F06BB", # shield plane
+      "\U000F099E", # shield off
+      "\U000F0498", # shield
+
+    ]
+
+
+
+  - file: "fonts/Icons.ttf"
+    id: icons_32
+    size: 32
+    bpp: 4
+    glyphs: [
+      "\U0000e900",
+      "\U0000e901",
+      "\U0000e902",
+      "\U0000e903",
+      "\U0000e904",
+      "\U0000e905",
+      "\U0000e906",
+      "\U0000e907",
+      "\U0000e908",
+      "\U0000e909",
+      "\U0000e90a",
+      "\U0000e90b",
+      "\U0000e90c",
+      "\U0000e90d",
+      "\U0000e90e",
+      "\U0000e90f",
+      "\U0000e910",
+      "\U0000e911",
+      "\U0000e912",
+      "\U0000e913",
+      "\U0000e914",
+      "\U0000e915",
+      "\U0000e916",
+      "\U0000e917",
+      "\U0000e918",
+      "\U0000e919",
+
+    ]
+  - file: "fonts/Icons.ttf"
+    id: icons_36
+    size: 36
+    bpp: 4
+    glyphs: [
+      "\U0000e900",
+      "\U0000e901",
+      "\U0000e902",
+      "\U0000e903",
+      "\U0000e904",
+      "\U0000e905",
+      "\U0000e906",
+      "\U0000e907",
+      "\U0000e908",
+      "\U0000e909",
+      "\U0000e90a",
+      "\U0000e90b",
+      "\U0000e90c",
+      "\U0000e90d",
+      "\U0000e90e",
+      "\U0000e90f",
+      "\U0000e910",
+      "\U0000e911",
+      "\U0000e912",
+      "\U0000e913",
+      "\U0000e914",
+      "\U0000e915",
+      "\U0000e916",
+      "\U0000e917",
+      "\U0000e918",
+      "\U0000e919",
+
+      ]
+
+  - file: "fonts/Icons.ttf"
+    id: icons_29
+    size: 29
+    bpp: 4
+    glyphs: [
+      "\U0000e900",
+      "\U0000e901",
+      "\U0000e902",
+      "\U0000e903",
+      "\U0000e904",
+      "\U0000e905",
+      "\U0000e906",
+      "\U0000e907",
+      "\U0000e908",
+      "\U0000e909",
+      "\U0000e90a",
+      "\U0000e90b",
+      "\U0000e90c",
+      "\U0000e90d",
+      "\U0000e90e",
+      "\U0000e90f",
+      "\U0000e910",
+      "\U0000e911",
+      "\U0000e912",
+      "\U0000e913",
+      "\U0000e914",
+      "\U0000e915",
+      "\U0000e916",
+      "\U0000e917",
+      "\U0000e918",
+      "\U0000e919",
+
+      ]      
+
+
+
+  - file: "fonts/icons_v2.ttf"
+    id: icons_38
+    size: 38
+    bpp: 4
+    glyphs: [
+      "\U0000e909", # power
+      "\U0000e90c", # back step
+      "\U0000e90d", # forward step
+      "\U0000e912", # repeat_all
+      "\U0000e913", # repeat_off
+      "\U0000e914", # repeat_one
+      "\U0000e90a", # play
+      "\U0000e90b", # pause
+      "\U0000e91c", # stop
+      "\U0000e923", # locate
+      "\U0000e924", # docked
+      "\U0000e915",#spotlight_group_icon
+
+    ]
+
+  - file: "fonts/icons_v3.ttf"
+    id: icone_38
+    size: 38
+    bpp: 4
+    glyphs: [
+
+      "\U0000e938", #humidity_icon
+      "\U0000e939", #temperature_icon   
+    ]    
+
+  - file: "fonts/icons_v2.ttf"
+    id: icons_48
+    size: 48
+    bpp: 4
+    glyphs: [
+      "\U0000e90a", # play
+      "\U0000e90b", # pause
+      "\U0000e91f", # arrow_up
+      "\U0000e920", # arrow_down
+      "\U0000e91c", # stop
+      "\U0000e923", # locate
+      "\U0000e924", # docked
+      "\U0000e93b", # air_conditioner 
+      "\U0000e936", # heating
+
+    ]
+
+  - file: "fonts/materialdesignicons-webfont.ttf"
+    id: mdi_media
+    size: 60 #50
+    bpp: 8
+    glyphs: [
+      "\U000F040A", # mdi-media_play
+      "\U000F03E4", # mdi-media_pause
+      "\U000F04AE", # mdi-media_previous_track
+      "\U000F04AD", # mdi-media_next_track 
+      "\U000F040E", # mdi-media_play_pause
+      "\U000F0662", # skip-next-circle-outline
+      "\U000F0664", # skip-previous-circle-outline
+      "\U000F0453", # refresh
+      "\U000F03E3", # pause
+      "\U000F050F",#temp sensor
+      "\U000F024A",#garden/flower
+      "\U000F0EBA",#stats
+      "\U000F1C6F",#info
+      "\U000F075A",#music
+      "\U000F036F",#voice settings
+      "\U000F0502",#screen settings
+      "\U000F08D6",#settings
+      "\U000F068A",#alarm home
+      "\U000F0BC4",#alarm away
+      "\U000F1828",#armed night
+      "\U000F099E",#disarmed
+      "\U000F0565",#arming
+      "\U000F1A12",#home 
+      "\U000F058E",#humidity         
+      "\U000F0590",#weather
+      "\U000F07AE",#cctv
+      "\U000F1322",#tools
+      "\U000F0493",#settings cog
+      "\U000F0521",#toggle on
+      "\U000F0439",#radio_active
+      "\U000F0CB8",#music_play
+      "\U000F1A13",#heure
+      "\U000F0F30",#meteo
+      "\U000F1923",#timer
+      "\U000F02A4",#github
+      "\U000F062C",#source
+      "\U000F18DD",#light_mut
+      "\U000F056E",#dashboard
+      "\U000F07DC",#micro-sd
+      "\U000F0150",#clock
+      "\U000F0384",#music-box
+      "\U000F035C",#menu
+      "\U000F075D",#volume-plus
+      "\U000F075E",#volume-minus
+      "\U000F0581",#volume-off
+      "\U000F1AE1",#timer_play
+      "\U000F02E9",#Gallery
+      "\U000F07D1",#home-automation
+      "\U000F18DE",#ceiling-light-multiple-outline
+      "\U000F0450",# Icône rafraîchir
+      "\U000F061A", # illumination (lux)
+
+                      
+
+      ]    
+
+  - file: "fonts/materialdesignicons-webfont.ttf"
+    id: mdi_icons_40
+    size: 40
+    bpp: 4
+    glyphs: [
+      "\U000F068A", # shield home
+      "\U000F1828", # shield moon
+      "\U000F099D", # shield lock
+      "\U000F06BB", # shield plane
+      "\U000F099E", # shield off
+      "\U000F0498", # shield
+    ]
+
+  - file: "fonts/materialdesignicons-webfont.ttf"
+    id: mdi_icons_32
+    size: 32
+    bpp: 4
+    glyphs: [
+      "\U000F068A", # shield home
+      "\U000F1828", # shield moon
+      "\U000F099D", # shield lock
+      "\U000F06BB", # shield plane
+      "\U000F099E", # shield off
+      "\U000F0498", # shield
+      "\U000F09A0", # code pin
+      "\U000F0644", # Reconnaissance Facial
+    ]
+    
+  - file: "fonts/materialdesignicons-webfont.ttf"
+    id: mdi_icons_52
+    size: 52
+    bpp: 4
+    glyphs: [
+      "\U000F068A", # shield home
+      "\U000F1828", # shield moon
+      "\U000F099D", # shield lock
+      "\U000F06BB", # shield plane
+      "\U000F099E", # shield off
+      "\U000F0498", # shield
+      "\U000F0826", # home
+      "\U000F1A46", # away
+    ]
+
+  - file: "fonts/materialdesignicons-webfont.ttf"
+    id: mdi_icons_68
+    size: 68
+    bpp: 4
+    glyphs: [
+      "\U000F068A", # shield home
+      "\U000F1828", # shield moon
+      "\U000F099D", # shield lock
+      "\U000F06BB", # shield plane
+      "\U000F099E", # shield off
+      "\U000F0498", # shield
+    ]             
+
+  - file: "fonts/materialdesignicons-webfont.ttf"
+    id: mdi_35
+    size: 35 #50
+    bpp: 8
+    glyphs: [
+      "\U000F061A", # chip
+
+      ] 
+  - file: "fonts/icons_v2.ttf"
+    id: icons_28
+    size: 28
+    bpp: 4
+    glyphs: [
+      "\U0000e902", # exit
+      "\U0000e926", # fan
+      "\U0000e927", # room_plan
+      "\U0000e938", # humidity 
+      "\U0000e937", # co2
+      "\U0000e93a", # air quality (tvoc)
+      "\U0000e939", # temperature 
+      "\U0000e92f", # illumination (lux)
+
+    ]
+
+
+
+  - file: "gfonts://Roboto"
+    id: roboto_32
+    size: 32
+
+  - file: "gfonts://Roboto"
+    id: roboto_36
+    size: 36  
+
+  - file: "gfonts://Roboto"
+    id: roboto_40
+    size: 40 
+
+  - file: "gfonts://Roboto"
+    id: roboto_42
+    size: 42      
+  - file: "gfonts://Roboto"
+    id: roboto_48
+    size: 48       
+
+  - file: "gfonts://Roboto"
+    id: roboto_60
+    size: 60        
+
+  - file: "gfonts://Roboto"
+    id: roboto_30
+    size: 30
+
+  - file: "gfonts://Roboto"
+    id: roboto_26
+    size: 26
+
+  - file: "gfonts://Roboto"
+    id: roboto_24
+    size: 24    
+
+  - file: "gfonts://Roboto"
+    id: roboto_20
+    size: 20
+
+  - file: "gfonts://Roboto"
+    id: roboto_18
+    size: 18    
+  
+  - file: "gfonts://Roboto"
+    id: roboto_16
+    size: 16
+    
+  - file: "gfonts://Roboto"
+    id: roboto_14
+    size: 14
+  - file: "gfonts://Roboto"
+    id: roboto_12
+    size: 12
+  - file: "gfonts://Roboto"
+    id: roboto_10
+    size: 10   
+
+
+
+  - file: "gfonts://Material+Symbols+Outlined"
+    id: font_info_icons
+    size: 40
+    glyphs: [
+      "\U0000f24f", # 100%
+      "\U0000f255", # 50%
+      "\U0000f257", # 10%
+      "\U0000f250", # Charging
+      "\U0000e98e", # Speaker ON
+      "\U0000e04f", # Speaker OFF
+    ]
+  - file: "gfonts://Material+Symbols+Outlined"
+    id: font_info_icons_little
+    size: 40
+    glyphs: [
+      "\U0000f654", # Alert
+      "\U0000e63e", # Wifi ON
+      "\U0000e648", # Wifi OFF
+      "\U0000e1ff", # thermometer
+      "\U0000f87e", # water-percent
+      "\U0000e29c", # air
+      "\U0000e834", # check
+      "\U0000e62e", # assistant
+    ]
+
+
+
+  # Weather
+  # Meteorología
+
+  - file: "gfonts://Material+Symbols+Outlined"
+    id: font_top_icons
+    size: 70
+    glyphs: [
+      "\U0000e81a", # wb_sunny (sol)
+      "\U0000e818", # cloud (nube)
+      "\U0000f176", # umbrella (lluvia)
+      "\U0000e810", # water_drop (gotas)
+      "\U0000e80b", # ac_unit (nieve)
+      "\U0000efd8", # air (viento)
+      "\U0000ea0b", # thunderstorm (tormenta)
+      "\U0000f159", # nights_stay (noche)
+    ]
+
+
+
+  - file: "gfonts://Material+Symbols+Outlined"
+    id: font_device_icons
+    size: 120
+    glyphs: [
+      "\U0000f02a", # ceiling-light
+      "\U0000f168", # fan
+      "\U0000e286", # blinds-shade
+      "\U0000ec1f", # blinds-shade-close
+      "\U0000ec12", # roller-shade
+      "\U0000ec11", # roller-shade-close
+      "\U0000ed38", # 3d
+      "\U0000ef55", # fire
+      "\U0000efc5", # vacuum
+      "\U0000f7ed", # led-strip
+      "\U0000e97e", # dehumidifier
+      "\U0000e1c4", # play
+      "\U0000e1a2", # pause
+      "\U0000eaaa", # base
+      "\U0000eee1", # locate
+      "\U0000f418", # power
+      "\U0000ef71", # stop
+      "\U0000ebfe", # spotlight
+      "\U0000ef7c", # camera
+      "\U0000e070", # call video
+      " ",
+    ]
+
+
+
+  - file: "gfonts://Material+Symbols+Outlined"
+    id: font_device_icons_little
+    size: 60
+    glyphs: [
+      "\U0000e879", # exit
+      "\U0000e548", # more
+      "\U0000e834", # check
+      " ",
+    ]
+  - file: "gfonts://Material+Symbols+Outlined"
+    id: font_details_icons
+    size: 60
+    glyphs: [
+      "\U0000e286", # blinds-shade
+      "\U0000ec1f", # blinds-shade-close
+      " ",
+    ]
+
+    
+##############################################################################################################################
+sensor:
+
+  #- platform: template
+    #name: "Enrolled Faces"
+    #icon: "mdi:face-man"
+    #lambda: return id(face_detect).get_enrolled_count();  # Changer ici
+    #update_interval: 60s
+
+  - platform: homeassistant
+    id: weather_temp
+    entity_id: weather.forecast_maison
+    attribute: temperature
+
+
+
+             
+  - platform: homeassistant
+    id: weather_humidity
+    entity_id: weather.forecast_maison
+    attribute: humidity
+
+
+
+
+  #- platform: homeassistant
+    #id: weather_temp
+    #entity_id: weather.montauban
+    #attribute: temperature
+    #on_value: 
+      #then:
+        #- lvgl.label.update:
+            #id: weather_temperature_page
+            #text:
+              #format: "%.0f°"
+              #args: [id(weather_temp).state]
+        #- lvgl.chart.set_next_value:
+            #id: temp_chart
+            #series_id: temp_series
+            #value: !lambda 'return (int)id(weather_temp).state;'
+
+  #- platform: homeassistant
+    #id: weather_humidity
+    #entity_id: weather.montauban
+    #attribute: humidity
+    #on_value: 
+      #then:
+        #- lvgl.label.update:
+            #id: weather_humidity_page
+            #text:
+              #format: "%.0f%%"
+              #args: [id(weather_humidity).state]
+        #- lvgl.chart.set_next_value:
+            #id: temp_chart
+            #series_id: humidity_series
+            #value: !lambda 'return (int)id(weather_humidity).state;'
+
+
+
+
+  - platform: template
+    name: "SRAM Usage"
+    id: sram_usage
+    icon: mdi:memory
+    unit_of_measurement: "KB"
+    device_class: data_size
+    state_class: measurement
+    accuracy_decimals: 1
+    update_interval: 60s
+
+
+  - platform: template
+    name: "PSRAM Usage"
+    id: psram_usage
+    icon: mdi:memory
+    unit_of_measurement: "MB"
+    device_class: data_size
+    state_class: measurement
+    accuracy_decimals: 1
+    update_interval: 60s
+
+
+
+  - platform: internal_temperature
+    name: "ESP32p4 Internal Temperature"
+    id: esp32_temperature
+    update_interval: 60s
+
+
+  - platform: wifi_signal
+    name: "WiFi Signal"
+    id: wifi_signal_db
+    update_interval: 60s
+    unit_of_measurement: "dBm"
+
+text_sensor:
+
+
+  - platform: template
+    name: "Camera Status Info"
+    id: camera_status_info
+    internal: true
+    update_interval: never  # Désactivé par défaut
+    lambda: |-
+      static char buf[100];
+      snprintf(buf, sizeof(buf), "%dx%d | %s | Buffer: %d KB",
+        id(tab5_cam).get_image_width(),
+        id(tab5_cam).get_image_height(),
+        id(tab5_cam).is_streaming() ? "STREAMING" : "IDLE",
+        id(tab5_cam).get_image_size() / 1024);
+      return {buf};
+
+    
+switch:
+
+
+  #- platform: face_detection
+    #name: "Détection de visage"
+    #id: face_detect_switch 
+    #face_detection_id: face_detect
+    #restore_mode: RESTORE_DEFAULT_ON
+
+  - platform: gpio
+    pin: GPIO53
+    name: "Audio Amplifier"
+    id: audio_amplifier
+    restore_mode: ALWAYS_OFF
+
+  # Fait défiler les 17 expressions, comme examples/basic_cycle du dépôt
+  # d'origine. Sert à juger le rendu sans déclencher l'assistant vocal.
+  # Coupe-le pour laisser le voice assistant piloter le visage.
+  - platform: template
+    name: "Debug suivi caméra"
+    id: cam_debug_switch
+    optimistic: true
+    restore_mode: ALWAYS_OFF
+    turn_off_action:
+      - lvgl.label.update:
+          id: cam_debug
+          text: ""
+
+  - platform: template
+    name: "Démo expressions du visage"
+    id: face_demo
+    optimistic: true
+    restore_mode: ALWAYS_OFF
+    turn_off_action:
+      - lvgl.label.update:
+          id: face_caption
+          text: ""
+  - platform: template
+    name: "LVGL Camera Display"
+    id: lvgl_display_enable_switch
+    restore_mode: RESTORE_DEFAULT_OFF
+    optimistic: true
+    turn_on_action:
+      - lambda: |-
+          auto *lvgl_disp = id(camera_display);  
+          if (lvgl_disp != nullptr) {
+            lvgl_disp->set_enabled(true);
+          }
+    turn_off_action:
+      - lambda: |-
+          auto *lvgl_disp = id(camera_display);  
+          if (lvgl_disp != nullptr) {
+            lvgl_disp->set_enabled(false);
+          }
+
+# =============================================================================
+# CAMÉRA + DÉTECTION DE VISAGE — le regard suit la personne
+# =============================================================================
+esp_video:
+  i2c_id: bsp_bus
+  xclk_pin: GPIO36
+  xclk_freq: 24000000
+  enable_jpeg: true
+  enable_isp: true
+  use_heap_allocator: false
+
+esp_cam_sensor:
+  id: tab5_cam
+  i2c_id: bsp_bus
+  sensor_type: ov5647
+  resolution: "1280x960"          #"1920x1080"  #"800x800"   #"1280x960"    #"800x640"    
+  framerate: 30
+  pixel_format: RGB565
+  #jpeg_quality: 15
+  mirror_x: false
+  mirror_y: false
+  rotation: 0
+  crop_offset_x: 0
+
+face_detection:
+  id: face_detect
+  camera_id: tab5_cam
+  canvas_id: camera_canvas
+  model_type: face_recognition
+  score_threshold: 0.3
+  nms_threshold: 0.4
+  detection_interval: 4
+  draw_enabled: false
+  recognition_enabled: false
+  face_db_path: "/sdcard/reconnaisance_faciale/faces.db"
+  recognition_threshold: 1
+  
+image:
+  - platform: online_image
+    url: "${frigate}"
+    format: jpeg
+    type: RGB565
+    id: cctv_img
+    
+touchscreen:
+  - platform: gt911
+    id: touch
+    i2c_id: bsp_bus
+    reset_pin: GPIO23
+    update_interval: 8ms   # polling (pas d'interruption)
+    on_touch:
+      - lambda: |-
+          ESP_LOGD("touchscreen", "Touch detected at (%d, %d)", touch.x, touch.y);
+      - light.turn_on: backlight 
+               
+    transform:
+      swap_xy: false
+      mirror_x: true
+      mirror_y: true   
+    
+display:
+  - platform: mipi_dsi
+    id: main_display
+    show_test_card: false
+    model: CUSTOM
+    update_interval: never
+    auto_clear_enabled: false
+    hsync_back_porch: 160
+    lane_bit_rate: 1000Mbps
+    color_order: rgb
+    lanes: 2
+    reset_pin:
+      number: 33
+    hsync_pulse_width: 70
+    hsync_front_porch: 160
+    vsync_back_porch: 23
+    vsync_pulse_width: 1
+    vsync_front_porch: 12
+    pclk_frequency: 51MHz 
+    dimensions:
+      width: 1024
+      height: 600     
+    init_sequence:   
+      - [0xB2, 0x10]
+      - [0x80, 0x8B]
+      - [0x81, 0x78]
+      - [0x82, 0x84]
+      - [0x83, 0x88]
+      - [0x84, 0xA8]
+      - [0x85, 0xE3]
+      - [0x86, 0x88]
+      - [0x11, 0x00]
+      - delay 120ms
+      - [0x29]
+
+lvgl:
+  use_ppa: true
+  use_ppa_img: true
+  color_depth: 16
+  buffer_size: 100%
+  byte_order: little_endian
+  fps_benchmark: true
+  perf_monitor: true
+  rotation: 180
+
+  style_definitions:
+
+
+    - id: quick_access_device_1
+      width: 145
+      height: 145
+      bg_color: 0x000000
+      bg_opa: 0%
+      border_color: 0x000000
+      border_opa: 0%
+      border_width: 0
+      align: BOTTOM_RIGHT
+      pad_all: 0
+      translate_x: -595
+      translate_y: -13
+    - id: quick_access_device_2
+      width: 145
+      height: 145
+      bg_color: 0x000000
+      bg_opa: 0%
+      border_color: 0x000000
+      border_opa: 0%
+      border_width: 0
+      align: BOTTOM_RIGHT
+      pad_all: 0
+      translate_x: -445
+      translate_y: -13
+    - id: quick_access_device_3
+      width: 145
+      height: 145
+      bg_color: 0x000000
+      bg_opa: 0%
+      border_color: 0x000000
+      border_opa: 0%
+      border_width: 0
+      align: BOTTOM_RIGHT
+      pad_all: 0
+      translate_x: -285
+      translate_y: 8
+    - id: quick_access_device_4
+      width: 145
+      height: 145
+      bg_color: 0x000000
+      bg_opa: 0%
+      border_color: 0x000000
+      border_opa: 0%
+      border_width: 0
+      align: BOTTOM_RIGHT
+      pad_all: 0
+      translate_x: -160
+      translate_y: -13
+
+    - id: button_menu
+      width: 145
+      height: 145
+      bg_color: 0x000000
+      bg_opa: 0%
+      border_color: 0x000000
+      border_opa: 0%
+      border_width: 0
+      align: BOTTOM_RIGHT
+      pad_all: 0
+      translate_x: 0
+      translate_y: -10
+
+    - id: button_more
+      width: 100
+      height: 100
+      bg_color: 0x000000
+      bg_opa: 0%
+      border_color: 0x000000
+      border_opa: 0%
+      border_width: 0
+      align: TOP_RIGHT
+      pad_all: 0
+      translate_x: -10
+      translate_y: 20
+
+    - id: button_back
+      width: 100
+      height: 100
+      bg_color: 0x000000
+      bg_opa: 0%
+      border_color: 0x000000
+      border_opa: 0%
+      border_width: 0
+      align: BOTTOM_RIGHT
+      pad_all: 0
+      translate_x: -10
+      translate_y: -10
+
+    ## Device details
+    ## Detalle de dispositivos
+
+    - id: device_status
+      align: TOP_LEFT
+      text_font: font_device_status
+    - id: device_status_bottom
+      align: BOTTOM_LEFT
+      text_font: font_device_status
+
+    - id: style_button
+      width: 300
+      height: 160
+      bg_color: 0x262626
+      border_width: 0
+    - id: style_button_secondary
+      width: 150
+      height: 160
+      bg_color: 0x262626
+      border_width: 0
+      pad_all: 0
+
+    - id: style_button_text
+      align: CENTER
+      text_font: font_device_name
+      text_color: 0xffffff
+    - id: style_button_status
+      align: CENTER
+      text_font: font_values
+      text_color: 0x525252
+
+    ## Cover page
+    ## Página de persianas
+
+    - id: slider_front_cover
+      width: 300
+      height: 400
+      bg_color: 0xc0e8ef
+      radius: 0
+      align: CENTER
+    - id: slider_back_cover
+      width: 300
+      height: 400
+      bg_color: 0x85b3bb
+      bg_opa: COVER
+      radius: 20
+      align: CENTER
+    - id: slider_label_values_cover
+      align: CENTER
+      text_font: font_value
+      text_color: 0x426970
+
+    ## Progress Bar
+    ## Barra de progreso
+
+    - id: style_bar_progress
+      radius: 10
+      bg_color: 0x262626
+      bg_opa: COVER
+
+    - id: progress_bar_label_values
+      align: CENTER
+      text_font: font_value
+      text_color: 0xffffff
+
+    - id: progress_bar_label_estimated_time
+      align: RIGHT_MID
+      text_font: font_values
+      text_color: 0x525252
+
+    ## Media Widget
+    ## Widget multimedia
+
+    - id: style_home_media_title
+      align: LEFT_MID
+      text_font: font_values
+      text_color: 0xffffff
+    - id: style_home_media_artist
+      align: LEFT_MID
+      text_font: font_values
+      text_color: 0x525252
+    - id: style_home_media_track
+      align: RIGHT_MID
+      text_font: font_values
+      text_color: 0x525252
+
+    - id: page_content
+      bg_color: 0x000000
+      width: 100%
+      height: 100%
+      pad_all: 0
+      pad_row: 0
+      pad_column: 0
+
+
+    - id: button_style
+      bg_color: 0x000000 #black
+      bg_grad_color: 0x005782 #blue
+      bg_grad_dir: VER
+      bg_opa: COVER
+      border_color: 0x000000
+      border_width: 1
+      text_color: 0xFFFFFF
+      ############## ADD SHADOW
+      shadow_color: 0xFFFFFF
+      shadow_width: 20
+      shadow_offset_x: 0
+      shadow_offset_y: 0
+      shadow_opa: 50%
+      radius: 40
+      
+    - id: button_pressed_style
+      bg_color: 0x666666 #grey
+      bg_grad_color: 0x00334d #dark blue
+      ############## ADD SHADOW
+      shadow_color: 0xFFFFFF
+      shadow_width: 20
+      shadow_offset_x: 0
+      shadow_offset_y: 0
+      shadow_opa: 50%
+      radius: 40
+      
+    - id: button_checked_style
+      bg_color: 0x000000 #black
+      bg_grad_color: 0x002233 #darker blue
+      bg_grad_dir: VER
+      text_color: yellow
+      ############## ADD SHADOW
+      shadow_color: 0xFFFFFF
+      shadow_width: 20
+      shadow_offset_x: 0
+      shadow_offset_y: 0
+      shadow_opa: 50%
+      radius: 40
+      
+    - id: button_standard_style
+      bg_color: 0x2F8CD8
+      bg_grad_color: 0x005782
+      shadow_width: 0
+
+    - id: round_mask
+      radius: 50%  # Crée un cercle parfait
+      clip_corner: true
+
+
+    - id: menu_button
+      radius: 40      
+      #text_font: nunito_20
+      text_align: CENTER
+      bg_color: 0x2F8CD8
+      bg_grad_color: 0x0460BD
+      bg_grad_dir: VER
+      border_width: 5
+      border_color: 0x1e84eb
+      border_opa: 70%
+      outline_width: 1
+    - id: time_style
+      text_color: 0xD5D5D5
+      bg_opa: TRANSP
+      radius: 5
+      border_color: 0xE9E9E9
+      border_width: 0
+      border_opa: 50%
+      pad_all: 0
+      shadow_width: 0
+      shadow_opa: TRANSP
+    - id: card
+      text_color: 0xD5D5D5
+      bg_color: 0x222222
+      bg_opa: COVER
+      radius: 20
+      outline_width: 0
+      border_width: 0
+      #border_opa:
+      pad_all: 0 
+    - id: weather_style
+      text_color: 0xD5D5D5
+      bg_color: 0
+      bg_opa: TRANSP
+      outline_width: 0
+      border_width: 0
+      #border_opa:
+      radius: 0
+      pad_all: 0
+    - id: meter_style
+      text_color: 0xD5D5D5
+      bg_color: 0x222222
+      bg_opa: COVER
+      radius: 10
+      outline_width: 0
+      border_width: 0
+      #border_opa:
+      pad_all: 0      
+    - id: button_light
+      bg_color: 0xCCCCCC
+      bg_grad_color: 0xFF4400
+      bg_grad_dir: HOR
+      border_width: 8
+      border_color: 0x222222
+      border_opa: 50%
+      outline_width: 1
+    - id: button_menu1
+      text_color: 0xD5D5D5
+      bg_color: 0x222222
+      bg_opa: COVER
+      radius: 20
+      pad_all: 5
+    - id: button_checked
+      bg_color: 0xFF4400
+      bg_opa: COVER
+      text_color: 0xD5D5D5
+      radius: 20
+      pad_all: 5 
+    - id: sound_page
+      bg_opa: TRANSP
+      border_opa: TRANSP
+      radius: 0
+      text_color: 0xCCCCCC  # Gris clair pour le texte
+      width: 100%
+      height: 100%
+
+
+    - id: home_page
+      bg_opa: TRANSP
+      border_opa: TRANSP
+      radius: 0
+      text_color: 0xFFFFFF
+      width: 100%
+      height: 100%
+
+    - id: controls_page
+      bg_opa: TRANSP
+      border_opa: TRANSP
+      radius: 0
+      text_color: 0xFFFFFF
+      width: 100%
+      height: 100%  
+
+    - id: main_content
+      bg_opa: TRANSP
+      border_opa: TRANSP
+      radius: 0
+      text_color: 0xFFFFFF
+      width: 100%
+      height: 100%
+
+    - id: f1_page
+      bg_opa: TRANSP
+      border_opa: TRANSP
+      radius: 0
+      text_color: 0xFFFFFF
+      width: 100%
+      height: 100%
+
+    - id: style_line
+      line_color: 0x0000FF
+      line_width: 8
+      line_rounded: true
+    - id: date_style
+      #text_font: nunito_24
+      align: center
+      text_color: 0x333333
+      bg_opa: cover
+      radius: 4
+      pad_all: 2
+
+        ####Header_Footer##########
+    - id: header_footer
+      bg_color: 0x2F8CD8
+      bg_grad_color: 0x005782
+      bg_grad_dir: VER
+      bg_opa: COVER
+      border_width: 0
+      radius: 0
+      pad_all: 0
+      pad_row: 0
+      pad_column: 0
+      border_color: 0x0077b3
+      text_color: 0xFFFFFF
+      width: 100%
+      height: 30
+
+    - id: music_style
+      text_font: montserrat_16
+      text_color: 0x504d6d
+      bg_opa: TRANSP
+    
+    - id: title_style
+      text_font: montserrat_14
+      text_color: 0x101010
+      bg_opa: TRANSP
+    
+    - id: btn_round_style
+      radius: 10
+      bg_opa: COVER
+    
+    - id: spectrum_style
+      bg_opa: TRANSP
+      border_width: 0     
+
+    - id: style_bg_dark
+      bg_color: 0x1a1a1a
+      bg_opa: COVER
+      border_width: 0
+      radius: 0
+      
+    - id: style_card
+      bg_color: 0x2d2d2d
+      bg_opa: COVER
+      border_width: 0
+      radius: 15
+      pad_all: 20
+      
+    - id: style_header
+      bg_color: 0x000000
+      bg_opa: COVER
+      border_width: 0
+      radius: 0
+      pad_all: 0
+      
+    - id: style_button1
+      bg_color: 0x444444
+      bg_opa: COVER
+      border_width: 0
+      radius: 25
+      pad_all: 0
+  # Deux pages, et le visage est sur la DEUXIÈME : c'est exactement le cas qui
+  # ne marchait pas (le visage se créait toujours sur la page affichée au
+  # démarrage). Au boot on doit voir « Page 1 », pas le visage.
+  pages:
+    - id: page_home
+      bg_color: ${background_color}
+      on_load:
+          then:
+            - lvgl.image.update:
+                id: update_wallpaper
+                src: peaceful
+
+            #- lambda: |-
+                #ESP_LOGI("camera", "Camera page loaded");
+                #static bool canvas_configured = false;
+                #if (!canvas_configured) {
+                  #auto canvas = id(camera_canvas);
+                  #if (canvas != nullptr) {
+                    #id(camera_display).configure_canvas(canvas);
+                    #canvas_configured = true;
+                    #ESP_LOGI("lvgl", "✓ Canvas configured");
+                  #}
+                #}                
+      widgets:
+
+
+        - image:
+            
+            id: update_wallpaper
+            src: peaceful
+            width: 1024
+            height: 600
+            x: 0
+            y: 0          
+        - label:
+            id: home_title
+            text: "Page 1 - accueil"
+            text_color: ${text_color}
+            text_font: montserrat_38
+            align: TOP_MID
+            y: 60
+
+        - label:
+            id: home_hint
+            text: "Le visage est sur la page 2 (dis okay nabu ou appuie ci-dessous)"
+            text_color: ${text_color_secondary}
+            text_font: montserrat_20
+            align: TOP_MID
+            y: 130
+
+        - button:
+            id: btn_show_face
+            width: 320
+            height: 90
+            align: CENTER
+            bg_color: 0x1F6FEB
+            radius: 45
+            widgets:
+              - label:
+                  text: "Voir le visage"
+                  text_color: 0xFFFFFF
+                  text_font: montserrat_28
+                  align: CENTER
+            on_click:
+              - lvgl.page.show:
+                  id: page_face
+                  animation: MOVE_LEFT
+                  time: 250ms
+
+    - id: page_face
+      bg_color: ${background_color}
+      #on_load:
+          #then:
+            #- lvgl.image.update:
+                #id: update_wallpaper1
+                #src: exploration
+      widgets:
+        # Le conteneur du visage. Reprend à l'identique le panneau de
+        # l'exemple upstream (0015/lvgl_kawaii_face, examples/basic_cycle) :
+        #   set_size / center / bg_opa TRANSP / border_width 0 / pad_all 0
+        #   / clear_flag(SCROLLABLE)
+        # scrollable: false est indispensable — les canvas des yeux débordent
+        # un peu du conteneur, donc sans ça un glissement du doigt sur le
+        # visage le ferait défiler.
+        #
+        # ---> C'EST ICI QU'ON RÈGLE LA TAILLE DU VISAGE. <---
+        # Les proportions suivent la taille (référence upstream : 135).
+        #
+        # Fond transparent : le noir de la page traverse, et le composant
+        # reprend cette couleur pour les canvas des yeux/bouche. Le visage se
+        # pose donc directement sur l'écran sombre, comme dans le GIF.
+        # Le cadre arrondi du GIF de démo (make_demo_gif.py : rounded_rectangle
+        # inset 8, radius 26, width 2, couleur 28/35/49 sur un cadre de 300).
+        # Transposé ici : radius 36, bord 3, même couleur. Purement décoratif —
+        # enlève ce bloc et remets face_panel directement dans la page si tu
+        # n'en veux pas.
+        #
+        # Sa taille compte : dans le GIF les yeux occupent 55 % du cadre, alors
+        # que le composant les dessine sur 90 % de face_sz. Le cadre doit donc
+        # être nettement plus grand que le visage — ratio ~420/256, mesuré sur
+        # le GIF.
+
+        #- canvas:
+            #id: camera_canvas
+            #x: 695
+            #y: 150
+            #width: 320
+            #height: 240
+        
+        - label:
+            id: cam_debug
+            text: ""
+            text_color: 0x30D158
+            text_font: montserrat_22
+            #align: TOP_MID
+            x: 290
+            #y: 15
+            y: 25
+        - label:
+            id: face_caption
+            text: ""
+            text_color: ${text_color_secondary}
+            text_font: montserrat_22
+            x: 50
+            y: 300        
+        - obj:
+            id: face_frame
+            width: 350
+            height: 300
+            align: CENTER
+            y: -40
+            bg_opa: TRANSP
+            border_width: 3
+            border_color: 0x1C2331
+            radius: 36
+            pad_all: 0
+            scrollable: false
+            widgets:
+              # ---> C'EST ICI QU'ON RÈGLE LA TAILLE DU VISAGE. <---
+              # Garde ~61 % de la largeur du cadre pour rester fidèle au GIF.
+              - obj:
+                  id: face_panel
+                  width: 256
+                  height: 256
+                  align: CENTER
+                  y: -14
+                  bg_opa: TRANSP
+                  border_width: 0
+                  pad_all: 0
+                  scrollable: false
+
+              #- image:
+                  #id: update_wallpaper1
+                  #src: exploration
+                  #width: 1280
+                  #height: 720
+                  #x: 0
+                  #y: 0                  
+
+              # Bandeau de diagnostic du suivi caméra. Affiche le nombre de
+              # visages vus et la direction du regard envoyée. Vide tant que
+              # le debug est coupé.
+   
+
+
+
+
+
+      on_swipe_up:
+        - lambda: 'lv_indev_wait_release(lv_indev_get_act());'
+        - lvgl.page.show: page_home
+        - light.turn_on: 
+            id: backlight
+            flash_length: 50ms  
+
+# =============================================================================
+# LE VISAGE KAWAII
+# =============================================================================
+# parent_id accepte l'id d'un widget (ici face_panel) ou directement l'id d'une
+# page. Le visage est créé DANS ce widget — plus jamais sur la page affichée au
+# démarrage.
+lvgl_kawaii_face:
+  id: face
+  parent_id: face_panel
+  initial_emotion: worried
+  animation_speed: 30ms
+  blink_interval: 3000ms
+  auto_blink: true
+  smooth: true
+  response_fallback: speaking
+  response_keywords:          # optional; overrides the built‑in FR/EN defaults
+    happy: ["bravo", "super", "done", "great"]
+    sad:   ["désolé", "error", "sorry"]
+  # Optionnel : la couleur est déduite du fond de la page si on l'omet.
+  # bg_color: ${background_color}
+
+# =============================================================================
+# VIE AUTONOME — le visage vit même quand on ne lui parle pas
+# =============================================================================
+# Tempérament « expressif » : une expression toutes les ~10 s sur toute la
+# palette. Tout est mis en veille dès qu'une conversation démarre (va_busy),
+# pour ne jamais écraser la réaction à l'assistant vocal.
+#
+# Pour calmer le visage : allonge l'interval, ou réduis la liste IDLE_SET.
+# =============================================================================
+# RYTHME DE LA JOURNÉE
+# =============================================================================
+
+
+
+interval:
+
+  - interval: 66ms
+    then:
+      - lambda: id(tab5_cam).capture_frame();  
+  # Bandeau de diagnostic du suivi caméra (5 Hz), seulement quand demandé.
+  - interval: 200ms
+    then:
+      - if:
+          condition:
+            switch.is_on: cam_debug_switch
+          then:
+            - lvgl.widget.show:
+                id: cam_debug
+            - lvgl.label.update:
+                id: cam_debug
+                text: !lambda |-
+                  uint32_t last = id(last_face_seen);
+                  if (last == 0) {
+                    return esphome::str_sprintf("Faces:%d  Look:%d,%d  Vu: Jamais",
+                                                id(dbg_faces), id(dbg_gx), id(dbg_gy));
+                  }
+                  uint32_t age = millis() - last;
+                  return esphome::str_sprintf("Faces:%d  Look:%d,%d  Vu il y a %ums",
+                                              id(dbg_faces), id(dbg_gx), id(dbg_gy), (unsigned) age);
+          else:
+            - lvgl.widget.hide:
+                id: cam_debug
+
+
+
+  # ---------------------------------------------------------------------
+  # SUIVI DU REGARD : les yeux se posent sur la personne vue par la caméra.
+  # 10 Hz — assez fluide pour paraître vivant, assez lent pour ne rien coûter.
+  # La détection tourne à son propre rythme (detection_interval) de son côté.
+  # ---------------------------------------------------------------------
+  - interval: 30ms
+    then:
+      - lambda: |-
+          static const char *const TAG = "kawaii.follow";
+          static bool had_face = false;
+          static uint32_t last_log = 0;
+
+          // Journalisation détaillée
+          const bool dbg = id(cam_debug_switch).state;
+          const bool log_now = dbg && (millis() - last_log > 500);
+
+          int iw = id(tab5_cam).get_image_width();
+          int ih = id(tab5_cam).get_image_height();
+
+          // 1. VÉRIFICATION CAMÉRA EN PREMIER
+          if (iw <= 0 || ih <= 0) {
+            if (had_face) {
+              ESP_LOGW(TAG, "LOST face (Camera timeout / image 0x0)");
+              had_face = false;
+            }
+            if (log_now) {
+              last_log = millis();
+              ESP_LOGW(TAG, "CAMERA MUETTE (dimensions %dx%d)", iw, ih);
+            }
+            id(dbg_faces) = 0;
+            return;
+          }
+
+          // 2. VÉRIFICATION DES VISAGES
+          auto faces = id(face_detect).get_detected_faces();
+          if (faces.empty()) {
+            if (had_face) {
+              ESP_LOGI(TAG, "LOST face");
+              had_face = false;
+            }
+            if (log_now) {
+              last_log = millis();
+              ESP_LOGI(TAG, "0 visage | image %dx%d", iw, ih);
+            }
+            id(dbg_faces) = 0;
+            return;
+          }
+
+          // 3. SÉLECTION DU VISAGE LE PLUS GRAND
+          const auto *best = &faces[0];
+          int best_area = 0;
+          for (auto &f : faces) {
+            int area = (f.x2 - f.x1) * (f.y2 - f.y1);
+            if (area > best_area) { best_area = area; best = &f; }
+          }
+
+          // 4. CALCUL DU SUIVI & MULTIPLICATEURS
+          int cx = (best->x1 + best->x2) / 2;
+          int cy = (best->y1 + best->y2) / 2;
+          
+          int gx = (cx * 200) / iw - 100;      // -100..100
+          int gy = (cy * 200) / ih - 100;
+
+          float sensibilite_x = 2.0; 
+          float sensibilite_y = 1.5; 
+          
+          gx = gx * sensibilite_x;
+          gy = gy * sensibilite_y;
+
+          // Bornage -100..100
+          if (gx < -100) gx = -100;
+          if (gx > 100) gx = 100;
+          if (gy < -100) gy = -100;
+          if (gy > 100) gy = 100;
+
+          // Inversion X pour l'effet miroir (Gauche/Droite)
+          gx = -gx;
+          
+          // Inversion Y (Haut/Bas) : Décommente la ligne ci-dessous si le visage regarde à l'envers verticalement
+          // gy = -gy;
+
+          // Lissage très réactif à 30ms
+          static int sx = 0, sy = 0;
+          sx = (sx * 2 + gx) / 3;
+          sy = (sy * 2 + gy) / 3;
+
+          if (!had_face) {
+            ESP_LOGI(TAG, "face ACQUIRED (score %.2f)", best->score);
+            had_face = true;
+          }
+          if (log_now) {
+            last_log = millis();
+            ESP_LOGI(TAG,
+                     "%d visage(s) | boite (%d,%d)-(%d,%d) score %.2f | image %dx%d"
+                     " | centre (%d,%d) -> brut (%d,%d) -> lisse (%d,%d)",
+                     (int) faces.size(), best->x1, best->y1, best->x2, best->y2,
+                     best->score, iw, ih, cx, cy, gx, gy, sx, sy); 
+          }
+
+          id(last_face_seen) = millis();
+          id(last_interaction) = millis();
+          
+          // === L'axe Y est maintenant libéré (sy au lieu de sy / 2) ===
+          id(face).look_at(sx, sy, 1500);
+
+          id(dbg_faces) = faces.size();
+          id(dbg_gx) = sx;
+          id(dbg_gy) = sy; // === Modifié ici aussi pour le debug ===
+
+  # Plus personne depuis 10 s -> le visage se désintéresse.
+  - interval: 2s
+    then:
+      - if:
+          condition:
+            - lambda: 'return id(last_face_seen) != 0 && (millis() - id(last_face_seen)) > 10000;'
+          then:
+            - lambda: id(last_face_seen) = 0;
+
+  # Regard vagabond : les yeux balaient la pièce entre deux expressions.
+  # Se tait dès qu'un visage est suivi par la caméra, sinon il tirerait les
+  # yeux au hasard toutes les 2,5 s en pleine poursuite.
+  - interval: 30s
+    then:
+      - lambda: |-
+          size_t free_int = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
+          size_t free_psram = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
+          ESP_LOGI("mem", "Internal free: %u KB | PSRAM free: %u KB",
+                   (unsigned)(free_int / 1024),
+                   (unsigned)(free_psram / 1024));
+
+  - interval: 60s
+    then:
+      - lambda: |-
+          // Log real memory usage (ESP32-P4: 768KB SRAM, 32MB PSRAM)
+          const size_t total_sram = 768 * 1024;        // Changer ici: 512 → 768 KB
+          const size_t total_psram = 32 * 1024 * 1024; // Changer ici: 8 → 32 MB
+          
+          size_t free_sram = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
+          size_t used_sram = total_sram - free_sram;
+          
+          size_t free_psram = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
+          size_t used_psram = total_psram - free_psram;
+          
+          ESP_LOGI("system_info", "SRAM: %u/%u KB used (%.1f%%)", 
+                   (unsigned)(used_sram/1024), (unsigned)(total_sram/1024), 
+                   (used_sram * 100.0) / total_sram);
+          
+          if (heap_caps_get_total_size(MALLOC_CAP_SPIRAM) > 0) {
+            ESP_LOGI("system_info", "PSRAM: %u/%u MB used (%.1f%%)", 
+                     (unsigned)(used_psram/(1024*1024)), (unsigned)(total_psram/(1024*1024)),
+                     (used_psram * 100.0) / total_psram);
+          } else {
+            ESP_LOGI("system_info", "PSRAM: Not available");
+          }
+
+
+  - interval: 2500ms
+    then:
+      - if:
+          condition:
+            switch.is_on: face_demo
+          then:
+            - lambda: |-
+                // Même ordre que ALL_EMOTIONS[] dans examples/basic_cycle/main/main.c
+                static const char *const EMOTIONS[] = {
+                    "neutral", "happy", "worried", "wink", "love", "surprised",
+                    "playful", "silly", "smirk", "working_hard", "excited",
+                    "confused", "cool", "sleepy", "sad", "cry", "angry"};
+                const int count = sizeof(EMOTIONS) / sizeof(EMOTIONS[0]);
+                int i = id(demo_emotion_idx);
+                id(demo_emotion_name) = EMOTIONS[i];
+                id(demo_emotion_idx) = (i + 1) % count;
+            - lvgl_kawaii_face.set_emotion:
+                id: face
+                emotion: !lambda return id(demo_emotion_name);
+            - lvgl.label.update:
+                id: face_caption
+                text: !lambda return id(demo_emotion_name);          
