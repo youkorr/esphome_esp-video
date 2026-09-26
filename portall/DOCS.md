@@ -260,6 +260,7 @@ launcher:
   align: left                 # left, center, right
   tiles: cards                # cards, or buttons (icon on top, name below)
   focus_color: theme          # the frame around the link a remote is on
+  avatar: false               # a small face in the corner, moved with a finger
   clock:
     show: true                # the time and the date above the links
     size: medium              # small, medium, large, huge
@@ -314,6 +315,15 @@ around the chosen link, in the theme's own colour by default. On a light
 theme or a pale wallpaper that colour barely stands out, so pick one that
 does from the same list as the clock's colour -- `black` or `yellow` for
 example. Each panel's own launcher can choose its own.
+
+**A face on the launcher, `avatar:`.** A small animated face the size of a
+button, in the bottom right corner. Put a finger on it and slide to move it
+anywhere on the screen; it stays where it is left, across restarts, and each
+panel's own launcher keeps its own spot. A tap makes it smile. It blinks and
+glances now and then, and is otherwise still, so a launcher nobody touches
+costs a few small pictures of its eyes rather than a stream. This is the first
+step: the face will later follow the panel's voice assistant -- listening,
+thinking, speaking.
 
 ### Each panel its own launcher
 
@@ -373,7 +383,7 @@ launcher's:
 
 | in an entry | the house's setting it replaces |
 |---|---|
-| `theme`, `columns`, `align`, `tiles`, `focus_color` | `launcher: theme`, `columns`, `align`, `tiles`, `focus_color` |
+| `theme`, `columns`, `align`, `tiles`, `focus_color`, `avatar` | `launcher: theme`, `columns`, `align`, `tiles`, `focus_color`, `avatar` |
 | `clock`, `clock_size`, `clock_color` | `launcher: clock: show`, `size`, `color` |
 | `date_size`, `date_color` | `launcher: date: size`, `color` |
 | `weather`, `weather_size` | `launcher: weather: entity`, `size` |

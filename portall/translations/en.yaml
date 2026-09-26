@@ -143,6 +143,10 @@ configuration:
         name: 🎯 Selection colour
         description: The ring around the link chosen with a remote or a gamepad. On a light background,
           pick black or yellow.
+      avatar:
+        name: 😊 Avatar
+        description: A small face the size of a button, in the bottom right corner. Drag it with a finger
+          to put it anywhere; it stays there.
       clock:
         name: 🕒 Clock
         fields:
@@ -258,6 +262,10 @@ configuration:
         name: 🎯 Selection colour
         description: The ring around the link chosen with a remote or a gamepad. On a light background,
           pick black or yellow.
+      avatar:
+        name: 😊 Avatar
+        description: A small face the size of a button, in the bottom right corner. Drag it with a finger
+          to put it anywhere; it stays there.
       clock:
         name: 🕒 Show the clock
       clock_size:

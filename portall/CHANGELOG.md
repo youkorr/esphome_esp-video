@@ -1,5 +1,15 @@
 # Changelog
 
+## 4.23.0
+
+- **A face on the launcher.** Turn on **`avatar`** under *Launcher*, or on a
+  panel's own launcher: a small animated face the size of a button appears in
+  the bottom right corner. Slide it with a finger to put it anywhere; it stays
+  there, across restarts. A tap makes it smile. It blinks and glances now and
+  then and is otherwise still, so it costs almost nothing on the network. The
+  face is Eric Nam's *lvgl_kawaii_face*, redrawn for the launcher. Next, it
+  will follow the panel's voice assistant.
+
 ## 4.22.2
 
 - **The white corner that says "hold here to go home" now shows on every page
