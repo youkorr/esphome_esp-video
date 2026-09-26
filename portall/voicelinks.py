@@ -51,7 +51,17 @@ LINK = "link:"
 VERBS = ("(ouvre|ouvrir|lance|lancer|affiche|afficher|montre [moi]|mets|"
          "va sur|open|launch|show|start|go to)")
 # Optional words before the name, so "lance la télé" still names "télé".
-ARTICLES = "[le|la|les]"
+# "l'" too: a speech-to-text engine writes "l'Home Assistant" as readily as a
+# person says it, and it is the one article that leaves no space behind it.
+ARTICLES = "[le |la |les |l']"
+# What people put between the verb and the name without meaning anything by
+# it -- "ouvre la page de Home Assistant", "lance l'appli Jellyfin". Optional,
+# and the name still has to follow, so none of these can take a sentence
+# about something else.
+FILLERS = ("[(la page|l'application|l'appli|l'interface|le site|l'écran) "
+           "[de |du |d']]")
+# And after it: politeness costs a match otherwise.
+POLITE = "[s'il te plaît|s'il vous plaît|stp|please]"
 
 HOME_SENTENCES = [
     "(retour|reviens|retourne|revenir) [a|à] [la page d'|l']accueil",
@@ -76,6 +86,17 @@ def speakable(name):
     return " ".join(kept.split())
 
 
+def spoken_forms(name):
+    """The name as a sentence template: as written, and run together.
+
+    "Home Assistant" is also written "HomeAssistant" -- by people and by
+    speech-to-text engines -- and the two are the same link. A one-word name
+    has nothing to run together and stays as it is.
+    """
+    joined = name.replace(" ", "")
+    return f"({name}|{joined})" if joined != name else name
+
+
 def key(name):
     """What two spellings of one name have in common, to find a link by it.
 
@@ -92,7 +113,8 @@ def automation(names):
     for name in names:
         triggers.append({
             "trigger": "conversation",
-            "command": [f"{VERBS} {ARTICLES} {name}"],
+            "command": [f"{VERBS} {FILLERS}{ARTICLES}{spoken_forms(name)} "
+                        f"{POLITE}"],
             "id": LINK + name,
         })
     triggers.append({"trigger": "conversation", "command": HOME_SENTENCES,

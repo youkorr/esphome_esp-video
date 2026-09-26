@@ -1,5 +1,13 @@
 # Changelog
 
+## 4.25.1
+
+- **Links by voice understand more ways of saying it.** *"Ouvre la page de
+  Home Assistant"*, *"lance l'appli Jellyfin"*, *"ouvre l'Home Assistant"*,
+  *"ouvre HomeAssistant"* and *"… s'il te plaît"* now open the link as well.
+  The link's name still has to be said, so nothing else is taken away from
+  Home Assistant. Restart the add-on once so the automation is rewritten.
+
 ## 4.25.0
 
 - **Open a link by voice.** Turn on **`voice_links`** under the launcher and

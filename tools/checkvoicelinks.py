@@ -112,10 +112,22 @@ def sentences():
                        ("open Jellyfin", "link:Jellyfin"),
                        ("retour à l'accueil", "home"),
                        ("page d'accueil", "home"),
-                       ("go home", "home")):
+                       ("go home", "home"),
+                       # What a speech-to-text engine really hands over for
+                       # "ouvre Home Assistant", reported from a panel where
+                       # YouTube and home worked and this did not.
+                       ("Ouvre l'Home Assistant.", "link:Home Assistant"),
+                       ("Ouvre HomeAssistant.", "link:Home Assistant"),
+                       ("Ouvre la page de Home Assistant",
+                        "link:Home Assistant"),
+                       ("lance l'appli Jellyfin", "link:Jellyfin"),
+                       ("Ouvre Home Assistant, s'il te plaît.",
+                        "link:Home Assistant"),
+                       ("ouvre la page d'accueil", "home")):
         got = heard(text)
         check(f"\"{text}\" -> {want}", got == want, repr(got))
     for text in ("ouvre le volet du salon", "ouvre le portail",
+                 "ouvre la page du salon", "ouvre l'application",
                  "allume la lumière du salon", "ouvre Spotify"):
         got = heard(text)
         check(f"\"{text}\" is left to Home Assistant", got is None, repr(got))
