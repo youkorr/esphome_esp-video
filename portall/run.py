@@ -365,7 +365,7 @@ def truthy(value):
 # launcher_clock_size -- so an entry is the house launcher with that panel's
 # own values laid over it, and there is no second table to keep in step.
 LAUNCHER_OWN = (
-    "theme", "columns", "align", "tiles", "focus_color",
+    "theme", "columns", "align", "tiles", "focus_color", "avatar",
     "clock", "clock_size", "clock_color", "date_size", "date_color",
     "weather", "weather_size",
     "background", "background_motion", "background_blur", "background_dim",
@@ -432,6 +432,22 @@ def launcher_config(config, entry):
     return merged
 
 
+# Where each launcher's avatar was last put. /data survives updates and
+# restarts, which is the point: a face moved out of the way stays out of it.
+AVATAR_DIR = "/data/avatar"
+
+
+def avatar_file(label):
+    """The file keeping one launcher's avatar spot: the house's, or a panel's.
+
+    Named after the panel that has the launcher, not after its port -- a
+    panel's own launcher is on a port the system picks, new at every start.
+    """
+    who = str(label).strip().strip("[]").strip() or "house"
+    safe = "".join(c if c.isalnum() or c in "-_" else "-" for c in who)
+    return os.path.join(AVATAR_DIR, (safe or "house") + ".json")
+
+
 def start_launcher(config, port=None, house_links=(), label=""):
     """Serve one page of links, if there are any, and say where it is.
 
@@ -470,6 +486,8 @@ def start_launcher(config, port=None, house_links=(), label=""):
         tiles=str(config.get("launcher_tiles") or "cards"),
         focus_color=str(config.get("launcher_focus_color")
                         or launcher.FOLLOW_THEME),
+        avatar=truthy(config.get("launcher_avatar", False)),
+        avatar_file=avatar_file(label),
         motion=truthy(config.get("launcher_background_motion", False)),
         slideshow=truthy(config.get("launcher_slideshow", False)),
         every=config.get("launcher_slideshow_seconds", 30),
@@ -574,6 +592,7 @@ _GROUPED = {
         "align": "launcher_align",
         "tiles": "launcher_tiles",
         "focus_color": "launcher_focus_color",
+        "avatar": "launcher_avatar",
         "clock": {"show": "launcher_clock", "size": "launcher_clock_size",
                   "color": "launcher_clock_color"},
         "date": {"size": "launcher_date_size", "color": "launcher_date_color"},

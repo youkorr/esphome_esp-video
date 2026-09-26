@@ -1030,6 +1030,190 @@ PRESS_JS = """<script>
 })();
 </script>"""
 
+# The avatar: a small face that lives on the launcher, the size of one of its
+# buttons, in the bottom right corner until somebody moves it.
+#
+# The drawing is Eric Nam's lvgl_kawaii_face (MIT), the face its ESPHome
+# integration in youkorr/esphome-lvgl-kawaii puts on an LVGL panel, redrawn
+# for a browser. It cannot be used as it stands: that is C drawing into LVGL
+# canvases, and a panel here runs no LVGL -- it shows JPEG rectangles of a
+# page. Its shapes are rounded rectangles and lines, so they carry straight
+# across into SVG.
+#
+# Three rules decide how it behaves, and each is this project's rather than
+# the original's:
+#
+# - IT IS STILL MOST OF THE TIME. Anything that moves is a rectangle on the
+#   wire for as long as the panel is awake, and a still launcher costs nothing
+#   today. So no animation runs by itself: a blink is a class held for 140 ms
+#   every four to eight seconds, a glance a class held for a second and a
+#   half, and between them the face paints nothing at all.
+# - IT IS MOVED BY THE FINGER, WHICH ARRIVES AS A WHEEL. The sender puts the
+#   pointer where the finger lands and turns the drag into wheel events, so a
+#   page never sees a mouse drag. Landing on the face arms it; every wheel of
+#   that gesture then moves the face by the finger's travel and is swallowed,
+#   so the page under it does not scroll. The next landing anywhere else
+#   disarms it.
+# - IT REMEMBERS WHERE IT WAS PUT, ON THE ADD-ON'S SIDE. The page asks
+#   AVATAR_PATH to keep the spot, as fractions of the room left around it, so
+#   the same spot survives a restart, a new port and a panel turned round.
+#   The page's own storage could not: a panel's own launcher is on a port the
+#   system picks, so its origin -- and its storage -- is new at every start.
+AVATAR_PATH = "/avatar"
+
+AVATAR_CSS = """
+ #av {
+   position: fixed; z-index: 50; width: 26vmin; height: 17.33vmin;
+   right: 3vmin; bottom: 3vmin; %(place)s
+   border-radius: 2.5vmin; overflow: hidden;
+   background: #0f131b; border: 1px solid rgba(255,255,255,.14);
+   box-shadow: 0 .8vmin 2.4vmin rgba(0,0,0,.45);
+   touch-action: none; user-select: none; -webkit-user-select: none;
+ }
+ #av svg { width: 100%%; height: 100%%; display: block; }
+ #av .eye, #av .brow, #av .mouth, #av .look, #av .shut, #av .o {
+   transform-box: fill-box; transform-origin: center;
+ }
+ /* Only a change of mood is eased, because somebody caused it. A blink and a
+    glance happen by themselves every few seconds, and eased they cost about
+    fourteen pictures each where a snap costs two -- measured, 87 pictures in
+    twenty seconds of a still launcher against one without the face. */
+ #av .brow, #av .mouth, #av .shut, #av .o {
+   transition: transform .12s ease, opacity .12s ease, d .12s ease;
+ }
+ #av .look { transform: translate(var(--lx, 0px), var(--ly, 0px)); }
+ #av .shut, #av .o { opacity: 0; }
+ #av.blink .eye { transform: scaleY(.08); }
+ #av[data-mood="happy"] .eye { opacity: 0; }
+ #av[data-mood="happy"] .shut { opacity: 1; }
+ #av[data-mood="happy"] .mouth { d: path("M58 72 Q75 90 92 72"); }
+ #av[data-mood="surprised"] .brow { transform: translateY(-4px); }
+ #av[data-mood="surprised"] .mouth { opacity: 0; }
+ #av[data-mood="surprised"] .o { opacity: 1; }
+ #av[data-mood="thinking"] .look { transform: translate(4px, -5px); }
+ #av[data-mood="thinking"] .brow.r { transform: translateY(-4px); }
+ #av[data-mood="thinking"] .mouth { d: path("M66 78 Q75 78 86 75"); }
+ #av[data-mood="sleepy"] .eye { transform: scaleY(.25); }
+ #av[data-mood="sleepy"] .mouth { d: path("M68 78 Q75 79 82 78"); }
+ #av[data-mood="sad"] .brow.l { transform: rotate(-12deg); }
+ #av[data-mood="sad"] .brow.r { transform: rotate(12deg); }
+ #av[data-mood="sad"] .mouth { d: path("M62 82 Q75 72 88 82"); }
+"""
+
+# The face, on a 150 x 100 box: the button's own 3:2. Everything that moves
+# is its own group, so an expression is a class on the box and nothing more.
+AVATAR_HTML = """<div id="av" data-mood="neutral" aria-hidden="true">
+<svg viewBox="0 0 150 100">
+ <rect class="brow l" x="30" y="17" width="30" height="5" rx="2.5" fill="#56607a"/>
+ <rect class="brow r" x="90" y="17" width="30" height="5" rx="2.5" fill="#56607a"/>
+ <g class="eye">
+  <rect x="31" y="30" width="28" height="36" rx="12" fill="#f4f7fb"/>
+  <g class="look"><circle cx="45" cy="50" r="10" fill="#3b9eff"/>
+   <circle cx="45" cy="50" r="5" fill="#0b1a33"/>
+   <circle cx="41" cy="45" r="3" fill="#fff"/></g>
+ </g>
+ <g class="eye">
+  <rect x="91" y="30" width="28" height="36" rx="12" fill="#f4f7fb"/>
+  <g class="look"><circle cx="105" cy="50" r="10" fill="#3b9eff"/>
+   <circle cx="105" cy="50" r="5" fill="#0b1a33"/>
+   <circle cx="101" cy="45" r="3" fill="#fff"/></g>
+ </g>
+ <path class="shut" d="M33 52 Q45 38 57 52" stroke="#f4f7fb" stroke-width="5"
+       stroke-linecap="round" fill="none"/>
+ <path class="shut" d="M93 52 Q105 38 117 52" stroke="#f4f7fb" stroke-width="5"
+       stroke-linecap="round" fill="none"/>
+ <ellipse cx="26" cy="72" rx="8" ry="4.5" fill="#ff7a9a" opacity=".35"/>
+ <ellipse cx="124" cy="72" rx="8" ry="4.5" fill="#ff7a9a" opacity=".35"/>
+ <path class="mouth" d="M62 76 Q75 84 88 76" stroke="#ff5d73" stroke-width="4"
+       stroke-linecap="round" fill="none"/>
+ <ellipse class="o" cx="75" cy="79" rx="6" ry="7" fill="#ff5d73"/>
+</svg></div>"""
+
+AVATAR_JS = """<script>
+(function () {
+  var box = document.getElementById('av');
+  if (!box) return;
+  var back = 0;
+  /* One expression at a time, and it goes back to neutral by itself when it
+     was only for a moment. Named now for what comes next: the panel's voice
+     assistant listening, thinking, speaking. */
+  function set(mood, ms) {
+    box.dataset.mood = mood || 'neutral';
+    clearTimeout(back);
+    if (ms) back = setTimeout(function () { set('neutral'); }, ms);
+  }
+  window.portallAvatar = {set: set};
+
+  function blink() {
+    box.classList.add('blink');
+    setTimeout(function () { box.classList.remove('blink'); }, 140);
+    setTimeout(blink, 4000 + Math.random() * 4000);
+  }
+  setTimeout(blink, 3000);
+  function glance() {
+    if (box.dataset.mood === 'neutral') {
+      var x = [-4, 4, 3][Math.floor(Math.random() * 3)];
+      box.style.setProperty('--lx', x + 'px');
+      setTimeout(function () { box.style.setProperty('--lx', '0px'); }, 1500);
+    }
+    setTimeout(glance, 10000 + Math.random() * 8000);
+  }
+  setTimeout(glance, 9000);
+
+  /* A tap on the face is somebody saying hello; it is never a link. */
+  box.addEventListener('click', function (e) {
+    e.preventDefault();
+    e.stopPropagation();
+    set('happy', 2500);
+  });
+
+  function on(e) {
+    return e.composedPath ? e.composedPath().indexOf(box) >= 0
+                          : box.contains(e.target);
+  }
+  var armed = false, moved = false, save = 0;
+  window.addEventListener('mousemove', function (e) { armed = on(e); }, true);
+  window.addEventListener('pointerdown', function (e) { armed = on(e); }, true);
+  window.addEventListener('wheel', function (e) {
+    if (!armed && !on(e)) return;
+    armed = true;
+    e.preventDefault();
+    e.stopPropagation();
+    var r = box.getBoundingClientRect();
+    var room = [Math.max(1, innerWidth - r.width),
+                Math.max(1, innerHeight - r.height)];
+    var x = Math.min(room[0], Math.max(0, r.left - e.deltaX));
+    var y = Math.min(room[1], Math.max(0, r.top - e.deltaY));
+    box.style.left = x + 'px';
+    box.style.top = y + 'px';
+    box.style.right = 'auto';
+    box.style.bottom = 'auto';
+    if (!moved) set('surprised');
+    moved = true;
+    clearTimeout(save);
+    save = setTimeout(function () {
+      moved = false;
+      set('happy', 1500);
+      try {
+        fetch('%(path)s?x=' + (x / room[0]).toFixed(4) +
+              '&y=' + (y / room[1]).toFixed(4)).catch(function () {});
+      } catch (err) { /* where it was put is kept for this visit anyway */ }
+    }, 600);
+  }, {capture: true, passive: false});
+})();
+</script>"""
+
+
+def _avatar_place(at):
+    """Where the face goes: its saved spot, or the bottom right corner."""
+    if not at:
+        return ""
+    x, y = at
+    return ("right: auto; bottom: auto; "
+            f"left: calc((100vw - 26vmin) * {x:.4f}); "
+            f"top: calc((100vh - 17.33vmin) * {y:.4f});")
+
+
 TILE = ('<a class="tile" href="%(url)s"><span class="in">'
         '<span class="icon%(icon_long)s">%(icon)s</span>'
         '<span class="text"><span class="name">%(name)s</span>%(desc)s</span>'
@@ -1222,7 +1406,8 @@ def render(links, title="", subtitle="", theme="dark",
            date_size=DEFAULT_SIZE, date_color=FOLLOW_THEME,
            weather_size=DEFAULT_SIZE, align="left",
            motion=False, slideshow=False, every=30, fade=1, rescan=60,
-           urls=(), mirrored=False, shape="cards", focus_color=FOLLOW_THEME):
+           urls=(), mirrored=False, shape="cards", focus_color=FOLLOW_THEME,
+           avatar=False, avatar_at=None):
     """The page, as one string.
 
     Every value is escaped. These come from a configuration file a person
@@ -1386,6 +1571,9 @@ def render(links, title="", subtitle="", theme="dark",
         moving.append(FREEZE_JS)
     if wants_video_report:
         moving.append(VIDEO_ERROR_JS % {"report": REPORT_PATH})
+    if avatar:
+        sheet += AVATAR_CSS % {"place": _avatar_place(avatar_at)}
+        moving.append(AVATAR_HTML + AVATAR_JS % {"path": AVATAR_PATH})
 
     return PAGE % {
         "css": sheet,
@@ -1443,7 +1631,8 @@ def start(links, title="", subtitle="", theme="dark",
           date_size=DEFAULT_SIZE, date_color=FOLLOW_THEME,
           weather_size=DEFAULT_SIZE, align="left",
           motion=False, slideshow=False, every=30, fade=1, rescan=60,
-          urls=(), port=PORT, tiles="cards", focus_color=FOLLOW_THEME):
+          urls=(), port=PORT, tiles="cards", focus_color=FOLLOW_THEME,
+          avatar=False, avatar_file=None):
     """Serve the page for as long as the add-on runs. Returns its address.
 
     One call is one launcher: its links, its look, its weather, its
@@ -1500,9 +1689,24 @@ def start(links, title="", subtitle="", theme="dark",
     # at all on a panel with no weather.
     cache = {}
 
+    # Where the avatar was last put, read once and kept in memory. A spot that
+    # cannot be read is the corner it starts in -- never a reason to fail.
+    spot = {"at": None}
+    if avatar and avatar_file:
+        try:
+            with open(avatar_file, encoding="utf-8") as handle:
+                saved = json.load(handle)
+            spot["at"] = (min(1.0, max(0.0, float(saved["x"]))),
+                          min(1.0, max(0.0, float(saved["y"]))))
+        except (OSError, ValueError, KeyError, TypeError):
+            pass
+
     def page():
         state = weather() if weather is not None else None
-        key = weather_block(state) if state else None
+        # The avatar's spot is part of the page: a panel coming home finds
+        # the face where it was left, drawn there from the first frame rather
+        # than jumping there after a script has run.
+        key = (weather_block(state) if state else None, spot["at"])
         held = cache.get("page")
         if held is None or held[0] != key:
             body = render(
@@ -1514,7 +1718,8 @@ def start(links, title="", subtitle="", theme="dark",
                 # Already sifted just above, so the page does not repeat
                 # the complaint about an address that is not one.
                 motion, slideshow, every, fade, rescan, addresses,
-                mirrored, shape=tiles, focus_color=focus_color).encode()
+                mirrored, shape=tiles, focus_color=focus_color,
+                avatar=avatar, avatar_at=spot["at"]).encode()
             held = cache["page"] = (key, body)
         return held[1]
 
@@ -1625,6 +1830,34 @@ def start(links, title="", subtitle="", theme="dark",
                           f"WebM (VP9), or install a Chromium packaged by "
                           f"your distribution, which the sender prefers.",
                           flush=True)
+                self.send_response(204)
+                self.end_headers()
+                return
+            if self.path.split("?")[0] == AVATAR_PATH:
+                # Where the face was put. Fractions of the room around it, so
+                # anything outside 0..1 is not a spot and is not kept.
+                asked = parse_qs(urlsplit(self.path).query)
+                try:
+                    x = float((asked.get("x") or [""])[0])
+                    y = float((asked.get("y") or [""])[0])
+                    ok = avatar and 0.0 <= x <= 1.0 and 0.0 <= y <= 1.0
+                except ValueError:
+                    ok = False
+                if ok:
+                    spot["at"] = (x, y)
+                    if avatar_file:
+                        try:
+                            os.makedirs(os.path.dirname(avatar_file) or ".",
+                                        exist_ok=True)
+                            with open(avatar_file, "w", encoding="utf-8") as h:
+                                json.dump({"x": x, "y": y}, h)
+                        except OSError as err:
+                            if "avatar" not in said:
+                                said.add("avatar")
+                                print(f"Launcher: could not keep where the "
+                                      f"avatar was put ({err}); it goes back "
+                                      f"to the corner after a restart.",
+                                      flush=True)
                 self.send_response(204)
                 self.end_headers()
                 return

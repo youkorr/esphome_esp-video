@@ -64,6 +64,9 @@ LOOK = dict(
     focus_color=T("🎯 Couleur de la sélection", "🎯 Selection colour",
                   "Le cadre autour du lien choisi à la télécommande ou à la manette. Sur un fond clair, prenez black ou yellow.",
                   "The ring around the link chosen with a remote or a gamepad. On a light background, pick black or yellow."),
+    avatar=T("😊 Avatar", "😊 Avatar",
+             "Un petit visage de la taille d'un bouton, en bas à droite. Glissez-le du doigt pour le mettre où vous voulez ; il y reste.",
+             "A small face the size of a button, in the bottom right corner. Drag it with a finger to put it anywhere; it stays there."),
 )
 
 cfg = dict(

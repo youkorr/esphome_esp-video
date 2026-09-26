@@ -1,5 +1,5 @@
 name: Portall
-version: "4.22.2"
+version: "4.23.0"
 # Home Assistant identifies an add-on by its slug, so this one moving from
 # usb_display_panel to portall makes the Supervisor see a NEW add-on: options
 # are not carried over and /data starts empty, which means the browser
@@ -120,6 +120,9 @@ options:
     # theme's own colour; on a light theme or a pale wallpaper pick one that
     # stands out, black or yellow for example.
     focus_color: theme
+    # A small face in the bottom right corner, the size of a button. Drag it
+    # with a finger to put it anywhere; it stays where it is put.
+    avatar: false
     clock:
       # The time and the date, above the links. Formatted by the browser, so they
       # follow `locale:` -- a French panel writes "lundi 2 septembre" without this
@@ -363,6 +366,7 @@ schema:
     align: list(left|center|right)?
     tiles: list(cards|buttons)?
     focus_color: list(theme|slate|gray|zinc|neutral|stone|red|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose|white|black)?
+    avatar: bool?
     clock:
       show: bool?
       size: list(small|medium|large|huge)?
@@ -403,6 +407,7 @@ schema:
       align: list(left|center|right)?
       tiles: list(cards|buttons)?
       focus_color: list(theme|slate|gray|zinc|neutral|stone|red|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose|white|black)?
+      avatar: bool?
       clock: bool?
       clock_size: list(small|medium|large|huge)?
       clock_color: list(theme|slate|gray|zinc|neutral|stone|red|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose|white|black)?

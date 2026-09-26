@@ -146,6 +146,10 @@ configuration:
         name: 🎯 Couleur de la sélection
         description: Le cadre autour du lien choisi à la télécommande ou à la manette. Sur un fond clair,
           prenez black ou yellow.
+      avatar:
+        name: 😊 Avatar
+        description: Un petit visage de la taille d'un bouton, en bas à droite. Glissez-le du doigt pour
+          le mettre où vous voulez ; il y reste.
       clock:
         name: 🕒 Horloge
         fields:
@@ -263,6 +267,10 @@ configuration:
         name: 🎯 Couleur de la sélection
         description: Le cadre autour du lien choisi à la télécommande ou à la manette. Sur un fond clair,
           prenez black ou yellow.
+      avatar:
+        name: 😊 Avatar
+        description: Un petit visage de la taille d'un bouton, en bas à droite. Glissez-le du doigt pour
+          le mettre où vous voulez ; il y reste.
       clock:
         name: 🕒 Afficher l'horloge
       clock_size:

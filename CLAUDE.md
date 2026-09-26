@@ -8664,6 +8664,45 @@ should not flash it again. `tools/checkhint.py` drives the shipped class and
 script in a real browser -- follow a link, come back, change view -- and
 three of its six cases fail against 4.22.1.
 
+## An avatar on the launcher -- 4.23.0
+
+**Asked with the user's own old project as the model**
+(`youkorr/esphome-lvgl-kawaii`, which wraps Eric Nam's MIT `lvgl_kawaii_face`
+for an LVGL panel), as a face on the home page that one day is told to open
+links and give the weather, *"de la taille d'un button ... en bas a droite et
+que je peux le deplacer ou je veux"*. Step one is the face; the voice comes
+after, and the plan for it is the board's `voice_assistant` state crossing the
+return channel beside `'T'`/`'K'`/`'H'`, and an HA sentence calling a
+`portall.open` action.
+
+**The C cannot be used as it stands** -- it draws into LVGL canvases and a
+panel here runs no LVGL -- but it draws only rounded rectangles and lines, so
+it went into SVG nearly shape for shape. `avatar: true` on the launcher and on
+a `launchers:` entry; 26vmin x 17.33vmin, which is exactly a button.
+
+**A finger cannot drag it the ordinary way, and that was the first thing to
+check.** `Injector` never gives a page a mouse drag: it moves the pointer to
+where the finger LANDS and turns the travel into `mouse.wheel(-dx, -dy)`. So
+the face is moved by wheels: a `mousemove`/`pointerdown` landing on it arms
+it, every wheel of that gesture moves it by minus its delta and is swallowed,
+and the next landing anywhere else disarms it. The pointer stays at the
+landing point while the face moves away from under it, which is why the arm
+is a flag rather than a hit test per wheel.
+
+**Its spot is kept by the ADD-ON**, as fractions of the room around it, in
+`/data/avatar/<panel>.json` through a GET on `/avatar`. Not the page's own
+storage: a panel's own launcher is on a port the system picks, so its origin
+and its storage are new at every start. The spot is part of the page cache's
+key, so a panel coming home draws the face where it was left from the first
+frame instead of jumping there.
+
+**Eased blinks cost fourteen pictures each.** Measured on a still launcher:
+**one** picture in twenty seconds without the face, **87** with it, because
+the 120 ms transitions on the blink and the glance each produce a run of
+frames. Snapped instead (transitions kept only on a change of mood, which
+somebody caused): **11** in twenty seconds, about four 64 px tiles each --
+the eyes. `tools/checkavatar.py` drives the add-on's own path and asserts it.
+
 ## A byte rate, because a fixed quality makes the rate follow the scene -- 4.21.0
 
 **Reported after hours of YouTube at quality 50 and 30 pictures a second:
