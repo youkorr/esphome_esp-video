@@ -190,15 +190,17 @@ speaker:
     portall_bt_id: dongle
     num_channels: 2
 
-  - platform: resampler
-    id: to_bluetooth
-    output_speaker: bt_speaker
-
-    bits_per_sample: 16
-
+  # The mixer feeds the Bluetooth speaker directly, at 44100 -- the rate A2DP
+  # carries -- and the page's 48000 is resampled BEFORE its mixer input, the
+  # way ESPHome's own voice assistants are wired. Not after the mixer: a
+  # resampler holds back half its filter (8 frames at 16 taps) until more
+  # sound arrives, so an announcement's last frames were never reported played,
+  # the mixer waited for them for ever, and the voice assistant stayed stuck on
+  # "responding". A resampler in front of a source never has to finish, so its
+  # held frames cost nothing there.
   - platform: mixer
     id: mixing_speaker
-    output_speaker: to_bluetooth
+    output_speaker: bt_speaker
     source_speakers:
       - id: announcement_mixing_input
         timeout: never
@@ -206,13 +208,20 @@ speaker:
         timeout: never
 
       - id: portall_mixing_input
-        timeout: never   
+        timeout: never
+
+  # The page's sound, 48000 from the browser, to the mixer's 44100.
+  - platform: resampler
+    id: portall_resampler
+    output_speaker: portall_mixing_input
+    bits_per_sample: 16
 
 # Voice: what the answer is spoken through. Home Assistant sends it as an
 # announcement, which goes into the mixer beside the page's sound and on to
-# the Bluetooth speaker. 48000 like portall: every source of one mixer has to
-# be at the same rate, or the one that starts second is refused ("Incompatible
-# audio streams") and the answer is simply never heard.
+# the Bluetooth speaker. 44100 like the mixer: every source of one mixer has
+# to be at the same rate, or the one that starts second is refused
+# ("Incompatible audio streams") and the answer is simply never heard. Home
+# Assistant converts to the rate asked for, so nothing on the panel resamples.
 media_player:
   - platform: speaker
     name: "Media Player"
@@ -221,12 +230,12 @@ media_player:
     announcement_pipeline:
       speaker: announcement_mixing_input
       format: FLAC
-      sample_rate: 48000
+      sample_rate: 44100
       num_channels: 1
     media_pipeline:
       speaker: media_mixing_input
       format: FLAC
-      sample_rate: 48000
+      sample_rate: 44100
       num_channels: 2
 
 # Voice: "Okay Nabu", heard on the panel itself. Never stopped, not even while
@@ -517,7 +526,7 @@ portall:
   usb: false
   #remote: true
   max_frame_bytes: 400000
-  speaker_id: portall_mixing_input
+  speaker_id: portall_resampler
   #on_audio_start:
     #- switch.turn_on: audio_amplifier
 

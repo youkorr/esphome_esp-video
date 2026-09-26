@@ -8855,6 +8855,44 @@ by a detection, started again on `on_end` once the announcement is over,
 question was transcribed as *"Qu'attend peut-il ?"*, which is the microphone
 half still unproven -- `channel: left` stays the one line to try.
 
+### And still stuck on "responding": a resampler AFTER a mixer never lets it finish
+
+**Reported after that fix flashed: *"pour le son je l'entends mieux mais il
+reste bloque sur reponse"*.** The answer now played whole; the satellite
+stayed in `responding` because the media player never left `ANNOUNCING`.
+
+**The mixer finishes a source only when every frame it mixed has been
+reported played** (`pending_playback_frames_ == 0`, no timeout on that
+state), and the reports reached it through the resampler that sat between the
+mixer and `bt_speaker`. A resampler holds back half its filter: in
+`art_resampler`'s `resampleProcessInterleaved` an output at position p needs
+input up to p + taps/2, so the last taps/2 input frames stay in its history
+until more sound arrives. After an announcement, on a page that is silent,
+none does. Its counting loop was transcribed line for line and run on three
+seconds of answer: **144000 frames fed, 143992 reported -- 8 short, for ever**,
+at the default 16 taps.
+
+**ESPHome's own configurations put the resampler BEFORE the mixer**, one per
+source that needs it, and that is why they never meet this: a resampler in
+front of a source that never finishes (the page) can hold its 8 frames
+harmlessly, and the mixer's output speaker reports exactly what it plays. So
+both Bluetooth examples now run the mixer at 44100 straight into `bt_speaker`,
+ask Home Assistant for 44100 on both media pipelines (it converts before
+sending), and put one resampler in front of `portall_mixing_input` for the
+page's 48000. Validated at 2026.8.2 and dev, the resolved config read (every
+mixer source 44100), and the codegen checked: `panel->set_speaker(
+portall_resampler)`, `portall_resampler->set_output_speaker(
+portall_mixing_input)`, `mixing_speaker->set_output_speaker(bt_speaker)`.
+**Not heard on a board.**
+
+**This corrects a lesson recorded above**, under the "shuuut" section: *"the
+pattern was right and the placement was wrong -- one block between the mixer
+and the speaker, where the single rate change belongs"*. The placement was
+wrong the other way. It worked for the page, which never finishes, and broke
+the first thing that has to: an announcement. The general form is this
+file's own, again: **when ESPHome wires its components in an order, read why
+before choosing a tidier one.**
+
 ## A byte rate, because a fixed quality makes the rate follow the scene -- 4.21.0
 
 **Reported after hours of YouTube at quality 50 and 30 pictures a second:
