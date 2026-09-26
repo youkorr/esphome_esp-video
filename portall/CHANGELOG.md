@@ -1,5 +1,11 @@
 # Changelog
 
+## 4.26.1
+
+- **The avatar's eyebrows are drawn the way your LVGL face draws them**:
+  narrower, finer, and closer to the eye -- nine tenths of the eye's width, a
+  stroke a tenth of it. How each expression moves them is unchanged.
+
 ## 4.26.0
 
 - **Other words to say for a link, `voice:`.** When the voice assistant keeps
