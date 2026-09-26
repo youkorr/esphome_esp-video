@@ -63,12 +63,29 @@ FILLERS = ("[(la page|l'application|l'appli|l'interface|le site|l'écran) "
 # And after it: politeness costs a match otherwise.
 POLITE = "[s'il te plaît|s'il vous plaît|stp|please]"
 
+# Whatever the speech engine wrote BEFORE the command, which is most often
+# the wake word itself. Reported from a panel as
+#     Speech recognised as: "Ok, Naboo, ouvre la page Home Assistant."
+# -- the phrase is in the audio the satellite streams, Home Assistant hands
+# the text over as it is (nothing in assist_pipeline strips it), and a
+# sentence has to match from its first word, so every link missed and the
+# conversation agent answered instead. The spelling is the engine's (Naboo,
+# Nabou, Nabu, Jarvis...), so it cannot be listed; a list reference in a
+# sentence trigger is a WILDCARD (default_agent._rebuild_trigger_intents), and
+# an optional one takes anything or nothing.
+#
+# Only in front of a VERB. Before a bare "accueil" or "home" it would turn
+# "allume la lumière de l'accueil" into going home; before a verb it still
+# needs the verb and then a link's exact name, which is what keeps "ok nabu,
+# ouvre le volet du salon" with the covers.
+LEAD = "[{before}] "
+
 HOME_SENTENCES = [
-    "(retour|reviens|retourne|revenir) [a|à] [la page d'|l']accueil",
-    "(ouvre|affiche|montre) [la page d'|l']accueil",
+    LEAD + "(retour|reviens|retourne|revenir) [a|à] [la page d'|l']accueil",
+    LEAD + "(ouvre|affiche|montre) [la page d'|l']accueil",
     "[la] page d'accueil",
     "accueil",
-    "(go|back) [to] home",
+    LEAD + "(go|back) [to] home",
     "home [screen]",
 ]
 
@@ -113,7 +130,7 @@ def automation(names):
     for name in names:
         triggers.append({
             "trigger": "conversation",
-            "command": [f"{VERBS} {FILLERS}{ARTICLES}{spoken_forms(name)} "
+            "command": [f"{LEAD}{VERBS} {FILLERS}{ARTICLES}{spoken_forms(name)} "
                         f"{POLITE}"],
             "id": LINK + name,
         })

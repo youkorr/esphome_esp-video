@@ -99,6 +99,10 @@ def sentences():
                for i, t in enumerate(auto["triggers"])}
     ids = {f"t{i}": t["id"] for i, t in enumerate(auto["triggers"])}
     compiled = Intents.from_dict({"language": "fr", "intents": intents})
+    # As default_agent._rebuild_trigger_intents does: every list a trigger
+    # sentence names is a wildcard.
+    from hassil import WildcardSlotList
+    compiled.slot_lists["before"] = WildcardSlotList("before")
 
     def heard(text):
         found = [ids[r.intent.name] for r in recognize_all(text, compiled)]
@@ -123,11 +127,22 @@ def sentences():
                        ("lance l'appli Jellyfin", "link:Jellyfin"),
                        ("Ouvre Home Assistant, s'il te plaît.",
                         "link:Home Assistant"),
-                       ("ouvre la page d'accueil", "home")):
+                       ("ouvre la page d'accueil", "home"),
+                       # The wake word, written by the speech engine in front
+                       # of the command -- the panel's own log line.
+                       ("Ok, Naboo, ouvre la page Home Assistant.",
+                        "link:Home Assistant"),
+                       ("Okay Nabou ouvre Jellyfin", "link:Jellyfin"),
+                       ("Hey Jarvis, lance Orange TV.", "link:Orange TV"),
+                       ("Ok Nabu, retour à l'accueil.", "home")):
         got = heard(text)
         check(f"\"{text}\" -> {want}", got == want, repr(got))
     for text in ("ouvre le volet du salon", "ouvre le portail",
                  "ouvre la page du salon", "ouvre l'application",
+                 "Ok Nabu, ouvre le volet du salon",
+                 "allume la lumière de l'accueil",
+                 "turn on the light at home",
+                 "ok nabu ouvre Jellyfin et allume la lumière",
                  "allume la lumière du salon", "ouvre Spotify"):
         got = heard(text)
         check(f"\"{text}\" is left to Home Assistant", got is None, repr(got))
