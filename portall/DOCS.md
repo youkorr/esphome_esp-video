@@ -743,6 +743,11 @@ fallback. **The log says what became of them, once per site:**
 
 That line is what to send when a site's arrows do nothing.
 
+Netflix's menu stays fixed across the top while the rows scroll under it.
+The fallback keeps the selection among the rows, brings each one into view
+below the menu rather than behind it, and reaches the menu only once there
+is no row left above -- and then shows the page from the top.
+
 **If nothing happens at all, the log now says which of the three it is** --
 `keys:` not set, a report shape this cannot read (with its bytes), or a
 button that crossed and the page ignored. Before, all three were the same

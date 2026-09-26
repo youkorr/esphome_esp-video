@@ -7957,6 +7957,52 @@ still moves the focus, so "nothing moved" was the wrong expectation.
 
 **Not verified on Netflix.** The next log from a panel says which case it is.
 
+### A fixed header and the page under it are two planes -- 4.22.1
+
+**The next log came, and it said `moved` and nothing else**: the fallback
+works on Netflix. What it also showed, in the keyboard diagnostic's lines, is
+the focus alternating on every press of Up -- `focus is BUTTON`, `focus is
+A`, `BUTTON`, `A` -- for seventy presses, with the pictures falling to 4.2 a
+second because every other press scrolled the page.
+
+Reproduced on a page built to Netflix's shape (a header `position: fixed`
+over a billboard and rows of buttons), with the shipped script:
+
+    c6_0 c5_0 c4_0 c3_0(hidden) mine c2_0(hidden) mine c1_0(hidden) mine ...
+
+`pick()` measured candidates in viewport coordinates across both planes. From
+a header link, the row scrolled off above the screen is "up"; `scrollIntoView`
+brings it to the top edge -- BEHIND the header, so hidden; from there the
+header is "up" again. One row per two presses, the ring out of sight on every
+other one, and exactly the A/BUTTON of the log. Then from the header, Up
+found nothing and the browser scrolled forty pixels a press, which is most of
+the seventy.
+
+Three rules, each a fault if missing:
+
+- **The focus stays on its own plane** (`layerOf`: the nearest composed
+  ancestor that is `fixed` or `sticky`, else the page) while that plane has
+  anything in that direction.
+- **It leaves a fixed plane only for what is on screen and wholly past that
+  plane's box** -- so Up from a header at the top finds nothing, and Down from
+  it takes what is just below it.
+- **A row is revealed below the bar, not behind it**: `scroll-margin` set for
+  the one `scrollIntoView` from what fixed bars cover the edges, found with
+  `elementsFromPoint` at six points. The first version swept every element's
+  computed style and cost 7 ms a press on a page of ten thousand elements;
+  the probe leaves about 2 ms over the old script (8.5 against 6.5), against
+  16.6 ms for Chromium to acknowledge the key at all. Reaching a top bar by Up
+  scrolls to the page's top, since nothing above was left to take.
+
+`checknav.py` carries the fixture: four cases fail against 4.22.0 and pass
+after. **Not verified on Netflix** -- no route to it from here.
+
+**The keyboard diagnostic was the evidence and the noise at once.** It
+deduplicated against the LAST road only, so a focus alternating between two
+roads printed a line per press and spent its cap of forty in one held arrow.
+A set now: 70 alternating looks print 6 lines, where they printed 40 and then
+nothing for a field tapped afterwards.
+
 ## The last 30 to 40% is the whole panel, and four candidates are dead
 
 **Reported after the arrow fix: *"c'est un peut mieux sur tous les link a vu

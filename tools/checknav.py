@@ -136,6 +136,26 @@ addEventListener('keydown', e => {
 document.getElementById('t0_0').focus();
 </script>"""
 
+# Netflix's shape: a header fixed over the top of the page, a billboard, and
+# rows of titles scrolling underneath. Measuring across the two planes sent
+# the focus back and forth between a row hidden under the header and the
+# header itself, one row per two presses -- the panel's own log, alternating
+# BUTTON and A for seventy presses of Up.
+HEADER = (
+    '<style>body{margin:0}header{position:fixed;top:0;left:0;right:0;'
+    'height:68px;background:#000;display:flex;gap:18px;align-items:center;'
+    'padding:0 40px;z-index:5}.bb{height:420px;display:flex;gap:12px;'
+    'align-items:flex-end;padding:40px}.row{display:flex;gap:8px;'
+    'padding:0 40px}h2{margin:20px 40px 8px}.row button{width:220px;'
+    'height:124px;flex:none}</style><header><a href="#" id="logo">N</a>'
+    '<a href="#" id="home">Accueil</a><a href="#" id="mine">Mon Netflix</a>'
+    '<button id="search">Q</button></header><div class=bb>'
+    '<button id="play">Lecture</button><button id="info">Infos</button>'
+    '</div>' + "".join(
+        '<h2>%d</h2><div class=row>%s</div>' % (r, "".join(
+            '<button id="c%d_%d">%d-%d</button>' % (r, c, r, c)
+            for c in range(5))) for r in range(8)))
+
 FIELD = '<input id="f" value="bonjour"><a href="#" id="a1">a1</a>'
 TALL = '<a href="#" id="only">only</a><div style="height:3000px"></div>'
 
@@ -211,6 +231,46 @@ def main():
         page.close()
         server.shutdown()
 
+        # -- a header fixed over a scrolling page ------------------------
+        server, url = serve(HEADER)
+        page = open_page(url, 1280, 800)
+        page.evaluate("() => document.getElementById('c0_0').focus()")
+        seen = """() => {
+            const e = document.activeElement, r = e.getBoundingClientRect();
+            const hit = document.elementFromPoint(r.left + r.width / 2,
+                                                  r.top + r.height / 2);
+            return [e.id, hit === e || e.contains(hit), scrollY];
+        }"""
+        down = []
+        for _ in range(7):
+            page.keyboard.press("ArrowDown")
+            page.wait_for_timeout(100)
+            down.append(page.evaluate(seen))
+        check("walking down, every row is brought into view",
+              all(shown for _, shown, _ in down))
+        up = []
+        for _ in range(12):
+            page.keyboard.press("ArrowUp")
+            page.wait_for_timeout(100)
+            up.append(page.evaluate(seen))
+        path = [who for who, _, _ in up]
+        print("         walking up: " + " ".join(path))
+        check("walking up under a fixed header, every row is SEEN -- never "
+              "behind the header", all(shown for _, shown, _ in up))
+        bar = ("logo", "home", "mine", "search")
+        first = next((n for n, w in enumerate(path) if w in bar), len(path))
+        check("and the header is reached once, after the rows, not between "
+              "them", first == 8 and all(w in bar for w in path[first:]))
+        check("reaching the header shows the top of the page",
+              up[-1][2] == 0)
+        page.keyboard.press("ArrowDown")
+        page.wait_for_timeout(100)
+        who_, shown, _ = page.evaluate(seen)
+        check("down from the header lands on what is just below it, in view",
+              who_ in ("play", "info") and shown)
+        page.close()
+        server.shutdown()
+
         # -- the half that could do harm --------------------------------
         server, url = serve(POLITE)
         page = open_page(url)
@@ -257,7 +317,8 @@ def main():
         # so each counts as its own site for the once-per-site rule.
         if not WITHOUT:
             check("the first move on the grid was said once, naming the tile",
-                  (told("moved") or "").startswith("a#t"))
+                  any(k == "moved" and d.startswith("a#t")
+                      for k, d in said))
             check("a page that takes the arrow is named as doing so",
                   told("handled") is not None)
             server, url = serve(LATE)
