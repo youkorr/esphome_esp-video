@@ -1,5 +1,17 @@
 # Changelog
 
+## 4.21.2
+
+- **One arrow press is one move again on sites that move the focus
+  themselves.** On a page that moves the focus by itself without saying so,
+  the add-on's arrow fallback moved it a second time, so every press skipped
+  a row. It now leaves such a page's move alone.
+- **The log says what became of the arrows on each site**, once per site:
+  `Arrows on www.netflix.com: ...` names whether the site moves the focus
+  itself, throws the arrows away, has nothing reachable in that direction, or
+  fights the fallback. That line is what to send when a remote does nothing
+  on a site.
+
 ## 4.21.1
 
 - **`max_rate` is now a real ceiling.** In 4.21.0 a scene so heavy that it

@@ -676,7 +676,7 @@ still differs:
 |---|---|---|
 | **the launcher** | yes, moves between tiles | nothing -- built in |
 | **YouTube `/tv`** | yes | the television user agent on that link, as below |
-| **Jellyfin** | yes, and **better once its layout is TV** | Settings > Display > Layout: **TV** |
+| **Jellyfin** | yes, **only once its layout is TV** -- confirmed on a panel | Settings > Display > Layout: **TV**, set once from the panel itself |
 | **Home Assistant** | **Tab** moves between cards, Enter opens | nothing to set |
 | **anything else** | yes -- the browser moves the focus | nothing to set |
 
@@ -715,6 +715,26 @@ Back its meaning and lays the pages out for a remote in the first place.
 Netflix, Orange TV or a Jellyfin server from where this was written. What is
 measured is the mechanism, on the browser the add-on ships, against a page
 built to the shape of one: `tools/checkspatnav.py`.
+
+**Do not give the Jellyfin link a television user agent to get its TV
+layout.** Jellyfin does switch to it for any user agent containing "tv" --
+but a Samsung one also makes it believe the browser plays HEVC, Dolby AC-3
+and E-AC-3, which Chrome does not, and it would send files that cannot be
+played. The layout setting does the same thing without that.
+
+**Netflix has no television interface on the web** -- the one on televisions
+is an app, not a page -- so there the arrows only ever get this add-on's
+fallback. **The log says what became of them, once per site:**
+
+| line | what it means |
+|---|---|
+| `Arrows on www.netflix.com: the arrow fallback moves the focus (first to ...)` | it works |
+| `... the page moves the focus itself (it took the key)` | the site navigates by itself; the fallback leaves it alone |
+| `... the page stopped the key before the arrow fallback saw it` | the site throws the arrows away before anything else can use them |
+| `... nothing to move to: right from ...; 4 element(s) here can only be focused by the page itself` | the site's tiles are not reachable from outside it |
+| `... the page moved the focus to ... right after the arrow fallback did, so the fallback stands aside` | the site fights the fallback; it stops until the page reloads |
+
+That line is what to send when a site's arrows do nothing.
 
 **If nothing happens at all, the log now says which of the three it is** --
 `keys:` not set, a report shape this cannot read (with its bytes), or a

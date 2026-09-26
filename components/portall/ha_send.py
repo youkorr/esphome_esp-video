@@ -2623,6 +2623,45 @@ SPATNAV_JS = r"""
                    '[role="menuitem"],[role="option"],[role="tab"]';
   const TYPING = {INPUT: 1, TEXTAREA: 1, SELECT: 1};
   let standDown = false, mine = null;
+  // Keys that got through to the listener below, and where the focus was when
+  // each one set out. Per key rather than "the last one", because a remote
+  // repeats: two presses in one turn would otherwise make the first look
+  // stopped.
+  const reached = new WeakSet(), setOut = new WeakMap();
+
+  // What happened to an arrow, told to the sender, which says it once per
+  // site and kind -- see NavNotes. From the glass, "the page moves the focus
+  // itself", "the page never let the key through", "nothing to go to" and
+  // "this script stood aside" are one and the same: an arrow that does
+  // nothing. Never allowed to cost the key: a page that refuses the call
+  // costs the line.
+  function note(kind, detail) {
+    try {
+      if (window.__udispNavNote)
+        window.__udispNavNote(kind, location.host, detail).catch(() => {});
+    } catch (err) { /* the line, never the key */ }
+  }
+  function who(el) {
+    if (!el || el === document.body) return 'nothing';
+    let s = el.tagName.toLowerCase();
+    if (el.id) s += '#' + el.id;
+    else if (typeof el.className === 'string' && el.className.trim())
+      s += '.' + el.className.trim().split(/\s+/)[0];
+    const label = (el.getAttribute('aria-label') || el.textContent || '')
+      .trim().replace(/\s+/g, ' ').slice(0, 40);
+    return label ? s + ' "' + label + '"' : s;
+  }
+  // Focusable only by the page's own script: tabindex -1, which is what a
+  // "roving tabindex" row looks like -- one member reachable, the rest moved
+  // to by the page's own arrow handler. Counted only when nothing was found.
+  function pageOnly() {
+    let n = 0;
+    try {
+      for (const el of document.querySelectorAll(PICKABLE))
+        if (el.tabIndex < 0 && el.getBoundingClientRect().width >= 4) n++;
+    } catch (err) { /* a count, never a failure */ }
+    return n;
+  }
 
   function deepActive() {
     let e = document.activeElement;
@@ -2666,10 +2705,32 @@ SPATNAV_JS = r"""
     }
     return best;
   }
+  // First of everything, in the capture phase, only to learn whether the key
+  // ever reaches the listener below. A page that stops it on the way down
+  // leaves no other trace.
   window.addEventListener('keydown', (e) => {
-    if (!(e.key in WAYS) || e.defaultPrevented || standDown) return;
+    if (!(e.key in WAYS)) return;
+    setOut.set(e, deepActive());
+    setTimeout(() => {
+      if (!reached.has(e))
+        note('stopped', who(deepActive()));
+    }, 0);
+  }, true);
+  window.addEventListener('keydown', (e) => {
+    if (!(e.key in WAYS)) return;
+    reached.add(e);
+    if (e.defaultPrevented) { note('handled', who(deepActive())); return; }
+    if (standDown) return;
     if (e.altKey || e.ctrlKey || e.metaKey) return;
     const was = deepActive();
+    // The page already moved the focus for THIS key, on the way down, without
+    // swallowing it. Moving again from where it put it would be two moves
+    // for one press -- a row skipped on every arrow -- so the page's move is
+    // the move.
+    if (setOut.has(e) && setOut.get(e) !== was) {
+      note('handled', who(was));
+      return;
+    }
     if (was && (TYPING[was.tagName] || was.isContentEditable)) return;
     const next = pick(was && was !== document.body ? was : null, e.key);
     if (next) {
@@ -2678,17 +2739,68 @@ SPATNAV_JS = r"""
       catch (err) { next.scrollIntoView(false); }
       mine = next;
       e.preventDefault();
+      note('moved', who(next));
+    } else {
+      const hidden = pageOnly();
+      note('none', e.key.slice(5).toLowerCase() + ' from ' + who(was) +
+           (hidden ? '; ' + hidden + ' element(s) here can only be focused ' +
+                     'by the page itself (tabindex -1)' : ''));
     }
     // Asked afterwards rather than decided here: a page may move the focus
     // without saying so, and one turn of the event loop is what it takes to
     // find out. Whatever it did wins, and this stands aside for good.
     setTimeout(() => {
       const now = deepActive();
-      if (now !== was && now !== mine && now !== null) standDown = true;
+      if (now !== was && now !== mine && now !== null) {
+        standDown = true;
+        note('stood', who(now) + ' (this script had chosen ' + who(mine) + ')');
+      }
     }, 0);
   }, false);
 })();
 """
+
+class NavNotes:
+    """Say, once per site and kind, what became of an arrow key.
+
+    WHY THIS EXISTS. Arrows worked on YouTube's television interface and on
+    Jellyfin in its TV layout, and did nothing on Netflix -- and from the
+    glass every cause of that is the same arrow doing nothing. The page may
+    move the focus itself, stop the key before SPATNAV_JS sees it, offer
+    nothing in that direction, or move the focus after this script did and
+    so make it stand aside. Each needs a different fix, and none of them can
+    be reached from here, so the page has to say which it is.
+
+    Once per (site, kind), because a key held on a remote repeats and a page
+    that swallows one arrow swallows all of them; and capped, because a log
+    is for reading.
+    """
+
+    MAX = 40
+    WORDS = {
+        "handled": "the page moves the focus itself (it took the key); "
+                   "focus is on {}",
+        "stopped": "the page stopped the key before the arrow fallback saw "
+                   "it; focus is on {}",
+        "moved": "the arrow fallback moves the focus (first to {})",
+        "none": "nothing to move to: {}",
+        "stood": "the page moved the focus to {} right after the arrow "
+                 "fallback did, so the fallback stands aside on this page "
+                 "until it reloads",
+    }
+
+    def __init__(self):
+        self.seen = set()
+
+    def __call__(self, kind, host, detail):
+        key = (host, kind)
+        if key in self.seen or len(self.seen) >= self.MAX:
+            return
+        self.seen.add(key)
+        words = self.WORDS.get(kind, kind + ": {}")
+        print(f"Arrows on {host or 'this page'}: "
+              f"{words.format(str(detail)[:160])}", flush=True)
+
 
 HOME_HINT_JS = r"""
 (() => {
@@ -4615,7 +4727,9 @@ def main():
         # On the context, so it survives every navigation the panel makes --
         # including the one the corner itself performs.
         context.add_init_script(HOME_HINT_JS)
-        # One arrow, one move, on a page that navigates nothing by itself.
+        # One arrow, one move, on a page that navigates nothing by itself --
+        # and a line saying what became of the arrows on each site.
+        context.expose_function("__udispNavNote", NavNotes())
         context.add_init_script(SPATNAV_JS)
         # Which requests the page could not make. Silent on a page that works.
         watch_failed_requests(context)
