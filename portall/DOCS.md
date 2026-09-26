@@ -262,6 +262,7 @@ launcher:
   focus_color: theme          # the frame around the link a remote is on
   avatar: false               # a small face in the corner, moved with a finger
   avatar_voice: ""            # the voice assistant it follows; empty: the only one
+  voice_links: false          # "ouvre Jellyfin" to the voice assistant opens it
   clock:
     show: true                # the time and the date above the links
     size: medium              # small, medium, large, huge
@@ -358,6 +359,44 @@ the one that matches where the panel's sound goes:
   their clock pins, and ESPHome cannot run one I2S bus both ways at once, so
   this file uses two buses and runs the panel's sound at 16 kHz. Read its
   first paragraph before copying its audio into another board's file.
+
+**Open a link by voice, `voice_links:`.** Turn it on and say *"ouvre
+Jellyfin"*, *"lance YouTube"*, *"mets Orange TV"* -- or *"open Jellyfin"* --
+to the panel's voice assistant, and that panel opens the link.
+*"Retour à l'accueil"* (or *"go home"*) brings it back to its own page. The
+voice assistant answers *"J'ouvre Jellyfin"*.
+
+For this the add-on writes **one automation** into Home Assistant, named
+*Portall : ouvrir un lien à la voix*, and keeps it in step with your links:
+add or rename a link and it is rewritten at the next start. Turn the option
+off and it is removed. Edits made to it by hand are replaced, so change the
+links rather than the automation. It needs nothing else: no sentence to
+paste, no configuration file.
+
+- **The link is opened on the panel that heard it.** With one panel there is
+  nothing to set. With several, each panel's launcher (under `launchers:`)
+  says which voice assistant is its own in `avatar_voice:`, and that is how
+  the add-on knows which screen to use.
+- **A panel's own links come first**, so two panels can each have their own
+  "Jellyfin". A link only the house has is still opened.
+- **Say the link's name as it is written.** A name made only of an emoji
+  cannot be said and is left out; the log says which.
+- **The automation names your links exactly**, rather than taking any word
+  after "ouvre". That is deliberate: Home Assistant asks an automation's
+  sentences before its own commands, so a catch-all "ouvre ..." would take
+  "ouvre le volet du salon" away from your covers. Only your links' names are
+  taken.
+
+The same automation fires an event, `portall_open`, and anything can fire it:
+an automation or a script -- and so a dashboard button that runs the script --
+can open a link with this step:
+
+```yaml
+- event: portall_open
+  event_data:
+    link: Jellyfin      # a link's name, or home
+    panel: salon        # which screen; needed only with several
+```
 
 ### Each panel its own launcher
 

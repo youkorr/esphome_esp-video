@@ -1779,7 +1779,7 @@ the dashboard, where it is invisible while the keys go on working.
 ahead of the `pip install` as well as the `ADD`s, so a bump refetches
 everything — at the cost of the browser download on each update.
 `present_browser()` prints the Chromium version at startup and warns below 114,
-so this is never diagnosed by guesswork again. Currently **4.24.1**.
+so this is never diagnosed by guesswork again. Currently **4.25.0**.
 
 **The image carried two Playwright browsers and needed one.** `playwright
 install chromium` fetches the full Chromium **and** the headless shell -- 597
@@ -8915,6 +8915,53 @@ The resting lift is a class on the box and a transform on a wrapping `<g>`
 with no transition, so it snaps both ways like a blink: `checkavatar.py`'s
 cost case reads 9 changed pictures in 15 s of a still launcher with it.
 `sad` and `sleepy` are untouched -- nothing produces them.
+
+### "Ouvre Jellyfin" -- the Jarvis shape, with the parts already here -- 4.25.0
+
+**Asked as how to control the launcher's links, answered with "not yet", and
+corrected: *"je pense que tu as tort recherche sur internet j'ai deja vu
+comme par exemple jarvis qui es en python qui ouvre les lien"*.** Right about
+the substance: a Python Jarvis hears a sentence and calls
+`webbrowser.open(url)`, and that is the whole design. What "not yet" meant --
+nothing in portall did it -- was true and was said as if it were a wall. The
+research also retired the two nearest HA answers: `browser.browse_url` opens
+on the HA host's own screen, and Browser Mod's `navigate` takes only HA paths
+and hears nothing once the page is Jellyfin or the launcher.
+
+**A catch-all sentence was the trap, and HA's source is why.**
+`DefaultAgent._async_handle_message` asks `async_recognize_sentence_trigger`
+BEFORE any intent, so an automation on `ouvre {lien}` would take "ouvre le
+volet du salon" away from the covers. So the add-on writes the automation
+itself, one trigger per link NAME (`voicelinks.automation()`), through HA's
+own config API -- `POST /api/config/automation/config/<id>`, admin-only
+(`require_admin`), and the Supervisor's system user is created in
+`GROUP_ID_ADMIN`; the view's post-write hook reloads it. GET first, so an
+unchanged list writes nothing; `voice_links: false` DELETEs it.
+
+- Names are made sayable (`speakable()`): a trigger refuses punctuation
+  (`has_no_punctuation` in conversation/trigger.py) and `()[]{}<>|` are
+  template syntax -- "Camera & <cuisine>" would otherwise fail the WHOLE
+  automation. Apostrophes are not punctuation to hassil; dashes are.
+- `trigger.id` carries the link (`link:<name>` or `home`) and the event
+  carries `trigger.satellite_id` (trigger.py sets it from the pipeline), so
+  the add-on routes by the voice assistant that heard it, through each
+  panel's `avatar_voice`. One panel needs nothing; several with no match is
+  said, never guessed.
+- The sender gets `open <url>` on the same `--control` stdin the HomeKit
+  remote uses; `open_link()` is `page.goto` without `open_page`'s HA waits,
+  then the home branch's own restart of the screencast.
+
+`tools/checkvoicelinks.py`: sentences through **hassil 3.12.1**, HA's own pin
+(the four "ouvre le volet"-type sentences must NOT match), the answer's
+template through jinja2, a stand-in HA serving the config API and a real
+websocket, run.py's routing down a real `Remote` into the real `Control`, and
+the shipped `ha_send.py` in a real browser reading the new page's COLOUR off
+a fake panel. That last case lied twice first: bytes counted heartbeats, then
+the corner mark fading five seconds after arrival sent a picture of the OLD
+page. Against the previous sender it fails three cases now. **Not run against
+a real Home Assistant**: what is not proved is HA accepting the automation's
+exact shape (the `triggers`/`actions` keys, `set_conversation_response` as a
+template); a refusal is logged with HA's own message.
 
 ## A byte rate, because a fixed quality makes the rate follow the scene -- 4.21.0
 
