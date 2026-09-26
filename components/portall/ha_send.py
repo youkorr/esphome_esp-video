@@ -1078,6 +1078,10 @@ class Control:
                     self._queue.append(("key", rest))
                 elif word == "home":
                     self._queue.append(("home", True))
+                elif word == "open" and rest:
+                    # A link to open, asked for by voice. The add-on sends
+                    # only addresses from the configured links.
+                    self._queue.append(("open", rest))
                 elif word == "volume" and _is_gain(rest):
                     # A telephone's volume button, turned into a gain by the
                     # add-on, which keeps the level across restarts of this
@@ -1363,6 +1367,31 @@ def open_page(page, args):
         landed = ""
     if landed and landed.rstrip("/") != args.url.rstrip("/"):
         print(f"Arrived at {landed} (asked for {args.url})")
+    return True
+
+
+def open_link(page, url):
+    """Open one of the launcher's links, the way a tap on its tile would.
+
+    Asked by voice through the add-on ("ouvre Jellyfin"), which only ever
+    hands over the address of a link somebody configured -- never a word it
+    heard -- so this is a tile being pressed from across the room. Nothing
+    of open_page's waiting applies: the token and the user agent for a link
+    are the browser context's and follow any navigation, and the settle
+    written for Home Assistant's first picture is not worth a stopped panel
+    here. A page that is slow is still shown as it comes.
+    """
+    from playwright.sync_api import TimeoutError as PageTimeout
+
+    try:
+        page.goto(url, wait_until="domcontentloaded",
+                  timeout=LOAD_TIMEOUT_S * 1000)
+    except PageTimeout:
+        print(f"Warning: {url} had not finished loading after "
+              f"{LOAD_TIMEOUT_S}s -- showing it as it comes")
+    except Exception as err:  # noqa: BLE001 - the page stays where it was
+        explain_unreachable(url, err)
+        return False
     return True
 
 
@@ -5037,6 +5066,8 @@ def main():
         # Set when the board asks for the way back itself rather than a finger
         # asking for it on the glass.
         asked_home = False
+        # A link to open, asked for by voice through the add-on.
+        asked_open = None
         capture = Screencast(page, page_w, page_h, args.capture_quality)
         if args.freeze_animations:
             capture.freeze_animations()
@@ -5404,6 +5435,9 @@ def main():
                             # or hold still.
                             asked_home = True
                             continue
+                        if kind == "open":
+                            asked_open = body
+                            continue
                         # The panel went dark or came back. Rendering for a
                         # screen nobody can see costs the server, the network
                         # and the board alike, so stop at the source: the
@@ -5571,7 +5605,7 @@ def main():
                     # handle() is collected rather than left to fire on a later
                     # turn behind the board's own request.
                     gestured = injector is not None and injector.tick(now)
-                    if gestured or asked_home:
+                    if gestured or asked_home or asked_open:
                         # Timed in three pieces, because "coming home is slow"
                         # has three separate causes and they need separate
                         # answers: the hold is the gesture, the open is the
@@ -5579,19 +5613,36 @@ def main():
                         # paints in stages, and the wait for a picture is the
                         # panel. A single total tells you none of them.
                         home_held = injector.held_for if gestured else None
+                        # A gesture or a request for home wins over a link
+                        # asked for in the same turn: home is the way out.
+                        link = (asked_open if not (gestured or asked_home)
+                                else None)
                         asked_home = False
+                        asked_open = None
                         home_at = time.monotonic()
-                        if not open_page(page, args):
-                            print("Warning: home would not open")
-                        opened = time.monotonic()
-                        home_pending = opened
-                        print(
-                            f"Home: back to {args.url} -- "
-                            + (f"held {home_held:.1f}s, " if home_held is not None
-                               else HOW.get(injector.fired_by if gestured
-                                            else "board", "asked, "))
-                            + f"opened in {opened - home_at:.1f}s"
-                        )
+                        if link is not None:
+                            if not open_link(page, link):
+                                print(f"Warning: {link} would not open")
+                            opened = time.monotonic()
+                            home_pending = opened
+                            print(f"Voice: opened {link} in "
+                                  f"{opened - home_at:.1f}s")
+                            # Like a press: a new page is on its way, so
+                            # the higher frame limit is worth having for it.
+                            urgent_until = opened + args.urgent_window
+                        else:
+                            if not open_page(page, args):
+                                print("Warning: home would not open")
+                            opened = time.monotonic()
+                            home_pending = opened
+                            print(
+                                f"Home: back to {args.url} -- "
+                                + (f"held {home_held:.1f}s, "
+                                   if home_held is not None
+                                   else HOW.get(injector.fired_by if gestured
+                                                else "board", "asked, "))
+                                + f"opened in {opened - home_at:.1f}s"
+                            )
                         if keyboard is not None:
                             keyboard.forget()
                             keyboard.request_sync(0.5)

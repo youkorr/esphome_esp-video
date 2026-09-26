@@ -1,5 +1,17 @@
 # Changelog
 
+## 4.25.0
+
+- **Open a link by voice.** Turn on **`voice_links`** under the launcher and
+  say *"ouvre Jellyfin"*, *"lance YouTube"* or *"retour à l'accueil"* to the
+  panel's voice assistant. The add-on writes one automation into Home
+  Assistant for it, *Portall : ouvrir un lien à la voix*, and keeps it in
+  step with your links -- nothing to paste. It names your links exactly, so
+  "ouvre le volet" still opens your covers. With several panels, each one's
+  `avatar_voice` says which voice assistant is its own.
+- An automation or a script can open a link too: fire the event
+  `portall_open` with `link:` and `panel:`.
+
 ## 4.24.1
 
 - **The face's eyebrows move.** They were a dark grey that barely showed on

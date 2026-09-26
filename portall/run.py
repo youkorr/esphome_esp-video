@@ -51,6 +51,13 @@ try:
 except ImportError:  # the image was built without it
     voice = None
 
+# And again: a panel that cannot be told to open a link by voice still shows
+# every link it has.
+try:
+    import voicelinks
+except ImportError:  # the image was built without it
+    voicelinks = None
+
 # Its own folder under the add-on's persistent volume, so a pairing survives
 # a restart and an update.
 HOMEKIT_DIR = "/data/homekit"
@@ -618,6 +625,7 @@ _GROUPED = {
         "focus_color": "launcher_focus_color",
         "avatar": "launcher_avatar",
         "avatar_voice": "launcher_avatar_voice",
+        "voice_links": "launcher_voice_links",
         "clock": {"show": "launcher_clock", "size": "launcher_clock_size",
                   "color": "launcher_clock_color"},
         "date": {"size": "launcher_date_size", "color": "launcher_date_color"},
@@ -959,9 +967,11 @@ def command_for(panel):
         if value is True or str(value).lower() in ("true", "yes", "1"):
             argv.append(f"--{key.replace('_', '-')}")
     # Not named after the option, because it is wider than the option: it
-    # opens the sender's stdin to whatever started it. The HomeKit accessory
-    # is the only thing that uses it today.
-    if str(panel.get("homekit", "")).strip().lower() in ("true", "yes", "1"):
+    # opens the sender's stdin to whatever started it -- the HomeKit
+    # accessory, and a link asked for by voice. `control` is not a form
+    # field; main() sets it when voice_links is on.
+    if (str(panel.get("homekit", "")).strip().lower() in ("true", "yes", "1")
+            or panel.get("control")):
         argv.append("--control")
     return argv
 
@@ -1053,6 +1063,13 @@ class Remote:
     def send(self, kind, body):
         if kind == "home":
             line = "home\n"
+        elif kind == "open":
+            # An address from the configured links, never a word that was
+            # heard. One line, so nothing in it may end one.
+            body = str(body).strip()
+            if not body or "\n" in body or "\r" in body:
+                return False
+            line = f"open {body}\n"
         elif kind == "volume":
             line = f"volume {body}\n"
             self._volume = line
@@ -1063,8 +1080,8 @@ class Remote:
             if process is None or process.stdin is None:
                 if not self._complained:
                     self._complained = True
-                    say(f"[{self.name}] a remote pressed a key while this "
-                        f"panel's sender was not running -- dropped")
+                    say(f"[{self.name}] a key or a link was asked for while "
+                        f"this panel's sender was not running -- dropped")
                 return False
             try:
                 process.stdin.write(line)
@@ -1227,6 +1244,87 @@ def give_page_settings(panels, config):
             panel.setdefault("page_token", keys)
 
 
+def voice_target(panels, config, satellite="", asked=""):
+    """The panel a voice request is for, or (None, why).
+
+    The one that heard it, when Home Assistant says which voice assistant
+    that was and a panel follows it (its avatar_voice, or the house
+    launcher's); the only panel, when there is one; a panel named in the
+    event. Never a guess between several -- opening a link on the wrong
+    screen is worse than saying so.
+    """
+    named = [p for p in panels if str(p.get("name", "")).strip()]
+    if asked:
+        for panel in named:
+            if str(panel["name"]).strip().lower() == asked.strip().lower():
+                return panel, None
+        return None, (f"it named the panel \"{asked}\", and the panels are "
+                      + ", ".join(str(p.get("name")) for p in named))
+    if len(panels) == 1:
+        return panels[0], None
+    if satellite:
+        own = own_launchers(config, panels)
+        house = str(config.get("launcher_avatar_voice") or "").strip()
+        found = []
+        for panel in named:
+            entry = own.get(str(panel["name"]).strip().lower()) or {}
+            follows = str(entry.get("avatar_voice") or house).strip()
+            if follows == satellite:
+                found.append(panel)
+        if len(found) == 1:
+            return found[0], None
+        return None, (f"{satellite} heard it, and no single panel follows "
+                      f"that voice assistant. Put {satellite} in avatar_voice "
+                      f"of the panel it belongs to, under launchers:")
+    return None, ("it did not say which voice assistant heard it, and there "
+                  "are several panels. Fire portall_open with panel: <name>")
+
+
+def start_voice_links(panels, remotes):
+    """Keep Home Assistant's automation in step and act on what it hears."""
+    house = _config.get("links") or []
+    every = list(house)
+    for entry in own_launchers(_config, panels).values():
+        every += list(entry.get("links") or [])
+    route = Weather(*home_assistant_link({"links": every}), None)
+    wanted = truthy(_config.get("launcher_voice_links", False))
+    if voicelinks is None:
+        if wanted:
+            say("voice_links is on but this build has no voicelinks.py in it. "
+                "The panels are unaffected.")
+        return None
+    if not wanted:
+        # Take away what an earlier start wrote, so turning it off is all it
+        # takes. Quiet when there is nothing to take away.
+        voicelinks.remove(route.url, route.token, say)
+        return None
+
+    def act(kind, name, satellite, asked):
+        panel, why = voice_target(panels, _config, satellite, asked)
+        if panel is None:
+            say(f"Voice links: \"{name or 'home'}\" was asked for, but {why}")
+            return
+        who = str(panel.get("name") or panel.get("host") or "panel")
+        remote = remotes.get(who)
+        if remote is None:
+            return
+        if kind == voicelinks.HOME:
+            if remote.send("home", True):
+                say(f"[{who}] voice: back to its home page")
+            return
+        mine = panel.get("launcher_links")
+        link = (voicelinks.find_link(mine if mine is not None else house, name)
+                or voicelinks.find_link(every, name))
+        if link is None:
+            say(f"[{who}] voice: no link is called \"{name}\"")
+            return
+        if remote.send("open", link.get("url")):
+            say(f"[{who}] voice: opening {link.get('name')}")
+
+    return voicelinks.VoiceLinks(route.url, route.token, every, act,
+                                 say).start()
+
+
 def main():
     panels = load_panels()
     if not panels:
@@ -1285,17 +1383,29 @@ def main():
     start_pulseaudio()
     threads = []
     remotes = []
+    # A link asked for by voice is handed to a panel's sender down the same
+    # channel the HomeKit remote uses, so every panel needs one then.
+    by_voice = (voicelinks is not None
+                and truthy(_config.get("launcher_voice_links", False)))
+    every_remote = {}
     for index, panel in enumerate(panels, start=1):
         name = panel.get("name") or panel.get("host") or f"panel {index}"
         wants = str(panel.get("homekit", "")).strip().lower() in ("true", "yes", "1")
-        remote = Remote(name) if wants else None
+        if by_voice:
+            panel["control"] = True
+        remote = Remote(name) if (wants or by_voice) else None
         if remote is not None:
+            every_remote[str(name)] = remote
+        if remote is not None and wants:
             remotes.append((name, remote))
         thread = threading.Thread(target=serve, args=(panel, name, stop, remote),
                                   daemon=True)
         thread.start()
         threads.append(thread)
     say(f"Serving {len(threads)} panel(s)")
+
+    # After the senders, for the same reason as the accessory below.
+    start_voice_links(panels, every_remote)
 
     # After the senders, so a press cannot arrive before there is anything to
     # hand it to -- and because the accessory is the accessory here: the

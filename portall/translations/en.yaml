@@ -151,6 +151,11 @@ configuration:
         name: 🎙️ The avatar's voice assistant
         description: 'The face listens, thinks and answers with it. Empty: Home Assistant''s only voice
           assistant. With several, put this screen''s (assist_satellite.guition, say). off: none.'
+      voice_links:
+        name: 🗣️ Open links by voice
+        description: 'Say "open Jellyfin" or "go home" to the screen''s voice assistant. The add-on writes
+          the automation "Portall : ouvrir un lien à la voix" into Home Assistant for it and keeps it
+          in step with your links.'
       clock:
         name: 🕒 Clock
         fields:

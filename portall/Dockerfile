@@ -23,7 +23,7 @@ WORKDIR /app
 # update really does fetch a current Playwright, a current Chromium and current
 # senders. It costs the browser download on each update, which is the price of
 # not running a year-old browser without knowing it.
-ARG BUNDLE=4.24.1
+ARG BUNDLE=4.25.0
 RUN echo "${BUNDLE}" > /app/BUNDLE
 
 # --no-shell, and it is worth 323 MB of image.
@@ -123,6 +123,7 @@ COPY logos.py /app/logos.py
 # and the add-on died on ModuleNotFoundError before serving a panel.
 COPY homekit.py /app/homekit.py
 COPY voice.py /app/voice.py
+COPY voicelinks.py /app/voicelinks.py
 
 WORKDIR /app
 # Unbuffered, or the add-on log stays empty until something goes wrong.

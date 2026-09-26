@@ -1,5 +1,5 @@
 name: Portall
-version: "4.24.1"
+version: "4.25.0"
 # Home Assistant identifies an add-on by its slug, so this one moving from
 # usb_display_panel to portall makes the Supervisor see a NEW add-on: options
 # are not carried over and /data starts empty, which means the browser
@@ -127,6 +127,11 @@ options:
     # with it. Empty follows the only one Home Assistant has; with several,
     # name this panel's -- assist_satellite.guition, say. "off" for none.
     avatar_voice: ""
+    # Say "ouvre Jellyfin" or "retour à l'accueil" to a panel's voice
+    # assistant. The add-on writes one automation into Home Assistant for it,
+    # "Portall : ouvrir un lien à la voix", naming your links exactly, and
+    # keeps it in step with them. Off takes it away again.
+    voice_links: false
     clock:
       # The time and the date, above the links. Formatted by the browser, so they
       # follow `locale:` -- a French panel writes "lundi 2 septembre" without this
@@ -372,6 +377,7 @@ schema:
     focus_color: list(theme|slate|gray|zinc|neutral|stone|red|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose|white|black)?
     avatar: bool?
     avatar_voice: str?
+    voice_links: bool?
     clock:
       show: bool?
       size: list(small|medium|large|huge)?

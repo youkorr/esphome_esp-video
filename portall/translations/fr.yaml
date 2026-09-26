@@ -155,6 +155,11 @@ configuration:
         description: 'Le visage écoute, réfléchit et répond avec lui. Vide : le seul assistant vocal de
           Home Assistant. S''il y en a plusieurs, mettez celui de cet écran (assist_satellite.guition
           par exemple). off : aucun.'
+      voice_links:
+        name: 🗣️ Ouvrir les liens à la voix
+        description: 'Dites « ouvre Jellyfin » ou « retour à l''accueil » à l''assistant vocal de l''écran.
+          L''add-on écrit pour cela l''automatisation « Portall : ouvrir un lien à la voix » dans Home
+          Assistant et la tient à jour avec vos liens.'
       clock:
         name: 🕒 Horloge
         fields:
