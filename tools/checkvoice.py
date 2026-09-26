@@ -384,6 +384,11 @@ def browser_half(SAT):
         page = browser.new_page(viewport={"width": 1024, "height": 600})
         page.on("request", lambda r: asked.append(r.url)
                 if "/voice" in r.url else None)
+        # At noon: from 22 h to 7 h an idle face dozes, so this reads
+        # "neutral" only in the daytime -- and a check that passes or fails
+        # with the hour it is run at is not a check.
+        import datetime
+        page.clock.install(time=datetime.datetime(2026, 9, 27, 12, 0))
         page.goto(where)
         mood = lambda: page.evaluate("document.getElementById('av').dataset.mood")
         settle(lambda: mood() == "neutral")

@@ -1,5 +1,22 @@
 # Changelog
 
+## 4.27.0
+
+- **The avatar has a body, and you choose which**: `avatar_shape:` is
+  `mochi` (a soft ball, the default), `robot`, `cat`, `bear` or `ghost`,
+  on the launcher and on each panel's own. No more rectangle behind it.
+- **It looks at what you do**: at the tile a remote or a gamepad chooses,
+  and towards where a finger lands.
+- **It dresses for the weather**: sunglasses when it is clear and hot, a
+  cloud when it rains, a snowflake and rosy cheeks when it is cold.
+- **It shows the voice assistant**: waves while it listens, a bubble while it
+  thinks; the robot lights its antenna instead.
+- **It dozes at night**, from 22 h to 7 h.
+- **It opens the link you ask for**: "ouvre Jellyfin" on the launcher, and
+  the face looks at the tile, the tile goes down, and the link opens.
+- Still moved with a finger, still where you left it, still costing a few
+  small pictures a minute on a launcher nobody touches.
+
 ## 4.26.3
 
 - **The avatar's eyebrows are pointed, like your LVGL panel shows them**:

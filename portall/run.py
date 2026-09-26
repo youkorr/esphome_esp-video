@@ -341,6 +341,10 @@ class Weather:
             "condition": data.get("state"),
             "text": (f"{round(float(temperature))}{unit}"
                      if temperature is not None else ""),
+            # The number and its unit as well as the text, for the avatar,
+            # which dresses for heat and for frost.
+            "temperature": temperature,
+            "unit": unit,
         }
         if self._said:
             self._said = False
@@ -379,7 +383,7 @@ def truthy(value):
 # own values laid over it, and there is no second table to keep in step.
 LAUNCHER_OWN = (
     "theme", "columns", "align", "tiles", "focus_color", "avatar",
-    "avatar_voice", "clock", "clock_size", "clock_color", "date_size", "date_color",
+    "avatar_shape", "avatar_voice", "clock", "clock_size", "clock_color", "date_size", "date_color",
     "weather", "weather_size",
     "background", "background_motion", "background_blur", "background_dim",
     "slideshow", "slideshow_urls", "slideshow_seconds", "slideshow_fade",
@@ -517,6 +521,8 @@ def start_launcher(config, port=None, house_links=(), label=""):
         focus_color=str(config.get("launcher_focus_color")
                         or launcher.FOLLOW_THEME),
         avatar=truthy(config.get("launcher_avatar", False)),
+        avatar_shape=str(config.get("launcher_avatar_shape")
+                         or launcher.DEFAULT_AVATAR),
         avatar_file=avatar_file(label),
         voice=follow_voice(config, list(links) + list(house_links), label),
         motion=truthy(config.get("launcher_background_motion", False)),
@@ -624,6 +630,7 @@ _GROUPED = {
         "tiles": "launcher_tiles",
         "focus_color": "launcher_focus_color",
         "avatar": "launcher_avatar",
+        "avatar_shape": "launcher_avatar_shape",
         "avatar_voice": "launcher_avatar_voice",
         "voice_links": "launcher_voice_links",
         "clock": {"show": "launcher_clock", "size": "launcher_clock_size",

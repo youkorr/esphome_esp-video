@@ -863,6 +863,8 @@ WEATHER_JS = """<script>
       if (r.ok) {
         const w = await r.json();
         if (w && w.icon) { sky.textContent = w.icon; temp.textContent = w.text || ''; }
+        // The face dresses for the same reading, when there is a face.
+        if (w && window.portallAvatar) window.portallAvatar.weather(w.avatar || '');
       }
     } catch (e) { /* keep what is on the page */ }
   };
@@ -1063,15 +1065,45 @@ AVATAR_PATH = "/avatar"
 VOICE_PATH = "/voice"
 
 AVATAR_CSS = """
+ /* No card behind it: the face has a body of its own now, drawn in the SVG,
+    and the corners of the box around it are left to the page. The box does
+    not take a touch -- only what is painted does -- so a tile peeking out
+    from under a corner of it can still be pressed. */
  #av {
-   position: fixed; z-index: 50; width: 26vmin; height: 17.33vmin;
+   position: fixed; z-index: 50; width: 26vmin; height: %(height)s;
    right: 3vmin; bottom: 3vmin; %(place)s
-   border-radius: 2.5vmin; overflow: hidden;
-   background: #0f131b; border: 1px solid rgba(255,255,255,.14);
-   box-shadow: 0 .8vmin 2.4vmin rgba(0,0,0,.45);
+   pointer-events: none;
    touch-action: none; user-select: none; -webkit-user-select: none;
  }
- #av svg { width: 100%%; height: 100%%; display: block; }
+ #av svg {
+   width: 100%%; height: 100%%; display: block; overflow: visible;
+   pointer-events: none;
+   filter: drop-shadow(0 .6vmin 1vmin rgba(0,0,0,.45));
+ }
+ #av svg > * { pointer-events: visiblePainted; }
+ #av .skin { fill: #1b2130; stroke: #3b4660; stroke-width: 2;
+             stroke-linejoin: round; }
+ #av .inner { fill: #ff7a9a; opacity: .45; }
+ #av .whisker { stroke: #3b4660; stroke-width: 1.5; stroke-linecap: round; }
+ /* What it carries, each shown by one attribute on the box and nothing else:
+    the weather (data-wx), what the voice assistant is doing (data-voice),
+    and the night (the sleepy mood). A change is a snap, like a blink. */
+ #av .acc { display: none; }
+ #av[data-wx="hot"] .acc.hot, #av[data-wx="rain"] .acc.rain,
+ #av[data-wx="snow"] .acc.flake, #av[data-wx="cold"] .acc.flake,
+ #av[data-voice="surprised"] .acc.waves,
+ #av[data-voice="thinking"] .acc.bubble,
+ #av[data-mood="sleepy"] .acc.zzz { display: inline; }
+ #av[data-wx="cold"] .cheek { opacity: .8; }
+ /* The robot says it with its antenna instead: the waves and the bubble
+    would crowd a head that already has something on top to light. */
+ #av[data-shape="robot"] .acc.waves, #av[data-shape="robot"] .acc.bubble {
+   display: none;
+ }
+ #av .bulb { fill: #334155; }
+ #av[data-voice="surprised"] .bulb { fill: #38bdf8; }
+ #av[data-voice="thinking"] .bulb { fill: #f59e0b; }
+ #av[data-voice="happy"] .bulb { fill: #22c55e; }
  #av .eye, #av .brow, #av .lift, #av .mouth, #av .look, #av .shut, #av .o {
    transform-box: fill-box; transform-origin: center;
  }
@@ -1132,15 +1164,22 @@ AVATAR_CSS = """
  #av[data-mood="sad"] .mouth { d: path("M62 82 Q75 72 88 82"); }
 """
 
-# The face, on a 150 x 100 box: the button's own 3:2. Everything that moves
-# is its own group, so an expression is a class on the box and nothing more.
+# The face, drawn on the button's own 3:2 -- 150 x 100 -- with room left
+# around it for a body and what the body carries: the viewBox runs from -12 to
+# 162 across and -24 to 118 down, so ears, an antenna, a cloud or a bubble sit
+# outside the face without moving any of it. Everything that moves is its own
+# group, so an expression is a class on the box and nothing more.
+#
 # The eyes and brows are the household's LVGL face (draw_eye() in
 # lvgl_kawaii_face.c) at the size that keeps the eye centres 60 apart: a
 # ROUND eye 0.306 of the face wide, an iris 0.55 of it with a darker ring,
 # an oval pupil half the iris wide and 0.6 of it tall, two highlights, and
 # the shut eye an arc from 200 to 340 degrees over 0.3 of the eye's height.
-AVATAR_HTML = """<div id="av" data-mood="neutral" aria-hidden="true">
-<svg viewBox="0 0 150 100">
+AVATAR_VIEW = "-12 -24 174 142"
+# The box's height for a 26vmin width, from the viewBox above.
+AVATAR_HEIGHT = "21.22vmin"
+
+FACE_SVG = """
  <g class="lift l"><path class="brow l" d="M30.3 29 L57.7 25 A2 2 0 0 1 57.7 29 Z"
   fill="#7a89a0"/></g>
  <g class="lift r"><path class="brow r" d="M119.7 29 L92.3 25 A2 2 0 0 0 92.3 29 Z"
@@ -1165,31 +1204,216 @@ AVATAR_HTML = """<div id="av" data-mood="neutral" aria-hidden="true">
        stroke-linecap="round" fill="none"/>
  <path class="shut" d="M89.6 44.6 Q105 31.8 120.4 44.6" stroke="#fff" stroke-width="4.7"
        stroke-linecap="round" fill="none"/>
- <ellipse cx="26" cy="72" rx="8" ry="4.5" fill="#ff7a9a" opacity=".35"/>
- <ellipse cx="124" cy="72" rx="8" ry="4.5" fill="#ff7a9a" opacity=".35"/>
+ <ellipse class="cheek" cx="26" cy="72" rx="8" ry="4.5" fill="#ff7a9a" opacity=".35"/>
+ <ellipse class="cheek" cx="124" cy="72" rx="8" ry="4.5" fill="#ff7a9a" opacity=".35"/>
  <path class="mouth" d="M62 76 Q75 84 88 76" stroke="#ff5d73" stroke-width="4"
        stroke-linecap="round" fill="none"/>
  <ellipse class="o" cx="75" cy="79" rx="6" ry="7" fill="#ff5d73"/>
-</svg></div>"""
+"""
+
+# What the face is the face OF. Asked for as "une meilleur forme que le
+# rectangulaire et amical", and offered as five so a household can pick; each
+# one is drawn around the same face, so nothing about the eyes, the moods or
+# the cost changes with the choice. The body goes first and the face over it.
+AVATAR_SHAPES = {
+    "mochi": """
+ <path class="skin" d="M75 2 C122 2 146 28 146 60 C146 92 120 106 75 106
+   C30 106 4 92 4 60 C4 28 28 2 75 2 Z"/>""",
+    "robot": """
+ <path d="M75 4 V-8" stroke="#3b4660" stroke-width="3"/>
+ <circle class="bulb" cx="75" cy="-13" r="5.5"/>
+ <rect class="skin" x="-8" y="42" width="12" height="28" rx="6"/>
+ <rect class="skin" x="146" y="42" width="12" height="28" rx="6"/>
+ <rect class="skin" x="2" y="4" width="146" height="102" rx="32"/>""",
+    "cat": """
+ <path class="skin" d="M14 40 L18 -4 L52 18 Z"/>
+ <path class="skin" d="M136 40 L132 -4 L98 18 Z"/>
+ <path class="inner" d="M22 30 L24 8 L42 20 Z"/>
+ <path class="inner" d="M128 30 L126 8 L108 20 Z"/>
+ <ellipse class="skin" cx="75" cy="60" rx="72" ry="48"/>
+ <path class="whisker" d="M14 80 L-6 76 M14 86 L-4 88 M136 80 L156 76
+   M136 86 L154 88"/>""",
+    "bear": """
+ <circle class="skin" cx="20" cy="18" r="17"/>
+ <circle class="skin" cx="130" cy="18" r="17"/>
+ <circle class="inner" cx="20" cy="18" r="8.5"/>
+ <circle class="inner" cx="130" cy="18" r="8.5"/>
+ <ellipse class="skin" cx="75" cy="60" rx="70" ry="48"/>""",
+    "ghost": """
+ <path class="skin" d="M6 56 C6 20 34 0 75 0 C116 0 144 20 144 56 L144 104
+   Q134 94 124 104 Q114 114 104 104 Q94 94 84 104 Q74 114 64 104
+   Q54 94 44 104 Q34 114 24 104 Q15 95 6 104 Z"/>""",
+}
+DEFAULT_AVATAR = "mochi"
+
+# What the face carries, drawn once and shown by an attribute. Placed where
+# none of the five bodies reaches: the cat's right ear ends at x 136, so the
+# cloud, the flake, the bubble and the z's all start to the right of it.
+AVATAR_EXTRAS = """
+ <g class="acc hot">
+  <rect x="28" y="37" width="34" height="22" rx="10" fill="#111827"
+        stroke="#e5e7eb" stroke-width="1.2"/>
+  <rect x="88" y="37" width="34" height="22" rx="10" fill="#111827"
+        stroke="#e5e7eb" stroke-width="1.2"/>
+  <path d="M62 45 Q75 40 88 45" stroke="#e5e7eb" stroke-width="1.6"
+        fill="none"/>
+  <path d="M33 41 L41 41 M93 41 L101 41" stroke="#fff" stroke-width="2"
+        stroke-linecap="round" opacity=".6"/>
+ </g>
+ <g class="acc rain">
+  <g fill="#94a3b8"><circle cx="138" cy="-14" r="6"/>
+   <circle cx="146" cy="-16" r="7"/><circle cx="154" cy="-12" r="5"/>
+   <rect x="134" y="-14" width="24" height="7" rx="3.5"/></g>
+  <path d="M139 -3 l-1.5 4 M147 -3 l-1.5 4 M155 -3 l-1.5 4" stroke="#60a5fa"
+        stroke-width="1.8" stroke-linecap="round"/>
+ </g>
+ <path class="acc flake" d="M148 -21 V-3 M140.2 -16.5 L155.8 -7.5
+   M140.2 -7.5 L155.8 -16.5" stroke="#bfdbfe" stroke-width="1.6"
+   stroke-linecap="round"/>
+ <path class="acc waves" d="M-1 44 Q-6 60 -1 76 M-7 38 Q-13 60 -7 82
+   M151 44 Q156 60 151 76 M157 38 Q163 60 157 82" stroke="#38bdf8"
+   stroke-width="2.2" stroke-linecap="round" fill="none"/>
+ <g class="acc bubble" fill="#cbd5e1">
+  <circle cx="141" cy="-4" r="2"/><circle cx="147" cy="-10" r="2.8"/>
+  <rect x="134" y="-23" width="27" height="11" rx="5.5" fill="#1f2937"
+        stroke="#cbd5e1" stroke-width="1"/>
+  <circle cx="141" cy="-17.5" r="1.5"/><circle cx="147.5" cy="-17.5" r="1.5"/>
+  <circle cx="154" cy="-17.5" r="1.5"/>
+ </g>
+ <g class="acc zzz" fill="#94a3b8" font-family="sans-serif" font-weight="700">
+  <text x="138" y="-2" font-size="10">z</text>
+  <text x="146" y="-10" font-size="13">z</text>
+  <text x="155" y="-17" font-size="8">z</text>
+ </g>"""
+
+
+def avatar_html(shape=DEFAULT_AVATAR, wx=""):
+    """The face in its body, starting with the weather it was served with."""
+    body = AVATAR_SHAPES.get(str(shape).lower(), AVATAR_SHAPES[DEFAULT_AVATAR])
+    shape = str(shape).lower() if str(shape).lower() in AVATAR_SHAPES \
+        else DEFAULT_AVATAR
+    return (f'<div id="av" data-mood="neutral" data-voice="neutral" '
+            f'data-shape="{shape}" data-wx="{html.escape(wx)}" '
+            f'aria-hidden="true">\n<svg viewBox="{AVATAR_VIEW}">'
+            + body + FACE_SVG + AVATAR_EXTRAS + "\n</svg></div>")
+
+
+# What the weather puts on the face: a cloud when it rains, a snowflake when
+# it snows or freezes, sunglasses when it is clear and hot -- or nothing.
+# Home Assistant's own condition names, and a temperature in whatever unit it
+# gave. 25 and 5 degrees are this page's choice, written here and nowhere else.
+HOT_C = 25.0
+COLD_C = 5.0
+RAIN = ("rainy", "pouring", "lightning", "lightning-rainy", "hail")
+SNOW = ("snowy", "snowy-rainy")
+CLEAR = ("sunny", "partlycloudy")
+
+
+def avatar_weather(state):
+    """'hot', 'rain', 'snow', 'cold' or '' for a weather reading."""
+    if not state:
+        return ""
+    condition = str(state.get("condition") or "").lower()
+    if condition in RAIN:
+        return "rain"
+    if condition in SNOW:
+        return "snow"
+    try:
+        degrees = float(state.get("temperature"))
+    except (TypeError, ValueError):
+        return ""
+    if "F" in str(state.get("unit") or "").upper():
+        degrees = (degrees - 32.0) * 5.0 / 9.0
+    if degrees >= HOT_C and condition in CLEAR:
+        return "hot"
+    if degrees <= COLD_C:
+        return "cold"
+    return ""
+
 
 AVATAR_JS = """<script>
 (function () {
   var box = document.getElementById('av');
   if (!box) return;
-  var back = 0, rest = 'neutral';
+  var back = 0, rest = 'neutral', voice = 'neutral', base = 'neutral';
   /* One expression at a time. A passing one -- a tap, a move -- goes back by
-     itself to the one that stands, which is neutral unless the voice
-     assistant is listening, thinking or answering. */
+     itself to the one that stands: what the voice assistant is doing while
+     it does something, and otherwise the time of day. */
   function set(mood, ms) {
     box.dataset.mood = mood || rest;
     clearTimeout(back);
     if (ms) back = setTimeout(function () { set(rest); }, ms);
   }
-  function stand(mood) {
-    rest = mood || 'neutral';
+  function settle() {
+    rest = voice !== 'neutral' ? voice : base;
     set(rest);
   }
-  window.portallAvatar = {set: set, stand: stand};
+  function stand(mood) {
+    voice = mood || 'neutral';
+    box.dataset.voice = voice;
+    settle();
+  }
+  /* The night: from 22 h to 7 h the face rests with its eyes half shut. Asked
+     once a minute, which is what the clock beside it already does, and a
+     change is one snap -- a sleepy face costs nothing more than an awake one,
+     and less, since it does not glance about. */
+  function night() {
+    var h = new Date().getHours();
+    var now = (h >= 22 || h < 7) ? 'sleepy' : 'neutral';
+    if (now !== base) { base = now; settle(); }
+    setTimeout(night, 60000);
+  }
+  night();
+
+  /* It looks at what somebody is doing: where a finger lands, and the tile a
+     remote or a gamepad has just chosen. A turn of the pupils toward it for a
+     second and a half, which repaints the eyes twice and nothing else. */
+  var looking = 0;
+  function lookAt(x, y) {
+    var r = box.getBoundingClientRect();
+    var dx = x - (r.left + r.width / 2), dy = y - (r.top + r.height / 2);
+    var far = Math.sqrt(dx * dx + dy * dy) || 1;
+    box.style.setProperty('--lx', (5 * dx / far).toFixed(1) + 'px');
+    box.style.setProperty('--ly', (4 * dy / far).toFixed(1) + 'px');
+    clearTimeout(looking);
+    looking = setTimeout(function () {
+      box.style.setProperty('--lx', '0px');
+      box.style.setProperty('--ly', '0px');
+    }, 1500);
+  }
+  function lookAtTile(tile) {
+    var r = tile.getBoundingClientRect();
+    lookAt(r.left + r.width / 2, r.top + r.height / 2);
+  }
+  document.addEventListener('focusin', function (e) {
+    var tile = e.target && e.target.closest && e.target.closest('a.tile');
+    if (tile) lookAtTile(tile);
+  }, true);
+
+  /* A link asked for by voice, when this page is the one showing: it looks
+     at the tile, the tile goes down, and the page opens it itself -- which
+     is exactly what a tap on that tile does, so everything after it is the
+     path a finger already takes. False when there is no such tile, and the
+     sender opens the address the ordinary way. */
+  function open(url) {
+    var want;
+    try { want = new URL(url, location.href).href.replace(/\/$/, ''); }
+    catch (e) { return false; }
+    var tiles = document.querySelectorAll('a.tile');
+    for (var i = 0; i < tiles.length; i++) {
+      if (tiles[i].href.replace(/\/$/, '') !== want) continue;
+      var tile = tiles[i];
+      lookAtTile(tile);
+      set('happy');
+      setTimeout(function () { tile.classList.add('press'); }, 250);
+      setTimeout(function () { location.href = tile.href; }, 750);
+      return true;
+    }
+    return false;
+  }
+  function weather(kind) { box.dataset.wx = kind || ''; }
+  window.portallAvatar = {set: set, stand: stand, open: open,
+                          weather: weather};
 
   function blink() {
     box.classList.add('blink');
@@ -1228,7 +1452,10 @@ AVATAR_JS = """<script>
   }
   var armed = false, moved = false, save = 0;
   window.addEventListener('mousemove', function (e) { armed = on(e); }, true);
-  window.addEventListener('pointerdown', function (e) { armed = on(e); }, true);
+  window.addEventListener('pointerdown', function (e) {
+    armed = on(e);
+    if (!armed) lookAt(e.clientX, e.clientY);
+  }, true);
   window.addEventListener('wheel', function (e) {
     if (!armed && !on(e)) return;
     armed = true;
@@ -1288,7 +1515,7 @@ def _avatar_place(at):
     x, y = at
     return ("right: auto; bottom: auto; "
             f"left: calc((100vw - 26vmin) * {x:.4f}); "
-            f"top: calc((100vh - 17.33vmin) * {y:.4f});")
+            f"top: calc((100vh - {AVATAR_HEIGHT}) * {y:.4f});")
 
 
 TILE = ('<a class="tile" href="%(url)s"><span class="in">'
@@ -1484,7 +1711,8 @@ def render(links, title="", subtitle="", theme="dark",
            weather_size=DEFAULT_SIZE, align="left",
            motion=False, slideshow=False, every=30, fade=1, rescan=60,
            urls=(), mirrored=False, shape="cards", focus_color=FOLLOW_THEME,
-           avatar=False, avatar_at=None, voice=False):
+           avatar=False, avatar_at=None, voice=False,
+           avatar_shape=DEFAULT_AVATAR):
     """The page, as one string.
 
     Every value is escaped. These come from a configuration file a person
@@ -1649,8 +1877,10 @@ def render(links, title="", subtitle="", theme="dark",
     if wants_video_report:
         moving.append(VIDEO_ERROR_JS % {"report": REPORT_PATH})
     if avatar:
-        sheet += AVATAR_CSS % {"place": _avatar_place(avatar_at)}
-        moving.append(AVATAR_HTML + AVATAR_JS % {"path": AVATAR_PATH})
+        sheet += AVATAR_CSS % {"place": _avatar_place(avatar_at),
+                               "height": AVATAR_HEIGHT}
+        moving.append(avatar_html(avatar_shape, avatar_weather(weather))
+                      + AVATAR_JS % {"path": AVATAR_PATH})
         if voice:
             moving.append(AVATAR_VOICE_JS % {"path": VOICE_PATH})
 
@@ -1711,7 +1941,8 @@ def start(links, title="", subtitle="", theme="dark",
           weather_size=DEFAULT_SIZE, align="left",
           motion=False, slideshow=False, every=30, fade=1, rescan=60,
           urls=(), port=PORT, tiles="cards", focus_color=FOLLOW_THEME,
-          avatar=False, avatar_file=None, voice=None):
+          avatar=False, avatar_file=None, voice=None,
+          avatar_shape=DEFAULT_AVATAR):
     """Serve the page for as long as the add-on runs. Returns its address.
 
     One call is one launcher: its links, its look, its weather, its
@@ -1799,7 +2030,7 @@ def start(links, title="", subtitle="", theme="dark",
                 motion, slideshow, every, fade, rescan, addresses,
                 mirrored, shape=tiles, focus_color=focus_color,
                 avatar=avatar, avatar_at=spot["at"],
-                voice=voice is not None).encode()
+                voice=voice is not None, avatar_shape=avatar_shape).encode()
             held = cache["page"] = (key, body)
         return held[1]
 
@@ -1889,7 +2120,8 @@ def start(links, title="", subtitle="", theme="dark",
                 state = weather() if weather is not None else None
                 sky, temp = weather_block(state)
                 self._reply(
-                    json.dumps({"icon": sky, "text": temp}).encode(),
+                    json.dumps({"icon": sky, "text": temp,
+                                "avatar": avatar_weather(state)}).encode(),
                     "application/json",
                 )
                 return

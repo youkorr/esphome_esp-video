@@ -1779,7 +1779,7 @@ the dashboard, where it is invisible while the keys go on working.
 ahead of the `pip install` as well as the `ADD`s, so a bump refetches
 everything — at the cost of the browser download on each update.
 `present_browser()` prints the Chromium version at startup and warns below 114,
-so this is never diagnosed by guesswork again. Currently **4.26.3**.
+so this is never diagnosed by guesswork again. Currently **4.27.0**.
 
 **The image carried two Playwright browsers and needed one.** `playwright
 install chromium` fetches the full Chromium **and** the headless shell -- 597
@@ -8953,6 +8953,61 @@ measured off the video, where the round-capped stroke is 0.098 -- a wedge
 averages half its width, and at the panel's size the thinner one read as a
 hairline. Frames came out of the .MOV with `imageio-ffmpeg`'s bundled
 binary; Playwright's own ffmpeg build cannot open a QuickTime file.
+
+### The avatar has a body, and it lives with the house -- 4.27.0
+
+**Asked as *"propose moi un bien meilleur avatar que personne a fait"*, then
+*"une meilleur forme que le rectangulaire et amical"*.** Proposed as two
+mockups first -- eight states, then five shapes -- and built only after
+*"ok ont teste"*; the shape a household will live with is a matter of taste
+and a picture settles it faster than a paragraph.
+
+**`avatar_shape:` is a NEW key, not `avatar:` turned into a list.** A stored
+`avatar: true` that the schema no longer accepts is a validation failure --
+the size-scale lesson -- so the bool stays and the shape sits beside it,
+`mochi` by default, on the launcher and on each `launchers:` entry.
+
+**One face, five bodies.** The face keeps its 150 x 100 coordinates and the
+viewBox grew around it (`AVATAR_VIEW`, -12 -24 174 142), so ears, an
+antenna, a cloud or a bubble sit outside it and no mood's transform moved.
+The box is as wide as a button and as tall as the drawing
+(`AVATAR_HEIGHT`, which `_avatar_place` uses for the saved spot).
+**The box takes no touch; only what is painted does** (`pointer-events:
+none` on the box and the svg, `visiblePainted` on its children), so a tile
+under a transparent corner stays pressable -- `checkavatar` asks
+`elementFromPoint` in that corner.
+
+**Everything it does is one attribute on the box and a CSS rule**:
+`data-wx` for the weather, `data-voice` for the voice assistant, the sleepy
+mood for the night. A change is a snap, so it costs what a blink costs:
+**9 changed pictures in 15 s of a still launcher at noon**, as before.
+
+- **The weather** is `avatar_weather()` over Home Assistant's condition and a
+  temperature in its own unit -- `Weather` now carries the number and the
+  unit beside the text. Served in the page, and updated by `WEATHER_JS`'s
+  existing two-minute fetch through `/weather.json`'s new `avatar` field.
+- **The night** is the page's own clock, asked once a minute: 22 h to 7 h
+  makes `sleepy` the mood it rests in, below whatever the voice assistant is
+  doing.
+- **The glance** turns the pupils toward a `focusin` on a tile (a remote or a
+  gamepad) and toward a `pointerdown` that is not on the face.
+- **Opening a link by voice goes through the face when the launcher is
+  showing.** `open_link()` in the sender asks `portallAvatar.open(url)`
+  first; the page glances, presses the tile and sets `location.href` 750 ms
+  later -- the path a finger on that tile already takes, so nothing after it
+  is new. False (no face, no such tile, another page) and the sender goes
+  there itself as before.
+
+**Two checks read the hour and had to be told it.** `checkvoice.py` asserted
+the idle face is `neutral`, which from 22 h is `sleepy` by design; the cost
+case in `checkavatar.py` would have measured a dozing face that does not
+glance. Both install the page's clock at noon now. A check that passes or
+fails with the time it is run at is not a check -- found because this was
+written at half past ten at night.
+
+Ideas left for later, from reading what desk companions do (LivingAI's EMO,
+FluxGarage RoboEyes): a pupil that grows when it looks to the side
+("curious"), and a greeting when the panel wakes.
 
 ### Voice first, then YouTube, rebooted the panel: a refused mixer source, started fifty times a second
 

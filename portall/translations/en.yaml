@@ -151,6 +151,10 @@ configuration:
         name: 😊 Avatar
         description: A small face the size of a button, in the bottom right corner. Drag it with a finger
           to put it anywhere; it stays there.
+      avatar_shape:
+        name: 🐻 The avatar's shape
+        description: mochi (a soft ball), robot (its antenna lights with the voice assistant), cat, bear
+          or ghost.
       avatar_voice:
         name: 🎙️ The avatar's voice assistant
         description: 'The face listens, thinks and answers with it. Empty: Home Assistant''s only voice
@@ -283,6 +287,10 @@ configuration:
         name: 😊 Avatar
         description: A small face the size of a button, in the bottom right corner. Drag it with a finger
           to put it anywhere; it stays there.
+      avatar_shape:
+        name: 🐻 The avatar's shape
+        description: mochi (a soft ball), robot (its antenna lights with the voice assistant), cat, bear
+          or ghost.
       avatar_voice:
         name: 🎙️ The avatar's voice assistant
         description: 'The face listens, thinks and answers with it. Empty: Home Assistant''s only voice
