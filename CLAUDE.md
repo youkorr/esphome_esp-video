@@ -8578,6 +8578,42 @@ nothing set. Espressif's own iperf example sets them 16 / 64 / 32 with SACK.
 The ESP32-P4 errata list is identical for v1.0 and v1.3 and touches none of
 this.
 
+### The quality has a floor, so it was not a ceiling -- 4.21.1
+
+**Reported as *"il depasse"*, at quality 70, 30 pictures a second and
+`max_rate: 2400`.** Most windows held (2170-2415 KiB/s, worst gap 39-60 ms),
+and the two that did not were at `quality 25-26` and `25-27`: 2854 and 2759
+KiB/s, gaps 270 and 223 ms. At 30 a second 2400 KiB/s is 80 KiB a picture and
+those scenes weighed about 95 even at the floor, so RateControl had no lever
+left. Reproduced against 4.21.0 with the check's busy page: `--max-rate 900`
+sent **1309-1345 KiB/s at quality 25**.
+
+The second lever is a byte budget (`allows()`): it refills at the rate, a
+picture spends it, and a picture in debt waits. Asked LAST in the release
+condition, so it only ever holds a picture the frame limit would already have
+released, and the held frame stays the newest (nothing is requested while
+one is pending). The wait is the overshoot -- 15 KiB at 2400 KiB/s is 6 ms.
+`BURST_S = 0.15` is what it may save up: a whole panel after a still page
+goes out at once, and a busy scene after a quiet one cannot burst far.
+
+**The trap was the two levers fighting.** A picture the budget held went out
+late, so judged against the time it really covered it read as exactly at the
+rate -- inside the 0.8-1.0 dead band -- and the quality stayed where it was
+while the frame rate paid instead. A held picture is weighed against the
+frame interval, so the quality goes down first and the wait only takes what
+the floor cannot. There is a case for it.
+
+Measured with the shipped sender: `--max-rate 900` holds **900, 898, 900** at
+19.6 pictures a second where 4.21.0 sent ~1330 at 29; `--max-rate 1500`
+unchanged (quality alone was enough there, 29.2 pictures a second);
+`checkpacing.py` unchanged. `stats` ends in `N held` when it bit. With it,
+`fps: 30` can stay on a video link -- lowering the frame limit costs every
+scene what only the heaviest need.
+
+**What is NOT measured**: a panel. The fake one takes everything at once, so
+what is verified is that the sender never offers more than the rate, not that
+the C6 stops stalling at it.
+
 ## Repository conventions
 
 - Work on branch `claude/esphome-pr-outdated-mdq36w`, then merge into `main`
