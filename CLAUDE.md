@@ -1779,7 +1779,7 @@ the dashboard, where it is invisible while the keys go on working.
 ahead of the `pip install` as well as the `ADD`s, so a bump refetches
 everything — at the cost of the browser download on each update.
 `present_browser()` prints the Chromium version at startup and warns below 114,
-so this is never diagnosed by guesswork again. Currently **4.27.0**.
+so this is never diagnosed by guesswork again. Currently **4.27.1**.
 
 **The image carried two Playwright browsers and needed one.** `playwright
 install chromium` fetches the full Chromium **and** the headless shell -- 597
@@ -9148,6 +9148,19 @@ and said, since it would open whichever trigger Home Assistant tried first;
 the link's own name spelt apart ("jelly fin") is not a clash. An emoji name
 takes its first word, and `find_link` finds it by that. `voice` is in
 `checkaddon`'s `ITS_OWN`: run.py reads it, no sender does.
+
+**And the grammar only knew "tu" -- 4.27.1.** Reported as Home Assistant
+still not opening after several `voice:` words were added. Every spelling of
+the NAME that a probe could think of matched through hassil 3.12.1 -- the
+wake word with a comma or a full stop, "l'", "home-assistant", "homme
+assistant", "peux-tu ouvrir" -- and the misses were all the VERB: "Ouvrez",
+"Lancez", "Affichez", and "Ouvre-moi", which reaches a trigger as "ouvre
+moi". A `voice:` word cannot fix a verb, which is why adding names did not
+help if that is what the engine wrote. Four cases in `checkvoicelinks.py`
+fail against 4.27.0. Still not settled without the panel's own `Speech
+recognised as:` line, or Home Assistant's Assist debug view, which shows the
+same text beside what handled it; "Home Assistance" is the next spelling to
+look for, and a `voice:` word is its fix.
 
 ## A byte rate, because a fixed quality makes the rate follow the scene -- 4.21.0
 

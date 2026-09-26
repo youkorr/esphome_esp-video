@@ -48,8 +48,14 @@ LINK = "link:"
 # that is who this was built with, and English beside it. No hyphens: a
 # sentence trigger refuses punctuation (conversation/trigger.py,
 # has_no_punctuation), and a dash is punctuation to it.
-VERBS = ("(ouvre|ouvrir|lance|lancer|affiche|afficher|montre [moi]|mets|"
-         "va sur|open|launch|show|start|go to)")
+#
+# Both forms of address, because a speech engine writes what it hears and a
+# household does not all say "tu" to its panel: "Ouvrez Home Assistant" missed
+# every link. And "moi" after any of them -- "ouvre-moi Jellyfin" reaches the
+# trigger as "ouvre moi Jellyfin", the hyphen gone.
+VERBS = ("(ouvre|ouvrez|ouvrir|lance|lancez|lancer|affiche|affichez|afficher|"
+         "montre|montrez|mets|mettez|va sur|allez sur|"
+         "open|launch|show|start|go to) [moi]")
 # Optional words before the name, so "lance la télé" still names "télé".
 # "l'" too: a speech-to-text engine writes "l'Home Assistant" as readily as a
 # person says it, and it is the one article that leaves no space behind it.
@@ -82,7 +88,8 @@ LEAD = "[{before}] "
 
 HOME_SENTENCES = [
     LEAD + "(retour|reviens|retourne|revenir) [a|à] [la page d'|l']accueil",
-    LEAD + "(ouvre|affiche|montre) [la page d'|l']accueil",
+    LEAD + "(ouvre|ouvrez|affiche|affichez|montre|montrez) [moi] "
+    "[la page d'|l']accueil",
     "[la] page d'accueil",
     "accueil",
     LEAD + "(go|back) [to] home",
