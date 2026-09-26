@@ -8782,6 +8782,29 @@ buses. **Not run on a board**, and one thing in it is unknown: which slot the
 ES8311 puts its microphone in (`channel: right` is the default and what the
 household's file had). The file names `channel: left` as the one line to try.
 
+**And the household it was built for is not on that speaker at all**, which
+their reply said at once: *"mais je suis en bluetooth pour l'audio regarde
+mon yaml"*. Their `ha-esp32p4 Guition.yaml` sends everything through a
+mixer and a resampler to a `portall_bt` speaker; `esp32_speaker` is declared
+and nothing outputs to it -- read off the codegen, where it gets a parent
+bus and appears as nobody's `set_output_speaker`. A speaker nobody starts
+never takes the bus, so on that panel the two-bus rebuild buys nothing and
+would have cost them 16 kHz for no reason. The answer was in their own file
+and the first design was drawn from an older one (`GUITION_ PORTAL.yaml`)
+without asking which the panel runs today -- the ask-what-they-already-do
+lesson this file keeps recording.
+
+`yaml/guition-voice-bluetooth.yaml` is their file with four additions: the
+codec at 16000 (its DAC is idle, so the rate it is set for should be the one
+the microphone runs the bus at -- the ES8311 picks its clock dividers from
+`sample_rate * 256`), a 16-bit microphone, a speaker media player whose
+announcement goes into their existing mixer and so to Bluetooth, and the
+wake word and voice assistant. The media pipelines are 48000 to match
+portall at the mixer, as the Tab5 example records; the resampler after the
+mixer takes it to the dongle's 44100, which is the path their panel already
+plays through. Validated at 2026.8.2 and dev, codegen at 2026.8.2. **Not run
+on a board**, and the microphone's slot is the same unknown as before.
+
 ## A byte rate, because a fixed quality makes the rate follow the scene -- 4.21.0
 
 **Reported after hours of YouTube at quality 50 and 30 pictures a second:

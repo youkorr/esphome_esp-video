@@ -8,8 +8,9 @@
   set when Home Assistant has one voice assistant; with several, put this
   panel's in the new **`avatar_voice`** (`assist_satellite.…`). The add-on
   reads it itself, so nothing about it changes when ESPHome does.
-- **A voice assistant for the Guition**, `yaml/guition-voice.yaml` in the
-  repository: wake word on the panel, Assist, the answer on the panel's
+- **A voice assistant for the Guition, whether its sound goes to Bluetooth
+  (`yaml/guition-voice-bluetooth.yaml`) or to its own loudspeaker
+  (`yaml/guition-voice.yaml`)**, in the repository: wake word on the panel, Assist, the answer on the panel's
   speaker, with portall. It explains why a voice assistant never heard
   anything on that board: the microphone and the speaker share one I2S bus,
   and ESPHome gives it to one of them at a time -- a speaker with

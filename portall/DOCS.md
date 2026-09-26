@@ -344,14 +344,20 @@ it, the way it reads the weather; the page never talks to Home Assistant.
   one. Put it on each panel's own launcher when each panel has its own.
 - **`off`** follows none.
 
-A panel that has no voice assistant yet: `yaml/guition-voice.yaml` in the
-repository is a Guition 10" with the wake word "Okay Nabu" on the panel, the
-voice assistant, and portall, validated with `esphome config` on ESPHome
-2026.8.2 and on the development version. Read its first paragraph before
-copying its audio into another board's file: on these boards the microphone
-and the speaker share their clock pins, and ESPHome cannot run one I2S bus
-both ways at once, so the file uses two buses and runs the panel's sound at
-16 kHz. It has not been run on a board.
+A panel that has no voice assistant yet: the repository carries two Guition
+10" configurations with the wake word "Okay Nabu" on the panel, the voice
+assistant and portall, both validated with `esphome config` on ESPHome
+2026.8.2 and on the development version, neither yet run on a board. Pick
+the one that matches where the panel's sound goes:
+
+- **`yaml/guition-voice-bluetooth.yaml`** -- the sound goes to a Bluetooth
+  speaker through a USB dongle. The answer is spoken there too. Nothing plays
+  on the panel's own loudspeaker, which is what leaves the microphone free.
+- **`yaml/guition-voice.yaml`** -- the sound comes out of the panel's own
+  loudspeaker. On these boards the microphone and that loudspeaker share
+  their clock pins, and ESPHome cannot run one I2S bus both ways at once, so
+  this file uses two buses and runs the panel's sound at 16 kHz. Read its
+  first paragraph before copying its audio into another board's file.
 
 ### Each panel its own launcher
 
