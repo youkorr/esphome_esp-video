@@ -266,7 +266,11 @@ voice_assistant:
   auto_gain: 31dBFS
   volume_multiplier: 2.0
   on_client_connected:
-    - micro_wake_word.start:
+    - if:
+        condition:
+          switch.is_on: wake_word_listening
+        then:
+          - micro_wake_word.start:
   on_client_disconnected:
     - voice_assistant.stop:
     - micro_wake_word.stop:
@@ -280,9 +284,32 @@ voice_assistant:
     - wait_until:
         not:
           media_player.is_announcing:
-    - micro_wake_word.start:
+    - if:
+        condition:
+          switch.is_on: wake_word_listening
+        then:
+          - micro_wake_word.start:
 
 switch:
+  # Listening for the wake word, as a switch in Home Assistant. It takes a
+  # share of the processor the whole time it runs, beside a 25 fps picture
+  # and a Bluetooth stream; turning it off while a video plays is how to find
+  # out whether that share is what the sound is short of. Acts at once, and
+  # the two places above that start the wake word again ask it first, or a
+  # reconnection or the end of a conversation would switch it back on behind
+  # the household's back. Idea from sw3Dan/waveshare-s2-audio_esphome_voice,
+  # whose own version acted only at boot.
+  - platform: template
+    name: "Ecoute du mot de reveil"
+    id: wake_word_listening
+    icon: mdi:microphone
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_ON
+    on_turn_on:
+      - micro_wake_word.start:
+    on_turn_off:
+      - micro_wake_word.stop:
+
   - platform: gpio
     pin: GPIO20 
     name: "Audio Amplifier"
