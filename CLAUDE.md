@@ -7923,6 +7923,40 @@ the mechanism, on the browser the add-on ships, against pages built to their
 shape. And a site that moves focus without swallowing costs one press before
 the stand-down, which nothing here has seen in the wild.
 
+### The fallback moved twice, and the question that found it was about Netflix
+
+**Reported as the iPhone's remote driving YouTube and not Netflix or
+Jellyfin.** Jellyfin was settled from its own source and confirmed on the
+panel: `keyboardNavigation.js` returns early on every arrow unless
+`layoutManager.tv`, so Settings > Display > Layout: TV is the whole fix. A
+television user agent would switch the layout too (`isTv()` is "the UA
+contains tv"), and must NOT be used for it: `browserDeviceProfile.js` then
+answers yes for HEVC, AC-3 and E-AC-3 on `browser.tizen`, which Chrome does
+not decode, so Jellyfin would direct-play files the browser cannot play.
+
+**Netflix has no web television interface** -- its TV UI is a native app --
+so the fallback is all it gets, and nothing here can reach Netflix to see
+why it does nothing. `NavNotes` makes the page say it: `Arrows on <host>:`
+once per (site, kind) -- moved, handled, stopped (a capture listener that
+learns whether the key reached the fallback at all), none (with the count of
+tabindex -1 elements, the roving-tabindex shape), and stood aside.
+
+**Writing its test found a real fault, and the old test had passed over it.**
+A page that moves the focus in the capture phase WITHOUT preventDefault made
+the fallback start again from where the page had put it: **two rows per
+press**. Reproduced against the shipped script on a grid whose own handler
+moves one row: one press from `t0_0` landed on `t2_0`; now `t1_0`. The fix is
+the focus recorded as each key sets out -- if the page moved it on the way
+down, the page's move is the move. The `RUDE` fixture had only ever been
+pressed at the bottom of a list, where a second move finds nothing.
+
+Two faults in the ruler on the way, as usual: "stopped" fired on two quick
+presses because the check kept only the LAST key reached (a WeakSet now), and
+on a page that stops the key Chromium's own `--enable-spatial-navigation`
+still moves the focus, so "nothing moved" was the wrong expectation.
+
+**Not verified on Netflix.** The next log from a panel says which case it is.
+
 ## The last 30 to 40% is the whole panel, and four candidates are dead
 
 **Reported after the arrow fix: *"c'est un peut mieux sur tous les link a vu
