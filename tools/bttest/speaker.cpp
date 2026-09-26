@@ -253,5 +253,84 @@ int main() {
     all_silent = all_silent && byte == 0;
   check("an empty ring answers in full, with silence", all_silent);
 
+  /* An ANNOUNCEMENT: the voice assistant's answer, which a FLAC decoder
+   * produces as fast as it can rather than in real time. Reported from a panel
+   * as an answer that played "too fast": the speaker accepted everything, the
+   * ring kept a tenth of a second and the rest was thrown away, so the car
+   * heard fragments. Three seconds of a ramp, offered the way ESPHome's
+   * resampler offers it -- whatever was not taken is offered again -- while
+   * the encoder drains the ring in the 512-byte reads Bluedroid makes. Every
+   * sample must come out, once, in order. */
+  {
+    PortallBTSpeaker answer;
+    answer.set_parent(&bt);
+    answer.set_audio_stream_info(esphome::audio::AudioStreamInfo(16, 1, 44100));
+    answer.start();
+    drain(bt);
+
+    std::vector<int16_t> ramp;
+    for (int i = 0; i < 3 * 44100; i++)
+      ramp.push_back((int16_t) (i % 30000));
+    const std::vector<uint8_t> bytes = mono(ramp);
+
+    std::vector<uint8_t> heard;
+    size_t offered = 0;
+    int rounds = 0;
+    bool refused_some = false;
+    while (offered < bytes.size() && rounds < 100000) {
+      const size_t took = answer.play(bytes.data() + offered, bytes.size() - offered);
+      refused_some = refused_some || took < bytes.size() - offered;
+      offered += took;
+      uint8_t block[512];
+      const uint32_t queued = bt.pcm_queued();
+      const uint32_t want = queued < sizeof(block) ? queued : sizeof(block);
+      if (want != 0) {
+        bt.fill_pcm(block, want);
+        heard.insert(heard.end(), block, block + want);
+      }
+      rounds++;
+    }
+    const std::vector<uint8_t> rest = drain(bt);
+    heard.insert(heard.end(), rest.begin(), rest.end());
+
+    check("an answer faster than real time is taken a piece at a time", refused_some);
+    std::vector<int16_t> left;
+    const std::vector<int16_t> samples = as_samples(heard);
+    for (size_t i = 0; i < samples.size(); i += 2)
+      left.push_back(samples[i]);
+    check("and every sample of it reaches the speaker, once, in order", left == ramp);
+  }
+
+  /* And the answer has to END. A mixer source counts the frames it hands on
+   * and finishes only when the output speaker says they were played -- the
+   * audio output callback. This speaker never said so, the count never came
+   * back to zero, and the media player stayed "playing" for ever. */
+  {
+    PortallBTSpeaker counted;
+    counted.set_parent(&bt);
+    counted.set_audio_stream_info(esphome::audio::AudioStreamInfo(16, 2, 44100));
+    counted.start();
+    drain(bt);
+    counted.loop();  // nothing owed from the cases above
+
+    uint64_t reported = 0;
+    counted.add_audio_output_callback([&reported](uint32_t frames, int64_t) { reported += frames; });
+
+    std::vector<uint8_t> stereo(1000 * 4, 0x11);
+    counted.play(stereo.data(), stereo.size());
+    counted.loop();
+    check("nothing is reported played before the encoder has taken it", reported == 0);
+
+    drain(bt);
+    counted.loop();
+    check("the frames the encoder took are reported played", reported == 1000);
+
+    bt.on_a2dp_closed(false);
+    counted.play(stereo.data(), stereo.size());
+    counted.loop();
+    check("and so are frames dropped with nothing connected", reported == 2000);
+    check("which leaves nothing buffered to wait for", !counted.has_buffered_data());
+  }
+
   return failures == 0 ? 0 : 1;
 }

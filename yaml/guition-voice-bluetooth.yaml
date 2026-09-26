@@ -25,13 +25,6 @@ substitutions:
 esphome:
   name: ha-guit-10-p4
   friendly_name: HA-GUIT-10-P4
-  on_boot:
-    # Voice: listening for the wake word from the start, whether or not Home
-    # Assistant is there yet. It is never stopped (see micro_wake_word).
-    priority: -100
-    then:
-      - micro_wake_word.start:
-
 
 esp32:
   board: esp32-p4-evboard
@@ -240,31 +233,46 @@ media_player:
 # the voice assistant is listening, so there is nothing to restart afterwards
 # and no moment when the panel is deaf.
 micro_wake_word:
+  # Voice: laid out the way ESPHome's own voice assistants are
+  # (esphome/wake-word-voice-assistants, esp32-s3-box-3.yaml): started when
+  # Home Assistant connects, stopped by a detection, started again when the
+  # conversation ends. So the wake word and the voice assistant are never
+  # both deciding what the microphone is for.
   id: mww
   microphone: esp32_microphone
-  stop_after_detection: false
   models:
     - model: okay_nabu
   on_wake_word_detected:
-    # Said again while it is already listening: stop, the way a person would
-    # say "never mind".
-    - if:
-        condition:
-          voice_assistant.is_running:
-        then:
-          - voice_assistant.stop:
-        else:
-          - voice_assistant.start:
+    # The phrase goes with it: Home Assistant picks which assistant answers
+    # by matching it against the panel's "Wake word" selects.
+    - voice_assistant.start:
+        wake_word: !lambda return wake_word;
 
 voice_assistant:
   id: va
   microphone: esp32_microphone
   media_player: speaker_media_player
   micro_wake_word: mww
+  noise_suppression_level: 2
+  auto_gain: 31dBFS
+  volume_multiplier: 2.0
+  on_client_connected:
+    - micro_wake_word.start:
+  on_client_disconnected:
+    - voice_assistant.stop:
+    - micro_wake_word.stop:
+  on_end:
+    # Let the answer finish before listening again, or the wake word hears
+    # the panel's own voice.
+    - wait_until:
+        condition:
+          media_player.is_announcing:
+        timeout: 0.5s
+    - wait_until:
+        not:
+          media_player.is_announcing:
+    - micro_wake_word.start:
 
-
-
-    
 switch:
   - platform: gpio
     pin: GPIO20 

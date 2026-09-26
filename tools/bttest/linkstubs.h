@@ -62,6 +62,9 @@ int xTaskCreate(void (*)(void *), const char *, unsigned, void *, unsigned, Task
 void vTaskDelete(TaskHandle_t) {}
 unsigned xTaskGetTickCount(void) { return 0; }
 void vTaskDelay(unsigned) {}
+// The microsecond clock a speaker stamps its played-frame reports with.
+int64_t g_now_us = 0;
+int64_t esp_timer_get_time(void) { return g_now_us; }
 esp_bluedroid_status_t esp_bluedroid_get_status(void) { return ESP_BLUEDROID_STATUS_ENABLED; }
 esp_err_t esp_bluedroid_enable(void) { return ESP_OK; }
 esp_err_t esp_bluedroid_disable(void) { return ESP_OK; }
