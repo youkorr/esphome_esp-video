@@ -1779,7 +1779,7 @@ the dashboard, where it is invisible while the keys go on working.
 ahead of the `pip install` as well as the `ADD`s, so a bump refetches
 everything — at the cost of the browser download on each update.
 `present_browser()` prints the Chromium version at startup and warns below 114,
-so this is never diagnosed by guesswork again. Currently **4.24.0**.
+so this is never diagnosed by guesswork again. Currently **4.24.1**.
 
 **The image carried two Playwright browsers and needed one.** `playwright
 install chromium` fetches the full Chromium **and** the headless shell -- 597
@@ -8892,6 +8892,29 @@ wrong the other way. It worked for the page, which never finishes, and broke
 the first thing that has to: an announcement. The general form is this
 file's own, again: **when ESPHome wires its components in an order, read why
 before choosing a tidier one.**
+
+### The eyebrows were drawn and could not be seen -- 4.24.1
+
+**Reported as *"je vois que les sourcil ne sont pas activé"*, once the face
+followed the voice assistant.** Two faults, both read off a render rather than
+the markup: the brows were `#56607a` on the face's `#0f131b`, which reads as
+nothing across a room, and only `surprised` and `thinking` moved them -- so in
+`neutral` and `happy` (idle, and every spoken answer) they never moved at all.
+
+The original C was read rather than remembered (`lvgl_kawaii_face.c`,
+`update_emotion_parameters`): its brows move in EVERY emotion, its dark-panel
+line colour is rgb(122,137,160), and at rest it lifts them for 1.5 s every
+8.4 s (50 of 280 ticks at 30 ms). Two conversions, both in the CSS comment:
+an angle A there lifts each end by a quarter of the width times sin(A), so the
+tilt drawn is atan(sin(A)/2); its heights are pixels of a 135 px face, 0.74 of
+a unit here. And its right brow tilts the other way for the same sign, so the
+pair is `rotate(L)` / `rotate(-R)`. `thinking` takes the original's own alias,
+`working_hard`, which is why both brows now tilt one way.
+
+The resting lift is a class on the box and a transform on a wrapping `<g>`
+with no transition, so it snaps both ways like a blink: `checkavatar.py`'s
+cost case reads 9 changed pictures in 15 s of a still launcher with it.
+`sad` and `sleepy` are untouched -- nothing produces them.
 
 ## A byte rate, because a fixed quality makes the rate follow the scene -- 4.21.0
 

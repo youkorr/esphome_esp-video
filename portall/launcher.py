@@ -1072,7 +1072,7 @@ AVATAR_CSS = """
    touch-action: none; user-select: none; -webkit-user-select: none;
  }
  #av svg { width: 100%%; height: 100%%; display: block; }
- #av .eye, #av .brow, #av .mouth, #av .look, #av .shut, #av .o {
+ #av .eye, #av .brow, #av .lift, #av .mouth, #av .look, #av .shut, #av .o {
    transform-box: fill-box; transform-origin: center;
  }
  /* Only a change of mood is eased, because somebody caused it. A blink and a
@@ -1085,14 +1085,30 @@ AVATAR_CSS = """
  #av .look { transform: translate(var(--lx, 0px), var(--ly, 0px)); }
  #av .shut, #av .o { opacity: 0; }
  #av.blink .eye { transform: scaleY(.08); }
+ /* A resting face lifts its brows now and then, as the original does every
+    8.4 s for 1.5 s. Snapped, like a blink: the group that carries it has no
+    transition, so it costs two small pictures rather than a run of them. */
+ #av.lift .lift.l { transform: translateY(-3px) rotate(4deg); }
+ #av.lift .lift.r { transform: translateY(-3px) rotate(1deg); }
  #av[data-mood="happy"] .eye { opacity: 0; }
  #av[data-mood="happy"] .shut { opacity: 1; }
  #av[data-mood="happy"] .mouth { d: path("M58 72 Q75 90 92 72"); }
- #av[data-mood="surprised"] .brow { transform: translateY(-4px); }
+ /* The brows are the original's own numbers, per mood. There an angle A
+    lifts a brow's ends by a quarter of its width times sin(A), so the tilt
+    actually drawn is atan(sin(A) / 2); and the height is in pixels of its
+    135 px reference face, which is 0.74 of a unit on this 100-unit one. Its
+    left brow at +A tilts clockwise and its right brow at +A the other way,
+    so the pair is written rotate(L) and rotate(-R). Their colour is the
+    original's for a dark panel, rgb(122,137,160). */
+ #av[data-mood="happy"] .brow.l { transform: translateY(-3.7px) rotate(-2deg); }
+ #av[data-mood="happy"] .brow.r { transform: translateY(-3.7px) rotate(2deg); }
+ #av[data-mood="surprised"] .brow { transform: translateY(-7.4px); }
  #av[data-mood="surprised"] .mouth { opacity: 0; }
  #av[data-mood="surprised"] .o { opacity: 1; }
  #av[data-mood="thinking"] .look { transform: translate(4px, -5px); }
- #av[data-mood="thinking"] .brow.r { transform: translateY(-4px); }
+ #av[data-mood="thinking"] .brow {
+   transform: translateY(3px) rotate(10.6deg);
+ }
  #av[data-mood="thinking"] .mouth { d: path("M66 78 Q75 78 86 75"); }
  #av[data-mood="sleepy"] .eye { transform: scaleY(.25); }
  #av[data-mood="sleepy"] .mouth { d: path("M68 78 Q75 79 82 78"); }
@@ -1105,8 +1121,10 @@ AVATAR_CSS = """
 # is its own group, so an expression is a class on the box and nothing more.
 AVATAR_HTML = """<div id="av" data-mood="neutral" aria-hidden="true">
 <svg viewBox="0 0 150 100">
- <rect class="brow l" x="30" y="17" width="30" height="5" rx="2.5" fill="#56607a"/>
- <rect class="brow r" x="90" y="17" width="30" height="5" rx="2.5" fill="#56607a"/>
+ <g class="lift l"><rect class="brow l" x="30" y="17" width="30" height="5"
+  rx="2.5" fill="#7a89a0"/></g>
+ <g class="lift r"><rect class="brow r" x="90" y="17" width="30" height="5"
+  rx="2.5" fill="#7a89a0"/></g>
  <g class="eye">
   <rect x="31" y="30" width="28" height="36" rx="12" fill="#f4f7fb"/>
   <g class="look"><circle cx="45" cy="50" r="10" fill="#3b9eff"/>
@@ -1164,6 +1182,14 @@ AVATAR_JS = """<script>
     setTimeout(glance, 10000 + Math.random() * 8000);
   }
   setTimeout(glance, 9000);
+  function lift() {
+    if (box.dataset.mood === 'neutral') {
+      box.classList.add('lift');
+      setTimeout(function () { box.classList.remove('lift'); }, 1500);
+    }
+    setTimeout(lift, 8000 + Math.random() * 4000);
+  }
+  setTimeout(lift, 6000);
 
   /* A tap on the face is somebody saying hello; it is never a link. */
   box.addEventListener('click', function (e) {

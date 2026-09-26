@@ -1,5 +1,14 @@
 # Changelog
 
+## 4.24.1
+
+- **The face's eyebrows move.** They were a dark grey that barely showed on
+  the face's dark ground, and stayed put while it smiled or answered. They
+  are the lighter colour of the original kawaii face now, and each
+  expression places them the way the original does: raised when it listens,
+  lifted a little when it answers, tilted while it thinks, and at rest they
+  lift now and then.
+
 ## 4.24.0
 
 - **The face follows the voice assistant.** With **`avatar`** on, the face
