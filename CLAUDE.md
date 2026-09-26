@@ -1779,7 +1779,7 @@ the dashboard, where it is invisible while the keys go on working.
 ahead of the `pip install` as well as the `ADD`s, so a bump refetches
 everything — at the cost of the browser download on each update.
 `present_browser()` prints the Chromium version at startup and warns below 114,
-so this is never diagnosed by guesswork again. Currently **1.65.0**.
+so this is never diagnosed by guesswork again. Currently **4.24.0**.
 
 **The image carried two Playwright browsers and needed one.** `playwright
 install chromium` fetches the full Chromium **and** the headless shell -- 597
@@ -8702,6 +8702,85 @@ the 120 ms transitions on the blink and the glance each produce a run of
 frames. Snapped instead (transitions kept only on a change of mood, which
 somebody caused): **11** in twenty seconds, about four 64 px tiles each --
 the eyes. `tools/checkavatar.py` drives the add-on's own path and asserts it.
+
+## The face follows the voice assistant through Home Assistant -- 4.24.0
+
+**Asked as the next step, with the reason it had never been taken: *"j'ai
+toujours eu du mal faire fonctionner voice assistant car esphome change
+souvent les parametres"*.** Two halves, and the design of the first comes
+from that sentence.
+
+**The face reads the assist_satellite entity, not the firmware.** The plan in
+4.23.0 was board-side: voice_assistant's triggers feeding a new return-channel
+message. Read in 2026.8.2 it cannot be done without a YAML automation: a
+`Trigger` holds ONE `automation_parent_` (core/automation.h), so portall
+attaching its own to `on_listening` would silently replace the household's,
+and `VoiceAssistant`'s state is protected with only `is_running()` public.
+And it would tie the face to the exact API the user says keeps moving. Home
+Assistant's `AssistSatelliteState` -- idle, listening, processing, responding
+-- is documented and the same for every satellite, so `portall/voice.py`
+follows that, with nothing on the panel.
+
+- **The websocket, not polling.** `subscribe_entities` with `entity_ids`
+  sends `{"a": {...}}` at once and `{"c": {eid: {"+": {"s": ...}}}}` on a
+  change (websocket_api/messages.py, `_state_diff_event`), so it is silent
+  while nobody speaks. The Supervisor proxies it at `/core/api/websocket` and
+  takes the add-on's own SUPERVISOR_TOKEN in the ordinary auth message
+  (supervisor/api/proxy.py), so it is `homeassistant_api: true` again and
+  nothing to configure. Its proxy pings every 30 s (`heartbeat=30`) and closes
+  a client that does not answer -- the reason `Socket.recv()` answers pings.
+- **Stdlib only.** The add-on installs nothing it does not need, so the
+  client half of RFC 6455 is written out: handshake with the accept key
+  checked, masked frames, 16- and 64-bit lengths, fragments, ping/pong.
+- **Long-poll to the page.** `/voice?v=N` is held until the version moves
+  (20 s at most). A version rather than the mood, so two changes are never
+  read as none. Measured: 28-42 ms from a state change at the stand-in to the
+  face on the page, and no request at all in three quiet seconds.
+- **A resting mood.** `stand(mood)` sets what a tap or a move returns to, so a
+  tap while it listens smiles and goes back to listening -- the case the check
+  fails when `set(rest)` is put back to `set('neutral')`.
+- **Empty follows the only satellite, `off` none, several name them.** The
+  `keys: true` precedent: one of a thing needs no name. With several, the log
+  lists them and the face follows nothing rather than the wrong one.
+
+`tools/checkvoice.py` runs the shipped module against a stand-in that speaks
+the protocol for real (37 cases): fragments, a 70 KB message, a ping, every
+state, a dropped connection and the reconnection, the five ways it cannot
+follow and what each says, the Supervisor route through `follow_voice`, the
+form's grouped key through `regroup`, and the page in a real browser.
+
+**The second half: why a voice assistant never worked on the Guition.** Its
+microphone and speaker share one I2S bus, and ESPHome's `i2s_audio` gives the
+bus to ONE of them at a time -- `try_lock()` in both drivers, read in 2026.8.2
+-- while `timeout: never` on the speaker means it never gives it back. So the
+microphone waited for ever and the wake word heard nothing, silently. ESPHome
+issue #16043 is exactly this on an ESP32-P4 (closed, not planned); full
+duplex is PR #16882, open, and neither 2026.8.2 nor 2026.10.0-dev has it.
+
+What works on stock components is two buses over the same pins
+(`allow_other_uses: true`): the microphone's bus is the I2S MASTER and drives
+the clock all the time, the speaker's is `i2s_mode: secondary`. Taken from
+`jnix85/esphome-waveshare-esp32-s3-audio-va` (MIT), which runs it on an S3
+with an ES8311. Three consequences, all in `yaml/guition-voice.yaml`:
+
+- **The microphone must never stop**, or the speaker has no clock:
+  micro_wake_word starts `on_boot` and has `stop_after_detection: false`.
+- **The whole panel's sound is 16 kHz**, because the voice assistant requires
+  its microphone at 16000 (its FINAL_VALIDATE) and there is no microphone
+  resampler in any release. The media pipelines ask Home Assistant for 16 kHz
+  mono so nothing on the panel resamples them; the page's 48 kHz goes through
+  one resampler, `bits_per_sample: 16` spelled out.
+- **16-bit microphone frames**: as master it sets the slot width, and 32-bit
+  frames against a 16-bit DAC play as noise.
+
+Validated with `esphome config` at 2026.8.2 and 2026.10.0-dev and the codegen
+at 2026.8.2 -- with the model given by its raw.githubusercontent.com address,
+because github.com answers 400 through this container's proxy and
+micro_wake_word downloads while validating. The file ships the shorthand
+`okay_nabu`. The resolved config was read: every source 16000 mono, two
+buses. **Not run on a board**, and one thing in it is unknown: which slot the
+ES8311 puts its microphone in (`channel: right` is the default and what the
+household's file had). The file names `channel: left` as the one line to try.
 
 ## A byte rate, because a fixed quality makes the rate follow the scene -- 4.21.0
 

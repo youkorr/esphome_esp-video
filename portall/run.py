@@ -45,6 +45,12 @@ try:
 except ImportError:  # the image was built without it
     homekit = None
 
+# And again: a face that cannot follow a voice assistant is still a face.
+try:
+    import voice
+except ImportError:  # the image was built without it
+    voice = None
+
 # Its own folder under the add-on's persistent volume, so a pairing survives
 # a restart and an update.
 HOMEKIT_DIR = "/data/homekit"
@@ -366,7 +372,7 @@ def truthy(value):
 # own values laid over it, and there is no second table to keep in step.
 LAUNCHER_OWN = (
     "theme", "columns", "align", "tiles", "focus_color", "avatar",
-    "clock", "clock_size", "clock_color", "date_size", "date_color",
+    "avatar_voice", "clock", "clock_size", "clock_color", "date_size", "date_color",
     "weather", "weather_size",
     "background", "background_motion", "background_blur", "background_dim",
     "slideshow", "slideshow_urls", "slideshow_seconds", "slideshow_fade",
@@ -448,6 +454,23 @@ def avatar_file(label):
     return os.path.join(AVATAR_DIR, (safe or "house") + ".json")
 
 
+def follow_voice(config, links, label=""):
+    """The voice assistant this launcher's face follows, or None.
+
+    Only for a launcher that shows the face, and read the way the weather is:
+    through the Supervisor's own credential when there is one, the dashboard
+    link's address and token when this is run by hand. Empty follows the only
+    voice assistant Home Assistant has; "off" follows none.
+    """
+    if voice is None or not truthy(config.get("launcher_avatar", False)):
+        return None
+    asked = str(config.get("launcher_avatar_voice") or "").strip()
+    if asked.lower() in ("off", "none", "false", "no"):
+        return None
+    route = Weather(*home_assistant_link({"links": list(links)}), None)
+    return voice.Voice(route.url, route.token, asked, label).start()
+
+
 def start_launcher(config, port=None, house_links=(), label=""):
     """Serve one page of links, if there are any, and say where it is.
 
@@ -488,6 +511,7 @@ def start_launcher(config, port=None, house_links=(), label=""):
                         or launcher.FOLLOW_THEME),
         avatar=truthy(config.get("launcher_avatar", False)),
         avatar_file=avatar_file(label),
+        voice=follow_voice(config, list(links) + list(house_links), label),
         motion=truthy(config.get("launcher_background_motion", False)),
         slideshow=truthy(config.get("launcher_slideshow", False)),
         every=config.get("launcher_slideshow_seconds", 30),
@@ -593,6 +617,7 @@ _GROUPED = {
         "tiles": "launcher_tiles",
         "focus_color": "launcher_focus_color",
         "avatar": "launcher_avatar",
+        "avatar_voice": "launcher_avatar_voice",
         "clock": {"show": "launcher_clock", "size": "launcher_clock_size",
                   "color": "launcher_clock_color"},
         "date": {"size": "launcher_date_size", "color": "launcher_date_color"},

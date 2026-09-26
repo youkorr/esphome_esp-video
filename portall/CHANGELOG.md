@@ -1,5 +1,21 @@
 # Changelog
 
+## 4.24.0
+
+- **The face follows the voice assistant.** With **`avatar`** on, the face
+  now listens (eyes wide), thinks, and smiles while the answer is spoken,
+  following the panel's voice assistant as Home Assistant sees it. Nothing to
+  set when Home Assistant has one voice assistant; with several, put this
+  panel's in the new **`avatar_voice`** (`assist_satellite.…`). The add-on
+  reads it itself, so nothing about it changes when ESPHome does.
+- **A voice assistant for the Guition**, `yaml/guition-voice.yaml` in the
+  repository: wake word on the panel, Assist, the answer on the panel's
+  speaker, with portall. It explains why a voice assistant never heard
+  anything on that board: the microphone and the speaker share one I2S bus,
+  and ESPHome gives it to one of them at a time -- a speaker with
+  `timeout: never` kept it for ever. Validated with ESPHome, not yet run on a
+  board.
+
 ## 4.23.0
 
 - **A face on the launcher.** Turn on **`avatar`** under *Launcher*, or on a

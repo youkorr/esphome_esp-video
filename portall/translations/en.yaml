@@ -147,6 +147,10 @@ configuration:
         name: 😊 Avatar
         description: A small face the size of a button, in the bottom right corner. Drag it with a finger
           to put it anywhere; it stays there.
+      avatar_voice:
+        name: 🎙️ The avatar's voice assistant
+        description: 'The face listens, thinks and answers with it. Empty: Home Assistant''s only voice
+          assistant. With several, put this screen''s (assist_satellite.guition, say). off: none.'
       clock:
         name: 🕒 Clock
         fields:
@@ -266,6 +270,10 @@ configuration:
         name: 😊 Avatar
         description: A small face the size of a button, in the bottom right corner. Drag it with a finger
           to put it anywhere; it stays there.
+      avatar_voice:
+        name: 🎙️ The avatar's voice assistant
+        description: 'The face listens, thinks and answers with it. Empty: Home Assistant''s only voice
+          assistant. With several, put this screen''s (assist_satellite.guition, say). off: none.'
       clock:
         name: 🕒 Show the clock
       clock_size:

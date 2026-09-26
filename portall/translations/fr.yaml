@@ -150,6 +150,11 @@ configuration:
         name: 😊 Avatar
         description: Un petit visage de la taille d'un bouton, en bas à droite. Glissez-le du doigt pour
           le mettre où vous voulez ; il y reste.
+      avatar_voice:
+        name: 🎙️ Assistant vocal de l'avatar
+        description: 'Le visage écoute, réfléchit et répond avec lui. Vide : le seul assistant vocal de
+          Home Assistant. S''il y en a plusieurs, mettez celui de cet écran (assist_satellite.guition
+          par exemple). off : aucun.'
       clock:
         name: 🕒 Horloge
         fields:
@@ -271,6 +276,11 @@ configuration:
         name: 😊 Avatar
         description: Un petit visage de la taille d'un bouton, en bas à droite. Glissez-le du doigt pour
           le mettre où vous voulez ; il y reste.
+      avatar_voice:
+        name: 🎙️ Assistant vocal de l'avatar
+        description: 'Le visage écoute, réfléchit et répond avec lui. Vide : le seul assistant vocal de
+          Home Assistant. S''il y en a plusieurs, mettez celui de cet écran (assist_satellite.guition
+          par exemple). off : aucun.'
       clock:
         name: 🕒 Afficher l'horloge
       clock_size:

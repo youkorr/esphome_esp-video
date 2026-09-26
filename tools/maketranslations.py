@@ -67,6 +67,9 @@ LOOK = dict(
     avatar=T("😊 Avatar", "😊 Avatar",
              "Un petit visage de la taille d'un bouton, en bas à droite. Glissez-le du doigt pour le mettre où vous voulez ; il y reste.",
              "A small face the size of a button, in the bottom right corner. Drag it with a finger to put it anywhere; it stays there."),
+    avatar_voice=T("🎙️ Assistant vocal de l'avatar", "🎙️ The avatar's voice assistant",
+                   "Le visage écoute, réfléchit et répond avec lui. Vide : le seul assistant vocal de Home Assistant. S'il y en a plusieurs, mettez celui de cet écran (assist_satellite.guition par exemple). off : aucun.",
+                   "The face listens, thinks and answers with it. Empty: Home Assistant's only voice assistant. With several, put this screen's (assist_satellite.guition, say). off: none."),
 )
 
 cfg = dict(
