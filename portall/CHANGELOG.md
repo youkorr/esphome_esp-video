@@ -1,5 +1,16 @@
 # Changelog
 
+## 4.22.0
+
+- **The link a remote or a gamepad is on can now be seen on a light page.**
+  A new setting, **`focus_color`**, under *Launcher* and on every panel's own
+  launcher: the colour of the frame around the chosen link, from the same
+  list as the clock's colour. `theme` keeps it as it was; on a light theme or
+  a pale wallpaper pick `black` or `yellow`.
+- **With `tiles: buttons`, the chosen button had no frame at all** -- only a
+  thin border changed colour, because the button's shadow replaced the
+  frame. It has the frame now, whatever the colour.
+
 ## 4.21.2
 
 - **One arrow press is one move again on sites that move the focus

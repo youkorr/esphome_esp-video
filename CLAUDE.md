@@ -8561,6 +8561,25 @@ word. A button keeps its 26vmin width, is at least 17.3vmin tall (their
 px there. `aspect-ratio: 3/2` could not, and `checktiles.py`'s "fits inside
 its button" case is what said so, nine times.
 
+### The chosen link could not be seen, and on buttons it had no frame -- 4.22.0
+
+**Asked as *"sur un fond claire ont ne voit pas ce que je selectionne ... il
+lui faudrais une liste de couleur a choisir c'est plus simple"*.** The ring
+around the tile a remote is on was `var(--accent)`, a middle shade picked to
+sit on a card rather than to stand out from one. `focus_color:` on the
+launcher and on every `launchers:` entry, from the clock's palette list,
+`theme` by default, and it sets ONE variable, `--ring`, that both shapes draw
+from -- the tenth named-thing-over-mechanism in this file.
+
+**Measuring it found the half nobody had seen: a chosen BUTTON had no ring.**
+`main.buttons a.tile` is (0,2,2) and out-ranks `a.tile.chosen` at (0,2,1), so
+its drop shadow replaced the ring and a chosen button was marked only by its
+border colour -- on a light page, very likely the whole of the report.
+`tools/checkfocus.py` reads the COMPUTED ring off the focused tile after a
+real arrow press, through `regroup()` / `launcher_config()` /
+`start_launcher()`; against 4.21.2 five of its eight cases fail, the buttons
+one among them. The ring and the shadow are drawn together now.
+
 ## A byte rate, because a fixed quality makes the rate follow the scene -- 4.21.0
 
 **Reported after hours of YouTube at quality 50 and 30 pictures a second:

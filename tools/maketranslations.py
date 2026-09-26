@@ -61,6 +61,9 @@ LOOK = dict(
     tiles=T("Forme des liens", "Shape of the links",
             "cards : grandes cartes, icône à côté du nom. buttons : petits boutons, icône en haut et nom en dessous.",
             "cards: wide cards, the icon beside the name. buttons: small buttons, the icon on top and the name underneath."),
+    focus_color=T("🎯 Couleur de la sélection", "🎯 Selection colour",
+                  "Le cadre autour du lien choisi à la télécommande ou à la manette. Sur un fond clair, prenez black ou yellow.",
+                  "The ring around the link chosen with a remote or a gamepad. On a light background, pick black or yellow."),
 )
 
 cfg = dict(
