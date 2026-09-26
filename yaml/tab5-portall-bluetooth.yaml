@@ -208,22 +208,17 @@ speaker:
     id: bt_speaker
     portall_bt_id: dongle
 
-  # 48000 -> 44100, and it is NOT optional. Everything upstream runs at 48000
-  # because that is what a browser produces; A2DP decodes at 44100 whatever
-  # arrives, so without this the panel plays fast and high. It sits between
-  # the mixer and the speaker rather than in front of one source, because
-  # there is one rate to change and it is the whole output's.
-  - platform: resampler
-    id: to_bluetooth
-    output_speaker: bt_speaker
-    # Spelt out because the MIXER above inherits this from its output speaker,
-    # and a resampler's own default for it is the word `passthrough` -- which
-    # the mixer's schema then refuses with "Expected integer, but cannot parse
-    # passthrough as an integer", naming a component nobody wrote wrong.
-    bits_per_sample: 16
-
   # And the mixer, which is how ESPHome shares one output between several
   # sources -- the shape yaml/GUITION_ PORTAL.yaml already uses.
+  #
+  # It feeds the Bluetooth speaker directly, at 44100 -- the rate A2DP
+  # carries -- and the page's 48000 is resampled BEFORE its mixer input, the
+  # way ESPHome's own voice assistants are wired. Not after the mixer: a
+  # resampler holds back half its filter (8 frames at 16 taps) until more
+  # sound arrives, so an announcement's last frames were never reported played,
+  # the mixer waited for them for ever, and the voice assistant stayed stuck on
+  # "responding". A resampler in front of a source never has to finish, so its
+  # held frames cost nothing there.
   #
   # `timeout: never` ON EVERY SOURCE is the part that is easy to leave out and
   # impossible to diagnose. A source speaker's `timeout:` DEFAULTS TO 500 ms:
@@ -234,7 +229,7 @@ speaker:
   # that keeps cutting out and coming back.
   - platform: mixer
     id: mixing_speaker
-    output_speaker: to_bluetooth
+    output_speaker: bt_speaker
     source_speakers:
       - id: announcement_mixing_input
         timeout: never
@@ -245,6 +240,15 @@ speaker:
       # stop the other.
       - id: portall_mixing_input
         timeout: never
+
+  # 48000 -> 44100 for the page, and it is NOT optional: a browser produces
+  # 48000 and A2DP decodes at 44100 whatever arrives, so without it the page
+  # plays fast and high. `bits_per_sample` is spelt out because a resampler's
+  # own default for it is the word `passthrough`.
+  - platform: resampler
+    id: portall_resampler
+    output_speaker: portall_mixing_input
+    bits_per_sample: 16
 
 display:
   - platform: mipi_dsi
@@ -289,8 +293,9 @@ light:
 
 media_player:
   # Home Assistant's own audio, which is a different thing from the page's and
-  # always was. Both pipelines are 48000 so that every source into the mixer
-  # agrees, and that is a REQUIREMENT rather than a tidiness:
+  # always was. Both pipelines are 44100 -- the mixer's rate, which Home
+  # Assistant converts to before sending -- so that every source agrees, and
+  # that is a REQUIREMENT rather than a tidiness:
   # MixerSpeaker::start() takes its rate from the first source to start and
   # then returns ESP_ERR_INVALID_ARG for any later source at a different one --
   # which surfaces as "Incompatible audio streams" on the source that lost,
@@ -302,12 +307,12 @@ media_player:
     announcement_pipeline:
       speaker: announcement_mixing_input
       format: FLAC
-      sample_rate: 48000
+      sample_rate: 44100
       num_channels: 1
     media_pipeline:
       speaker: media_mixing_input
       format: FLAC
-      sample_rate: 48000
+      sample_rate: 44100
       num_channels: 1
 
 number:
@@ -366,7 +371,7 @@ portall:
   # The page's sound goes into its own mixer input, which is where a source
   # belongs -- not straight at a speaker. From there it is mixed with Home
   # Assistant's audio, resampled to 44100 and sent to the paired device.
-  speaker_id: portall_mixing_input
+  speaker_id: portall_resampler
 
 portall_bt:
   id: dongle
