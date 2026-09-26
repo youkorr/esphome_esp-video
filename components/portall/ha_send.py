@@ -1383,6 +1383,17 @@ def open_link(page, url):
     """
     from playwright.sync_api import TimeoutError as PageTimeout
 
+    # On a launcher with a face, the face opens it: it looks at the tile, the
+    # tile goes down, and the page follows the link itself -- the path a
+    # finger on that tile already takes. False (no face, no such tile, or not
+    # the launcher at all) and it is opened here as it always was.
+    try:
+        if page.evaluate(
+                "u => !!(window.portallAvatar && window.portallAvatar.open"
+                " && window.portallAvatar.open(u))", url):
+            return True
+    except Exception:  # noqa: BLE001 - the ordinary way is still there
+        pass
     try:
         page.goto(url, wait_until="domcontentloaded",
                   timeout=LOAD_TIMEOUT_S * 1000)

@@ -154,6 +154,10 @@ configuration:
         name: 😊 Avatar
         description: Un petit visage de la taille d'un bouton, en bas à droite. Glissez-le du doigt pour
           le mettre où vous voulez ; il y reste.
+      avatar_shape:
+        name: 🐻 Forme de l'avatar
+        description: mochi (une boule douce), robot (son antenne s'allume avec l'assistant vocal), cat
+          (un chat), bear (un ourson) ou ghost (un fantôme).
       avatar_voice:
         name: 🎙️ Assistant vocal de l'avatar
         description: 'Le visage écoute, réfléchit et répond avec lui. Vide : le seul assistant vocal de
@@ -289,6 +293,10 @@ configuration:
         name: 😊 Avatar
         description: Un petit visage de la taille d'un bouton, en bas à droite. Glissez-le du doigt pour
           le mettre où vous voulez ; il y reste.
+      avatar_shape:
+        name: 🐻 Forme de l'avatar
+        description: mochi (une boule douce), robot (son antenne s'allume avec l'assistant vocal), cat
+          (un chat), bear (un ourson) ou ghost (un fantôme).
       avatar_voice:
         name: 🎙️ Assistant vocal de l'avatar
         description: 'Le visage écoute, réfléchit et répond avec lui. Vide : le seul assistant vocal de

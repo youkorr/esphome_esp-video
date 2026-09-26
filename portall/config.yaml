@@ -1,5 +1,5 @@
 name: Portall
-version: "4.26.3"
+version: "4.27.0"
 # Home Assistant identifies an add-on by its slug, so this one moving from
 # usb_display_panel to portall makes the Supervisor see a NEW add-on: options
 # are not carried over and /data starts empty, which means the browser
@@ -123,6 +123,8 @@ options:
     # A small face in the bottom right corner, the size of a button. Drag it
     # with a finger to put it anywhere; it stays where it is put.
     avatar: false
+    # What the face is the face of: mochi, robot, cat, bear or ghost.
+    avatar_shape: mochi
     # The voice assistant the face follows: it listens, thinks and answers
     # with it. Empty follows the only one Home Assistant has; with several,
     # name this panel's -- assist_satellite.guition, say. "off" for none.
@@ -377,6 +379,7 @@ schema:
     tiles: list(cards|buttons)?
     focus_color: list(theme|slate|gray|zinc|neutral|stone|red|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose|white|black)?
     avatar: bool?
+    avatar_shape: list(mochi|robot|cat|bear|ghost)?
     avatar_voice: str?
     voice_links: bool?
     clock:
@@ -421,6 +424,7 @@ schema:
       tiles: list(cards|buttons)?
       focus_color: list(theme|slate|gray|zinc|neutral|stone|red|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose|white|black)?
       avatar: bool?
+      avatar_shape: list(mochi|robot|cat|bear|ghost)?
       avatar_voice: str?
       clock: bool?
       clock_size: list(small|medium|large|huge)?

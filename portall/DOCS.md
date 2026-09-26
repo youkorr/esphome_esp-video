@@ -261,6 +261,7 @@ launcher:
   tiles: cards                # cards, or buttons (icon on top, name below)
   focus_color: theme          # the frame around the link a remote is on
   avatar: false               # a small face in the corner, moved with a finger
+  avatar_shape: mochi         # mochi, robot, cat, bear or ghost
   avatar_voice: ""            # the voice assistant it follows; empty: the only one
   voice_links: false          # "ouvre Jellyfin" to the voice assistant opens it
   clock:
@@ -325,10 +326,33 @@ panel's own launcher keeps its own spot. A tap makes it smile. It blinks and
 glances now and then, and is otherwise still, so a launcher nobody touches
 costs a few small pictures of its eyes rather than a stream.
 
+**Its shape, `avatar_shape:`.** `mochi` (a soft ball, the default), `robot`
+(its antenna lights up with the voice assistant), `cat`, `bear` or `ghost`.
+The face is the same in all five; only the body around it changes. Each
+panel's own launcher can have its own.
+
+**It lives with the house.** Nothing to set for any of this:
+
+- **It looks at what you do**: at the tile a remote or a gamepad has just
+  chosen, and towards where a finger lands.
+- **It dresses for the weather** of the launcher's own weather entity:
+  sunglasses when it is clear and 25 °C or more, a small cloud when it rains,
+  a snowflake when it snows or it is 5 °C or less, with rosy cheeks for the
+  cold. No weather entity, no clothes.
+- **At night, from 22 h to 7 h, it dozes**, eyes half shut, with a few z's.
+  A tap still makes it smile, and the voice assistant still wakes it.
+- **It opens the link you ask for.** Said to the voice assistant while the
+  launcher is showing ("ouvre Jellyfin", see `voice_links:`), the face looks
+  at the tile, the tile goes down, and the link opens, just as it does under
+  a finger. Asked for while another page is open, the link opens straight
+  away, as before.
+
 **It follows the voice assistant, `avatar_voice:`.** When somebody says the
 wake word, the face opens its eyes wide while it listens, looks up while Home
 Assistant thinks, and smiles while the answer is spoken, then goes back to
-rest. A tap in the middle smiles for a moment and returns to whatever the
+rest. Waves beside it say it is listening and a bubble that it is thinking;
+the robot says both with its antenna instead, blue for listening, amber for
+thinking and green while it answers. A tap in the middle smiles for a moment and returns to whatever the
 voice assistant is doing.
 
 Nothing is set on the panel for this. A panel with ESPHome's
@@ -472,7 +496,7 @@ launcher's:
 
 | in an entry | the house's setting it replaces |
 |---|---|
-| `theme`, `columns`, `align`, `tiles`, `focus_color`, `avatar`, `avatar_voice` | `launcher: theme`, `columns`, `align`, `tiles`, `focus_color`, `avatar`, `avatar_voice` |
+| `theme`, `columns`, `align`, `tiles`, `focus_color`, `avatar`, `avatar_shape`, `avatar_voice` | `launcher: theme`, `columns`, `align`, `tiles`, `focus_color`, `avatar`, `avatar_shape`, `avatar_voice` |
 | `clock`, `clock_size`, `clock_color` | `launcher: clock: show`, `size`, `color` |
 | `date_size`, `date_color` | `launcher: date: size`, `color` |
 | `weather`, `weather_size` | `launcher: weather: entity`, `size` |
