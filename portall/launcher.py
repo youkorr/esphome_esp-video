@@ -1060,6 +1060,7 @@ PRESS_JS = """<script>
 #   The page's own storage could not: a panel's own launcher is on a port the
 #   system picks, so its origin -- and its storage -- is new at every start.
 AVATAR_PATH = "/avatar"
+VOICE_PATH = "/voice"
 
 AVATAR_CSS = """
  #av {
@@ -1133,16 +1134,20 @@ AVATAR_JS = """<script>
 (function () {
   var box = document.getElementById('av');
   if (!box) return;
-  var back = 0;
-  /* One expression at a time, and it goes back to neutral by itself when it
-     was only for a moment. Named now for what comes next: the panel's voice
-     assistant listening, thinking, speaking. */
+  var back = 0, rest = 'neutral';
+  /* One expression at a time. A passing one -- a tap, a move -- goes back by
+     itself to the one that stands, which is neutral unless the voice
+     assistant is listening, thinking or answering. */
   function set(mood, ms) {
-    box.dataset.mood = mood || 'neutral';
+    box.dataset.mood = mood || rest;
     clearTimeout(back);
-    if (ms) back = setTimeout(function () { set('neutral'); }, ms);
+    if (ms) back = setTimeout(function () { set(rest); }, ms);
   }
-  window.portallAvatar = {set: set};
+  function stand(mood) {
+    rest = mood || 'neutral';
+    set(rest);
+  }
+  window.portallAvatar = {set: set, stand: stand};
 
   function blink() {
     box.classList.add('blink');
@@ -1200,6 +1205,28 @@ AVATAR_JS = """<script>
       } catch (err) { /* where it was put is kept for this visit anyway */ }
     }, 600);
   }, {capture: true, passive: false});
+})();
+</script>"""
+
+
+# The voice assistant, pushed rather than polled: the page asks and the
+# add-on holds the question until the satellite's state changes, so a panel
+# nobody is talking to asks three times a minute and draws nothing. A version
+# rather than the mood itself, so two changes in a row are never mistaken for
+# none. A failure waits and asks again: the face is an accessory.
+AVATAR_VOICE_JS = """<script>
+(function () {
+  if (!window.portallAvatar) return;
+  function ask(v) {
+    fetch('%(path)s?v=' + v, {cache: 'no-store'})
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (d.v !== v) window.portallAvatar.stand(d.mood);
+        ask(d.v);
+      })
+      .catch(function () { setTimeout(function () { ask(v); }, 5000); });
+  }
+  ask(-1);
 })();
 </script>"""
 
@@ -1407,7 +1434,7 @@ def render(links, title="", subtitle="", theme="dark",
            weather_size=DEFAULT_SIZE, align="left",
            motion=False, slideshow=False, every=30, fade=1, rescan=60,
            urls=(), mirrored=False, shape="cards", focus_color=FOLLOW_THEME,
-           avatar=False, avatar_at=None):
+           avatar=False, avatar_at=None, voice=False):
     """The page, as one string.
 
     Every value is escaped. These come from a configuration file a person
@@ -1574,6 +1601,8 @@ def render(links, title="", subtitle="", theme="dark",
     if avatar:
         sheet += AVATAR_CSS % {"place": _avatar_place(avatar_at)}
         moving.append(AVATAR_HTML + AVATAR_JS % {"path": AVATAR_PATH})
+        if voice:
+            moving.append(AVATAR_VOICE_JS % {"path": VOICE_PATH})
 
     return PAGE % {
         "css": sheet,
@@ -1632,7 +1661,7 @@ def start(links, title="", subtitle="", theme="dark",
           weather_size=DEFAULT_SIZE, align="left",
           motion=False, slideshow=False, every=30, fade=1, rescan=60,
           urls=(), port=PORT, tiles="cards", focus_color=FOLLOW_THEME,
-          avatar=False, avatar_file=None):
+          avatar=False, avatar_file=None, voice=None):
     """Serve the page for as long as the add-on runs. Returns its address.
 
     One call is one launcher: its links, its look, its weather, its
@@ -1719,7 +1748,8 @@ def start(links, title="", subtitle="", theme="dark",
                 # the complaint about an address that is not one.
                 motion, slideshow, every, fade, rescan, addresses,
                 mirrored, shape=tiles, focus_color=focus_color,
-                avatar=avatar, avatar_at=spot["at"]).encode()
+                avatar=avatar, avatar_at=spot["at"],
+                voice=voice is not None).encode()
             held = cache["page"] = (key, body)
         return held[1]
 
@@ -1860,6 +1890,22 @@ def start(links, title="", subtitle="", theme="dark",
                                       flush=True)
                 self.send_response(204)
                 self.end_headers()
+                return
+            if self.path.split("?")[0] == VOICE_PATH:
+                # Held until the voice assistant's state changes, so the face
+                # moves the moment it does and nothing is asked in between.
+                try:
+                    since = int((parse_qs(urlsplit(self.path).query)
+                                 .get("v") or ["-1"])[0])
+                except ValueError:
+                    since = -1
+                version, mood = (voice.wait(since) if voice is not None
+                                 else (0, "neutral"))
+                try:
+                    self._reply(json.dumps({"v": version, "mood": mood})
+                                .encode(), "application/json")
+                except OSError:
+                    pass  # the page went away while it was waiting
                 return
             if self.path.split("?")[0] == SLIDES_PATH:
                 self._reply(json.dumps(

@@ -261,6 +261,7 @@ launcher:
   tiles: cards                # cards, or buttons (icon on top, name below)
   focus_color: theme          # the frame around the link a remote is on
   avatar: false               # a small face in the corner, moved with a finger
+  avatar_voice: ""            # the voice assistant it follows; empty: the only one
   clock:
     show: true                # the time and the date above the links
     size: medium              # small, medium, large, huge
@@ -321,9 +322,36 @@ button, in the bottom right corner. Put a finger on it and slide to move it
 anywhere on the screen; it stays where it is left, across restarts, and each
 panel's own launcher keeps its own spot. A tap makes it smile. It blinks and
 glances now and then, and is otherwise still, so a launcher nobody touches
-costs a few small pictures of its eyes rather than a stream. This is the first
-step: the face will later follow the panel's voice assistant -- listening,
-thinking, speaking.
+costs a few small pictures of its eyes rather than a stream.
+
+**It follows the voice assistant, `avatar_voice:`.** When somebody says the
+wake word, the face opens its eyes wide while it listens, looks up while Home
+Assistant thinks, and smiles while the answer is spoken, then goes back to
+rest. A tap in the middle smiles for a moment and returns to whatever the
+voice assistant is doing.
+
+Nothing is set on the panel for this. A panel with ESPHome's
+`voice_assistant:` appears in Home Assistant as an **assist_satellite**
+entity, and that entity's four states -- idle, listening, processing,
+responding -- are what the face follows. They are Home Assistant's own and do
+not change from one ESPHome release to the next, where the firmware's own
+settings do. The add-on reads them with the credential the Supervisor gives
+it, the way it reads the weather; the page never talks to Home Assistant.
+
+- **Empty** (the default) follows the only voice assistant Home Assistant
+  has. With several, the log names them all and the face follows none.
+- **An entity**, `assist_satellite.guition_assist_satellite` say, follows that
+  one. Put it on each panel's own launcher when each panel has its own.
+- **`off`** follows none.
+
+A panel that has no voice assistant yet: `yaml/guition-voice.yaml` in the
+repository is a Guition 10" with the wake word "Okay Nabu" on the panel, the
+voice assistant, and portall, validated with `esphome config` on ESPHome
+2026.8.2 and on the development version. Read its first paragraph before
+copying its audio into another board's file: on these boards the microphone
+and the speaker share their clock pins, and ESPHome cannot run one I2S bus
+both ways at once, so the file uses two buses and runs the panel's sound at
+16 kHz. It has not been run on a board.
 
 ### Each panel its own launcher
 
@@ -383,7 +411,7 @@ launcher's:
 
 | in an entry | the house's setting it replaces |
 |---|---|
-| `theme`, `columns`, `align`, `tiles`, `focus_color`, `avatar` | `launcher: theme`, `columns`, `align`, `tiles`, `focus_color`, `avatar` |
+| `theme`, `columns`, `align`, `tiles`, `focus_color`, `avatar`, `avatar_voice` | `launcher: theme`, `columns`, `align`, `tiles`, `focus_color`, `avatar`, `avatar_voice` |
 | `clock`, `clock_size`, `clock_color` | `launcher: clock: show`, `size`, `color` |
 | `date_size`, `date_color` | `launcher: date: size`, `color` |
 | `weather`, `weather_size` | `launcher: weather: entity`, `size` |
