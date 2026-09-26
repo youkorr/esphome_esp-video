@@ -103,15 +103,38 @@ def speakable(name):
     return " ".join(kept.split())
 
 
-def spoken_forms(name):
+def spoken_forms(name, others=()):
     """The name as a sentence template: as written, and run together.
 
     "Home Assistant" is also written "HomeAssistant" -- by people and by
     speech-to-text engines -- and the two are the same link. A one-word name
-    has nothing to run together and stays as it is.
+    has nothing to run together and stays as it is. `others` are the link's
+    voice: words, each taken the same two ways.
     """
-    joined = name.replace(" ", "")
-    return f"({name}|{joined})" if joined != name else name
+    forms = []
+    for said in (name, *others):
+        for form in (said, said.replace(" ", "")):
+            if form not in forms:
+                forms.append(form)
+    return f"({'|'.join(forms)})" if len(forms) > 1 else forms[0]
+
+
+def voice_of(link):
+    """What else a link may be called aloud: its voice:, comma-separated.
+
+    A setting on the LINK, because it is a fact about the name: "Jellyfin" is
+    an English word said in a French sentence, and the speech engine writes
+    "gelée fine". No grammar can guess that, and a household can read it off
+    its own log and write it down.
+    """
+    if not isinstance(link, dict):
+        return []
+    out = []
+    for part in str(link.get("voice") or "").split(","):
+        said = speakable(part)
+        if key(said):
+            out.append(said)
+    return out
 
 
 def key(name):
@@ -124,13 +147,20 @@ def key(name):
     return "".join(c for c in text.lower() if c.isalnum())
 
 
-def automation(names):
-    """The automation this add-on keeps in Home Assistant, for these names."""
+def automation(names, voices=None):
+    """The automation this add-on keeps in Home Assistant, for these names.
+
+    `voices` maps a name to the other words it may be said as; the trigger's
+    id stays the name, so what the add-on is told is the link, whichever of
+    its words was heard.
+    """
+    voices = voices or {}
     triggers = []
     for name in names:
+        forms = spoken_forms(name, voices.get(name, ()))
         triggers.append({
             "trigger": "conversation",
-            "command": [f"{LEAD}{VERBS} {FILLERS}{ARTICLES}{spoken_forms(name)} "
+            "command": [f"{LEAD}{VERBS} {FILLERS}{ARTICLES}{forms} "
                         f"{POLITE}"],
             "id": LINK + name,
         })
@@ -162,12 +192,18 @@ def automation(names):
 
 
 def names_of(links):
-    """Every distinct name a sentence can carry, in the order they came."""
+    """Every distinct name a sentence can carry, in the order they came.
+
+    A link whose name has nothing sayable in it -- an emoji -- is named by the
+    first of its voice: words instead, and dropped only when it has none.
+    """
     seen, out, dropped = set(), [], []
     for link in links:
         if not isinstance(link, dict):
             continue
         spoken = speakable(link.get("name"))
+        if not key(spoken):
+            spoken = (voice_of(link) or [""])[0]
         if not key(spoken):
             if link.get("name"):
                 dropped.append(str(link.get("name")))
@@ -179,13 +215,50 @@ def names_of(links):
     return out, dropped
 
 
+def voices_of(links, names):
+    """{name: [other words]} for the links that have some, and the clashes.
+
+    A word already a link's name, or already another link's word, is left
+    out and returned: said aloud it would open whichever trigger Home
+    Assistant tried first, which is a coin toss from the glass.
+    """
+    taken = {key(name) for name in names}
+    out, clashes = {}, []
+    for link in links:
+        if not isinstance(link, dict):
+            continue
+        name = speakable(link.get("name"))
+        if not key(name):
+            name = (voice_of(link) or [""])[0]
+        if name not in names:
+            continue
+        for said in voice_of(link):
+            if said.lower() == name.lower():
+                continue
+            # The link's own name spelt apart ("jelly fin") is not a clash:
+            # it is the same link, written the way the engine writes it.
+            if key(said) in taken and key(said) != key(name):
+                clashes.append((str(link.get("name") or name), said))
+                continue
+            taken.add(key(said))
+            out.setdefault(name, []).append(said)
+    return out, clashes
+
+
 def find_link(links, name):
-    """The link a name means, or None. Exact first, then without spacing."""
+    """The link a name means, or None: by its name, then by a voice: word.
+
+    The second is for the link whose name is an emoji, which the automation
+    knows by its first voice: word.
+    """
     wanted = key(name)
     if not wanted:
         return None
     for link in links:
         if isinstance(link, dict) and key(link.get("name")) == wanted:
+            return link
+    for link in links:
+        if any(key(said) == wanted for said in voice_of(link)):
             return link
     return None
 
@@ -215,6 +288,7 @@ class VoiceLinks:
         self.url = websocket_address(base) if base else ""
         self.token = str(token or "")
         self.names, self.dropped = names_of(links)
+        self.voices, self.clashes = voices_of(links, self.names)
         self.act = act
         self._say = say
         self._said = set()
@@ -251,7 +325,7 @@ class VoiceLinks:
         automations.yaml and reloads the automation, and doing that at every
         start of the add-on for nothing is churn somebody would notice.
         """
-        want = automation(self.names)
+        want = automation(self.names, self.voices)
         status, have = self._request("GET")
         if status == 200:
             have = {k: v for k, v in have.items() if k != "id"}
@@ -272,7 +346,10 @@ class VoiceLinks:
             return False
         self._say(f"Voice links: the automation \"{want['alias']}\" now "
                   f"knows {len(self.names)} link(s): "
-                  + ", ".join(self.names))
+                  + ", ".join(
+                      name + (f" (or {', '.join(self.voices[name])})"
+                              if self.voices.get(name) else "")
+                      for name in self.names))
         return True
 
     # -- the event -----------------------------------------------------------
@@ -298,7 +375,13 @@ class VoiceLinks:
         for name in self.dropped:
             self.say(f"drop:{name}", f"the link \"{name}\" has nothing in "
                      f"its name that can be said, so it cannot be opened by "
-                     f"voice. Give it a name made of words.")
+                     f"voice. Give it a name made of words, or words to say "
+                     f"in its voice: setting.")
+        for name, said in self.clashes:
+            self.say(f"clash:{name}:{said}", f"\"{said}\" in the voice: of "
+                     f"\"{name}\" is already the name or a word of another "
+                     f"link, so it is left out -- said aloud it could open "
+                     f"either one.")
         threading.Thread(target=self._run, daemon=True,
                          name="portall-voice-links").start()
         return self

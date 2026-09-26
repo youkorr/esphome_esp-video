@@ -242,6 +242,10 @@ def check_reaches_sender(folder):
         # is not named after it. tools/checkhomekit.py runs command_for and
         # requires that flag, so it is checked somewhere rather than nowhere.
         "homekit",
+        # A link's other names for voice_links: read by run.py into the
+        # automation it writes in Home Assistant, and never a sender's flag.
+        # tools/checkvoicelinks.py checks it reaches the automation.
+        "voice",
     }
 
     def leaves(spec, path=()):

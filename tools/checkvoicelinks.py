@@ -61,11 +61,18 @@ def check(name, ok, detail=""):
 LINKS = [
     {"name": "Home Assistant", "url": "http://ha.local/lovelace/0",
      "token": TOKEN},
-    {"name": "Jellyfin", "url": "http://jf.local/"},
-    {"name": "YouTube", "url": "https://www.youtube.com/tv"},
+    # What a French speech engine really wrote for "Jellyfin", from a panel.
+    {"name": "Jellyfin", "url": "http://jf.local/",
+     "voice": "gelée fine, jelly fin"},
+    # A word that is another link's name must be refused, and one that is its
+    # own name run apart must simply be the name.
+    {"name": "YouTube", "url": "https://www.youtube.com/tv",
+     "voice": "Jellyfin, you tube"},
     {"name": "Camera & <cuisine>", "url": "http://cam.local/"},
     {"name": "Orange TV", "url": "https://tv.orange.fr/"},
     {"name": "🎬", "url": "http://nothing-to-say.local/"},
+    # An emoji with words to say is named by them.
+    {"name": "📺", "url": "http://tv.local/", "voice": "télé du salon"},
 ]
 
 
@@ -83,7 +90,17 @@ def sentences():
         return
     names, dropped = voicelinks.names_of(LINKS)
     check("a name with nothing to say is left out, and said", dropped == ["🎬"])
-    auto = voicelinks.automation(names)
+    voices, clashes = voicelinks.voices_of(LINKS, names)
+    check("the emoji with a voice: is named by its first word",
+          "télé du salon" in names, repr(names))
+    check("a word that is another link's name is refused, and said",
+          clashes == [("YouTube", "Jellyfin")], repr(clashes))
+    check("a word that is the link's own name run apart is not a clash",
+          "you tube" not in str(clashes))
+    check("the link that found it by its voice: word is the right one",
+          voicelinks.find_link(LINKS, "télé du salon")["url"]
+          == "http://tv.local/")
+    auto = voicelinks.automation(names, voices)
     ok = True
     for trigger in auto["triggers"]:
         for sentence in trigger["command"]:
@@ -134,7 +151,13 @@ def sentences():
                         "link:Home Assistant"),
                        ("Okay Nabou ouvre Jellyfin", "link:Jellyfin"),
                        ("Hey Jarvis, lance Orange TV.", "link:Orange TV"),
-                       ("Ok Nabu, retour à l'accueil.", "home")):
+                       ("Ok Nabu, retour à l'accueil.", "home"),
+                       # voice: -- the link's other words.
+                       ("Ok Nabu, ouvre gelée fine.", "link:Jellyfin"),
+                       ("lance jellyfin", "link:Jellyfin"),
+                       ("Lance jelly fin", "link:Jellyfin"),
+                       ("allume la télé du salon", None),
+                       ("ouvre la télé du salon", "link:télé du salon")):
         got = heard(text)
         check(f"\"{text}\" -> {want}", got == want, repr(got))
     for text in ("ouvre le volet du salon", "ouvre le portail",
@@ -310,8 +333,11 @@ def automation_api():
     check("with one trigger per link that can be said, and home",
           [t["id"] for t in stored.get("triggers", [])]
           == ["link:Home Assistant", "link:Jellyfin", "link:YouTube",
-              "link:Camera cuisine", "link:Orange TV", "home"])
-    check("and says which links it knows", any("5 link(s)" in s for s in said))
+              "link:Camera cuisine", "link:Orange TV", "link:télé du salon",
+              "home"])
+    check("and says which links it knows, with their other words",
+          any("6 link(s)" in s and "Jellyfin (or gelée fine, jelly fin)" in s
+              for s in said), repr(said))
     before = len(ha.requests)
     again = voicelinks.VoiceLinks(ha.base, TOKEN, LINKS, None, say)
     check("a start with the same links writes nothing",

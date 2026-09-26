@@ -49,6 +49,9 @@ def link_fields():
         user_agent=T("Se présenter comme…", "Present itself as…",
                      "Rarement utile. Pour YouTube en mode télévision, voir la documentation.",
                      "Rarely needed. For YouTube's television mode, see the documentation."),
+        voice=T("🗣️ Autres noms à dire", "🗣️ Other names to say",
+                "Pour l'ouvrir à la voix : ce que l'assistant vocal comprend quand vous dites le nom, séparé par des virgules. Par exemple « gelée fine, jelly fin » pour Jellyfin.",
+                "To open it by voice: what the voice assistant writes when you say the name, separated by commas. For example \"jelly fin, jellyfish\" for Jellyfin."),
     )
 
 SIZES = ("Taille", "Size")

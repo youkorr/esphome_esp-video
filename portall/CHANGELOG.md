@@ -1,5 +1,13 @@
 # Changelog
 
+## 4.26.0
+
+- **Other words to say for a link, `voice:`.** When the voice assistant keeps
+  mishearing a name -- *"gelée fine"* for Jellyfin -- write what it hears in
+  that link's `voice:`, separated by commas, and saying it opens the link. The
+  panel's log line `Speech recognised as: "..."` shows what it wrote. A word
+  that is already another link's name is left out, and the log says so.
+
 ## 4.25.2
 
 - **Links by voice work when the wake word is written into the sentence.**

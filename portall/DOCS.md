@@ -379,8 +379,24 @@ paste, no configuration file.
   the add-on knows which screen to use.
 - **A panel's own links come first**, so two panels can each have their own
   "Jellyfin". A link only the house has is still opened.
-- **Say the link's name as it is written.** A name made only of an emoji
-  cannot be said and is left out; the log says which.
+- **Say the link's name as it is written -- or give it other words.** The
+  voice assistant writes down what it hears, and an English name in a French
+  sentence often comes out wrong: *"Jellyfin"* becomes *"gelée fine"*. Look at
+  the line `Speech recognised as: "..."` in the panel's log, and put what it
+  wrote in the link's **`voice:`**, separated by commas:
+
+  ```yaml
+  links:
+    - name: Jellyfin
+      url: http://192.168.1.2:8096/
+      voice: gelée fine, jelly fin
+  ```
+
+  The wake word written in front (*"Ok Nabu, ouvre..."*) and words like *"la
+  page"*, *"l'appli"* or *"s'il te plaît"* are already taken care of. A word
+  that is already another link's name is left out, and the log says so. A
+  name made only of an emoji is named by its first `voice:` word, or left out
+  if it has none.
 - **The automation names your links exactly**, rather than taking any word
   after "ouvre". That is deliberate: Home Assistant asks an automation's
   sentences before its own commands, so a catch-all "ouvre ..." would take

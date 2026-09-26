@@ -121,6 +121,10 @@ configuration:
       user_agent:
         name: Present itself as…
         description: Rarely needed. For YouTube's television mode, see the documentation.
+      voice:
+        name: 🗣️ Other names to say
+        description: 'To open it by voice: what the voice assistant writes when you say the name, separated
+          by commas. For example "jelly fin, jellyfish" for Jellyfin.'
   launcher:
     name: 🎨 3 · Look of the page of links
     description: Colours, clock, weather, wallpaper. Applies to every screen; a screen can change any
@@ -254,6 +258,10 @@ configuration:
           user_agent:
             name: Present itself as…
             description: Rarely needed. For YouTube's television mode, see the documentation.
+          voice:
+            name: 🗣️ Other names to say
+            description: 'To open it by voice: what the voice assistant writes when you say the name,
+              separated by commas. For example "jelly fin, jellyfish" for Jellyfin.'
       theme:
         name: Theme
         description: Dark or light.
