@@ -1,5 +1,18 @@
 # Changelog
 
+## 4.22.1
+
+- **Up on Netflix goes up one row per press, and the chosen row is always
+  visible.** Netflix keeps its menu fixed across the top of the page while
+  the rows scroll underneath. Going up, the selection went back and forth
+  between a row hidden behind that menu and *Mon Netflix* in the menu -- one
+  row every two presses, with the frame out of sight half the time. It stays
+  among the rows now, each row comes into view *below* the menu, and the menu
+  is reached only once the rows run out, with the page shown from the top.
+  The same holds on any site with a fixed header.
+- **The log no longer repeats `Keyboard: nothing here takes text` on every
+  arrow press.** Each thing the selection lands on is named once.
+
 ## 4.22.0
 
 - **The link a remote or a gamepad is on can now be seen on a light page.**

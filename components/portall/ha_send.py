@@ -2683,17 +2683,54 @@ SPATNAV_JS = r"""
       if (el.shadowRoot) gather(el.shadowRoot, out);
     return out;
   }
+  // The fixed or sticky element an element rides with -- a site's header,
+  // a player's control bar -- or null for the page that scrolls. Asked
+  // through shadow roots, since that is where a card lives on a dashboard.
+  // Remembered for one press: a style lookup per ancestor per candidate is
+  // the cost this has to keep small.
+  function layerOf(el, seen) {
+    if (seen.has(el)) return seen.get(el);
+    const walked = [];
+    let e = el, found = null;
+    while (e && e.nodeType === 1) {
+      if (seen.has(e)) { found = seen.get(e); break; }
+      walked.push(e);
+      const pos = getComputedStyle(e).position;
+      if (pos === 'fixed' || pos === 'sticky') { found = e; break; }
+      e = e.parentElement ||
+          (e.getRootNode && e.getRootNode().host) || null;
+    }
+    for (const w of walked) seen.set(w, found);
+    return found;
+  }
+  function onScreen(q) {
+    return q.bottom > 0 && q.right > 0 &&
+           q.top < innerHeight && q.left < innerWidth;
+  }
   function pick(from, way) {
     const [dx, dy] = WAYS[way];
     const all = gather(document, []);
     if (!all.length) return null;
     if (!from) {
-      all.sort((a, b) => (a[1].top - b[1].top) || (a[1].left - b[1].left));
-      return (dx > 0 || dy > 0) ? all[0][0] : all[all.length - 1][0];
+      const shown = all.filter(([el, q]) => onScreen(q));
+      const pool = shown.length ? shown : all;
+      pool.sort((a, b) => (a[1].top - b[1].top) || (a[1].left - b[1].left));
+      return (dx > 0 || dy > 0) ? pool[0][0] : pool[pool.length - 1][0];
     }
     const r = from.getBoundingClientRect();
     const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
-    let best = null, score = Infinity;
+    // A fixed header and the page scrolling under it are two planes, and
+    // measuring across them is what sent the focus back and forth on
+    // Netflix: from the header, the row scrolled away above the screen is
+    // "up"; from that row, once scrolled back under the header, the header
+    // is "up" again -- one row per two presses, forever, with the focus
+    // hidden behind the header on every other one. So the focus stays on
+    // its own plane while that plane has anything in that direction, and
+    // leaves a fixed one only for what is on screen and wholly past it.
+    const seen = new Map();
+    const home = layerOf(from, seen);
+    const edge = home ? home.getBoundingClientRect() : null;
+    let best = null, score = Infinity, other = null, otherScore = Infinity;
     for (const [el, q] of all) {
       if (el === from) continue;
       const qx = q.left + q.width / 2, qy = q.top + q.height / 2;
@@ -2701,9 +2738,69 @@ SPATNAV_JS = r"""
       if (along <= 1) continue;
       const across = Math.abs((qx - cx) * dy) + Math.abs((qy - cy) * dx);
       const s = along + across * 3;
-      if (s < score) { score = s; best = el; }
+      if (layerOf(el, seen) === home) {
+        if (s < score) { score = s; best = el; }
+        continue;
+      }
+      if (edge) {
+        if (!onScreen(q)) continue;
+        const past = dy > 0 ? q.top >= edge.bottom - 1
+                   : dy < 0 ? q.bottom <= edge.top + 1
+                   : dx > 0 ? q.left >= edge.right - 1
+                   : q.right <= edge.left + 1;
+        if (!past) continue;
+      }
+      if (s < otherScore) { otherScore = s; other = el; }
     }
-    return best;
+    return best || other;
+  }
+  // How much of the top and the bottom of the screen a fixed bar covers, so
+  // a row brought into view is brought into view BELOW the header rather
+  // than behind it. Only bars: something spanning most of the width and
+  // under a third of the height, stuck to that edge. Found by asking what
+  // is at a few points along each edge rather than by sweeping the page,
+  // which on a page of ten thousand elements cost seven milliseconds a
+  // press -- half of what a whole press cost before.
+  function covered(seen) {
+    let top = 0, bottom = 0;
+    const bars = new Set();
+    for (const y of [0, innerHeight - 1])
+      for (const x of [innerWidth * 0.1, innerWidth * 0.5, innerWidth * 0.9])
+        for (const el of document.elementsFromPoint(x, y)) {
+          const bar = layerOf(el, seen);
+          if (bar) bars.add(bar);
+        }
+    for (const el of bars) {
+      const b = el.getBoundingClientRect();
+      if (b.width < innerWidth / 2 || b.height >= innerHeight / 3 ||
+          b.height < 4) continue;
+      if (b.top <= 1 && b.bottom > top) top = b.bottom;
+      if (b.bottom >= innerHeight - 1 && innerHeight - b.top > bottom)
+        bottom = innerHeight - b.top;
+    }
+    return [top, bottom];
+  }
+  function reveal(el, way) {
+    const seen = new Map();
+    const bar = layerOf(el, seen);
+    if (bar) {
+      // Reaching a header from below means nothing on the page above was
+      // left to take, so show the page's top -- or every further press is
+      // the browser's own forty pixels of scrolling, which on Netflix was
+      // most of seventy presses to get back to the top.
+      const b = bar.getBoundingClientRect();
+      if (way === 'ArrowUp' && b.top <= 1) window.scrollTo(0, 0);
+      return;
+    }
+    let top = 0, bottom = 0;
+    try { [top, bottom] = covered(seen); } catch (err) { /* plain reveal */ }
+    const was = [el.style.scrollMarginTop, el.style.scrollMarginBottom];
+    el.style.scrollMarginTop = top + 'px';
+    el.style.scrollMarginBottom = bottom + 'px';
+    try { el.scrollIntoView({block: 'nearest', inline: 'nearest'}); }
+    catch (err) { el.scrollIntoView(false); }
+    el.style.scrollMarginTop = was[0];
+    el.style.scrollMarginBottom = was[1];
   }
   // First of everything, in the capture phase, only to learn whether the key
   // ever reaches the listener below. A page that stops it on the way down
@@ -2735,8 +2832,7 @@ SPATNAV_JS = r"""
     const next = pick(was && was !== document.body ? was : null, e.key);
     if (next) {
       next.focus({preventScroll: true});
-      try { next.scrollIntoView({block: 'nearest', inline: 'nearest'}); }
-      catch (err) { next.scrollIntoView(false); }
+      reveal(next, e.key);
       mine = next;
       e.preventDefault();
       note('moved', who(next));
@@ -3214,7 +3310,7 @@ class Keyboard:
         # found and how many have been taken, so the log traces focus moving
         # instead of repeating itself.
         self._blur_at = None
-        self._road = None
+        self._roads = set()
         self._looks = 0
         self._said = 0
         # Hide was pressed while the field kept its focus, so the keys are to
@@ -3419,7 +3515,7 @@ class Keyboard:
         self._pending = []
         self._reported = False
         self._blur_at = None
-        self._road = None
+        self._roads = set()
 
     def request_sync(self, when):
         """Look at what has focus, now or shortly.
@@ -3513,13 +3609,17 @@ class Keyboard:
             return
         road = answer.get("road") or "(rien)"
         self._looks += 1
-        # Every change, so the log traces focus moving from one thing to the
-        # next; and one in fifteen regardless, so a road that never changes
-        # while somebody is tapping still proves the looks are happening at
-        # all. Saying it every time would fill the log from the background.
-        if road == self._road and self._looks % 15:
+        # Each road the first time it is seen, so the log traces focus
+        # reaching something new; and one in fifteen regardless, so a road
+        # that never changes while somebody is tapping still proves the looks
+        # are happening at all. Remembered as a SET rather than the last one:
+        # a remote walking a page moves the focus on every press, and on
+        # Netflix it went A, BUTTON, A, BUTTON -- a line per press that spent
+        # the whole cap of forty in one held arrow, leaving nothing for the
+        # field somebody tapped afterwards.
+        if road in self._roads and self._looks % 15:
             return
-        self._road = road
+        self._roads.add(road)
         self._said += 1
         print(f"Keyboard: nothing here takes text (look {self._looks}); "
               f"focus is {road}")
