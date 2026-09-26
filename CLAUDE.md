@@ -1779,7 +1779,7 @@ the dashboard, where it is invisible while the keys go on working.
 ahead of the `pip install` as well as the `ADD`s, so a bump refetches
 everything — at the cost of the browser download on each update.
 `present_browser()` prints the Chromium version at startup and warns below 114,
-so this is never diagnosed by guesswork again. Currently **4.26.2**.
+so this is never diagnosed by guesswork again. Currently **4.26.3**.
 
 **The image carried two Playwright browsers and needed one.** `playwright
 install chromium` fetches the full Chromium **and** the headless shell -- 597
@@ -8940,6 +8940,19 @@ needed at all -- with the eye round, the brow now sits where theirs does,
 fs(6) above it. Scaled to a face of 106.7 units so the eye centres stay 60
 apart and the mouth and cheeks do not move; the mouth was not asked about and
 is untouched.
+
+**And the brows are POINTED (4.26.3)**, shown rather than said: a phone video
+of the household's LVGL panel, captioned *"regarde les sourcils ils sont
+pointus"*. The C draws a plain round-capped line and nothing tapers it --
+checked on every branch of that repository. The point is the CANVAS: the brow
+is drawn inside each eye's own canvas, its top edge a few pixels below the
+canvas's, so a brow that tilts has its outer end cut off by the edge and what
+is left is a wedge, round at the nose and running to a point. That is the
+face they look at, so the path draws it: 0.12 of the eye at its widest,
+measured off the video, where the round-capped stroke is 0.098 -- a wedge
+averages half its width, and at the panel's size the thinner one read as a
+hairline. Frames came out of the .MOV with `imageio-ffmpeg`'s bundled
+binary; Playwright's own ffmpeg build cannot open a QuickTime file.
 
 ### Voice first, then YouTube, rebooted the panel: a refused mixer source, started fifty times a second
 
