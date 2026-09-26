@@ -1104,9 +1104,7 @@ AVATAR_CSS = """
     Their SHAPE is the household's own LVGL face
     (youkorr/esphome-lvgl-kawaii, lvgl_kawaii_face.c), which they preferred:
     nine tenths of the eye's width, a stroke a tenth of it, and a gap above
-    the eye of fs(6) on its 135 px reference. Measured from the eye's TOP
-    here rather than its centre, because this eye is taller than it is wide
-    and theirs is round -- from the centre the brow would sit on the eye.
+    the eye of fs(6) on its 135 px reference.
     Thinking keeps its tilt and not its drop: that face also narrows its eye
     to two thirds, which leaves the room, and this one's eye stays open -- lowered,
     the brow would rest on it. */
@@ -1129,27 +1127,36 @@ AVATAR_CSS = """
 
 # The face, on a 150 x 100 box: the button's own 3:2. Everything that moves
 # is its own group, so an expression is a class on the box and nothing more.
+# The eyes and brows are the household's LVGL face (draw_eye() in
+# lvgl_kawaii_face.c) at the size that keeps the eye centres 60 apart: a
+# ROUND eye 0.306 of the face wide, an iris 0.55 of it with a darker ring,
+# an oval pupil half the iris wide and 0.6 of it tall, two highlights, and
+# the shut eye an arc from 200 to 340 degrees over 0.3 of the eye's height.
 AVATAR_HTML = """<div id="av" data-mood="neutral" aria-hidden="true">
 <svg viewBox="0 0 150 100">
- <g class="lift l"><rect class="brow l" x="32.4" y="24.5" width="25.2" height="3"
-  rx="1.5" fill="#7a89a0"/></g>
- <g class="lift r"><rect class="brow r" x="92.4" y="24.5" width="25.2" height="3"
-  rx="1.5" fill="#7a89a0"/></g>
+ <g class="lift l"><rect class="brow l" x="30.3" y="25.4" width="29.4" height="3.2"
+  rx="1.6" fill="#7a89a0"/></g>
+ <g class="lift r"><rect class="brow r" x="90.3" y="25.4" width="29.4" height="3.2"
+  rx="1.6" fill="#7a89a0"/></g>
  <g class="eye">
-  <rect x="31" y="30" width="28" height="36" rx="12" fill="#f4f7fb"/>
-  <g class="look"><circle cx="45" cy="50" r="10" fill="#3b9eff"/>
-   <circle cx="45" cy="50" r="5" fill="#0b1a33"/>
-   <circle cx="41" cy="45" r="3" fill="#fff"/></g>
+  <circle cx="45" cy="48" r="16.35" fill="#fff"/>
+  <g class="look"><circle cx="45" cy="48" r="8.2" fill="#32b4ff"
+    stroke="#1e8ce6" stroke-width="1.6"/>
+   <ellipse cx="45" cy="48" rx="4.5" ry="5.4" fill="#000"/>
+   <ellipse cx="42" cy="44.4" rx="1.8" ry="2.15" fill="#fff"/>
+   <ellipse cx="47.25" cy="45.3" rx=".9" ry="1.1" fill="#fff"/></g>
  </g>
  <g class="eye">
-  <rect x="91" y="30" width="28" height="36" rx="12" fill="#f4f7fb"/>
-  <g class="look"><circle cx="105" cy="50" r="10" fill="#3b9eff"/>
-   <circle cx="105" cy="50" r="5" fill="#0b1a33"/>
-   <circle cx="101" cy="45" r="3" fill="#fff"/></g>
+  <circle cx="105" cy="48" r="16.35" fill="#fff"/>
+  <g class="look"><circle cx="105" cy="48" r="8.2" fill="#32b4ff"
+    stroke="#1e8ce6" stroke-width="1.6"/>
+   <ellipse cx="105" cy="48" rx="4.5" ry="5.4" fill="#000"/>
+   <ellipse cx="102" cy="44.4" rx="1.8" ry="2.15" fill="#fff"/>
+   <ellipse cx="107.25" cy="45.3" rx=".9" ry="1.1" fill="#fff"/></g>
  </g>
- <path class="shut" d="M33 52 Q45 38 57 52" stroke="#f4f7fb" stroke-width="5"
+ <path class="shut" d="M29.6 44.6 Q45 31.8 60.4 44.6" stroke="#fff" stroke-width="4.7"
        stroke-linecap="round" fill="none"/>
- <path class="shut" d="M93 52 Q105 38 117 52" stroke="#f4f7fb" stroke-width="5"
+ <path class="shut" d="M89.6 44.6 Q105 31.8 120.4 44.6" stroke="#fff" stroke-width="4.7"
        stroke-linecap="round" fill="none"/>
  <ellipse cx="26" cy="72" rx="8" ry="4.5" fill="#ff7a9a" opacity=".35"/>
  <ellipse cx="124" cy="72" rx="8" ry="4.5" fill="#ff7a9a" opacity=".35"/>
