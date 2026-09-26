@@ -1,5 +1,13 @@
 # Changelog
 
+## 4.25.2
+
+- **Links by voice work when the wake word is written into the sentence.**
+  The speech recognition often hands over *"Ok Nabu, ouvre Netflix"* with the
+  wake word still in it, and that sentence matched nothing, so the
+  assistant's AI answered instead. Whatever comes before the verb is now
+  ignored. Restart the add-on once so the automation is rewritten.
+
 ## 4.25.1
 
 - **Links by voice understand more ways of saying it.** *"Ouvre la page de

@@ -1779,7 +1779,7 @@ the dashboard, where it is invisible while the keys go on working.
 ahead of the `pip install` as well as the `ADD`s, so a bump refetches
 everything — at the cost of the browser download on each update.
 `present_browser()` prints the Chromium version at startup and warns below 114,
-so this is never diagnosed by guesswork again. Currently **4.25.1**.
+so this is never diagnosed by guesswork again. Currently **4.25.2**.
 
 **The image carried two Playwright browsers and needed one.** `playwright
 install chromium` fetches the full Chromium **and** the headless shell -- 597
@@ -9025,6 +9025,23 @@ politeness after. Five cases in `checkvoicelinks.py` fail against 4.25.0.
 **Not settled**: the panel's own `Speech recognised as:` line was not seen, so
 which of these it was -- or a mishearing like "homme assistant" that no
 grammar can guess -- is still one log line away.
+
+**And then the panel's own line settled it -- 4.25.2:**
+
+    Speech recognised as: "Ok, Naboo, ouvre la page Home Assistant."
+
+The WAKE WORD is in the text. The satellite's audio carries it and nothing in
+`assist_pipeline` strips it, so every sentence missed from its first word --
+Netflix and Orange TV as much as Home Assistant, and "ouvre YouTube" had only
+worked on the runs where the engine left it out. The 4.25.1 grammar round was
+a guess in the place of that one line, and it was asked for twice before it
+came. A list reference in a trigger sentence is a wildcard
+(`_rebuild_trigger_intents`), so `LEAD = "[{before}] "` in front of every
+VERB-led sentence takes whatever the engine spelt -- Naboo, Nabou, Jarvis --
+and never in front of the bare "accueil" or "home", where it would have made
+"allume la lumière de l'accueil" go home. Four cases fail against 4.25.1;
+"ok nabu, ouvre le volet du salon" and "turn on the light at home" still do
+not match.
 
 ## A byte rate, because a fixed quality makes the rate follow the scene -- 4.21.0
 
