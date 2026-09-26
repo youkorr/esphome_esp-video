@@ -365,7 +365,7 @@ def truthy(value):
 # launcher_clock_size -- so an entry is the house launcher with that panel's
 # own values laid over it, and there is no second table to keep in step.
 LAUNCHER_OWN = (
-    "theme", "columns", "align", "tiles",
+    "theme", "columns", "align", "tiles", "focus_color",
     "clock", "clock_size", "clock_color", "date_size", "date_color",
     "weather", "weather_size",
     "background", "background_motion", "background_blur", "background_dim",
@@ -468,6 +468,8 @@ def start_launcher(config, port=None, house_links=(), label=""):
                          or launcher.DEFAULT_SIZE),
         align=str(config.get("launcher_align") or "left"),
         tiles=str(config.get("launcher_tiles") or "cards"),
+        focus_color=str(config.get("launcher_focus_color")
+                        or launcher.FOLLOW_THEME),
         motion=truthy(config.get("launcher_background_motion", False)),
         slideshow=truthy(config.get("launcher_slideshow", False)),
         every=config.get("launcher_slideshow_seconds", 30),
@@ -571,6 +573,7 @@ _GROUPED = {
         "columns": "launcher_columns",
         "align": "launcher_align",
         "tiles": "launcher_tiles",
+        "focus_color": "launcher_focus_color",
         "clock": {"show": "launcher_clock", "size": "launcher_clock_size",
                   "color": "launcher_clock_color"},
         "date": {"size": "launcher_date_size", "color": "launcher_date_color"},

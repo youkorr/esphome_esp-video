@@ -139,6 +139,10 @@ configuration:
         name: Shape of the links
         description: 'cards: wide cards, the icon beside the name. buttons: small buttons, the icon on
           top and the name underneath.'
+      focus_color:
+        name: 🎯 Selection colour
+        description: The ring around the link chosen with a remote or a gamepad. On a light background,
+          pick black or yellow.
       clock:
         name: 🕒 Clock
         fields:
@@ -250,6 +254,10 @@ configuration:
         name: Shape of the links
         description: 'cards: wide cards, the icon beside the name. buttons: small buttons, the icon on
           top and the name underneath.'
+      focus_color:
+        name: 🎯 Selection colour
+        description: The ring around the link chosen with a remote or a gamepad. On a light background,
+          pick black or yellow.
       clock:
         name: 🕒 Show the clock
       clock_size:

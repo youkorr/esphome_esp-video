@@ -142,6 +142,10 @@ configuration:
         name: Forme des liens
         description: 'cards : grandes cartes, icône à côté du nom. buttons : petits boutons, icône en
           haut et nom en dessous.'
+      focus_color:
+        name: 🎯 Couleur de la sélection
+        description: Le cadre autour du lien choisi à la télécommande ou à la manette. Sur un fond clair,
+          prenez black ou yellow.
       clock:
         name: 🕒 Horloge
         fields:
@@ -255,6 +259,10 @@ configuration:
         name: Forme des liens
         description: 'cards : grandes cartes, icône à côté du nom. buttons : petits boutons, icône en
           haut et nom en dessous.'
+      focus_color:
+        name: 🎯 Couleur de la sélection
+        description: Le cadre autour du lien choisi à la télécommande ou à la manette. Sur un fond clair,
+          prenez black ou yellow.
       clock:
         name: 🕒 Afficher l'horloge
       clock_size:

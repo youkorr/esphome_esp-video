@@ -405,6 +405,9 @@ PAGE = """<!doctype html>
    --card: %(card_fallback)s;
    --card: color-mix(in srgb, var(--accent) 14%%, %(card_end)s);
    --edge: color-mix(in srgb, var(--accent) 30%%, %(card_end)s);
+   /* The ring around the tile a remote is on. Its own variable so that
+      `focus_color` changes it in ONE place for both shapes. */
+   --ring: var(--accent);
    --ink: %(ink)s;
    --faint: color-mix(in srgb, var(--ink) 55%%, var(--ground));
  }
@@ -507,8 +510,8 @@ PAGE = """<!doctype html>
  a.tile:focus { outline: none; }
  a.tile:focus-visible, a.tile.chosen {
    outline: none;
-   border-color: var(--accent);
-   box-shadow: 0 0 0 .5vmin var(--accent);
+   border-color: var(--ring);
+   box-shadow: 0 0 0 .5vmin var(--ring);
  }
  .in {
    display: flex; align-items: center; gap: 3vmin; width: 100%%;
@@ -622,6 +625,14 @@ PAGE = """<!doctype html>
  main.buttons a.tile:active, main.buttons a.tile.press {
    transform: translateY(.8vmin);
    box-shadow: 0 .2vmin .6vmin rgba(0, 0, 0, .35);
+ }
+ /* The ring again, for a button. `main.buttons a.tile` above outranks the
+    ring's own rule, so a chosen button kept its drop shadow INSTEAD of the
+    ring and was marked only by a thin border -- which on a light panel is
+    what "on ne voit pas ce que je selectionne" looked like. The ring and
+    the shadow together, so it is still a button. */
+ main.buttons a.tile:focus-visible, main.buttons a.tile.chosen {
+   box-shadow: 0 0 0 .5vmin var(--ring), 0 .8vmin 1.6vmin rgba(0, 0, 0, .35);
  }
  .empty { color: var(--faint); font-size: clamp(14px, 2.4vw, 20px); }
  /* The clock, the date and the weather, on one line above the links.
@@ -1118,7 +1129,24 @@ def _one_colour(rule, want):
     return [f" {rule} {{ color: {tint}; }}"] if tint else []
 
 
-def _bar(clock_size, clock_color, date_size, date_color, weather_size, align):
+def _one_focus(want):
+    """The ring that says which tile a remote is on, or nothing for the theme's.
+
+    Asked for from a light panel: "sur un fond clair ont ne voit pas ce que je
+    selectionne". The ring is the accent, and the accent is a middle shade
+    chosen to sit on the card rather than to stand out from it -- on a light
+    theme or a pale wallpaper it nearly vanishes, and on a panel driven by a
+    remote it is the ONLY thing that says where the next OK will land. A name
+    from the same list as the clock's colour, so a household picks black or
+    yellow in a dropdown rather than learning what a stylesheet is. It sets
+    --ring, which both shapes' rings are drawn from.
+    """
+    tint = PALETTES.get(str(want or "").lower())
+    return [f" :root {{ --ring: {tint}; }}"] if tint else []
+
+
+def _bar(clock_size, clock_color, date_size, date_color, weather_size, align,
+         focus_color=FOLLOW_THEME):
     """The rules the named settings come to, or nothing when all are default.
 
     Every one of them is a list in the add-on's form, so what arrives here is
@@ -1134,6 +1162,7 @@ def _bar(clock_size, clock_color, date_size, date_color, weather_size, align):
     # rule as well as set a colour -- both live on .date, so the later one in
     # the sheet wins and this is it.
     out += _one_colour(".date", date_color)
+    out += _one_focus(focus_color)
     where = str(align or "left").lower()
     if where in ("center", "centre", "right"):
         # The weather is pushed right by a margin, which would fight any
@@ -1151,7 +1180,7 @@ def render(links, title="", subtitle="", theme="dark",
            date_size=DEFAULT_SIZE, date_color=FOLLOW_THEME,
            weather_size=DEFAULT_SIZE, align="left",
            motion=False, slideshow=False, every=30, fade=1, rescan=60,
-           urls=(), mirrored=False, shape="cards"):
+           urls=(), mirrored=False, shape="cards", focus_color=FOLLOW_THEME):
     """The page, as one string.
 
     Every value is escaped. These come from a configuration file a person
@@ -1296,7 +1325,7 @@ def render(links, title="", subtitle="", theme="dark",
     # size of each widget on a fixed scale and has no CSS field at all, which
     # is the shape this follows now.
     sheet = _bar(clock_size, clock_color, date_size, date_color,
-                 weather_size, align)
+                 weather_size, align, focus_color)
 
     try:
         every, fade, rescan = float(every), float(fade), float(rescan)
@@ -1378,7 +1407,7 @@ def start(links, title="", subtitle="", theme="dark",
           date_size=DEFAULT_SIZE, date_color=FOLLOW_THEME,
           weather_size=DEFAULT_SIZE, align="left",
           motion=False, slideshow=False, every=30, fade=1, rescan=60,
-          urls=(), port=PORT, tiles="cards"):
+          urls=(), port=PORT, tiles="cards", focus_color=FOLLOW_THEME):
     """Serve the page for as long as the add-on runs. Returns its address.
 
     One call is one launcher: its links, its look, its weather, its
@@ -1449,7 +1478,7 @@ def start(links, title="", subtitle="", theme="dark",
                 # Already sifted just above, so the page does not repeat
                 # the complaint about an address that is not one.
                 motion, slideshow, every, fade, rescan, addresses,
-                mirrored, shape=tiles).encode()
+                mirrored, shape=tiles, focus_color=focus_color).encode()
             held = cache["page"] = (key, body)
         return held[1]
 

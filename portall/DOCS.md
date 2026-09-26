@@ -259,6 +259,7 @@ launcher:
   columns: 0                  # 0 lets the panel decide
   align: left                 # left, center, right
   tiles: cards                # cards, or buttons (icon on top, name below)
+  focus_color: theme          # the frame around the link a remote is on
   clock:
     show: true                # the time and the date above the links
     size: medium              # small, medium, large, huge
@@ -307,6 +308,12 @@ name underneath, a light gradient, and a press that pushes the button down.
 A button is always the same size (about 150x100 on a 1024x600 screen) and
 does not show the description; `columns:` says how many sit on a row
 without stretching them. Each panel's own launcher can choose its own.
+
+**The link a remote or a gamepad is on, `focus_color:`.** A frame is drawn
+around the chosen link, in the theme's own colour by default. On a light
+theme or a pale wallpaper that colour barely stands out, so pick one that
+does from the same list as the clock's colour -- `black` or `yellow` for
+example. Each panel's own launcher can choose its own.
 
 ### Each panel its own launcher
 
@@ -366,7 +373,7 @@ launcher's:
 
 | in an entry | the house's setting it replaces |
 |---|---|
-| `theme`, `columns`, `align`, `tiles` | `launcher: theme`, `columns`, `align`, `tiles` |
+| `theme`, `columns`, `align`, `tiles`, `focus_color` | `launcher: theme`, `columns`, `align`, `tiles`, `focus_color` |
 | `clock`, `clock_size`, `clock_color` | `launcher: clock: show`, `size`, `color` |
 | `date_size`, `date_color` | `launcher: date: size`, `color` |
 | `weather`, `weather_size` | `launcher: weather: entity`, `size` |
