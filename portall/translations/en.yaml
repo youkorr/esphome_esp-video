@@ -347,7 +347,8 @@ configuration:
       max_rate:
         name: 📶 Maximum rate (KiB/s)
         description: What a screen's Wi-Fi takes without stalling. A busy video is sent a little softer
-          to stay under it. 2400 suits the ESP32-C6; 0 = no limit.
+          to stay under it. 3000 by default; lower it towards 2400 if a video freezes now and then. 0
+          = no limit.
       keyboard:
         name: ⌨️ On-screen keyboard
       keep_profile:

@@ -354,7 +354,8 @@ configuration:
       max_rate:
         name: 📶 Débit maximum (Ko/s)
         description: Ce que le Wi-Fi d'un écran reçoit sans décrocher. Une vidéo chargée est envoyée un
-          peu moins nette pour rester dessous. 2400 convient à l'ESP32-C6 ; 0 = sans limite.
+          peu moins nette pour rester dessous. 3000 par défaut ; baissez vers 2400 si une vidéo se fige
+          par moments. 0 = sans limite.
       keyboard:
         name: ⌨️ Clavier à l'écran
       keep_profile:

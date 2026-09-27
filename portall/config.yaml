@@ -1,5 +1,5 @@
 name: Portall
-version: "4.30.1"
+version: "4.30.2"
 # Home Assistant identifies an add-on by its slug, so this one moving from
 # usb_display_panel to portall makes the Supervisor see a NEW add-on: options
 # are not carried over and /data starts empty, which means the browser
@@ -267,9 +267,11 @@ options:
     #
     # Measured on a panel watching YouTube: up to about 2.7 MB/s the picture
     # was perfect, and past 2.9 the ESP32-C6's link threw data away and froze
-    # for a third of a second at a time. 2400 stays under that with room.
-    # 0 turns it off.
-    max_rate: 2400
+    # for a third of a second at a time. That was with the wake word
+    # running on the panel, which shares a core with the picture's decoder;
+    # with it stopped a household asked for 3000, which is the default now.
+    # Lower it towards 2400 if a video freezes for a moment. 0 turns it off.
+    max_rate: 3000
     # The on-screen keyboard, drawn by the browser whenever a text field takes
     # focus -- the dashboard's search, Assist, the search box of an ordinary
     # site. A panel has no keys, so without it those are dead ends. It takes no
