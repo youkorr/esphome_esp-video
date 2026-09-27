@@ -35,6 +35,19 @@ portall a des potentiels"* -- what matters is the project's potential. That is
 the yardstick for any idea below: does it widen what a panel can do without
 putting LVGL-sized complexity back into the YAML.
 
+The rest of his post, and two claims in it are data rather than praise:
+*"Because the displayed content is provided by HA the possibilities are
+endless. It is not just limited to a dashboard, This can also display the full
+HA ui. Voice assistant works perfectly from the device and is included in the
+firmware resource figures shown above."* So on a **Tab5**, a voice assistant
+running on the board beside the picture is reported as working perfectly --
+against the Guition, where the microphones sit behind the display and stopping
+`micro_wake_word` made a video smoother. Different boards, different audio
+chains; the one does not settle the other. His "resource figures" were NOT
+seen here: they are the first thing to ask for if the CPU-sharing question
+under **Ideas kept for later** is ever picked up, and whether he watched a
+video with the wake word running is the second.
+
 ## The three pieces
 
 ```
