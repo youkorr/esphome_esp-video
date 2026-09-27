@@ -60,6 +60,7 @@ import io
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import threading
@@ -265,6 +266,26 @@ BROWSER_ARGS = [
     # was still full there -- would have turned the cache off for exactly the
     # page this is for. The first fixture's scripts were too small to see it.
     "--disk-cache-size=157286400",
+    # Keep a SESSION cookie -- one with no expiry date -- across a restart.
+    #
+    # Reported from a panel: Unraid and Reolink asked for the password again
+    # although "stay signed in" was ticked. Measured on this browser with a
+    # kept profile, signed in and then restarted:
+    #
+    #                            session cookie   expiring   localStorage
+    #   as it was                     lost          kept         kept
+    #   with this flag                kept          kept         kept
+    #
+    # Unraid's login IS a session cookie: PHP's session_start() with the
+    # default lifetime of 0. A desktop Chrome keeps one only when it is set to
+    # continue where it left off, which is what this says. And the browser is
+    # restarted far more often than it looks: every add-on update, every Home
+    # Assistant restart, every sender that crashed and came back.
+    #
+    # It brings the last session's tabs back too, which here is harmful --
+    # forget_tabs() removes them before each start, and that is what makes
+    # this flag safe to have on.
+    "--restore-last-session",
     # ONE --disable-features, deliberately: everything Chromium is to be told
     # not to do has to be in a single flag, because a second one is at best
     # redundant and at worst replaces the first. Whether a repeat merges was
@@ -625,6 +646,33 @@ MEDIA_PROBE_JS = """() => {
     eme: !!navigator.requestMediaKeySystemAccess,
   };
 }"""
+
+
+def forget_tabs(profile):
+    """Throw away the tabs the last run left, and nothing else of it.
+
+    --restore-last-session (see BROWSER_ARGS) is what keeps a session cookie
+    -- Unraid's login -- across a restart, and it cannot be had without its
+    other half: the last session's TABS come back as well. Here those are
+    pages nobody can see. A restored YouTube goes on playing into the panel's
+    sound, a restored dashboard costs a renderer for ever, and the sender
+    takes the FIRST tab as its own -- which, measured, is sometimes a pop-up a
+    site once opened rather than the tab the panel was showing. Three restarts
+    with the flag alone opened three tabs; with this, one.
+
+    The cookies are not in these files, so this costs the login nothing.
+    What it does cost is sessionStorage, which belongs to a tab and was lost
+    on every restart before this anyway.
+    """
+    default = os.path.join(profile, "Default")
+    # Chromium since about 100 keeps them in a folder; older ones beside it.
+    shutil.rmtree(os.path.join(default, "Sessions"), ignore_errors=True)
+    for name in ("Current Session", "Current Tabs",
+                 "Last Session", "Last Tabs"):
+        try:
+            os.remove(os.path.join(default, name))
+        except OSError:
+            pass
 
 
 def _launch(playwright, executable, profile, view, browser_args,
@@ -4932,6 +4980,7 @@ def main():
             # profile, and a second browser pointed at the same one refuses to
             # start.
             print(f"Browser: keeping its profile in {args.profile}")
+            forget_tabs(args.profile)
             context = _launch(
                 playwright, executable, args.profile, view, browser_args,
                 ignore, launch_env, args.locale, not args.no_touch,

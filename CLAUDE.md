@@ -1779,7 +1779,7 @@ the dashboard, where it is invisible while the keys go on working.
 ahead of the `pip install` as well as the `ADD`s, so a bump refetches
 everything — at the cost of the browser download on each update.
 `present_browser()` prints the Chromium version at startup and warns below 114,
-so this is never diagnosed by guesswork again. Currently **4.29.0**.
+so this is never diagnosed by guesswork again. Currently **4.29.2**.
 
 **The image carried two Playwright browsers and needed one.** `playwright
 install chromium` fetches the full Chromium **and** the headless shell -- 597
@@ -9367,6 +9367,45 @@ Snapped rather than eased like a blink, so it costs what the bars cost.
 geometry or extras read off the DOM, the voice states, taps counted with a
 controlled clock, a slow and a fast drag, hot and cold, night, the greeting
 and the idle cost. **Not seen on a panel.**
+
+## A session cookie died with every restart of the browser -- 4.29.2
+
+**Reported as *"quelque link qui ne conserve pas le login et mot de pass
+exemple sur Unraid et reolink le rester connecter au site est bien cocher"*.**
+`keep_profile` is on by default and the profile is on disk, so an expiring
+cookie and localStorage came back after a restart -- measured. What did not
+was a **session cookie**, one with no expiry date: Chromium keeps those only
+while it runs, unless it is told to carry on the last session. Unraid's login
+is exactly that, read in `unraid/webgui` rather than assumed:
+`.login.php` calls `session_start()` with PHP's default lifetime of 0, and
+there is no remember-me in it at all. And the browser restarts far more often
+than it looks -- every add-on update, every Home Assistant restart, every
+sender that crashed.
+
+Measured on the shipped browser with a kept profile, signed in and killed:
+
+| | session cookie | expiring | localStorage | sessionStorage |
+|---|---|---|---|---|
+| as it was | lost | kept | kept | lost |
+| `--restore-last-session` | kept | kept | kept | kept, but see below |
+
+**The flag has a second half, and it is harmful here: the last session's TABS
+come back.** Three unclean restarts with the flag alone opened 3 and then 4
+tabs, including a site's old pop-up -- and the sender takes `pages[0]`, which
+was that pop-up. A restored YouTube would go on playing into the panel's sink
+where nobody can see it. `forget_tabs()` removes `Default/Sessions` (and the
+older `Current/Last Session/Tabs` files) before each start: the cookies are
+not in those files, so the login survives and one tab opens. That also costs
+the tab's sessionStorage, which was lost on every restart before this anyway.
+Writing `session.restore_on_startup: 1` into `Preferences` behaves the same
+and needs a file Chromium owns edited under it, so the switch is the one used.
+
+`tools/checksession.py` runs the shipped `BROWSER_ARGS`, `_launch()` and
+`forget_tabs()` in a child that is SIGKILLed after the cookie store's 30 s
+commit, three runs. `--without` reproduces the report (session cookie lost at
+both restarts), `--keep-tabs` reproduces the tab pile-up. **Reolink is not
+verified** -- no route to one from here -- and if its web client keeps its
+token in sessionStorage it is still lost at a restart; the next report says.
 
 ## Repository conventions
 
