@@ -2131,6 +2131,11 @@ Two things had to be decided rather than copied:
   recognisable shape in the wrong colour beats a correct colour nobody can see.
 - **Prime Video is not in the collection**, so it is a name in the emoji list
   and gets a television. Saying so is better than an empty square.
+- **Google, Brave and Orange came later (4.29.4)**, asked for once a Google or
+  Brave search page became a link. Fetched from simple-icons' own repository
+  (raw.githubusercontent.com answers here; cdn.jsdelivr.net is refused).
+  Google is its blue alone, not its four colours, and Orange's square falls to
+  the ink on a light theme at 2.63:1 -- both the rules above, not exceptions.
 
 `tools/checkaddon.py` now follows imports **transitively** -- run.py imports
 the launcher, the launcher imports the logos -- and it caught the missing

@@ -1,5 +1,14 @@
 # Changelog
 
+## 4.29.4
+
+- **Google, Brave and Orange have their logos.** Put `google`, `brave` or
+  `orange` (also `orange-tv`, `livebox`) in a link's icon field. Google's is
+  one colour, its blue, rather than its four -- the logo collection the
+  add-on carries has one colour per mark. On a light theme Orange's square
+  is drawn in the text colour: that orange is too pale against white to be
+  made out.
+
 ## 4.29.3
 
 - **Unraid stays signed in when you press its tile.** Its login cookie is
