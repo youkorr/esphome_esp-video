@@ -292,6 +292,198 @@ def character(browser):
     page.close()
 
 
+def pixel(browser):
+    """The face on a screen: its expressions, and what sets each one off."""
+    print("Pixel:")
+    links = [{"name": "Rouge", "url": "http://127.0.0.1:9/a/", "icon": "tv"}]
+    address = launcher.start(links, avatar=True, avatar_shape="pixel",
+                             port=launcher.ANY_PORT)
+    page = browser.new_page(viewport={"width": 1280, "height": 800},
+                            locale="fr-FR")
+    page.clock.install(time=datetime.datetime(2026, 9, 27, 12, 0))
+    page.goto(address)
+    page.wait_for_selector("#av")
+
+    def px():
+        return page.evaluate("document.getElementById('av').dataset.px")
+
+    def shown(selector):
+        return page.evaluate(f"""() => {{
+            const e = document.querySelector('#av {selector}');
+            return !!e && getComputedStyle(e).display !== 'none'; }}""")
+
+    def eye(side):
+        return page.evaluate(f"""() => {{
+            const g = document.querySelector('#av .pe.{side}');
+            const e = g.querySelector('.pr').getBBox();
+            const t = g.querySelector('.ptop'), b = g.querySelector('.pbot');
+            return {{w: e.width, h: e.height, x: e.x, y: e.y,
+                     top: getComputedStyle(t).display !== 'none',
+                     tilt: getComputedStyle(t).transform,
+                     bot: getComputedStyle(b).display !== 'none'}}; }}""")
+
+    def mood(m, voice="neutral"):
+        page.evaluate(f"""() => {{ const b = document.getElementById('av');
+            b.dataset.voice = '{voice}'; b.dataset.mood = '{m}'; }}""")
+        page.clock.fast_forward(200)
+        page.wait_for_timeout(50)
+
+    check("its own face, not the others' eyes",
+          page.evaluate("!!document.querySelector('#av .pe') && "
+                        "!document.querySelector('#av .eye')"))
+    rest = eye("l")
+    check("at rest: two rounded rectangles, no lids", px() == "neutral"
+          and not rest["top"] and not rest["bot"], str(rest))
+    mood("happy")
+    check("content: the bottom lids push up into a smile",
+          px() == "happy" and eye("l")["bot"] and eye("r")["bot"])
+    mood("surprised")
+    check("surprised: bigger eyes", eye("l")["h"] > rest["h"] + 4)
+    mood("angry")
+    left, right = eye("l"), eye("r")
+    check("cross: both lids down and tilted the opposite way",
+          left["top"] and right["top"] and left["tilt"] != right["tilt"],
+          f"{left['tilt']} / {right['tilt']}")
+    for name, extra in (("laugh", ".px-laugh"), ("love", ".px-love"),
+                        ("dizzy", ".px-dizzy")):
+        mood(name)
+        check(f"{name}: drawn instead of its eyes",
+              px() == name and shown(extra) and not shown(".pe.l"))
+    mood("wink")
+    check("wink: one eye open, the other a line",
+          shown(".pe.l") and not shown(".pe.r") and shown(".px-wink"))
+    mood("sad")
+    check("sad: a tear", shown(".px-tear") and eye("l")["top"])
+    mood("neutral")
+
+    # The voice assistant, through the attribute the page already follows.
+    page.evaluate("window.portallAvatar.stand('surprised')")
+    page.wait_for_timeout(50)
+    check("the voice assistant listens: bars under its eyes",
+          px() == "listen" and shown(".px-bars") and not shown(".acc.waves"))
+    page.evaluate("window.portallAvatar.stand('thinking')")
+    page.wait_for_timeout(50)
+    check("it thinks: eyes up and to the side, and dots",
+          px() == "think" and shown(".acc.dots") and not shown(".acc.bubble"))
+    page.evaluate("window.portallAvatar.stand('happy')")
+    page.wait_for_timeout(50)
+    heights = lambda: page.evaluate(  # noqa: E731
+        "[...document.querySelectorAll('#av .pbar')].map(b => b.getAttribute('height')).join()")
+    first = heights()
+    page.clock.fast_forward(260)
+    page.wait_for_timeout(50)
+    check("it answers: the bars move while it speaks",
+          px() == "speak" and heights() != first)
+    page.evaluate("window.portallAvatar.stand('neutral')")
+    page.wait_for_timeout(50)
+    still = heights()
+    page.clock.fast_forward(600)
+    page.wait_for_timeout(50)
+    check("and stop when it has finished", heights() == still
+          and px() == "neutral")
+    page.evaluate("window.portallAvatar.stand('surprised')")
+    page.evaluate("window.portallAvatar.stand('neutral')")
+    page.wait_for_timeout(50)
+    check("listened and heard nothing it could use: suspicious",
+          px() == "suspicious")
+    page.clock.fast_forward(2100)
+    page.wait_for_timeout(50)
+    check("for two seconds", px() == "neutral")
+
+    # A finger on it.
+    r = page.evaluate("""() => { const r = document.querySelector('#av .pe.l')
+        .getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2]; }""")
+    seen = set()
+    for _ in range(12):
+        page.mouse.click(*r)
+        seen.add(page.evaluate("document.getElementById('av').dataset.mood"))
+        page.clock.fast_forward(3100)
+    check("one tap at a time: a smile, a wink or a heart, and not always the same",
+          seen <= {"happy", "wink", "love"} and len(seen) >= 2, str(seen))
+    for _ in range(3):
+        page.mouse.click(*r)
+    check("three taps in a row: it laughs",
+          page.evaluate("document.getElementById('av').dataset.mood") == "laugh")
+    page.clock.fast_forward(3100)
+    for _ in range(5):
+        page.mouse.click(*r)
+    check("five: it gets cross",
+          page.evaluate("document.getElementById('av').dataset.mood") == "angry")
+    page.clock.fast_forward(3100)
+
+    # Dragged: slowly it is only moved, fast it ends up dizzy.
+    page.mouse.move(*r)
+    for _ in range(4):
+        page.mouse.wheel(10, 0)
+        page.clock.fast_forward(300)
+    page.clock.fast_forward(800)
+    page.wait_for_timeout(50)
+    check("dragged slowly it is not dizzy",
+          page.evaluate("document.getElementById('av').dataset.mood") != "dizzy")
+    page.clock.fast_forward(3000)
+    r = page.evaluate("""() => { const r = document.querySelector('#av .pe.l')
+        .getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2]; }""")
+    page.mouse.move(*r)
+    for _ in range(6):
+        page.mouse.wheel(120, 60)
+    page.clock.fast_forward(800)
+    page.wait_for_timeout(50)
+    check("dragged fast it is dizzy", px() == "dizzy")
+    page.clock.fast_forward(2500)
+
+    # Weather, night, and the greeting.
+    page.evaluate("window.portallAvatar.weather('hot')")
+    page.wait_for_timeout(50)
+    check("hot: a drop of sweat and heavy lids, not sunglasses",
+          shown(".acc.sweat") and not shown(".acc.hot") and px() == "hot")
+    page.evaluate("window.portallAvatar.weather('cold')")
+    page.wait_for_timeout(50)
+    fill = page.evaluate("getComputedStyle(document.querySelector('#av .pr')).fill")
+    check("cold: its eyes turn pale blue", fill == "rgb(169, 220, 255)", fill)
+    page.evaluate("window.portallAvatar.weather('')")
+    check("woken, it says Bonjour", __import__("ha_send").greet_avatar(page)
+          and shown(".acc.hello") and page.evaluate(
+              "document.querySelector('#av .acc.hello text').textContent")
+          == "Bonjour")
+    page.close()
+
+    page = browser.new_page(viewport={"width": 1280, "height": 800})
+    page.clock.install(time=datetime.datetime(2026, 9, 27, 23, 0))
+    page.goto(address)
+    page.wait_for_selector("#av")
+    check("at night: tired eyes and its z's",
+          page.evaluate("document.getElementById('av').dataset.px") == "tired"
+          and page.evaluate("getComputedStyle(document.querySelector('#av .acc.zzz')).display")
+          != "none")
+    page.close()
+
+    # What it costs a launcher nobody touches, at noon.
+    page = browser.new_page(viewport={"width": 1280, "height": 800})
+    page.clock.install(time=datetime.datetime(2026, 9, 27, 12, 0))
+    page.goto(address)
+    page.wait_for_selector("#av")
+    page.wait_for_timeout(1000)
+    cdp = page.context.new_cdp_session(page)
+    frames = []
+
+    def got(event):
+        frames.append(event["data"])
+        cdp.send("Page.screencastFrameAck", {"sessionId": event["sessionId"]})
+    cdp.on("Page.screencastFrame", got)
+    cdp.send("Page.startScreencast", {"format": "jpeg", "quality": 80})
+    page.wait_for_timeout(15000)
+    cdp.send("Page.stopScreencast")
+    changed, before = 0, None
+    for data in frames:
+        picture = Image.open(io.BytesIO(base64.b64decode(data))).convert("L")
+        if before is not None and ImageChops.difference(picture, before).getbbox():
+            changed += 1
+        before = picture
+    check("still, it costs what the other faces cost",
+          changed <= 14, f"{changed} changed pictures in 15 s")
+    page.close()
+
+
 def main():
     run.AVATAR_DIR = tempfile.mkdtemp()
     browser_path = os.environ.get("CHROMIUM") or None
@@ -403,6 +595,7 @@ def main():
         check("still, it costs a few pictures of its eyes, not a stream",
               changed <= 14, f"{changed} changed pictures in 15 s")
         character(browser)
+        pixel(browser)
         browser.close()
 
     if faults:
