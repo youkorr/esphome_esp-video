@@ -1033,6 +1033,37 @@ PRESS_JS = """<script>
 })();
 </script>"""
 
+# A tile is opened BY THE SENDER, not by the page, when a sender is there.
+#
+# Reported as Unraid asking for its password every time its tile was
+# pressed, with "stay signed in" ticked and nothing restarted. Unraid's login
+# cookie is SameSite=Strict (session_set_cookie_params and
+# session.cookie_samesite in its local_prepend.php, read rather than
+# assumed), and a browser does not send a Strict cookie on a navigation that
+# starts on ANOTHER site -- which a tile on this page, served from
+# 127.0.0.1, always is. Measured on the shipped browser against a site on a
+# different host: a click on the tile and a `location.href` both arrive
+# WITHOUT the cookie; the same address opened by the sender with page.goto,
+# which the browser treats like an address typed into the bar, arrives WITH
+# it. So a tile is the one place on a panel where a login that works
+# everywhere else looked forgotten.
+#
+# The sender puts `__udispFollow` on the page; a tap or OK on a tile hands
+# it the address and the sender navigates. With no sender -- this page open
+# in an ordinary browser -- the link is an ordinary link and nothing changes.
+# The press look is untouched: PRESS_JS runs on pointerdown, before this.
+FOLLOW_JS = """<script>
+(function () {
+  document.addEventListener('click', function (e) {
+    if (e.defaultPrevented || !window.__udispFollow) return;
+    var tile = e.target.closest && e.target.closest('a.tile');
+    if (!tile || !/^https?:/.test(tile.href)) return;
+    e.preventDefault();
+    window.__udispFollow(tile.href);
+  });
+})();
+</script>"""
+
 # The avatar: a small face that lives on the launcher, the size of one of its
 # buttons, in the bottom right corner until somebody moves it.
 #
@@ -1716,7 +1747,12 @@ AVATAR_JS = """<script>
       lookAtTile(tile);
       set('happy');
       setTimeout(function () { tile.classList.add('press'); }, 250);
-      setTimeout(function () { location.href = tile.href; }, 750);
+      /* Through the sender when there is one, for the reason FOLLOW_JS
+         gives: a site's Strict login is sent only then. */
+      setTimeout(function () {
+        if (window.__udispFollow) window.__udispFollow(tile.href);
+        else location.href = tile.href;
+      }, 750);
       return true;
     }
     return false;
@@ -2172,7 +2208,7 @@ def render(links, title="", subtitle="", theme="dark",
     # key nobody presses unless there is a remote, and an option for it would
     # be one more thing to read past -- which this add-on has already had to
     # take five settings off the form for.
-    scripts = KEYS_JS + PRESS_JS + (CLOCK_JS if clock else "") + (
+    scripts = KEYS_JS + PRESS_JS + FOLLOW_JS + (CLOCK_JS if clock else "") + (
         WEATHER_JS % {"path": WEATHER_PATH} if weather is not None else "")
 
     # The bar's own rules, after the sheet above and before nothing: there is

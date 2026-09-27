@@ -1540,6 +1540,14 @@ Assistant. It now carries on its last session the way a desktop Chrome set to
 "continue where you left off" does, so that cookie survives. You will have to
 sign in to such a site once more after updating; after that it stays.
 
+**And a tile no longer loses a site's login on the way in** (since 4.29.3).
+Unraid's login cookie is also *SameSite=Strict*: a browser sends it only
+when you arrive from Unraid itself or type the address, never when you
+follow a link from another site -- and the launcher is another site. So
+pressing the Unraid tile showed the login page every time, even with the
+cookie there. The add-on now opens a tile's address itself, the way a typed
+address is opened, and the login goes with it.
+
 What still cannot survive a restart is a site that keeps its login only for
 the lifetime of the tab (`sessionStorage`), or one whose server forgets the
 session -- Unraid's own server forgets every login when *it* reboots.

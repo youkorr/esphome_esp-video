@@ -1433,6 +1433,66 @@ def greet_avatar(page):
         return False
 
 
+def go_to(page, url):
+    """Navigate the panel's page to an address, as a typed address would.
+
+    The half of open_link that does not involve the face, and the whole of
+    what a tile tapped on the launcher now does: page.goto is a navigation
+    the browser treats like the address bar, so a site's SameSite=Strict
+    login cookie goes with it -- where a link followed from the launcher, a
+    different site, leaves it behind (see FOLLOW_JS in the add-on's
+    launcher.py, and the measurement there).
+    """
+    from playwright.sync_api import TimeoutError as PageTimeout
+
+    try:
+        page.goto(url, wait_until="domcontentloaded",
+                  timeout=LOAD_TIMEOUT_S * 1000)
+    except PageTimeout:
+        print(f"Warning: {url} had not finished loading after "
+              f"{LOAD_TIMEOUT_S}s -- showing it as it comes")
+    except Exception as err:  # noqa: BLE001 - the page stays where it was
+        explain_unreachable(url, err)
+        return False
+    return True
+
+
+class Follow:
+    """Tiles tapped on the launcher, waiting for the loop to open them.
+
+    The page calls `__udispFollow(address)`; this only queues it, because it
+    runs inside Playwright's own dispatch and navigating from here would ask
+    the browser to do something while it is in the middle of answering. Only
+    the panel's HOME origin is listened to: a binding on the context is in
+    every page the panel ever shows, and letting any site ask for a navigation
+    the browser treats as typed would hand it the very Strict cookies that
+    setting exists to withhold from it.
+    """
+
+    def __init__(self, home):
+        self._origin = _origin_of(home)
+        self._queue = collections.deque(maxlen=4)
+
+    def __call__(self, source, url):
+        frame = source.get("frame") if isinstance(source, dict) else None
+        if frame is None or frame.parent_frame is not None:
+            return
+        if _origin_of(frame.url) != self._origin:
+            return
+        if isinstance(url, str) and re.match(r"https?://", url):
+            self._queue.append(("follow", url))
+
+    def drain(self):
+        taken = list(self._queue)
+        self._queue.clear()
+        return taken
+
+
+def _origin_of(url):
+    match = re.match(r"(https?://[^/?#]+)", url or "")
+    return match.group(1).lower() if match else None
+
+
 def open_link(page, url):
     """Open one of the launcher's links, the way a tap on its tile would.
 
@@ -1444,8 +1504,6 @@ def open_link(page, url):
     written for Home Assistant's first picture is not worth a stopped panel
     here. A page that is slow is still shown as it comes.
     """
-    from playwright.sync_api import TimeoutError as PageTimeout
-
     # On a launcher with a face, the face opens it: it looks at the tile, the
     # tile goes down, and the page follows the link itself -- the path a
     # finger on that tile already takes. False (no face, no such tile, or not
@@ -1457,16 +1515,7 @@ def open_link(page, url):
             return True
     except Exception:  # noqa: BLE001 - the ordinary way is still there
         pass
-    try:
-        page.goto(url, wait_until="domcontentloaded",
-                  timeout=LOAD_TIMEOUT_S * 1000)
-    except PageTimeout:
-        print(f"Warning: {url} had not finished loading after "
-              f"{LOAD_TIMEOUT_S}s -- showing it as it comes")
-    except Exception as err:  # noqa: BLE001 - the page stays where it was
-        explain_unreachable(url, err)
-        return False
-    return True
+    return go_to(page, url)
 
 
 # None until the first page has been looked at: unknown, not "no".
@@ -5004,6 +5053,10 @@ def main():
         # One arrow, one move, on a page that navigates nothing by itself --
         # and a line saying what became of the arrows on each site.
         context.expose_function("__udispNavNote", NavNotes())
+        # A tile on the launcher is opened here rather than by the page, so a
+        # site's Strict login goes with it. See Follow.
+        follow = Follow(args.url)
+        context.expose_binding("__udispFollow", follow)
         context.add_init_script(SPATNAV_JS)
         # Which requests the page could not make. Silent on a page that works.
         watch_failed_requests(context)
@@ -5188,6 +5241,10 @@ def main():
         asked_home = False
         # A link to open, asked for by voice through the add-on.
         asked_open = None
+        # Whether asked_open came from a tile tapped on the launcher rather
+        # than from a voice: a tap opens it straight away (go_to), a voice
+        # goes through the face first (open_link).
+        tapped = False
         capture = Screencast(page, page_w, page_h, args.capture_quality)
         if args.freeze_animations:
             capture.freeze_animations()
@@ -5526,6 +5583,7 @@ def main():
                     said = endpoint.read_messages()
                     if control is not None:
                         said = said + control.drain()
+                    said = said + follow.drain()
                     for kind, body in said:
                         if kind == "touch":
                             reports.append(body)
@@ -5566,6 +5624,10 @@ def main():
                             continue
                         if kind == "open":
                             asked_open = body
+                            continue
+                        if kind == "follow":
+                            asked_open = body
+                            tapped = True
                             continue
                         # The panel went dark or came back. Rendering for a
                         # screen nobody can see costs the server, the network
@@ -5749,13 +5811,17 @@ def main():
                                 else None)
                         asked_home = False
                         asked_open = None
+                        was_tapped, tapped = tapped, False
                         home_at = time.monotonic()
                         if link is not None:
-                            if not open_link(page, link):
+                            done = (go_to(page, link) if was_tapped
+                                    else open_link(page, link))
+                            if not done:
                                 print(f"Warning: {link} would not open")
                             opened = time.monotonic()
                             home_pending = opened
-                            print(f"Voice: opened {link} in "
+                            print(f"{'Tile' if was_tapped else 'Voice'}: "
+                                  f"opened {link} in "
                                   f"{opened - home_at:.1f}s")
                             # Like a press: a new page is on its way, so
                             # the higher frame limit is worth having for it.
