@@ -1775,11 +1775,32 @@ however many times the add-on was updated. First that shipped stale sender
 code. Then it turned out to be shipping a stale *browser* too, which is worse:
 the keyboard's top layer needs Chromium 114, and an older one draws it under
 the dashboard, where it is invisible while the keys go on working.
-`ARG BUNDLE` + the `RUN` that writes it therefore sit **first in the file**,
-ahead of the `pip install` as well as the `ADD`s, so a bump refetches
+`ARG BUNDLE` + the `RUN` that writes it therefore sat **first in the file**,
+ahead of the `pip install` as well as the `ADD`s, so a bump refetched
 everything — at the cost of the browser download on each update.
 `present_browser()` prints the Chromium version at startup and warns below 114,
-so this is never diagnosed by guesswork again. Currently **4.29.3**.
+so this is never diagnosed by guesswork again. Currently **4.29.5**.
+
+**CORRECTED in 4.29.5: the cost was every update, and a pin removes it.**
+Asked as *"verifie addon ... si il ya pas des elements qui freine la
+compilation et installation"*. With BUNDLE first, every update -- this
+project ships several a week -- re-ran all of it: pip, Playwright's Chromium
+and its `--with-deps` apt libraries, Chrome or Debian's Chromium, PulseAudio.
+Hundreds of megabytes and minutes of unpacking on a Pi for a changed line of
+Python. The staleness it guarded against came from `pip install playwright`
+being UNPINNED, so its command string never moved. `playwright==1.62.0` is
+now literal in the command, and Playwright ships one Chromium per release, so
+the pin IS the browser version: bump it and every layer below refetches,
+leave it and an update reuses them. The heavy layers sit above `ARG BUNDLE`;
+BUNDLE stays above the ADDs of the two senders, which must be fresh. Read in
+the Supervisor's own `apps/build.py`: it builds with `docker buildx build
+--pull` on the host's daemon, so the cache survives between builds, and
+`--pull` means a newer `python:3.12-slim` still invalidates everything --
+that part is the base image's security updates arriving and is right.
+The price, said plainly: Chrome and Chromium now age until somebody moves the
+pin. HAP-python is pinned to 5.0.0 for the same reason. **Not built here** --
+no Docker daemon; both pins were checked to exist as wheels for amd64 and
+aarch64 on Python 3.12.
 
 **The image carried two Playwright browsers and needed one.** `playwright
 install chromium` fetches the full Chromium **and** the headless shell -- 597

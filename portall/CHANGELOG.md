@@ -1,5 +1,14 @@
 # Changelog
 
+## 4.29.5
+
+- **Updates install much faster.** Until now every update of the add-on
+  downloaded its browsers again -- several hundred megabytes, and minutes of
+  unpacking on a Raspberry Pi -- even when only a few lines had changed. The
+  browsers are now kept between updates and only fetched again when the add-on
+  moves to a new browser version. This update itself still downloads
+  everything once.
+
 ## 4.29.4
 
 - **Google, Brave and Orange have their logos.** Put `google`, `brave` or

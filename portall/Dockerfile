@@ -6,25 +6,38 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-# Bump this with the version in config.yaml, and note where it sits: FIRST,
-# ahead of everything that downloads anything.
+# Everything heavy comes first, and is keyed on a PINNED Playwright.
 #
-# Docker caches a layer on its command string alone, and every string below is
-# fixed -- the pip install never changes, and the ADD URLs never change. So a
-# box that built this image once went on reusing all of it however many times
-# the add-on was updated: the same senders, and the same Chromium it happened
-# to download that day. That second one is not cosmetic. The on-screen keyboard
-# is drawn in the browser's top layer through the popover API, which arrived in
-# Chromium 114; on anything older it falls back to being drawn in the page,
-# where Home Assistant's own shell covers it -- invisible, while the keys go on
-# working, which is a fault that takes a long time to recognise.
+# Docker reuses a layer when its command string has not changed, and an add-on
+# update is a rebuild on the household's own box. With the version line first,
+# as it used to be, every update threw all of this away and fetched it again:
+# Playwright's Chromium, its system libraries, Chrome or the distribution's
+# Chromium, PulseAudio -- several hundred megabytes and minutes of unpacking on
+# a Raspberry Pi, for an update that had changed a few lines of Python.
 #
-# Writing the version out here invalidates every layer after it, so an add-on
-# update really does fetch a current Playwright, a current Chromium and current
-# senders. It costs the browser download on each update, which is the price of
-# not running a year-old browser without knowing it.
-ARG BUNDLE=4.29.4
-RUN echo "${BUNDLE}" > /app/BUNDLE
+# It was put first for a real reason: with an unpinned `pip install playwright`
+# the command never changed, so a box that had built the image once kept the
+# Chromium it happened to download that day for ever, and the on-screen
+# keyboard needs Chromium 114. The pin answers that instead. Playwright ships
+# ONE Chromium per release, so the version below IS the browser version: move
+# it and every layer from here down is fetched fresh, leave it and an update
+# reuses them. The second browser below rides on the same key, since a layer
+# is only reused when every layer above it was. present_browser() still prints
+# the Chromium version at startup and warns below 114.
+#
+# 1.62.0 is the version every check in tools/ ran against. HAP-python is pinned
+# to the 5.0.0 homekit.py was written and tested on, for the same reason.
+
+# HAP-python is what Home Assistant's own HomeKit bridge is built on, so
+# the accessory this serves is the same library talking to the same iPhone.
+# The [QRCode] extra is not decoration: it prints a scannable code into the
+# add-on's log, which turns pairing into pointing a camera at the screen
+# instead of typing eight digits found in a wall of text.
+#
+# Allowed to fail, like the second browser below: a panel that shows a
+# dashboard is worth more than one that can be driven from a telephone, and
+# run.py steps over a missing homekit module and says so.
+RUN pip install --no-cache-dir "HAP-python[QRCode]==5.0.0" ; true
 
 # --no-shell, and it is worth 323 MB of image.
 #
@@ -43,17 +56,7 @@ RUN echo "${BUNDLE}" > /app/BUNDLE
 #
 # Written to degrade rather than fail: an older Playwright that has never heard
 # of --no-shell installs both, exactly as before.
-# HAP-python is what Home Assistant's own HomeKit bridge is built on, so
-# the accessory this serves is the same library talking to the same iPhone.
-# The [QRCode] extra is not decoration: it prints a scannable code into the
-# add-on's log, which turns pairing into pointing a camera at the screen
-# instead of typing eight digits found in a wall of text.
-#
-# Allowed to fail, like the second browser below: a panel that shows a
-# dashboard is worth more than one that can be driven from a telephone, and
-# run.py steps over a missing homekit module and says so.
-RUN pip install --no-cache-dir "HAP-python[QRCode]" ; true
-RUN pip install --no-cache-dir --upgrade playwright pillow numpy \
+RUN pip install --no-cache-dir playwright==1.62.0 pillow numpy \
     && (playwright install --with-deps chromium --no-shell \
         || playwright install --with-deps chromium) \
     && apt-get clean \
@@ -100,6 +103,12 @@ RUN (apt-get update \
     ; apt-get clean \
     ; rm -rf /var/lib/apt/lists/* \
     ; true
+
+# Bump this with the version in config.yaml. It sits AFTER the browsers and
+# BEFORE the senders: an update refetches the two senders below and copies the
+# add-on's own files, and reuses everything above -- see the note on the pin.
+ARG BUNDLE=4.29.5
+RUN echo "${BUNDLE}" > /app/BUNDLE
 
 # Fetched rather than copied: a Home Assistant add-on builds with its own folder
 # as the context and cannot reach the components directory beside it. Rebuilding
