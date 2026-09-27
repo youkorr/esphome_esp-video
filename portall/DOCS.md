@@ -342,9 +342,9 @@ expressions, and each has a reason:
 | cross | five taps in a row |
 | dizzy | you drag it fast |
 | surprised | you start moving it |
-| bars under its eyes | the voice assistant is listening |
+| its ears light up | the voice assistant is listening |
 | looks up, with little dots | the voice assistant is thinking |
-| moving bars | the voice assistant is answering |
+| a mouth that opens and closes | the voice assistant is answering |
 | suspicious | the voice assistant listened and heard nothing it could use |
 | a drop of sweat | it is 25 °C or more and clear |
 | pale blue eyes | it is 5 °C or less |
@@ -353,7 +353,7 @@ expressions, and each has a reason:
 
 Every expression lasts two or three seconds and then goes back to what it
 was, so a launcher nobody touches costs no more than with the other faces.
-The bars that move while the voice assistant answers are the one animation
+The mouth that moves while the voice assistant answers is the one animation
 that runs by itself, and only for as long as the answer.
 
 **It lives with the house.** Nothing to set for any of this:

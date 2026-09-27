@@ -1,5 +1,12 @@
 # Changelog
 
+## 4.29.1
+
+- **Pixel talks with a mouth, and listens with its ears.** The bars that
+  stood under its eyes looked like a VU meter. While the voice assistant
+  answers, a small mouth now opens and closes; while it listens, its ears
+  light up in the colour of its eyes.
+
 ## 4.29.0
 
 - **A sixth avatar, `pixel`**: a little white robot whose face is a screen,

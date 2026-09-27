@@ -9332,7 +9332,7 @@ before it are byte for byte what they were. Each eye is a rounded rectangle
 with a height, width, roundness and position, a top lid that lowers and
 tilts, and a bottom lid that pushes up into a smile; `EXPR` in `PIXEL_JS` is
 one line of numbers per expression, and PIXEL_CSS draws the extras (hearts,
-spirals, a tear, bars, dots, a drop) from `data-px`.
+spirals, a tear, a mouth, dots, a drop) from `data-px`.
 
 **It is driven by the attributes every face already follows** --
 `data-mood`, `data-voice`, `data-wx` -- through a MutationObserver, so the
@@ -9350,11 +9350,18 @@ in 120 ms like the other faces' mood changes. A blink and curiosity are
 transforms on `.pb`, the group round each eye alone -- on the pair, a scale
 about the union's centre would carry the lids with it.
 
-**The one animation that runs by itself is the speaking bars**, four times a
+**The one animation that runs by itself is the speaking mouth**, four times a
 second and only while the answer lasts. Idle cost measured the same as the
 other faces: **8 changed pictures in 15 s** at noon. `sad` exists and nothing
 sets it: its planned trigger, a link that will not open, is not something
 the page can know.
+
+**The bars were a VU meter, and it was taken off in 4.29.1**: *"ce qui me
+plait pas dans pixel est sa bouche en forme de vu metre"*. Speaking is a
+cyan ellipse under the eyes whose `ry` snaps between six openings (never the
+same twice), wider as it closes; listening lights the EARS (`.pear`, filled
+by CSS over their `fill` attribute), so the face itself stays as it is.
+Snapped rather than eased like a blink, so it costs what the bars cost.
 
 `tools/checkavatar.py` gained 26 cases under `Pixel:` -- each expression's
 geometry or extras read off the DOM, the voice states, taps counted with a
