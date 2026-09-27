@@ -52,7 +52,7 @@ THEIRS = {"GUITION_ PORTAL.yaml"}
 # main.cpp. Deliberately not everything -- a generated main.cpp is thousands
 # of lines and the interesting ones are the joins.
 INTERESTING = re.compile(
-    r"->set_parent\(|->set_\w*(speaker|sink|id)\(|set_key_sink|set_home_sink", re.I
+    r"->set_parent\(|->set_\w*(speaker|sink|id)\(|set_key_sink|set_home_sink|set_sample_rate", re.I
 )
 
 

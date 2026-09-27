@@ -71,8 +71,12 @@ Portall = portall_ns.class_("Portall", cg.Component)
 SleepAction = portall_ns.class_("SleepAction", automation.Action)
 WakeAction = portall_ns.class_("WakeAction", automation.Action)
 
+# The id may be left out: there is one portall: per board, and asking for its
+# id is asking somebody to go and read it -- which a panel whose portall:
+# block has none (most of them) cannot even do. `- portall.sleep:` alone
+# resolves the only one, and an id still works.
 _AWAKE_ACTION_SCHEMA = automation.maybe_simple_id(
-    {cv.Required(CONF_ID): cv.use_id(Portall)}
+    {cv.GenerateID(): cv.use_id(Portall)}
 )
 
 
@@ -244,6 +248,11 @@ CONF_RENDER_WIDTH = "render_width"
 CONF_RENDER_HEIGHT = "render_height"
 CONF_TOUCHSCREEN_ID = "touchscreen_id"
 CONF_SPEAKER_ID = "speaker_id"
+CONF_SAMPLE_RATE = "sample_rate"
+# The rates sample_rate: allows. Each has a whole number of frames in the
+# board's 10 ms block, and none is above 48000, which is what the block buffer
+# is allocated for.
+SAMPLE_RATES = (16000, 32000, 44100, 48000)
 CONF_ON_AUDIO_START = "on_audio_start"
 CONF_ON_AUDIO_STOP = "on_audio_stop"
 
@@ -412,6 +421,34 @@ def _validate_usb(config):
     return config
 
 
+def _validate_sample_rate(config):
+    """Refuse a rate the board could not be fed at.
+
+    Two ways, and both would be a panel that is silent for a reason nobody
+    could find. With no speaker there is no sound for the rate to be of. And
+    the USB sound card is fixed at 48000 -- its descriptors say so to the
+    host -- so with `usb: true` the same speaker would be handed two rates,
+    and the one sample_rate: does not name would never be played.
+    """
+    rate = config[CONF_SAMPLE_RATE]
+    if rate == 48000:
+        return config
+    if CONF_SPEAKER_ID not in config:
+        raise cv.Invalid(
+            "sample_rate: is the rate of the page's sound, and there is no "
+            "speaker_id: for it to play through. Remove it, or add the speaker.",
+            path=[CONF_SAMPLE_RATE],
+        )
+    if config[CONF_USB]:
+        raise cv.Invalid(
+            f"sample_rate: {rate} needs usb: false. The USB sound card this "
+            "component offers a computer runs at 48000 and plays into the same "
+            "speaker, so the two could never agree.",
+            path=[CONF_SAMPLE_RATE],
+        )
+    return config
+
+
 def _validate_render_size(config):
     """Refuse a render size that would not land on whole panel pixels.
 
@@ -532,6 +569,12 @@ CONFIG_SCHEMA = cv.All(
             # mixer alongside a media player and a voice assistant rather than
             # fighting them for the same I2S bus.
             cv.Optional(CONF_SPEAKER_ID): cv.use_id(speaker.Speaker),
+            # The rate the page's sound should arrive at: the rate of the
+            # mixer speaker_id: feeds, so nothing on the panel converts it.
+            # The board asks the add-on for it and the add-on captures at it.
+            cv.Optional(CONF_SAMPLE_RATE, default=48000): cv.one_of(
+                *SAMPLE_RATES, int=True
+            ),
             # What to do when the host starts and stops sending sound. Every
             # board answers this differently -- switch an amplifier on, stand a
             # wake word down off a shared I2S bus -- so it is left to the
@@ -622,6 +665,7 @@ CONFIG_SCHEMA = cv.All(
     esp32.only_on_variant(supported=[esp32.VARIANT_ESP32P4]),
     _warn_about_espressif_driver,
     _validate_usb,
+    _validate_sample_rate,
     _validate_render_size,
     _request_fast_network,
     _remote_buttons,
@@ -726,6 +770,8 @@ async def to_code(config):
             esp32.add_idf_sdkconfig_option("CONFIG_UAC_SAMPLE_RATE", 48000)
         spk = await cg.get_variable(speaker_id)
         cg.add(var.set_speaker(spk))
+        if config[CONF_SAMPLE_RATE] != 48000:
+            cg.add(var.set_sample_rate(config[CONF_SAMPLE_RATE]))
 
     for key, setter in (
         (CONF_ON_AUDIO_START, var.set_audio_start_trigger),

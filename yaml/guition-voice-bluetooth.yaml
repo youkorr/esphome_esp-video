@@ -191,13 +191,16 @@ speaker:
     num_channels: 2
 
   # The mixer feeds the Bluetooth speaker directly, at 44100 -- the rate A2DP
-  # carries -- and the page's 48000 is resampled BEFORE its mixer input, the
-  # way ESPHome's own voice assistants are wired. Not after the mixer: a
-  # resampler holds back half its filter (8 frames at 16 taps) until more
-  # sound arrives, so an announcement's last frames were never reported played,
-  # the mixer waited for them for ever, and the voice assistant stayed stuck on
-  # "responding". A resampler in front of a source never has to finish, so its
-  # held frames cost nothing there.
+  # carries -- and every source arrives at 44100 already, so nothing on the
+  # panel resamples anything. Home Assistant converts the voice answer and the
+  # media (the pipelines below ask it for 44100), and the add-on captures the
+  # page at 44100 because portall's sample_rate: asks it to.
+  #
+  # There used to be a resampler in front of the page's input, and a wake
+  # word listening beside it starved it: its task runs at priority 1 and
+  # micro_wake_word's inference at 3, so the page's sound broke up whenever
+  # the wake word was on ("Dropped a block: the speaker is not draining").
+  # Converting on the Home Assistant machine costs it nothing.
   - platform: mixer
     id: mixing_speaker
     output_speaker: bt_speaker
@@ -209,12 +212,6 @@ speaker:
 
       - id: portall_mixing_input
         timeout: never
-
-  # The page's sound, 48000 from the browser, to the mixer's 44100.
-  - platform: resampler
-    id: portall_resampler
-    output_speaker: portall_mixing_input
-    bits_per_sample: 16
 
 # Voice: what the answer is spoken through. Home Assistant sends it as an
 # announcement, which goes into the mixer beside the page's sound and on to
@@ -482,7 +479,10 @@ script:
           then:
             - delay: !lambda 'return id(screen_off_delay) * 1000;'
             - light.turn_off: backlight
-            #- usb_display.wake: udisp              
+            # Tell the add-on the screen is dark: it stops rendering for it,
+            # a tap that wakes the panel does not also press what was under
+            # the finger, and the launcher's face says hello when it wakes.
+            - portall.sleep:
     
 
 globals:
@@ -525,7 +525,7 @@ touchscreen:
     on_touch:
       - light.turn_on: backlight
       - script.execute: screen_timeout
-      #- usb_display.wake: udisp        
+      - portall.wake:
 
         
       
@@ -553,7 +553,11 @@ portall:
   usb: false
   #remote: true
   max_frame_bytes: 400000
-  speaker_id: portall_resampler
+  speaker_id: portall_mixing_input
+  # The mixer's rate, so the add-on captures the page at it. Needs the add-on
+  # 4.28.0 or later: an older one goes on sending 48000, which this panel then
+  # does not play, and says so in its log.
+  sample_rate: 44100
   #on_audio_start:
     #- switch.turn_on: audio_amplifier
 

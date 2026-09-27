@@ -88,7 +88,7 @@ def build_header(width, height, payload_len, frame_id, x=0, y=0):
     return _HEADER.pack(0, UDISP_TYPE_JPG, 0, x, y, width, height, packed)
 
 
-def build_audio_header(payload_len, channels=AUDIO_CHANNELS):
+def build_audio_header(payload_len, channels=AUDIO_CHANNELS, rate=AUDIO_RATE):
     """One block of sound's header.
 
     The same sixteen bytes as a rectangle, and deliberately so: one definition
@@ -107,6 +107,10 @@ def build_audio_header(payload_len, channels=AUDIO_CHANNELS):
     for mono, so a mono header is byte for byte what it always was. A board
     that predates this reads 0 there too and plays mono -- which is also why
     stereo must not be turned on before the board is flashed.
+
+    HEIGHT is the sample rate, left at 0 for AUDIO_RATE for the same reason.
+    A sender only sends another rate when the board asked for it (b"A" on the
+    return channel), so a board that cannot read this field is never sent one.
     """
     if payload_len >= 1 << 22:
         raise ValueError(
@@ -114,9 +118,12 @@ def build_audio_header(payload_len, channels=AUDIO_CHANNELS):
         )
     if channels not in (1, 2):
         raise ValueError(f"{channels} channels: a panel plays one or two")
+    if not 0 < rate < 1 << 16:
+        raise ValueError(f"a rate of {rate} Hz does not fit the height field")
     packed = (payload_len & 0x3FFFFF) << 10
     width = channels if channels > 1 else 0
-    return _HEADER.pack(0, UDISP_TYPE_PCM, 0, 0, 0, width, 0, packed)
+    height = rate if rate != AUDIO_RATE else 0
+    return _HEADER.pack(0, UDISP_TYPE_PCM, 0, 0, 0, width, height, packed)
 
 
 def build_heartbeat():
@@ -250,7 +257,13 @@ def parse_messages(buffer):
       which is the only way a panel with no keys can drive an interface built
       for arrows, YouTube's television one above all.
 
-    Returns ("touch", contacts), ("awake", bool) and ("home", True) pairs, and
+      b"A", then a sample rate as whole kilohertz and the rest in steps of
+      50 Hz: 44100 is 44, 2. The board asking for the page's sound at the rate
+      of the mixer behind its speaker, so nothing on the panel has to convert
+      it. Sent once, when a sender connects.
+
+    Returns ("touch", contacts), ("awake", bool), ("home", True), ("key",
+    name) and ("rate", hertz) pairs, and
     whatever tail is still short of a whole message so the caller can hand it
     back next time.
     """
@@ -267,6 +280,12 @@ def parse_messages(buffer):
         if kind == ord("H"):
             messages.append(("home", True))
             at += 2
+            continue
+        if kind == ord("A"):
+            if len(buffer) - at < 3:
+                break
+            messages.append(("rate", buffer[at + 1] * 1000 + buffer[at + 2] * 50))
+            at += 3
             continue
         if kind == ord("K"):
             if len(buffer) - at < 5:
