@@ -238,6 +238,16 @@ speaker:
       # stop the other.
       - id: portall_mixing_input
         timeout: never
+        # A jitter buffer. The picture and the sound share one Wi-Fi link,
+        # and it stalls for about 400 ms at a time under a video
+        # ("H_SDIO_DRV: task still writing Rx data to queue!", worst gap
+        # ~400 ms in the add-on's stats); the sound held back then arrives
+        # at once. The default 100 ms cannot take that burst, so ~300 ms
+        # was dropped every stall ("Dropped a block: the speaker is not
+        # draining"). 500 ms rides it out -- the same value that worked on
+        # the resampler 4.28.0 removed -- at the cost of the sound running
+        # up to that much behind the picture after a stall.
+        buffer_duration: 500ms
 
 display:
   - platform: mipi_dsi

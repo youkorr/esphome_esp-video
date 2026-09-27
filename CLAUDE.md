@@ -9482,6 +9482,33 @@ costs a picture a few milliseconds instead. `wired_portall` keeps 4 (no
 voice there). **Not measured on a board**: which core the wake word got is
 not visible from a log.
 
+## The jitter buffer went with the resampler, and a video found it
+
+**Reported as a YouTube video "au ralenti" with the sound disturbed.** The
+sender's own lines rule the browser out: `t=` advances exactly 2.0 s per
+2.0 s sample, `dropped=0`, 26-30 pictures a second. What the board says is
+`H_SDIO_DRV: task still writing Rx data to queue!` and the add-on's
+`worst gap` 356-408 ms in every window at 1.8-2.2 MB/s -- the link stalls
+for about 400 ms at a time -- and `Dropped a block: the speaker is not
+draining` about ten times a second, with `bytes of silence were sent` on the
+Bluetooth side: starved, then flooded, the signature of a burst.
+
+The picture and the sound share one TCP stream, so a stall holds both and
+releases both at once. A mixer source keeps **100 ms by default**
+(`buffer_duration`, read in 2026.8.2), so each burst lost about 300 ms. The
+`buffer_duration: 500ms` the household found on the page's RESAMPLER was
+this buffer, and 4.28.0 removed that resampler without moving it -- the
+section above records the setting as answering a different fault, which was
+half right. It is on `portall_mixing_input` in both Bluetooth examples now,
+read off the codegen (`set_buffer_duration(500)`).
+
+The cost is lip sync: after a stall the sound can run up to half a second
+behind the picture. And it treats the symptom: the stalls are esp-hosted's
+own (#184), and a lower `max_rate:` on the video link is what makes fewer of
+them. These rates stall at 2 MB/s where the 4.21 measurements held to 2.5 --
+the dongle's A2DP now shares 2.4 GHz with the C6 centimetres away, which is
+a candidate and not a measurement. **Not heard on a board.**
+
 ## Repository conventions
 
 - Work on branch `claude/esphome-pr-outdated-mdq36w`, then merge into `main`
