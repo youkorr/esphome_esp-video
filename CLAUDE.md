@@ -9482,6 +9482,29 @@ costs a picture a few milliseconds instead. `wired_portall` keeps 4 (no
 voice there). **Not measured on a board**: which core the wake word got is
 not visible from a log.
 
+## Asleep with the screen lit: sleep and wake belong to the backlight
+
+**Reported as having to touch a lit panel after every restart of the add-on,
+with the sender's own two lines: `Panel asleep`, then `Panel awake`.** The
+board keeps `asleep_` and repeats it to every sender that connects, which is
+right -- and 4.28.0's example set it from two places only: the timeout script
+(`portall.sleep`) and a touch (`portall.wake`). The backlight has more doors
+than that: the brightness slider, the `Backlight` entity in Home Assistant,
+an automation. Any of them lit the screen without saying so, the board went
+on reporting asleep, and a sender that connected afterwards rendered nothing
+until a finger woke it.
+
+`on_turn_on: portall.wake` / `on_turn_off: portall.sleep` on the light itself
+now, and neither the script nor the touch calls them. `LightTurnOnTrigger`
+listens to the REMOTE values (`automation.h`, 2026.8.2), so every caller
+counts; it fires on the edge only. The waking tap is still dropped, because
+the touch listener runs before `on_touch` and the light is turned on from
+there. Read off the codegen at 2026.8.2. **Not flashed.**
+
+The shape is this file's pair-of-constants fault in a YAML: two things that
+must agree (the backlight and what the sender is told), set from separate
+places with nothing tying them. Put the state on the thing it describes.
+
 ## The jitter buffer went with the resampler, and a video found it
 
 **Reported as a YouTube video "au ralenti" with the sound disturbed.** The
