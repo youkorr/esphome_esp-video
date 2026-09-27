@@ -154,7 +154,8 @@ configuration:
       avatar_shape:
         name: 🐻 The avatar's shape
         description: mochi (a soft ball), robot (its antenna lights with the voice assistant), cat, bear,
-          ghost or pixel (a little robot with a screen for a face, and many expressions).
+          ghost, pixel (a little robot with a screen for a face, and many expressions) or orb (a glossy
+          ball whose colour says what it is doing).
       avatar_voice:
         name: 🎙️ The avatar's voice assistant
         description: 'The face listens, thinks and answers with it. Empty: Home Assistant''s only voice
@@ -290,7 +291,8 @@ configuration:
       avatar_shape:
         name: 🐻 The avatar's shape
         description: mochi (a soft ball), robot (its antenna lights with the voice assistant), cat, bear,
-          ghost or pixel (a little robot with a screen for a face, and many expressions).
+          ghost, pixel (a little robot with a screen for a face, and many expressions) or orb (a glossy
+          ball whose colour says what it is doing).
       avatar_voice:
         name: 🎙️ The avatar's voice assistant
         description: 'The face listens, thinks and answers with it. Empty: Home Assistant''s only voice

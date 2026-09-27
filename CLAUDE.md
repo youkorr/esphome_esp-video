@@ -9394,6 +9394,33 @@ geometry or extras read off the DOM, the voice states, taps counted with a
 controlled clock, a slow and a fast drag, hot and cold, night, the greeting
 and the idle cost. **Not seen on a panel.**
 
+## Orb, reproduced from the household's own Lottie -- 4.30.0
+
+**Asked with a file: *"peut tu reproduire pour un nouveaux avatar a partir de
+ce lottie?"*** -- `AI_robo.json`, 700x700, 480 frames at 60 fps, six shape
+layers and no images. Read by RENDERING it rather than by reading its
+keyframes: lottie-web's own npm tarball (registry.npmjs.org answers here,
+cdnjs and jsdelivr do not) loaded into the shipped Chromium, one screenshot
+every ten frames. The keyframes alone said "an animated gradient and two
+morphing paths"; the contact sheet said what it is -- a glossy ball whose
+COLOUR is the state, two pill eyes, a yellow "!", a quarter ring spinning
+while it loads, and a squash-and-stretch jump.
+
+`avatar_shape: orb` is its own face (`ORB_FACE`, `ORB_CSS`, `ORB_JS`, added
+only when the shape is orb), on the Pixel pattern. Its numbers are the file's,
+scaled from a ball of 300 to one of radius 51: eyes a stroke of 20 and 57
+long, 76 apart, 12.5 above the middle; the ring 99 across, a stroke of 15, a
+quarter drawn; the glint a 3% arc of a circle 250 across; the palettes the
+gradient's own three stops at each state (the night's is ours).
+
+**What is not copied is the motion between states**, deliberately: the
+Lottie turns its gradient and eases every change over dozens of frames, which
+on a panel is a whole-picture stream. A state change snaps; the ring turns
+only while thinking (8 snaps a second) and the eyes squeeze only while
+answering (4 a second); the jump is four snaps, once. Idle cost measured the
+same as every other face: **8 changed pictures in 15 s**. `checkavatar.py`
+has 14 cases under `Orb:`. **Not seen on a panel.**
+
 ## A session cookie died with every restart of the browser -- 4.29.2
 
 **Reported as *"quelque link qui ne conserve pas le login et mot de pass
