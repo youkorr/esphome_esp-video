@@ -25,6 +25,16 @@ same architecture independently on ESP32-S3
 different here is the P4's **hardware JPEG decoder and PPA rotation**, so the
 ceiling is the network rather than the CPU.
 
+**Somebody outside the project has run it, and said what it is.** Rob, a
+friend of the user's who used an early version, posted to his own group: *"a
+bit of a game changer for P4 based displays ... a TAB5 with NO LVGL and an
+ESPHome yaml of less than 1000 lines of yaml. It is an HA dashboard streamed
+to the device and works perfectly."* (video: youtu.be/W1Ptj9Q_8mA). The user's
+own instruction that came with it: *"l'essentiel il faut que le projet
+portall a des potentiels"* -- what matters is the project's potential. That is
+the yardstick for any idea below: does it widen what a panel can do without
+putting LVGL-sized complexity back into the YAML.
+
 ## The three pieces
 
 ```
@@ -2070,6 +2080,91 @@ add-on options.
   JPEG-per-frame video path. A real feature, and the sync is the hard half.
 - `--blank-after` frees the page but not the browser: Chromium stays running
   with an empty tab. One browser serving several panels is the next step.
+
+## Ideas kept for later
+
+**Asked for in those words: *"garde les idees de cote en memoire comme les
+autre idee"*.** Each of these was discussed, researched far enough to know it
+is possible, and deliberately NOT built -- the user said *"ont verra plus
+tard"*. Nothing here is validated on a board. Read the "what is unknown" line
+of an idea before promising it.
+
+### Pending measurement first: the YouTube slowdown on the board
+
+Before any voice idea: the board's own stats line during a YouTube video WITH
+the wake word running -- `800x1280 @ N fps, N us/draw (...), N dropped (...)`.
+The add-on's side is clean (30 made, 30 sent, `panel wait 1%`, `dropped=0`,
+2200 KiB/s -- which is simply 30 pictures of ~73 KiB, not a ceiling; the
+`max_rate` of 3000 does not bind and was verified to reach the sender as
+`--max-rate 3000`). Stopping `micro_wake_word` made it better, so the decoder
+sharing core 1 with the wake word is the candidate. That line is what settles
+how the CPU should be shared, and it was asked for and not yet sent.
+
+### The wake word on the server instead of the board
+
+`voice_assistant: use_wake_word: true` still exists (read in 2026.10.0-dev,
+`cv.Optional(CONF_USE_WAKE_WORD, default=False)`): the board streams its
+microphone to Home Assistant all the time and HA's pipeline detects the wake
+word (openWakeWord add-on, chosen in the Assist pipeline). `micro_wake_word`
+comes off the P4 entirely, which gives core 1 back to the JPEG decoder. Cost:
+~32 KB/s of microphone upstream, nothing beside 2200 KB/s of picture down; a
+little more latency to wake. Offered as a variant of
+`yaml/guition-voice-bluetooth.yaml`, not written.
+
+**What it does not fix, and the user said so at once:** the microphones on
+every P4 panel here are BEHIND the display, so an order has to be said loudly
+and without an accent. A wake word detected on the server hears the same weak
+signal.
+
+### Voice that is actually heard: the gain is already at its ceiling
+
+Read before suggesting "turn the gain up": `mic_gain` on the es8311 defaults
+to **42DB, the top of its enum**; the example already has `auto_gain: 31dBFS`
+(the top) and `volume_multiplier: 2.0`. More gain amplifies the noise with the
+voice. What is left:
+
+- `probability_cutoff` on the micro_wake_word model -- more sensitive, more
+  false wakes.
+- **The accent is the speech-to-text engine, not the microphone.** A small
+  local Whisper is weak in French; a larger model or Home Assistant Cloud is
+  far better; **Speech-to-Phrase** (HA's local engine that only recognises the
+  sentences it knows) is the most tolerant of accents for fixed orders like
+  "ouvre Jellyfin" -- it does not have to guess.
+- **The microphone somewhere else**, which solves both at once: a satellite in
+  front of the user (a Home Assistant Voice PE, an ESP32-S3 with a
+  microphone). Nothing in the add-on has to change -- the avatar follows any
+  `assist_satellite` through `avatar_voice`, and "ouvre <lien>" is already
+  routed to the panel whose `avatar_voice` names the satellite that heard it.
+  The panel's YAML then carries no voice at all, and core 1 is the decoder's.
+
+### A Bluetooth MICROPHONE through the dongle
+
+Asked as *"nous disposons d'une sortie audio via le Bluetooth qui fonctionne
+vraiment bien et il possible aussi pour le microphone ?"*. Possible in
+principle, a large piece of work, and not the same path as the speaker:
+
+- The speaker is **A2DP**, one way, music. A headset's or a car kit's
+  microphone is **HFP**, carried on a **SCO** link, which over a USB dongle
+  is **isochronous** transfers -- and this component's transport does not
+  carry SCO at all (see the transport section: "SCO is isochronous and is not
+  carried -- which costs a headset's microphone, not its music").
+- What is in favour, read in ESP-IDF **v5.5.5**: Bluedroid has the HFP
+  **Audio Gateway** role (`esp_hf_ag_api.h`, the panel plays the phone's part,
+  `esp_hf_ag_audio_connect`), `BT_HFP_AUDIO_DATA_PATH_HCI` sends the voice
+  over HCI rather than a PCM bus, and **mSBC** is 16 kHz -- exactly what the
+  voice assistant requires. CVSD is 8 kHz.
+- **Unknown 1, the big one:** whether CherryUSB's DWC2 host does isochronous
+  transfers well enough on the P4 for the dongle's SCO interface (the one with
+  six alternate settings that `cherryusb_patch` exists for).
+- **Unknown 2:** whether the dongles here carry mSBC, or CVSD only.
+- **Unavoidable:** a device does not do A2DP and HFP at once. When the
+  microphone opens, the headset or car kit drops to call quality for its
+  output too -- fine for a question to the assistant, poor for a video
+  playing at the time.
+- **First step if it is ever built:** a probe, not the feature -- open a SCO
+  link to the UGREEN car receiver (a hands-free kit, so very likely a
+  microphone) and see whether voice packets arrive on the isochronous
+  endpoint. That settles unknown 1 before a line of the rest is written.
 
 
 ## The panel as a launcher
