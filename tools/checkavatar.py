@@ -140,14 +140,16 @@ def character(browser):
             threading.Event().wait(60)
             return since, "neutral"
 
-    def launch(shape, hour, reading_now=None):
+    def launch(shape, hour, reading_now=None, locale=None):
         if reading_now is not None:
             reading.clear()
             reading.update(reading_now)
         address = launcher.start(links, avatar=True, avatar_shape=shape,
                                  port=launcher.ANY_PORT, weather=weather,
                                  voice=Silent())
-        page = browser.new_page(viewport={"width": 1280, "height": 800})
+        extra = {"locale": locale} if locale else {}
+        page = browser.new_page(viewport={"width": 1280, "height": 800},
+                                **extra)
         page.clock.install(time=datetime.datetime(2026, 9, 27, hour, 0))
         page.goto(address)
         page.wait_for_selector("#av")
@@ -205,6 +207,44 @@ def character(browser):
         .getPropertyValue('--ly')""")
     check("a finger landing above it: it looks up",
           float(look.strip()[:-2]) < 0, look)
+    curious = lambda: page.evaluate(  # noqa: E731
+        "getComputedStyle(document.getElementById('av'))"
+        ".getPropertyValue('--ls').trim()")
+    check("looking up is only looking: its pupils stay their size",
+          curious() == "1", curious())
+    pupil = lambda: page.evaluate(  # noqa: E731
+        "document.querySelector('#av .look').getBoundingClientRect().width")
+    page.clock.fast_forward(1600)
+    page.wait_for_timeout(100)
+    size = pupil()
+    middle = page.evaluate("""() => { const r = document.getElementById('av')
+        .getBoundingClientRect(); return r.top + r.height / 2; }""")
+    page.mouse.move(10, middle)
+    page.mouse.down()
+    page.mouse.up()
+    page.wait_for_timeout(100)
+    check("a finger landing beside it: curious, its pupils grow by a quarter",
+          curious() == "1.25" and pupil() > size * 1.2,
+          f"{curious()} {size:.1f} -> {pupil():.1f}")
+    page.clock.fast_forward(1600)
+    page.wait_for_timeout(100)
+    check("and a second and a half later they are their size again",
+          curious() == "1" and abs(pupil() - size) < 0.5)
+
+    # The panel woke: a smile and a word, in the corner the cloud uses.
+    page.evaluate("window.portallAvatar.weather('rain')")
+    check("woken, it says hello, and the cloud makes room for it",
+          ha_send.greet_avatar(page) and shown(page, ".acc.hello")
+          and data(page, "mood") == "happy" and not shown(page, ".acc.rain"))
+    said = page.evaluate("document.querySelector('#av .acc.hello text')"
+                         ".textContent")
+    check("in the panel's language: Hello in English", said == "Hello", said)
+    page.clock.fast_forward(3100)
+    page.wait_for_timeout(100)
+    check("and three seconds later it is back to the weather",
+          not shown(page, ".acc.hello") and shown(page, ".acc.rain")
+          and data(page, "mood") == "neutral")
+    page.evaluate("window.portallAvatar.weather('hot')")
 
     # Asked by voice: it looks, the tile goes down, then the page follows.
     target = links[1]["url"]
@@ -234,6 +274,21 @@ def character(browser):
     page.evaluate("window.portallAvatar.stand('neutral')")
     check("and goes back to dozing, since it is still night",
           data(page, "mood") == "sleepy")
+    page.close()
+
+    page, _ = launch("cat", 20, locale="fr-FR")
+    check("a French panel woken in the evening says Bonsoir",
+          ha_send.greet_avatar(page) and page.evaluate(
+              "document.querySelector('#av .acc.hello text').textContent")
+          == "Bonsoir")
+    page.close()
+    page, _ = launch("bear", 9, locale="fr-FR")
+    check("and Bonjour in the morning", ha_send.greet_avatar(page)
+          and page.evaluate("document.querySelector('#av .acc.hello text')"
+                            ".textContent") == "Bonjour")
+    page.goto("about:blank")
+    check("a page with no face greets nobody, and nothing breaks",
+          ha_send.greet_avatar(page) is False)
     page.close()
 
 

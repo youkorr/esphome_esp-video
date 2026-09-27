@@ -199,6 +199,22 @@ void Portall::send_queued_messages_(int client) {
       this->status_pending_ = true;
   }
 
+#ifdef USE_SPEAKER
+  /* 'A', then the rate in whole kilohertz and the rest in steps of 50 Hz:
+     44100 is 44, 2. Three bytes and no table, and neither byte can be one of
+     the letters a sender's parser looks for -- T, S, H and K are 72 and up,
+     and no rate this panel takes reaches 72 kHz -- so a sender that predates
+     it skips it a byte at a time and loses nothing. Such a sender goes on
+     sending 48000, which on_audio_samples() then says it will not play. */
+  if (this->rate_pending_) {
+    this->rate_pending_ = false;
+    const uint8_t message[3] = {'A', (uint8_t) (this->sample_rate_ / 1000),
+                                (uint8_t) ((this->sample_rate_ % 1000) / 50)};
+    if (::send(client, message, sizeof(message), MSG_DONTWAIT) < 0)
+      this->rate_pending_ = true;
+  }
+#endif
+
   /* 'H' again, and this is the message the comment above says the sender still
      understands -- so a panel flashed with this and an add-on built any time
      in the last several releases already agree about it. Nothing on the sender
@@ -337,6 +353,12 @@ void Portall::run_network_task() {
       ::inet_ntoa_r(peer.sin_addr, peer_text, sizeof(peer_text));
       ESP_LOGI(TAG, "Sender connected from %s", peer_text);
       this->net_client_seen_ = true;
+#ifdef USE_SPEAKER
+      // Before anything else it could be sent: the rate this panel wants the
+      // page's sound at, so the sender captures at it from the start.
+      if (this->speaker_ != nullptr)
+        this->rate_pending_ = true;
+#endif
 
 #ifdef USE_TOUCHSCREEN
       if (this->touch_queue_ != nullptr)

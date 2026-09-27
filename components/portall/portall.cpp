@@ -487,7 +487,7 @@ void Portall::feed_(const uint8_t *data, size_t len, bool may_wait) {
     // has to hold a whole picture before it means anything.
     if (this->audio_want_ > 0) {
       const size_t take = this->audio_want_ < len ? this->audio_want_ : len;
-      this->on_audio_samples(data, take, this->pcm_channels_);
+      this->on_audio_samples(data, take, this->pcm_channels_, this->pcm_rate_);
       this->audio_want_ -= take;
       data += take;
       len -= take;
@@ -529,10 +529,10 @@ void Portall::feed_(const uint8_t *data, size_t len, bool may_wait) {
     }
 #ifdef USE_SPEAKER
     if (header->type == UDISP_TYPE_PCM) {
-      // Not a rectangle, so none of the geometry below applies: x, y and
-      // height mean nothing and the length is what matters. Width is the one
-      // exception -- it carries how many channels follow, and 0, which every
-      // sender before stereo sends, means one.
+      // Not a rectangle, so none of the geometry below applies: x and y mean
+      // nothing and the length is what matters. Width carries how many
+      // channels follow, and 0, which every sender before stereo sends, means
+      // one; height carries the rate.
       const unsigned channels = header->width == 0 ? 1 : header->width;
       if (channels > PORTALL_AUDIO_MAX_CHANNELS) {
         if (!this->logged_bad_channels_) {
@@ -543,6 +543,9 @@ void Portall::feed_(const uint8_t *data, size_t len, bool may_wait) {
         continue;
       }
       this->pcm_channels_ = (uint8_t) channels;
+      // Height is the other one: the sample rate, and 0 -- every sender
+      // before this panel could ask for one -- means 48000.
+      this->pcm_rate_ = header->height == 0 ? PORTALL_AUDIO_RATE : header->height;
       this->audio_want_ = header->payload_total;
       continue;
     }

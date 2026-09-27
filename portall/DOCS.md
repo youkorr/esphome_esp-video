@@ -334,7 +334,14 @@ panel's own launcher can have its own.
 **It lives with the house.** Nothing to set for any of this:
 
 - **It looks at what you do**: at the tile a remote or a gamepad has just
-  chosen, and towards where a finger lands.
+  chosen, and towards where a finger lands. When it looks to one side its
+  pupils grow, which is its curious look.
+- **It says hello when the screen comes back on**: a smile and a word in a
+  little bubble, "Bonjour" or "Bonsoir" on a panel set to French
+  (`locale: fr-FR`), "Hello" otherwise. The add-on learns the screen went
+  dark from the panel's YAML: `- portall.sleep:` where the backlight goes
+  off, and `- portall.wake:` where it comes back on (a touch, a presence
+  sensor), as `yaml/guition-voice-bluetooth.yaml` does. No id is needed.
 - **It dresses for the weather** of the launcher's own weather entity:
   sunglasses when it is clear and 25 °C or more, a small cloud when it rains,
   a snowflake when it snows or it is 5 °C or less, with rosy cheeks for the
@@ -1664,6 +1671,41 @@ many channels it carries -- so there is no setting to keep in step on the
 panel. Switching the option drops a few milliseconds of sound once, while the
 speaker is told the new shape. `channel: stereo` on an I2S speaker is a
 different thing: it governs that speaker only.
+
+#### The page's sound at the panel's own rate, `sample_rate:`
+
+A browser plays at 48 kHz. A panel whose sound goes through a **mixer** --
+which is every panel that also speaks Home Assistant's announcements -- runs
+that mixer at one rate, and a Bluetooth speaker needs **44100**. The page's
+sound then had to be converted on the panel by a `resampler`, and a wake word
+listening beside it could starve it: `Dropped a block: the speaker is not
+draining`, the sound breaking up whenever the wake word was on.
+
+`sample_rate:` in the panel's YAML moves that work to the Home Assistant
+machine, where it costs nothing. The panel asks the add-on for its rate when
+the add-on connects, and the add-on captures the page at it:
+
+```yaml
+portall:
+  # ...
+  usb: false
+  speaker_id: portall_mixing_input   # the mixer input itself, no resampler
+  sample_rate: 44100                 # the mixer's rate
+```
+
+- **16000, 32000, 44100 or 48000**, and 48000 by default, so a panel that
+  does not set it is exactly what it was.
+- **It needs `usb: false`.** The USB sound card the panel offers a computer
+  runs at 48000 into the same speaker, so the two could not agree.
+- **Update the add-on first, then flash.** An add-on older than 4.28.0 does
+  not know the question and goes on sending 48000; the panel does not play
+  that, rather than feed its mixer a rate it refuses, and its log says why
+  after two seconds.
+- `yaml/guition-voice-bluetooth.yaml` and `yaml/tab5-portall-bluetooth.yaml`
+  are wired this way.
+
+If you would rather keep the resampler, `buffer_duration: 500ms` on it gives
+it room to ride out a busy moment; that works too, and needs no update.
 
 #### Why `quality: 20`
 

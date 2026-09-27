@@ -1,5 +1,18 @@
 # Changelog
 
+## 4.28.0
+
+- **The page's sound can arrive at your panel's own rate, so the panel no
+  longer converts it.** Set `sample_rate: 44100` on `portall:` in the
+  panel's YAML, point `speaker_id:` straight at the mixer input and remove
+  the resampler in front of it: the panel asks the add-on for 44100 and the
+  add-on captures at it. That resampler is what the wake word starved into
+  "the speaker is not draining". Update the add-on first, then flash; see
+  the Documentation tab.
+- **The avatar is curious**: its pupils grow when it looks to one side.
+- **The avatar says hello when the screen comes back on**: a smile and
+  "Bonjour", "Bonsoir" or "Hello" in a bubble.
+
 ## 4.27.1
 
 - **"Ouvrez Home Assistant" and "ouvre-moi Jellyfin" open the link**: the

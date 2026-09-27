@@ -1779,7 +1779,7 @@ the dashboard, where it is invisible while the keys go on working.
 ahead of the `pip install` as well as the `ADD`s, so a bump refetches
 everything — at the cost of the browser download on each update.
 `present_browser()` prints the Chromium version at startup and warns below 114,
-so this is never diagnosed by guesswork again. Currently **4.27.1**.
+so this is never diagnosed by guesswork again. Currently **4.28.0**.
 
 **The image carried two Playwright browsers and needed one.** `playwright
 install chromium` fetches the full Chromium **and** the headless shell -- 597
@@ -9248,6 +9248,73 @@ scene what only the heaviest need.
 **What is NOT measured**: a panel. The fake one takes everything at once, so
 what is verified is that the sender never offers more than the rate, not that
 the C6 stops stalling at it.
+
+## The page's sound at the panel's own rate, and the resampler is gone -- 4.28.0
+
+**Found by the user with a switch**: a template switch that starts and stops
+`micro_wake_word` made the page's sound break up with it on and play cleanly
+with it off. The resampler in front of the page's mixer input runs at task
+priority 1 (`RESAMPLER_TASK_PRIORITY`, read in 2026.8.2), micro_wake_word's
+inference at 3, so the wake word starved it into `Dropped a block: the
+speaker is not draining`. Its priority is a constant and its taps are already
+at the minimum (16), so nothing in the YAML could lower its cost; and
+`buffer_duration: 500ms` on it, which the user then confirmed works, rides
+out the busy moments without removing them.
+
+**So the conversion moved to the machine that has cycles to spare.**
+`sample_rate:` on `portall:` (16000, 32000, 44100 or 48000; 48000 by
+default, so nothing changes for a panel that does not set it) is the rate of
+the mixer `speaker_id:` feeds. ONE setting, in the YAML beside the mixer that
+needs it -- the add-on is TOLD, which is the only way the two cannot drift:
+
+- **The board asks.** On accepting a sender it sends `'A'`, the rate in whole
+  kilohertz, and the rest in 50 Hz steps (44100 is 44, 2). Three bytes, no
+  table, and neither byte can be T, S, H or K (72 and up; no allowed rate
+  reaches 72 kHz), so a sender from before this skips it a byte at a time and
+  still reads the touch after it -- `tools/checksamplerate.py` runs the
+  parser from 17599e6 against exactly that.
+- **Each block says what it is**, in the PCM header's HEIGHT, 0 meaning
+  48000 so a 48000 header is byte for byte what it always was. The header is
+  built when a block is HANDED to the writer, not when it is written, so a
+  block keeps the rate it was captured at across a switch.
+- **The board plays only its own rate.** Sound at another is dropped, and
+  after two seconds of it the log says the add-on is too old. Feeding a mixer
+  a rate it refuses is what rebooted a panel; silence with a reason is not.
+- **`usb: false` is required** for any rate but 48000: the USB sound card's
+  descriptors say 48000 and it plays into the same speaker.
+- `PageAudio.set_rate()` restarts `parec` on the same sink; a capture already
+  replaced is dropped by its own reader thread rather than sent under the new
+  rate's name.
+
+Measured end to end on a real PulseAudio and the shipped browser, a page
+playing 440 Hz and a fake panel asking for 44100: 540 blocks at 44100, every
+one 1764 bytes, none at 48000 after the switch, and the tone reads **440 Hz,
+not 479** -- which is what samples captured at 48000 and only LABELLED 44100
+would read. Against the sender from 17599e6 five cases fail (569 blocks at
+48000). The board half is the shipped `audio.cpp` under `tools/audiotest/
+rate.cpp`. Both Bluetooth examples lose their page resampler and validate at
+2026.8.2 and dev, codegen `panel->set_sample_rate(44100)`. **Not run on a
+panel.**
+
+## The avatar is curious and says hello -- 4.28.0
+
+Two ideas from the desk companions read for 4.27.0, asked for by name. **A
+curious pupil** is RoboEyes' mode: `--ls` scales the `.look` group by a
+quarter when a glance is mostly sideways (|dx| > 2|dy|), snapped with the
+glance that carries it, so the idle cost is unchanged (8 pictures in 15 s).
+**A greeting** is EMO's: `greet()` on the page, asked by the sender's
+`greet_avatar()` when the board says it is awake again -- a smile and a bubble
+in the corner the weather uses, "Bonjour"/"Bonsoir" by the page's own
+language and hour, "Hello" otherwise, gone after three seconds.
+
+It depends on the panel's YAML calling `portall.sleep` and `portall.wake`,
+and the household's Guition file had both commented out -- under the old
+name, and the SLEEP branch calling wake. So the example calls them now, and
+the two actions no longer need an id: their schema was `cv.Required(CONF_ID)`,
+the `keys: panel` shape again, on a board whose `portall:` block has no id at
+all. `cv.GenerateID()` resolves the only one, read off the codegen
+(`portall_sleepaction_id->set_parent(portall_portall_id)`), and a wrong id is
+still refused.
 
 ## Repository conventions
 

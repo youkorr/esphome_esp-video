@@ -137,7 +137,13 @@ class Portall : public Component
    * only in how the bytes got here -- the blocking, the volume and the
    * underrun handling below are the same work either way, and were written
    * once for USB before there was another way in. */
-  void on_audio_samples(const uint8_t *data, size_t length, uint8_t channels = PORTALL_AUDIO_CHANNELS);
+  void on_audio_samples(const uint8_t *data, size_t length, uint8_t channels = PORTALL_AUDIO_CHANNELS,
+                        uint32_t rate = PORTALL_AUDIO_RATE);
+  /* The rate this panel's speaker chain takes, from sample_rate: in the YAML.
+   * The board asks the sender for it ('A' on the return channel) and plays
+   * only sound that arrives at it, so a mixer running at 44100 is never fed
+   * 48000 -- which is what used to need a resampler on the panel. */
+  void set_sample_rate(uint32_t rate) { this->sample_rate_ = rate; }
   /* Both ways in share one volume. on_usb_audio_volume is the USB class's
    * callback and set_audio_volume is what everything else calls -- the number
    * entity, the action, and anything added later. */
@@ -358,6 +364,9 @@ class Portall : public Component
      connected, so a panel asked to go home before one arrives goes home when
      it does. */
   volatile bool home_pending_{false};
+  /* Set when a sender is accepted: the first thing it is told is the rate
+     this panel wants its sound at. Same one-way latch as the two above. */
+  volatile bool rate_pending_{false};
 
   /* Keys meet the network task the way contacts do: the action plays on
      ESPHome's loop and the socket is written from the network task, so they
@@ -447,6 +456,12 @@ class Portall : public Component
   // How many the speaker was last told to expect.
   uint8_t audio_channels_{PORTALL_AUDIO_CHANNELS};
   bool logged_bad_channels_{false};
+  // The rate the payload being read carries, from its header's height.
+  uint32_t pcm_rate_{PORTALL_AUDIO_RATE};
+  // The rate asked for, and since when sound has arrived at another one.
+  uint32_t sample_rate_{PORTALL_AUDIO_RATE};
+  uint32_t rate_mismatch_since_ms_{0};
+  bool logged_rate_mismatch_{false};
 #endif
 
 #ifdef USE_TOUCHSCREEN

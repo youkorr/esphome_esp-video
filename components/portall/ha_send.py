@@ -1370,6 +1370,21 @@ def open_page(page, args):
     return True
 
 
+def greet_avatar(page):
+    """The launcher's face says hello to whoever just woke the panel.
+
+    Asked when the board says the screen is back on. True if a face answered;
+    any other page has none, and a page that refuses costs the greeting and
+    never the picture.
+    """
+    try:
+        return bool(page.evaluate(
+            "() => !!(window.portallAvatar && window.portallAvatar.greet"
+            " && window.portallAvatar.greet())"))
+    except Exception:  # noqa: BLE001 - an accessory must never cost the picture
+        return False
+
+
 def open_link(page, url):
     """Open one of the launcher's links, the way a tap on its tile would.
 
@@ -2004,12 +2019,13 @@ class PageAudio:
     # rounding error rather than a third of what goes out.
     BLOCK_MS = 20
 
-    def __init__(self, name, channels=AUDIO_CHANNELS):
+    def __init__(self, name, channels=AUDIO_CHANNELS, rate=AUDIO_RATE):
         self.channels = channels
         self.sink = "portall_" + "".join(
             c if c.isalnum() else "_" for c in name
         )[:32]
-        self.block = AUDIO_RATE * self.BLOCK_MS // 1000 * (AUDIO_BITS // 8) * channels
+        self.rate = rate
+        self.block = self._block_bytes(rate)
         self._module = None
         self._parec = None
         self._blocks = collections.deque(maxlen=25)  # half a second, no more
@@ -2040,30 +2056,68 @@ class PageAudio:
                   f"the panel stays silent")
             return False
         self._module = out.stdout.strip()
+        if not self._spawn():
+            self.close()
+            return False
+        return True
+
+    def _block_bytes(self, rate):
+        return rate * self.BLOCK_MS // 1000 * (AUDIO_BITS // 8) * self.channels
+
+    def _spawn(self):
+        """parec on the sink's monitor, at the rate in hand."""
         try:
             self._parec = subprocess.Popen(
                 ["parec", f"--device={self.sink}.monitor", "--format=s16le",
-                 f"--rate={AUDIO_RATE}", f"--channels={self.channels}",
+                 f"--rate={self.rate}", f"--channels={self.channels}",
                  f"--latency-msec={self.BLOCK_MS}"],
                 stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
             )
         except OSError as err:
             print(f"Audio: parec would not run ({err}), the panel stays silent")
-            self.close()
+            self._parec = None
             return False
-        self._thread = threading.Thread(target=self._read, name="page-audio",
-                                        daemon=True)
+        self._thread = threading.Thread(
+            target=self._read, args=(self._parec.stdout, self.rate),
+            name="page-audio", daemon=True)
         self._thread.start()
         print(f"Audio: capturing the page through {self.sink} at "
-              f"{AUDIO_RATE} Hz, {AUDIO_BITS} bit, "
+              f"{self.rate} Hz, {AUDIO_BITS} bit, "
               f"{'stereo' if self.channels > 1 else 'mono'}")
         return True
 
-    def _read(self):
-        stream = self._parec.stdout
+    def set_rate(self, rate):
+        """Capture at another rate from now on, because the panel asked.
+
+        The panel's speaker feeds a mixer that runs at one rate, and sound at
+        any other has to be converted somewhere. Here it is PulseAudio's job
+        and costs a server nothing; on the panel it was a resampler task that
+        a wake word listening beside it starved into dropped blocks.
+
+        True if anything changed. What the old capture still holds is thrown
+        away rather than sent under the new rate's name.
+        """
+        if rate == self.rate or rate <= 0:
+            return False
+        old = self._parec
+        self.rate = rate
+        self.block = self._block_bytes(rate)
+        self._parec = None
+        if old is not None:
+            old.terminate()
+        self._blocks.clear()
+        if self._module is not None:
+            self._spawn()
+        return True
+
+    def _read(self, stream, rate):
         while True:
-            chunk = stream.read(self.block)
+            chunk = stream.read(self._block_bytes(rate))
             if not chunk:
+                return
+            if rate != self.rate:
+                # The last reads of a capture already replaced. Its samples
+                # are at a rate nobody will be told about any more.
                 return
             # Bounded on purpose. Sound that could not be sent is sound whose
             # moment has passed: a panel that is behind wants the newest
@@ -2141,8 +2195,10 @@ class PanelWriter:
     """
 
     # What the sound blocks carry. Set to the capture's own count once both
-    # exist, so the header can never disagree with the samples behind it.
+    # exist, so the header can never disagree with the samples behind it --
+    # and the rate likewise, the moment the capture switches.
     audio_channels = AUDIO_CHANNELS
+    audio_rate = AUDIO_RATE
 
     def __init__(self, endpoint):
         self._endpoint = endpoint
@@ -2239,8 +2295,7 @@ class PanelWriter:
                 if not self._audio:
                     return
                 block = self._audio.popleft()
-            self._endpoint.write(
-                build_audio_header(len(block), self.audio_channels) + block)
+            self._endpoint.write(block)
             self._audio_sent += 1
 
     def take_audio(self):
@@ -2260,7 +2315,12 @@ class PanelWriter:
                 # the behaviour wanted and the reason it has to be counted here
                 # rather than noticed later.
                 self._audio_dropped += 1
-            self._audio.append(block)
+            # The header is made HERE, when the block is handed over, so a
+            # block keeps the rate it was captured at even if the capture
+            # switches while it waits.
+            self._audio.append(
+                build_audio_header(len(block), self.audio_channels,
+                                   self.audio_rate) + block)
             self._wake.notify()
 
     def ready(self):
@@ -5101,6 +5161,7 @@ def main():
             writer = PanelWriter(endpoint)
             if audio is not None:
                 writer.audio_channels = audio.channels
+                writer.audio_rate = audio.rate
             previous = None
             last_full = 0.0
             rectangles_sent = 0
@@ -5437,6 +5498,14 @@ def main():
                                           if body > 0 else "Audio: muted")
                                 audio.gain = body
                             continue
+                        if kind == "rate":
+                            # The board asking for the page's sound at the
+                            # rate of the mixer behind its speaker. Sent the
+                            # moment it accepts this connection, so it lands
+                            # before more than a block or two has gone out.
+                            if audio is not None and audio.set_rate(body):
+                                writer.audio_rate = audio.rate
+                            continue
                         if kind == "home":
                             # portall.home on the board. Until now the way back
                             # could only ever be a finger, because only the
@@ -5481,6 +5550,7 @@ def main():
                                 image = None
                                 if injector is not None:
                                     injector.release()
+                                greet_avatar(page)
                             else:
                                 asleep_since = started
                                 capture.pause()

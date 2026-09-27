@@ -1101,6 +1101,11 @@ AVATAR_CSS = """
    display: none;
  }
  #av .bulb { fill: #334155; }
+ /* The greeting takes the corner the weather and the voice use, for the
+    three seconds it lasts. */
+ #av.hello .acc.hello { display: inline; }
+ #av.hello .acc.rain, #av.hello .acc.flake, #av.hello .acc.bubble,
+ #av.hello .acc.zzz { display: none; }
  #av[data-voice="surprised"] .bulb { fill: #38bdf8; }
  #av[data-voice="thinking"] .bulb { fill: #f59e0b; }
  #av[data-voice="happy"] .bulb { fill: #22c55e; }
@@ -1114,7 +1119,12 @@ AVATAR_CSS = """
  #av .brow, #av .mouth, #av .shut, #av .o {
    transition: transform .12s ease, opacity .12s ease, d .12s ease;
  }
- #av .look { transform: translate(var(--lx, 0px), var(--ly, 0px)); }
+ /* --ls is curiosity: a pupil that grows when it looks to one side, which is
+    RoboEyes' "curious" mode. Snapped with the glance that carries it, so it
+    costs nothing the glance did not already. */
+ #av .look {
+   transform: translate(var(--lx, 0px), var(--ly, 0px)) scale(var(--ls, 1));
+ }
  #av .shut, #av .o { opacity: 0; }
  #av.blink .eye { transform: scaleY(.08); }
  /* A resting face lifts its brows now and then, as the original does every
@@ -1280,6 +1290,13 @@ AVATAR_EXTRAS = """
   <circle cx="141" cy="-17.5" r="1.5"/><circle cx="147.5" cy="-17.5" r="1.5"/>
   <circle cx="154" cy="-17.5" r="1.5"/>
  </g>
+ <g class="acc hello">
+  <path d="M104 -24 H156 A6 6 0 0 1 162 -18 V-12 A6 6 0 0 1 156 -6 H116
+   L110 -1 L111 -6 H104 A6 6 0 0 1 98 -12 V-18 A6 6 0 0 1 104 -24 Z"
+   fill="#f8fafc"/>
+  <text x="130" y="-11.5" font-size="9" font-family="sans-serif"
+   font-weight="700" fill="#0f172a" text-anchor="middle">Hello</text>
+ </g>
  <g class="acc zzz" fill="#94a3b8" font-family="sans-serif" font-weight="700">
   <text x="138" y="-2" font-size="10">z</text>
   <text x="146" y="-10" font-size="13">z</text>
@@ -1369,16 +1386,24 @@ AVATAR_JS = """<script>
      remote or a gamepad has just chosen. A turn of the pupils toward it for a
      second and a half, which repaints the eyes twice and nothing else. */
   var looking = 0;
+  /* Curious when it looks to one side: the pupils grow by a quarter, the way
+     RoboEyes' curious eyes do. Only sideways -- up and down is just looking. */
+  function curious(dx, dy) {
+    box.style.setProperty('--ls',
+      Math.abs(dx) > 2 * Math.abs(dy) ? '1.25' : '1');
+  }
   function lookAt(x, y) {
     var r = box.getBoundingClientRect();
     var dx = x - (r.left + r.width / 2), dy = y - (r.top + r.height / 2);
     var far = Math.sqrt(dx * dx + dy * dy) || 1;
     box.style.setProperty('--lx', (5 * dx / far).toFixed(1) + 'px');
     box.style.setProperty('--ly', (4 * dy / far).toFixed(1) + 'px');
+    curious(dx, dy);
     clearTimeout(looking);
     looking = setTimeout(function () {
       box.style.setProperty('--lx', '0px');
       box.style.setProperty('--ly', '0px');
+      box.style.setProperty('--ls', '1');
     }, 1500);
   }
   function lookAtTile(tile) {
@@ -1412,8 +1437,25 @@ AVATAR_JS = """<script>
     return false;
   }
   function weather(kind) { box.dataset.wx = kind || ''; }
+  /* The panel's screen came back on: a smile and a word, the way EMO says
+     hello when somebody comes back. The word is the panel's own language
+     (locale: in the add-on) and the time of day, and the sender asks for
+     it when the board says it is awake again. */
+  var greeting = 0;
+  function greet() {
+    var fr = /^fr/i.test(navigator.language || '');
+    var h = new Date().getHours();
+    var evening = h >= 18 || h < 5;
+    box.querySelector('.acc.hello text').textContent =
+      fr ? (evening ? 'Bonsoir' : 'Bonjour') : 'Hello';
+    box.classList.add('hello');
+    set('happy', 3000);
+    clearTimeout(greeting);
+    greeting = setTimeout(function () { box.classList.remove('hello'); }, 3000);
+    return true;
+  }
   window.portallAvatar = {set: set, stand: stand, open: open,
-                          weather: weather};
+                          weather: weather, greet: greet};
 
   function blink() {
     box.classList.add('blink');
@@ -1425,7 +1467,11 @@ AVATAR_JS = """<script>
     if (box.dataset.mood === 'neutral') {
       var x = [-4, 4, 3][Math.floor(Math.random() * 3)];
       box.style.setProperty('--lx', x + 'px');
-      setTimeout(function () { box.style.setProperty('--lx', '0px'); }, 1500);
+      curious(x, 0);
+      setTimeout(function () {
+        box.style.setProperty('--lx', '0px');
+        box.style.setProperty('--ls', '1');
+      }, 1500);
     }
     setTimeout(glance, 10000 + Math.random() * 8000);
   }

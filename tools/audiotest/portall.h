@@ -16,7 +16,9 @@ namespace esphome { namespace portall {
 class Portall {
  public:
   void set_speaker(speaker::Speaker *s) { speaker_ = s; }
-  void on_audio_samples(const uint8_t *data, size_t length, uint8_t channels = PORTALL_AUDIO_CHANNELS);
+  void on_audio_samples(const uint8_t *data, size_t length, uint8_t channels = PORTALL_AUDIO_CHANNELS,
+                        uint32_t rate = PORTALL_AUDIO_RATE);
+  void set_sample_rate(uint32_t rate) { sample_rate_ = rate; }
   void set_audio_volume(float volume);
   void on_usb_audio_mute(bool muted);
   void setup_speaker_();
@@ -37,5 +39,8 @@ class Portall {
   uint32_t audio_hold_ms_{0};
   uint8_t audio_channels_{PORTALL_AUDIO_CHANNELS};
   uint32_t last_audio_ms_{0};
+  uint32_t sample_rate_{PORTALL_AUDIO_RATE};
+  uint32_t rate_mismatch_since_ms_{0};
+  bool logged_rate_mismatch_{false};
 };
 }}
