@@ -745,6 +745,13 @@ void PortallBT::heard_device(const uint8_t *addr, uint32_t cod, const char *name
            (unsigned) major, (unsigned) minor, name != nullptr ? "  " : "",
            name != nullptr ? name : "");
 
+  // One device per scan: the cancel is already on its way, and a second
+  // taken device would be a second connection asked for on top of the first.
+  if (this->pair_took_) {
+    ESP_LOGD(TAG, "  a device was already chosen in this scan -- passing over this one");
+    return;
+  }
+
   /* A DEVICE THIS PANEL ALREADY HAS IS NOT WHAT PAIRING IS FOR, and taking it
    * is what made adding a second device so hard.
    *
@@ -782,8 +789,6 @@ void PortallBT::heard_device(const uint8_t *addr, uint32_t cod, const char *name
   // others) be mistaken for a speaker: it reports AUDIO/VIDEO because of
   // the jack, and `wants_speaker()` was tested before the minor class
   // could say otherwise.
-  esp_bd_addr_t target;
-  memcpy(target, addr, 6);
   const bool sink = plays_sound(cod, minor);
   const bool wanted = (major == ESP_BT_COD_MAJOR_DEV_PERIPHERAL && this->wants_input()) ||
                       (major == ESP_BT_COD_MAJOR_DEV_AV && minor == 0x12 && this->wants_input()) ||
@@ -791,13 +796,11 @@ void PortallBT::heard_device(const uint8_t *addr, uint32_t cod, const char *name
   if (wanted) {
     memcpy(this->pair_target_, addr, 6);
     this->pair_took_ = true;
+    this->pair_as_speaker_ = major == ESP_BT_COD_MAJOR_DEV_AV && minor != 0x12;
   }
   if (major == ESP_BT_COD_MAJOR_DEV_PERIPHERAL && this->wants_input()) {
-    ESP_LOGI(TAG, "  that is an input device -- stopping the scan and pairing with it");
+    ESP_LOGI(TAG, "  that is an input device -- stopping the scan, then pairing with it");
     esp_bt_gap_cancel_discovery();
-#ifdef CONFIG_BT_HID_HOST_ENABLED
-    esp_bt_hid_host_connect(target);
-#endif
   } else if (major == ESP_BT_COD_MAJOR_DEV_AV && minor == 0x12 && this->wants_input()) {
     // Gaming/Toy within Audio/Video: a gamepad that reports audio
     // capabilities because it carries a headphone jack or a microphone.
@@ -806,31 +809,9 @@ void PortallBT::heard_device(const uint8_t *addr, uint32_t cod, const char *name
     // the fault this block exists to prevent.
     ESP_LOGI(TAG, "  that is a gaming device (A/V class, minor 0x12) -- pairing as input");
     esp_bt_gap_cancel_discovery();
-#ifdef CONFIG_BT_HID_HOST_ENABLED
-    esp_bt_hid_host_connect(target);
-#endif
   } else if (major == ESP_BT_COD_MAJOR_DEV_AV && sink && this->wants_speaker()) {
-    ESP_LOGI(TAG, "  that is a speaker -- stopping the scan and pairing with it");
+    ESP_LOGI(TAG, "  that is a speaker -- stopping the scan, then pairing with it");
     esp_bt_gap_cancel_discovery();
-#ifdef CONFIG_BT_A2DP_ENABLE
-    /* THIS ONE REPLACES, so it is the one place a pairing still hangs
-     * something up -- and the only one.
-     *
-     * A panel drives ONE speaker: A2DP source is a single stream with one
-     * encoder, and `Remembered` has one slot for it. So a speaker taken here
-     * is not being added beside the old one, it is taking its place, and
-     * leaving the old link up would have the stack asked for a second sink it
-     * cannot carry. Input devices have four slots and are genuinely added, so
-     * nothing is dropped for them. */
-    if (this->a2dp_open_ && addr_set(this->open_sink_) &&
-        memcmp(this->open_sink_, addr, 6) != 0) {
-      char old_text[18];
-      say_addr(old_text, this->open_sink_);
-      ESP_LOGI(TAG, "  hanging up %s first -- this panel drives one speaker at a time", old_text);
-      this->drop_link_to_(this->open_sink_, true);
-    }
-    esp_a2d_source_connect(target);
-#endif
   } else if (major == ESP_BT_COD_MAJOR_DEV_AV && minor != 0x12 && !sink) {
     // Said, and the scan goes on: nothing is cancelled, so a speaker further
     // down the list still gets its turn.
@@ -902,8 +883,9 @@ void PortallBT::pair() {
    * the panel -- which is advice for a stack that is stuck, given to one that
    * is merely busy. */
   if (this->scan_deadline_ms_ != 0) {
+    const int32_t left = (int32_t) (this->scan_deadline_ms_ - now_ms_());
     ESP_LOGW(TAG, "a scan is already running; it ends by itself within %u seconds",
-             (unsigned) ((this->scan_deadline_ms_ - now_ms_()) / 1000 + 1));
+             (unsigned) (left > 0 ? left / 1000 + 1 : 1));
     return;
   }
   this->reconnect_paused_ = true;
@@ -940,8 +922,16 @@ void PortallBT::pair() {
    * the log then says NOTHING. Not even "scan finished", because that line
    * comes from an event the stack only sends if it began. From the outside a
    * refused scan and a scan that heard nothing are the same silence. */
+  /* Armed BEFORE the scan is asked for, not after: the stack's STOPPED event
+   * comes from its own task and may arrive before this function returns, and
+   * scan_stopped() ignores a STOPPED when no scan is armed. Armed after, that
+   * STOPPED was thrown away and the panel waited out the whole deadline. */
+  this->scan_deadline_ms_ = now_ms_() + (uint32_t) length * 1280 + SCAN_GRACE_MS;
+  if (this->scan_deadline_ms_ == 0)
+    this->scan_deadline_ms_ = 1;
   const esp_err_t started = esp_bt_gap_start_discovery(ESP_BT_INQ_MODE_GENERAL_INQUIRY, length, 0);
   if (started != ESP_OK) {
+    this->scan_deadline_ms_ = 0;
     ESP_LOGE(TAG, "the scan did not start (%d) -- nothing is being looked for. Press this again "
                   "in a few seconds; if it keeps refusing, restart the panel.", (int) started);
     esp_bt_gap_set_scan_mode(ESP_BT_CONNECTABLE, ESP_BT_NON_DISCOVERABLE);
@@ -961,10 +951,8 @@ void PortallBT::pair() {
    * Bluedroid asks each device heard for its name, each of which can run to a
    * page timeout. SCAN_GRACE_MS covers that with room, and a scan cut short
    * there has already reported everything it heard: heard_device() runs on
-   * each result as it arrives. */
-  this->scan_deadline_ms_ = now_ms_() + (uint32_t) length * 1280 + SCAN_GRACE_MS;
-  if (this->scan_deadline_ms_ == 0)
-    this->scan_deadline_ms_ = 1;
+   * each result as it arrives. The deadline itself is armed above, before the
+   * scan is asked for. */
 #endif
 }
 
@@ -1014,8 +1002,51 @@ void PortallBT::end_scan_() {
      list until it was restarted. A device being paired needs none of it -- this
      panel pages that device, not the other way round. */
   esp_bt_gap_set_scan_mode(ESP_BT_CONNECTABLE, ESP_BT_NON_DISCOVERABLE);
+  this->connect_pair_target_();
   this->resume_reconnect();
   this->say_pairing_later();
+#endif
+}
+
+void PortallBT::connect_pair_target_() {
+#ifdef CONFIG_BT_BLUEDROID_ENABLED
+  /* THE CONNECTION IS ASKED FOR ONLY ONCE THE SCAN HAS STOPPED, which is the
+   * order Espressif's own A2DP source example keeps: heard -> cancel ->
+   * DISCOVERY_STOPPED -> connect (examples/bluetooth/bluedroid/classic_bt/
+   * a2dp_source, v5.5.5). This component asked for it in the same breath as
+   * the cancel, while the stack was still in its search -- an inquiry being
+   * cancelled, a page started beside it -- and reported as "il me dit
+   * d'attendre 10 s mais rien ne fait", pairing that worked once after a
+   * restart and not again until the next one. */
+  if (!this->pair_took_ || !addr_set(this->pair_target_))
+    return;
+  esp_bd_addr_t target;
+  memcpy(target, this->pair_target_, 6);
+  if (this->pair_as_speaker_) {
+#ifdef CONFIG_BT_A2DP_ENABLE
+    /* THIS ONE REPLACES, so it is the one place a pairing still hangs
+     * something up -- and the only one.
+     *
+     * A panel drives ONE speaker: A2DP source is a single stream with one
+     * encoder, and `Remembered` has one slot for it. So a speaker taken here
+     * is not being added beside the old one, it is taking its place, and
+     * leaving the old link up would have the stack asked for a second sink it
+     * cannot carry. Input devices have four slots and are genuinely added, so
+     * nothing is dropped for them. */
+    if (this->a2dp_open_ && addr_set(this->open_sink_) &&
+        memcmp(this->open_sink_, target, 6) != 0) {
+      char old_text[18];
+      say_addr(old_text, this->open_sink_);
+      ESP_LOGI(TAG, "  hanging up %s first -- this panel drives one speaker at a time", old_text);
+      this->drop_link_to_(this->open_sink_, true);
+    }
+    esp_a2d_source_connect(target);
+#endif
+  } else {
+#ifdef CONFIG_BT_HID_HOST_ENABLED
+    esp_bt_hid_host_connect(target);
+#endif
+  }
 #endif
 }
 
