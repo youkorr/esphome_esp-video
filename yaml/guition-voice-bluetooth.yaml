@@ -249,6 +249,15 @@ micro_wake_word:
   models:
     - model: okay_nabu
   on_wake_word_detected:
+    # The page's sound -- a video, usually -- drops by 20 dB the moment the
+    # wake word is heard, so the microphone hears the question rather than
+    # the film (this board has no echo cancellation), and the answer is not
+    # spoken over it. Only the page's input is lowered: the answer arrives on
+    # announcement_mixing_input and is untouched. Raised again in on_end.
+    - mixer_speaker.apply_ducking:
+        id: portall_mixing_input
+        decibel_reduction: 20
+        duration: 0.2s
     # The phrase goes with it: Home Assistant picks which assistant answers
     # by matching it against the panel's "Wake word" selects.
     - voice_assistant.start:
@@ -271,6 +280,12 @@ voice_assistant:
   on_client_disconnected:
     - voice_assistant.stop:
     - micro_wake_word.stop:
+    # A conversation cut off here never reaches on_end, and the video would
+    # stay quiet until the next one.
+    - mixer_speaker.apply_ducking:
+        id: portall_mixing_input
+        decibel_reduction: 0
+        duration: 1s
   on_end:
     # Let the answer finish before listening again, or the wake word hears
     # the panel's own voice.
@@ -281,6 +296,12 @@ voice_assistant:
     - wait_until:
         not:
           media_player.is_announcing:
+    # The answer is over: the video comes back up, over a second rather than
+    # at once.
+    - mixer_speaker.apply_ducking:
+        id: portall_mixing_input
+        decibel_reduction: 0
+        duration: 1s
     - if:
         condition:
           switch.is_on: wake_word_listening
