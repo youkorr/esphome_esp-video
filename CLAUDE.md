@@ -9536,6 +9536,32 @@ now, on both ends. `tools/bttest/pairing.cpp` drives both paths through
 `scan_stopped()` (lifted out of the GAP callback so a test can reach it);
 with the deadline disabled six cases fail. **Not flashed.**
 
+## A TV box answered every scan, and Audio/Video was taken to mean speaker
+
+**A panel log with no prose, two Pair presses, the same line both times:**
+
+    heard 00:04:4B:AA:79:3E  class 280424  major 4 minor 9
+    that is a speaker -- stopping the scan and pairing with it
+    BT_BTC: BTA_AV_OPEN_EVT::FAILED status: 2
+    pairing finished: 00:04:4B:AA:79:3E answered the scan but has not connected
+
+`00:04:4B` is NVIDIA's prefix and the class says the rest: major 4 is
+Audio/Video, **minor 9 is Set-top box**, and the service bits are Audio and
+**Capturing** -- not Rendering. It is a Shield TV, an A2DP SOURCE. The sort
+took any Audio/Video device as a speaker, stopped the scan on it, A2DP
+refused it, and whatever was waiting in pairing mode behind it never got a
+turn. The boot inquiry in the same log heard a second A/V device at -48 dBm
+that the pairing scan never reached.
+
+`plays_sound()` in hid.cpp: a speaker is one of the assigned-number minors
+that make sound (1, 2, 5, 6, 7, 8, 10, 15), or an uncategorised one (0) with
+the Rendering service bit (bit 18), which is what a sink sets. Anything else
+Audio/Video (and not Gaming/Toy, which stays an input device) is named in the
+log and passed over WITHOUT cancelling the scan, so the next device heard
+still gets its turn. The UGREEN it was proved on is 240404, Rendering and
+minor 1, and is still taken. `tools/bttest/pairing.cpp` carries the reported
+class; with the filter off four cases fail. **Not flashed.**
+
 ## The jitter buffer went with the resampler, and a video found it
 
 **Reported as a YouTube video "au ralenti" with the sound disturbed.** The
