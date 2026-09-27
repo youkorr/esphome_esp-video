@@ -1,5 +1,14 @@
 # Changelog
 
+## 4.30.0
+
+- **A new avatar, `orb`.** A glossy ball with two eyes whose colour says
+  what it is doing: violet-blue at rest, green while the voice assistant
+  listens, a turning white ring while it thinks, mint and pink while it
+  answers, yellow with a ! when you start moving it, red after five taps. It
+  jumps when you tap it or when it says hello. Choose it with `avatar_shape:
+  orb` on the launcher, or on one panel's own launcher.
+
 ## 4.29.5
 
 - **Updates install much faster.** Until now every update of the add-on

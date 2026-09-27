@@ -489,6 +489,148 @@ def pixel(browser):
     page.close()
 
 
+def orb(browser):
+    """The ball from the Lottie: its colours say the state."""
+    print("Orb:")
+    links = [{"name": "Rouge", "url": "http://127.0.0.1:9/a/", "icon": "tv"}]
+    address = launcher.start(links, avatar=True, avatar_shape="orb",
+                             port=launcher.ANY_PORT)
+    page = browser.new_page(viewport={"width": 1280, "height": 800},
+                            locale="fr-FR")
+    page.clock.install(time=datetime.datetime(2026, 9, 27, 12, 0))
+    page.goto(address)
+    page.wait_for_selector("#av")
+
+    def state():
+        return page.evaluate("document.getElementById('av').dataset.orb")
+
+    def skin():
+        return page.evaluate(
+            "getComputedStyle(document.querySelector('#av .ob-skin')).fill")
+
+    def shown(selector):
+        return page.evaluate(f"""() => {{
+            const e = document.querySelector('#av {selector}');
+            return !!e && getComputedStyle(e).display !== 'none'; }}""")
+
+    def eye():
+        return page.evaluate("""() => { const e = document.querySelector(
+            '#av .ob-e.l .oe'); return [parseFloat(getComputedStyle(e).y),
+            parseFloat(getComputedStyle(e).height)]; }""")
+
+    def mood(m, voice="neutral", wait=200):
+        page.evaluate(f"""() => {{ const b = document.getElementById('av');
+            b.dataset.voice = '{voice}'; b.dataset.mood = '{m}'; }}""")
+        page.clock.fast_forward(wait)
+        page.wait_for_timeout(50)
+
+    check("its own face: a ball and two pills, not the others' eyes",
+          page.evaluate("!!document.querySelector('#av .ob-skin') && "
+                        "!document.querySelector('#av .eye')"))
+    rest = eye()
+    check("at rest: violet-blue, eyes open", state() == "calm"
+          and "ob-calm" in skin() and shown(".look"), skin())
+    mood("surprised", "surprised")
+    check("listening: green, and it looks up",
+          state() == "listen" and "ob-listen" in skin() and eye()[0] < rest[0])
+    mood("thinking", "thinking")
+    turned = page.evaluate(
+        "getComputedStyle(document.querySelector('#av .ob-ring')).transform")
+    page.clock.fast_forward(125)
+    page.wait_for_timeout(50)
+    check("thinking: the eyes give way to a ring that turns",
+          state() == "think" and shown(".ob-ring") and not shown(".look")
+          and page.evaluate("getComputedStyle(document.querySelector("
+                            "'#av .ob-ring')).transform") != turned)
+    check("and not the others' bubble", not shown(".acc.bubble"))
+    mood("happy", "happy")
+    sizes = set()
+    for _ in range(8):
+        page.clock.fast_forward(250)
+        page.wait_for_timeout(20)
+        sizes.add(page.evaluate("getComputedStyle(document.getElementById("
+                                "'av')).getPropertyValue('--th').trim()"))
+    check("answering: mint and magenta, the eyes squeeze with the words",
+          state() == "speak" and "ob-joy" in skin() and len(sizes) >= 3,
+          str(sizes))
+    mood("neutral", "neutral")
+    check("and when it is done the eyes are whole again",
+          page.evaluate("getComputedStyle(document.getElementById('av'))"
+                        ".getPropertyValue('--th').trim()") == "1")
+    page.evaluate("window.portallAvatar.set('happy', 2500)")
+    page.clock.fast_forward(120)
+    page.wait_for_timeout(30)
+    air = page.evaluate("getComputedStyle(document.querySelector('#av .ob'))"
+                        ".transform")
+    page.clock.fast_forward(600)
+    page.wait_for_timeout(30)
+    check("happy: it jumps once, then stands where it was",
+          state() == "happy" and air != "none" and page.evaluate(
+              "getComputedStyle(document.querySelector('#av .ob')).transform")
+          == "none", air)
+    page.clock.fast_forward(2500)
+    mood("surprised")
+    check("startled: yellow with a ! where its eyes were",
+          state() == "alert" and "ob-alert" in skin() and shown(".ob-bang")
+          and not shown(".look"))
+    mood("neutral")
+    r = page.evaluate("""() => { const r = document.querySelector(
+        '#av .ob-skin').getBoundingClientRect();
+        return [r.x + r.width / 2, r.y + r.height / 2]; }""")
+    for _ in range(5):
+        page.mouse.click(r[0], r[1])
+        page.clock.fast_forward(200)
+    page.wait_for_timeout(50)
+    check("five taps in three seconds: red", state() == "angry"
+          and "ob-angry" in skin())
+    page.clock.fast_forward(3000)
+    page.evaluate("window.portallAvatar.weather('hot')")
+    page.wait_for_timeout(50)
+    check("hot: a drop of sweat, not sunglasses",
+          shown(".acc.sweat") and not shown(".acc.hot"))
+    page.evaluate("window.portallAvatar.weather('')")
+    check("woken, it says Bonjour", __import__("ha_send").greet_avatar(page)
+          and shown(".acc.hello") and page.evaluate(
+              "document.querySelector('#av .acc.hello text').textContent")
+          == "Bonjour")
+    page.close()
+
+    page = browser.new_page(viewport={"width": 1280, "height": 800})
+    page.clock.install(time=datetime.datetime(2026, 9, 27, 23, 0))
+    page.goto(address)
+    page.wait_for_selector("#av")
+    check("at night: dim, eyes nearly shut, and its z's",
+          state() == "sleepy" and "ob-night" in skin()
+          and eye()[1] < rest[1] / 3 and shown(".acc.zzz"))
+    page.close()
+
+    # What it costs a launcher nobody touches, at noon.
+    page = browser.new_page(viewport={"width": 1280, "height": 800})
+    page.clock.install(time=datetime.datetime(2026, 9, 27, 12, 0))
+    page.goto(address)
+    page.wait_for_selector("#av")
+    page.wait_for_timeout(1000)
+    cdp = page.context.new_cdp_session(page)
+    frames = []
+
+    def got(event):
+        frames.append(event["data"])
+        cdp.send("Page.screencastFrameAck", {"sessionId": event["sessionId"]})
+    cdp.on("Page.screencastFrame", got)
+    cdp.send("Page.startScreencast", {"format": "jpeg", "quality": 80})
+    page.wait_for_timeout(15000)
+    cdp.send("Page.stopScreencast")
+    changed, before = 0, None
+    for data in frames:
+        picture = Image.open(io.BytesIO(base64.b64decode(data))).convert("L")
+        if before is not None and ImageChops.difference(picture, before).getbbox():
+            changed += 1
+        before = picture
+    check("still, it costs what the other faces cost",
+          changed <= 14, f"{changed} changed pictures in 15 s")
+    page.close()
+
+
 def main():
     run.AVATAR_DIR = tempfile.mkdtemp()
     browser_path = os.environ.get("CHROMIUM") or None
@@ -601,6 +743,7 @@ def main():
               changed <= 14, f"{changed} changed pictures in 15 s")
         character(browser)
         pixel(browser)
+        orb(browser)
         browser.close()
 
     if faults:

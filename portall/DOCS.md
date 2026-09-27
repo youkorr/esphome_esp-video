@@ -261,7 +261,7 @@ launcher:
   tiles: cards                # cards, or buttons (icon on top, name below)
   focus_color: theme          # the frame around the link a remote is on
   avatar: false               # a small face in the corner, moved with a finger
-  avatar_shape: mochi         # mochi, robot, cat, bear, ghost or pixel
+  avatar_shape: mochi         # mochi, robot, cat, bear, ghost, pixel or orb
   avatar_voice: ""            # the voice assistant it follows; empty: the only one
   voice_links: false          # "ouvre Jellyfin" to the voice assistant opens it
   clock:
@@ -327,8 +327,8 @@ glances now and then, and is otherwise still, so a launcher nobody touches
 costs a few small pictures of its eyes rather than a stream.
 
 **Its shape, `avatar_shape:`.** `mochi` (a soft ball, the default), `robot`
-(its antenna lights up with the voice assistant), `cat`, `bear`, `ghost`
-or `pixel`. The face is the same in the first five; only the body around it
+(its antenna lights up with the voice assistant), `cat`, `bear`, `ghost`,
+`pixel` or `orb`. The face is the same in the first five; only the body around it
 changes. Each panel's own launcher can have its own.
 
 **`pixel` has a face of its own**: a little white robot whose face is a
@@ -355,6 +355,24 @@ Every expression lasts two or three seconds and then goes back to what it
 was, so a launcher nobody touches costs no more than with the other faces.
 The mouth that moves while the voice assistant answers is the one animation
 that runs by itself, and only for as long as the answer.
+
+**`orb` is a glossy ball with two eyes**, and its colour says what it is
+doing:
+
+| it looks | when |
+|---|---|
+| violet-blue, eyes open | at rest |
+| green, looking up | the voice assistant is listening |
+| a white ring turning where its eyes were | the voice assistant is thinking |
+| mint and pink, eyes squeezing with the words | the voice assistant is answering |
+| mint and pink, and it jumps | you tap it, it says hello, or it opens a link |
+| yellow, with a ! | you start moving it |
+| red | five taps in a row |
+| dark blue, eyes nearly shut, with z's | from 22 h to 7 h |
+| a drop of sweat | it is 25 °C or more and clear |
+
+The ring and the eyes that squeeze are the only things that move by
+themselves, and only while the voice assistant thinks or answers.
 
 **It lives with the house.** Nothing to set for any of this:
 

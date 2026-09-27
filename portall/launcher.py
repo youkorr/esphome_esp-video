@@ -1619,6 +1619,233 @@ PIXEL_JS = """<script>
 </script>""" % {"lx": lx, "ly": ly, "rx": rx_, "ry": ry_}
 
 
+# "Orb" -- the seventh body, reproduced from a Lottie animation the household
+# sent ("AI_robo": a glossy ball with two pill eyes, 700x700, 480 frames at
+# 60 fps). The animation was rendered frame by frame with lottie-web to read
+# what it does, and what it does is the whole design: the ball's COLOUR says
+# the state -- violet-blue at rest, green, red, yellow with a "!" in place of
+# the eyes, a white ring spinning where the eyes were while it loads, and a
+# squash-and-stretch jump in mint and magenta. Its numbers are the file's:
+# the eyes are strokes of 20 on a ball of 300, 76 apart and 12 above the
+# middle; the ring is 99 across with a stroke of 15 and a quarter of it drawn;
+# the glint is a 3% arc of a circle 250 across. Scaled to a ball of radius 51.
+#
+# What is NOT copied is the motion between states. The Lottie turns its
+# gradient round and eases every change over dozens of frames, which on a
+# panel is a stream of whole pictures for as long as it is showing. Here a
+# change of state snaps, like every other face's blink, and only two things
+# run by themselves, each only while it lasts: the ring while the voice
+# assistant thinks, and the eyes while it answers.
+ORB_C = (75, 55)
+ORB_R = 51
+
+
+def _orb_arc(r, start, end):
+    """An arc of the circle of radius r round the ball's middle, in degrees
+    clockwise from three o'clock, as SVG draws them."""
+    cx, cy = ORB_C
+    a, b = math.radians(start), math.radians(end)
+    large = 1 if (end - start) % 360 > 180 else 0
+    return (f"M{cx + r * math.cos(a):.2f} {cy + r * math.sin(a):.2f} "
+            f"A{r} {r} 0 {large} 1 {cx + r * math.cos(b):.2f} "
+            f"{cy + r * math.sin(b):.2f}")
+
+
+# The Lottie's own gradients, three stops each, from the lit side to the
+# shadowed one. Rest, listening, cross, a warning and the jump are its; the
+# night's is this page's, the rest's with the light turned down.
+ORB_PALETTES = {
+    "calm": ("#0036ff", "#631bff", "#c600ff"),
+    "listen": ("#00ff42", "#008021", "#000000"),
+    "angry": ("#ff0000", "#800000", "#000000"),
+    "alert": ("#fff600", "#807b00", "#000000"),
+    "joy": ("#8bffb1", "#9d80a2", "#ae0093"),
+    "night": ("#0a1a73", "#2e0f73", "#5a0073"),
+}
+
+AVATAR_SHAPES["orb"] = ""
+
+_k = 2 * ORB_R / 300.0  # the Lottie's units in this drawing's
+_ecy = ORB_C[1] - 12.5 * _k
+_edx = 38 * _k
+_ew, _eh = 20 * _k, 57 * _k
+
+
+def _orb_eye(side, cx):
+    return (f'<g class="ob-e {side}"><rect class="oe" x="{cx - _ew / 2:.2f}" '
+            f'y="{_ecy - _eh / 2:.2f}" width="{_ew:.2f}" height="{_eh:.2f}" '
+            f'rx="{_ew / 2:.2f}" fill="#fff"/></g>')
+
+
+ORB_FACE = (
+    "\n <defs>"
+    + "".join(
+        f'\n  <linearGradient id="ob-{name}" x1=".12" y1=".08" x2=".9" y2=".95">'
+        f'<stop offset="0" stop-color="{a}"/><stop offset=".5" stop-color="{b}"/>'
+        f'<stop offset="1" stop-color="{c}"/></linearGradient>'
+        for name, (a, b, c) in ORB_PALETTES.items())
+    + "\n </defs>"
+    + f"""
+ <g class="ob">
+  <circle class="ob-skin" cx="{ORB_C[0]}" cy="{ORB_C[1]}" r="{ORB_R}"/>
+  <path d="{_orb_arc(250 / 300 * ORB_R, -76, -65)}" stroke="#fff"
+   stroke-width="{5 * _k:.2f}" stroke-linecap="round" fill="none"/>
+  <g class="look">{_orb_eye("l", ORB_C[0] - _edx)}{_orb_eye("r", ORB_C[0] + _edx)}</g>
+  <g class="ob-x ob-ring"><path d="{_orb_arc(99 / 300 * ORB_R, 0, 90)}"
+   stroke="#fff" stroke-width="{15 * _k:.2f}" stroke-linecap="round"
+   fill="none"/></g>
+  <g class="ob-x ob-bang" stroke="#fff000" stroke-width="{20 * _k:.2f}"
+   stroke-linecap="round"><path d="M{ORB_C[0]} {ORB_C[1] - 17:.1f} V{ORB_C[1] + 3:.1f}
+   M{ORB_C[0]} {ORB_C[1] + 13:.1f} V{ORB_C[1] + 13.2:.1f}"/></g>
+ </g>
+ <path class="acc sweat" d="M146 -18 q5 8 0 13 q-5 -5 0 -13z" fill="#7cc8ff"/>""")
+
+# Only in a page whose face is the orb. Not %-formatted, unlike AVATAR_CSS.
+ORB_CSS = """
+ #av .ob-skin { fill: url(#ob-calm); }
+ #av[data-orb="listen"] .ob-skin { fill: url(#ob-listen); }
+ #av[data-orb="angry"] .ob-skin { fill: url(#ob-angry); }
+ #av[data-orb="alert"] .ob-skin { fill: url(#ob-alert); }
+ #av[data-orb="happy"] .ob-skin, #av[data-orb="speak"] .ob-skin {
+   fill: url(#ob-joy); }
+ #av[data-orb="sleepy"] .ob-skin, #av[data-orb="sad"] .ob-skin {
+   fill: url(#ob-night); }
+ /* The glance carries the pair across the ball, a little further than the
+    other faces' pupils, as the Lottie's eyes wander; curiosity (--ls), a
+    blink and the answering eyes (--th) scale each eye about its own middle.
+    No transition on any of it: each is a snap. */
+ #av[data-shape="orb"] .look {
+   transform: translate(calc(var(--lx, 0px) * 1.6), calc(var(--ly, 0px) * 1.4));
+ }
+ #av .ob-e {
+   transform-box: fill-box; transform-origin: center;
+   transform: scale(var(--ls, 1)) scaleY(var(--th, 1));
+ }
+ #av[data-shape="orb"].blink .ob-e { transform: scale(var(--ls, 1)) scaleY(.12); }
+ /* A change of mood is somebody's doing and eases, as it does on every other
+    face; only the eyes move, and only by the numbers ORB_JS gives them. */
+ #av .oe {
+   transition: x .12s ease, y .12s ease, width .12s ease, height .12s ease,
+               rx .12s ease;
+ }
+ #av .ob, #av .ob-ring { transform-box: view-box; }
+ #av .ob { transform-origin: 75px 106px; }
+ #av .ob-ring { transform-origin: 75px 55px; }
+ #av .ob-x { display: none; }
+ #av[data-orb="think"] .ob-ring, #av[data-orb="alert"] .ob-bang {
+   display: inline; }
+ #av[data-orb="think"] .look, #av[data-orb="alert"] .look { display: none; }
+ /* It says with its colour what the others say with accessories. */
+ #av[data-shape="orb"] .acc.hot, #av[data-shape="orb"] .acc.waves,
+ #av[data-shape="orb"] .acc.bubble { display: none; }
+ #av[data-shape="orb"][data-wx="hot"] .acc.sweat { display: inline; }
+"""
+
+ORB_JS = """<script>
+(function () {
+  var box = document.getElementById('av');
+  if (!box || box.dataset.shape !== 'orb' || !window.portallAvatar) return;
+  var api = window.portallAvatar;
+  var ball = box.querySelector('.ob'), ring = box.querySelector('.ob-ring');
+  var EYES = {l: %(lx)s, r: %(rx)s}, CY = %(cy)s, W = %(w)s, H = %(h)s;
+  /* The eyes of each state, as a move and a size against the eyes at rest.
+     The Lottie's green looks up and its red looks aside; the night's and the
+     sad ones are this page's. */
+  var EXPR = {
+    calm: {}, happy: {}, alert: {}, think: {},
+    speak: {dy: -2},
+    listen: {dy: -5, h: 1.12},
+    angry: {dx: 4, h: .6},
+    sleepy: {dy: 4, h: .18},
+    sad: {dy: 5, h: .7}
+  };
+  function pick() {
+    var mood = box.dataset.mood, voice = box.dataset.voice;
+    if (mood === 'surprised' && voice === 'surprised') return 'listen';
+    if (mood === 'thinking') return 'think';
+    if (mood === 'happy' && voice === 'happy') return 'speak';
+    if (mood === 'surprised') return 'alert';
+    return EXPR[mood] ? mood : 'calm';
+  }
+  function eyes(def) {
+    ['l', 'r'].forEach(function (side) {
+      var e = box.querySelector('.ob-e.' + side + ' .oe');
+      var h = H * (def.h || 1), x = EYES[side] + (def.dx || 0),
+          y = CY + (def.dy || 0);
+      e.style.x = (x - W / 2) + 'px';
+      e.style.y = (y - h / 2) + 'px';
+      e.style.height = h + 'px';
+      e.style.rx = Math.min(W, h) / 2 + 'px';
+    });
+  }
+  /* The loader: a quarter ring turning an eighth at a time, eight times a
+     second, and only while the voice assistant is thinking. */
+  var turning = 0, turn = 0;
+  function spin(on) {
+    clearInterval(turning);
+    if (!on) return;
+    turning = setInterval(function () {
+      turn = (turn + 45) %% 360;
+      ring.style.transform = 'rotate(' + turn + 'deg)';
+    }, 125);
+  }
+  /* Answering, the eyes squeeze and open with the words, four times a second
+     -- the Lottie's eyes going to dots and back. Never the same twice. */
+  var talking = 0, said = 0, OPEN = [1, .55, .85, .35, .7, .45];
+  function talk(on) {
+    clearInterval(talking);
+    box.style.setProperty('--th', '1');
+    if (!on) return;
+    talking = setInterval(function () {
+      var next = said;
+      while (next === said) next = Math.floor(Math.random() * OPEN.length);
+      said = next;
+      box.style.setProperty('--th', OPEN[said]);
+    }, 250);
+  }
+  /* The jump, as the Lottie's last forty frames: squashed, stretched in the
+     air, down, a small squash on landing. Four snaps, once, when something
+     makes it happy. */
+  var JUMP = ['scale(1.18, .82)', 'translateY(-14px) scale(.86, 1.14)',
+              'translateY(-6px) scale(.96, 1.04)', 'scale(1.06, .94)', ''];
+  var jumping = [];
+  function jump() {
+    jumping.forEach(clearTimeout);
+    jumping = JUMP.map(function (t, i) {
+      return setTimeout(function () { ball.style.transform = t; }, i * 110);
+    });
+  }
+  var shown = '';
+  function draw() {
+    var now = pick();
+    if (now === shown) return;
+    var was = shown;
+    shown = now;
+    box.dataset.orb = now;
+    eyes(EXPR[now]);
+    spin(now === 'think');
+    talk(now === 'speak');
+    if (now === 'happy' && was !== 'speak') jump();
+  }
+  new MutationObserver(draw).observe(box, {attributes: true,
+    attributeFilter: ['data-mood', 'data-voice']});
+  draw();
+
+  /* Five taps in three seconds and it goes red, as the Lottie's cross face.
+     Registered after the shared handler, so this mood is the one that
+     stands. */
+  var taps = [];
+  box.addEventListener('click', function () {
+    var t = Date.now();
+    taps.push(t);
+    taps = taps.filter(function (x) { return t - x < 3000; });
+    if (taps.length >= 5) api.set('angry', 2500);
+  });
+})();
+</script>""" % {"lx": f"{ORB_C[0] - _edx:.2f}", "rx": f"{ORB_C[0] + _edx:.2f}",
+                "cy": f"{_ecy:.2f}", "w": f"{_ew:.2f}", "h": f"{_eh:.2f}"}
+
+
 def avatar_html(shape=DEFAULT_AVATAR, wx=""):
     """The face in its body, starting with the weather it was served with."""
     body = AVATAR_SHAPES.get(str(shape).lower(), AVATAR_SHAPES[DEFAULT_AVATAR])
@@ -1627,7 +1854,7 @@ def avatar_html(shape=DEFAULT_AVATAR, wx=""):
     return (f'<div id="av" data-mood="neutral" data-voice="neutral" '
             f'data-shape="{shape}" data-wx="{html.escape(wx)}" '
             f'aria-hidden="true">\n<svg viewBox="{AVATAR_VIEW}">'
-            + body + (PIXEL_FACE if shape == "pixel" else FACE_SVG)
+            + body + {"pixel": PIXEL_FACE, "orb": ORB_FACE}.get(shape, FACE_SVG)
             + AVATAR_EXTRAS + "\n</svg></div>")
 
 
@@ -2251,6 +2478,9 @@ def render(links, title="", subtitle="", theme="dark",
         if str(avatar_shape).lower() == "pixel":
             sheet += PIXEL_CSS
             moving.append(PIXEL_JS)
+        if str(avatar_shape).lower() == "orb":
+            sheet += ORB_CSS
+            moving.append(ORB_JS)
         if voice:
             moving.append(AVATAR_VOICE_JS % {"path": VOICE_PATH})
 

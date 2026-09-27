@@ -1,5 +1,5 @@
 name: Portall
-version: "4.29.5"
+version: "4.30.0"
 # Home Assistant identifies an add-on by its slug, so this one moving from
 # usb_display_panel to portall makes the Supervisor see a NEW add-on: options
 # are not carried over and /data starts empty, which means the browser
@@ -379,7 +379,7 @@ schema:
     tiles: list(cards|buttons)?
     focus_color: list(theme|slate|gray|zinc|neutral|stone|red|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose|white|black)?
     avatar: bool?
-    avatar_shape: list(mochi|robot|cat|bear|ghost|pixel)?
+    avatar_shape: list(mochi|robot|cat|bear|ghost|pixel|orb)?
     avatar_voice: str?
     voice_links: bool?
     clock:
@@ -424,7 +424,7 @@ schema:
       tiles: list(cards|buttons)?
       focus_color: list(theme|slate|gray|zinc|neutral|stone|red|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose|white|black)?
       avatar: bool?
-      avatar_shape: list(mochi|robot|cat|bear|ghost|pixel)?
+      avatar_shape: list(mochi|robot|cat|bear|ghost|pixel|orb)?
       avatar_voice: str?
       clock: bool?
       clock_size: list(small|medium|large|huge)?
