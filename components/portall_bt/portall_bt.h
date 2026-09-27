@@ -788,6 +788,10 @@ class PortallBT : public Component {
   uint32_t scan_deadline_ms_{0};
   static constexpr uint32_t SCAN_GRACE_MS = 20000;
   void end_scan_();
+  /// Whether the device a pair scan took is a speaker or an input device,
+  /// kept until the scan has stopped, which is when it is connected.
+  bool pair_as_speaker_{false};
+  void connect_pair_target_();
   Remembered remembered_{};
   ESPPreferenceObject remembered_pref_;
   RememberedInputs remembered_inputs_{};

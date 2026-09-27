@@ -126,6 +126,14 @@ static const uint8_t SPEAKER[6] = {0x46, 0xE8, 0x1C, 0x8A, 0x88, 0xDD};
 static const uint8_t OTHER_SPEAKER[6] = {0x11, 0x22, 0x33, 0x44, 0x55, 0x66};
 static const uint8_t SHIELD[6] = {0x00, 0x04, 0x4B, 0x93, 0xA9, 0xB2};
 static const uint8_t REMOTE[6] = {0xA4, 0xC1, 0x38, 0x9E, 0x22, 0x07};
+static const uint8_t SPEAKER_TWO[6] = {0x22, 0x33, 0x44, 0x55, 0x66, 0x77};
+
+static size_t counted(const char *what) {
+  size_t n = 0;
+  for (const std::string &one : g_calls)
+    n += one == what;
+  return n;
+}
 
 int main() {
   printf("the reported case: Pair with a speaker already here\n");
@@ -158,8 +166,18 @@ int main() {
     // The device somebody actually pressed the button for.
     g_calls.clear();
     say_run([&] { bt.heard_device(OTHER_SPEAKER, COD_SPEAKER, "a new one"); });
-    check("a speaker it does NOT have is taken",
-          called("esp_a2d_source_connect") && called("esp_bt_gap_cancel_discovery"));
+    /* THE REPORTED CASE: pairing worked once after a restart and not again.
+       The connection was asked for in the same breath as the cancel, while
+       the stack was still searching; Espressif's own example waits for the
+       scan to stop. */
+    check("the scan is cancelled for it", called("esp_bt_gap_cancel_discovery"));
+    check("but nothing is connected while the scan is still stopping",
+          !called("esp_a2d_source_connect"));
+    say_run([&] { bt.heard_device(SPEAKER_TWO, COD_SPEAKER, "a second one"); });
+    say_run([&] { bt.scan_stopped(); });
+    check("a speaker it does NOT have is taken once the scan has stopped",
+          called("esp_a2d_source_connect"));
+    check("and only the first one heard", counted("esp_a2d_source_connect") == 1);
   }
 
   printf("\nand the same for an input device\n");
@@ -191,6 +209,8 @@ int main() {
     g_calls.clear();
     g_hid_connects.clear();
     say_run([&] { bt.heard_device(REMOTE, COD_INPUT, "Orange TV remote"); });
+    check("the remote is not connected before the scan has stopped", g_hid_connects.empty());
+    say_run([&] { bt.scan_stopped(); });
     check("and a remote it does not have is taken",
           g_hid_connects.size() == 1 && g_hid_connects[0] == "A4:C1:38:9E:22:07" &&
               called("esp_bt_gap_cancel_discovery"));
@@ -204,8 +224,10 @@ int main() {
     bt.set_a2dp(true);
     bt.set_hid_host(true);
     bt.start_profiles_();
+    say(&PortallBT::pair, bt);
     g_calls.clear();
     say_run([&] { bt.heard_device(SPEAKER, COD_SPEAKER, "UGREEN-90748"); });
+    say_run([&] { bt.scan_stopped(); });
     check("a first pairing is untouched by any of this",
           called("esp_a2d_source_connect") && called("esp_bt_gap_cancel_discovery"));
   }
@@ -310,10 +332,12 @@ int main() {
   {
     PortallBT bt;
     with_a_speaker_connected(bt);
+    say(&PortallBT::pair, bt);
     g_calls.clear();
     // A DIFFERENT speaker: this panel drives one, so the new one takes the
     // old one's place rather than joining it.
     say_run([&] { bt.heard_device(OTHER_SPEAKER, COD_SPEAKER, "a new one"); });
+    say_run([&] { bt.scan_stopped(); });
     check("the old speaker is hung up before the new one is asked for",
           called_before("esp_a2d_source_disconnect", "esp_a2d_source_connect"));
   }
@@ -323,10 +347,12 @@ int main() {
     bt.set_hid_host(true);
     bt.start_profiles_();
     bt.on_hid_open(SHIELD, 3);
+    say(&PortallBT::pair, bt);
     g_calls.clear();
     g_hid_connects.clear();
     // A SECOND controller is added beside the first, not in its place.
     say_run([&] { bt.heard_device(REMOTE, COD_INPUT, "Orange TV remote"); });
+    say_run([&] { bt.scan_stopped(); });
     check("but a second controller does not hang up the first",
           !called("esp_bt_hid_host_disconnect") && g_hid_connects.size() == 1);
   }
@@ -418,6 +444,7 @@ int main() {
     check("the scan is not stopped for it", !called("esp_bt_gap_cancel_discovery"));
     check("and the log says why", said.find("does not play sound") != std::string::npos);
     say_run([&] { bt.heard_device(OTHER_SPEAKER, COD_SPEAKER, "a new one"); });
+    say_run([&] { bt.scan_stopped(); });
     check("the speaker heard after it is still taken", called("esp_a2d_source_connect"));
     esphome::g_now_ms += 60000;
     say_run([&] { bt.scan_deadline_tick_(); });
@@ -434,6 +461,7 @@ int main() {
       say(&PortallBT::pair, bt);
       g_calls.clear();
       say_run([&] { bt.heard_device(OTHER_SPEAKER, cod, "sink"); });
+      say_run([&] { bt.scan_stopped(); });
       char what[64];
       snprintf(what, sizeof(what), "class %06X is taken as a speaker", (unsigned) cod);
       check(what, called("esp_a2d_source_connect"));
@@ -447,6 +475,7 @@ int main() {
     say(&PortallBT::pair, bt);
     g_calls.clear();
     say_run([&] { bt.heard_device(OTHER_SPEAKER, 0x200400, "uncategorised, no Rendering"); });
+    say_run([&] { bt.scan_stopped(); });
     check("an uncategorised A/V device with no Rendering bit is not",
           !called("esp_a2d_source_connect"));
     esphome::g_now_ms += 60000;
@@ -484,6 +513,20 @@ int main() {
     g_calls.clear();
     say(&PortallBT::pair, bt);
     check("and the next press scans again", called("esp_bt_gap_start_discovery"));
+  }
+
+  printf("\na device chosen before a scan that never reports ending is still paired\n");
+  {
+    PortallBT bt;
+    esphome::global_preferences->wipe();
+    bt.set_a2dp(true);
+    bt.start_profiles_();
+    say(&PortallBT::pair, bt);
+    g_calls.clear();
+    say_run([&] { bt.heard_device(OTHER_SPEAKER, COD_SPEAKER, "a new one"); });
+    esphome::g_now_ms += 60000;
+    say_run([&] { bt.scan_deadline_tick_(); });
+    check("the deadline connects what the scan chose", called("esp_a2d_source_connect"));
   }
 
   printf("\na scan that ends normally puts everything back\n");

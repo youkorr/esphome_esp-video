@@ -9562,6 +9562,39 @@ still gets its turn. The UGREEN it was proved on is 240404, Rendering and
 minor 1, and is still taken. `tools/bttest/pairing.cpp` carries the reported
 class; with the filter off four cases fail. **Not flashed.**
 
+## The connection was asked for while the scan was still being cancelled
+
+**Reported as *"que ce soit ugreen ou nvidia quand je fais une demande
+associee il me dit d'attendre 10 s mais rien ne fait, je suis oblige de
+debrancher ou redemarrer"*.** Pairing worked once after a restart, and then
+not until the next one -- whatever the device.
+
+`heard_device()` called `esp_bt_gap_cancel_discovery()` and, on the next
+line, `esp_a2d_source_connect()` or `esp_bt_hid_host_connect()`: a page
+started while the stack was still in its search, with an inquiry being
+cancelled. **Espressif's own A2DP source example does not do that**, read in
+v5.5.5 rather than remembered (`examples/bluetooth/bluedroid/classic_bt/
+a2dp_source/main/main.c`): on DISC_RES it marks the peer DISCOVERED and
+cancels, and it connects only in `ESP_BT_GAP_DISCOVERY_STOPPED`. So this
+component now does the same: `connect_pair_target_()` runs from `end_scan_()`,
+which is reached from the stack's STOPPED or from the scan's own deadline.
+
+Three smaller things went with it. **One device per scan**: results arriving
+after one was chosen are passed over, where two could each have started a
+connection. **The deadline is armed BEFORE `start_discovery`**, because the
+STOPPED event comes from Bluedroid's task and can arrive before `pair()`
+returns -- armed after, `scan_stopped()` would have ignored it and the panel
+waited out the whole deadline. And the "a scan is already running" line
+could print four billion seconds when the deadline had passed but the tick
+had not yet run.
+
+**What a restart cleared is not proved to be this.** It is the reasoning
+that fits every report -- the stack's search left mid-cancel, which only a new
+Bluedroid clears -- and it matches the order Espressif ships; it is not a
+measurement. `tools/bttest/pairing.cpp` asserts the order (nothing connected
+before STOPPED, only the first device, the deadline path connecting too);
+with the connect put back beside the cancel five cases fail. **Not flashed.**
+
 ## The jitter buffer went with the resampler, and a video found it
 
 **Reported as a YouTube video "au ralenti" with the sound disturbed.** The
