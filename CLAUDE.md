@@ -9443,6 +9443,45 @@ ignored; and the shipped sender end to end, a voice link pressed by the face
 arriving signed in. **Reolink is still not verified** -- whatever it keeps,
 a tile now arrives the way a typed address does.
 
+## 0xFC82 was Espressif telling its own radio about A2DP
+
+**Reported as a problem that "comes back despite the update"**: pairs of
+`BT_HCI: opcode=0xfc82, status= 01: Illegal Command`, an hour into uptime.
+This file recorded it twice as "a vendor command this dongle does not have,
+not a fault" and never asked who sent it. Read in ESP-IDF v5.5.5 rather than
+guessed: `HCI_ESP_VENDOR_OPCODE_BUILD(0x3F, group 1, subcode 2)` is
+`HCI_VENDOR_COMMON_COEX_STATUS_CMD_OPCODE`, sent by `BTM_ConfigCoexStatus`
+from `BTA_DmCoexEventTrigger` in `bta_dm_main.c` -- TWO of them each time an
+A2DP stream starts or stops (`bta_av_aact.c`). With the idle suspend, that is
+every ten seconds of quiet on a panel with a speaker.
+
+`CONFIG_BT_BLUEDROID_ESP_COEX_VSC` gates it, and Bluedroid's Kconfig defaults
+it to **y whenever `BT_CONTROLLER_DISABLED`**, on the assumption that the
+controller is then an ESP32 behind esp-hosted. Here it is a USB dongle, so
+portall_bt turns it off. Read off the codegen at 2026.8.2 (`False`); not
+flashed.
+
+## The wake word was starved by the picture, not by the YAML
+
+**Reported with a video playing**: `micro_wake_word: Not enough free bytes in
+ring buffer ... Resetting the ring buffer`, with the note that
+`buffer_duration: 500ms` "worked" and the latest YAML dropped it. That
+setting was on the page's RESAMPLER, which 4.28.0 removed (`sample_rate:` on
+portall, the add-on converts), and it answered a different fault: the page's
+sound dropping. micro_wake_word's buffer is `RING_BUFFER_DURATION_MS = 120`, a
+constant with no YAML option, and its inference task is priority 3, created
+with `xTaskCreateStatic` -- no affinity -- and pinned by ESP-IDF to the core it
+first uses the FPU on.
+
+portall's decode task was priority 4 pinned to core 1, and at 30 whole panels
+a second of ~20 ms each it takes ~60% of that core. On a boot where the wake
+word lands on core 1 it gets what is left and overflows its 120 ms -- which
+also explains a fault that seems to come and go between boots. The decoder is
+priority **2** now: above the loop, below the wake word, so a missed wake word
+costs a picture a few milliseconds instead. `wired_portall` keeps 4 (no
+voice there). **Not measured on a board**: which core the wake word got is
+not visible from a log.
+
 ## Repository conventions
 
 - Work on branch `claude/esphome-pr-outdated-mdq36w`, then merge into `main`

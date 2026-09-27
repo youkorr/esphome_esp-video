@@ -749,6 +749,19 @@ async def to_code(config):
         esp32.add_idf_sdkconfig_option("CONFIG_BT_CONTROLLER_DISABLED", True)
         esp32.add_idf_sdkconfig_option("CONFIG_BT_CLASSIC_ENABLED", True)
 
+        # Espressif's coexistence messages, which only Espressif's own radio
+        # understands. bta_dm_main.c sends two of them -- opcode 0xFC82, "A2DP
+        # streaming" set and "A2DP paused" cleared, or the reverse -- every
+        # time a speaker's stream starts or stops, and Bluedroid's Kconfig
+        # turns them on by DEFAULT whenever BT_CONTROLLER_DISABLED, on the
+        # assumption that the controller is then an ESP32 behind esp-hosted.
+        # Here it is a USB dongle, which answers "Illegal Command" and logs a
+        # warning pair each time -- every ten seconds of quiet on a panel,
+        # since that is what suspends the stream (a2dp_idle_tick_). There is
+        # no esp-hosted controller on this transport to tell anything to:
+        # _one_bluedroid_transport refuses esp32_ble beside this component.
+        esp32.add_idf_sdkconfig_option("CONFIG_BT_BLUEDROID_ESP_COEX_VSC", False)
+
         # A2DP, and with it AVRCP, which Bluedroid couples to the same option.
         # Asked for rather than always on: it is a profile like any other and
         # a panel that only wants a gamepad should not carry an audio stack.
