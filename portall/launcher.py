@@ -1313,7 +1313,7 @@ AVATAR_EXTRAS = """
 # drawings but settings. Each eye is a rounded rectangle with a height, a
 # width, a roundness and a position, a top lid that lowers and tilts, and a
 # bottom lid that pushes up into a smile; a few extras -- hearts, spirals,
-# a tear, sound bars -- sit on top. Every expression below is a line of
+# a tear, a mouth -- sit on top. Every expression below is a line of
 # numbers, so a new one costs a line and not a drawing.
 #
 # Its own face rather than FACE_SVG, and its own script (PIXEL_JS) that
@@ -1352,8 +1352,8 @@ def _pixel_eye(side, cx, cy):
 
 
 AVATAR_SHAPES["pixel"] = """
- <rect x="-5" y="38" width="10" height="30" rx="5" fill="#aab3c2"/>
- <rect x="145" y="38" width="10" height="30" rx="5" fill="#aab3c2"/>
+ <rect class="pear" x="-5" y="38" width="10" height="30" rx="5" fill="#aab3c2"/>
+ <rect class="pear" x="145" y="38" width="10" height="30" rx="5" fill="#aab3c2"/>
  <rect x="0" y="2" width="150" height="104" rx="34" fill="url(#pxshell)"/>
  <rect x="10" y="12" width="130" height="84" rx="24" fill="#1b2230"/>
  <rect x="13" y="15" width="124" height="78" rx="21" fill="#05080c"/>"""
@@ -1388,10 +1388,8 @@ PIXEL_FACE = (
   <g class="px-x px-dizzy" stroke="#35e3ff" stroke-width="2.6" fill="none"
    stroke-linecap="round" filter="url(#pxglow)">
    <path d="{_pixel_spiral(lx, ly)}"/><path d="{_pixel_spiral(rx_, ry_)}"/></g>
-  <g class="px-x px-bars" fill="#35e3ff" filter="url(#pxglow)">"""
-    + "".join(f'<rect class="pbar" x="{75 - 17.5 + i * 7}" y="80" width="4" '
-              f'height="6" rx="2"/>' for i in range(5))
-    + """</g>
+  <ellipse class="px-x px-talk" cx="75" cy="79" rx="11" ry="2" fill="#35e3ff"
+   filter="url(#pxglow)"/>
   <path class="px-x px-tear" d="M62 66 q3.5 7 0 10 q-3.5 -3 0 -10z" fill="#7cc8ff"/>
  </g>
  <path d="M24 22 Q50 17 70 20" stroke="#fff" stroke-opacity=".08" stroke-width="5"
@@ -1424,12 +1422,14 @@ PIXEL_CSS = """
  #av .px-x { display: none; }
  #av[data-px="laugh"] .px-laugh, #av[data-px="wink"] .px-wink,
  #av[data-px="love"] .px-love, #av[data-px="dizzy"] .px-dizzy,
- #av[data-px="listen"] .px-bars, #av[data-px="speak"] .px-bars,
+ #av[data-px="speak"] .px-talk,
  #av[data-px="sad"] .px-tear { display: inline; }
  #av[data-px="laugh"] .pe, #av[data-px="love"] .pe, #av[data-px="dizzy"] .pe,
  #av[data-px="wink"] .pe.r { display: none; }
- /* Its own ways of saying what the others say with accessories: bars for
-    listening and speaking, dots for thinking, a drop for the heat. */
+ /* Its own ways of saying what the others say with accessories: its ears
+    light up while it listens, a mouth opens while it speaks, dots for
+    thinking, a drop for the heat. */
+ #av[data-px="listen"] .pear { fill: #35e3ff; filter: url(#pxglow); }
  #av[data-shape="pixel"] .acc.hot, #av[data-shape="pixel"] .acc.waves,
  #av[data-shape="pixel"] .acc.bubble { display: none; }
  #av[data-shape="pixel"][data-wx="hot"] .acc.sweat,
@@ -1508,23 +1508,26 @@ PIXEL_JS = """<script>
       bot.style.display = 'none';
     }
   }
-  /* Speaking moves its bars, four times a second and only while the voice
-     assistant is answering -- the one animation that runs by itself, and it
-     runs for as long as the answer does. */
-  var talking = 0;
-  function bars(moving) {
-    var all = box.querySelectorAll('.pbar');
+  /* Speaking opens and closes its mouth, four times a second and only while
+     the voice assistant is answering -- the one animation that runs by
+     itself, and it runs for as long as the answer does. A snap rather than
+     an ease, like a blink: an eased mouth would be a run of pictures for
+     every syllable. Wider as it closes, the way a mouth is. */
+  var talking = 0, said = 0;
+  var OPEN = [2, 4.5, 7, 3, 6, 2.5];
+  function mouth(moving) {
+    var m = box.querySelector('.px-talk');
     clearInterval(talking);
+    if (!m || !moving) return;
     function step() {
-      for (var i = 0; i < all.length; i++) {
-        var h = moving ? 4 + Math.round(Math.random() * 14)
-                       : [6, 12, 18, 12, 6][i];
-        all[i].setAttribute('y', 86 - h);
-        all[i].setAttribute('height', h);
-      }
+      var next = said;
+      while (next === said) next = Math.floor(Math.random() * OPEN.length);
+      said = next;
+      m.setAttribute('ry', OPEN[said]);
+      m.setAttribute('rx', 13 - OPEN[said] * .6);
     }
     step();
-    if (moving) talking = setInterval(step, 250);
+    talking = setInterval(step, 250);
   }
   var shown = '';
   function draw() {
@@ -1535,7 +1538,7 @@ PIXEL_JS = """<script>
     var def = EXPR[now];
     shape('l', def);
     shape('r', def);
-    bars(now === 'speak');
+    mouth(now === 'speak');
   }
   new MutationObserver(draw).observe(box, {attributes: true,
     attributeFilter: ['data-mood', 'data-voice', 'data-wx']});

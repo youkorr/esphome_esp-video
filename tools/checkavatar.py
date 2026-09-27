@@ -359,8 +359,11 @@ def pixel(browser):
     # The voice assistant, through the attribute the page already follows.
     page.evaluate("window.portallAvatar.stand('surprised')")
     page.wait_for_timeout(50)
-    check("the voice assistant listens: bars under its eyes",
-          px() == "listen" and shown(".px-bars") and not shown(".acc.waves"))
+    ear = lambda: page.evaluate(  # noqa: E731
+        "getComputedStyle(document.querySelector('#av .pear')).fill")
+    check("the voice assistant listens: its ears light up, and no mouth",
+          px() == "listen" and ear() == "rgb(53, 227, 255)"
+          and not shown(".px-talk") and not shown(".acc.waves"))
     page.evaluate("window.portallAvatar.stand('thinking')")
     page.wait_for_timeout(50)
     check("it thinks: eyes up and to the side, and dots",
@@ -368,19 +371,21 @@ def pixel(browser):
     page.evaluate("window.portallAvatar.stand('happy')")
     page.wait_for_timeout(50)
     heights = lambda: page.evaluate(  # noqa: E731
-        "[...document.querySelectorAll('#av .pbar')].map(b => b.getAttribute('height')).join()")
+        "document.querySelector('#av .px-talk').getAttribute('ry')")
+    check("its ears go back when it stops listening",
+          ear() != "rgb(53, 227, 255)")
     first = heights()
     page.clock.fast_forward(260)
     page.wait_for_timeout(50)
-    check("it answers: the bars move while it speaks",
-          px() == "speak" and heights() != first)
+    check("it answers: a mouth that opens and closes while it speaks",
+          px() == "speak" and shown(".px-talk") and heights() != first)
     page.evaluate("window.portallAvatar.stand('neutral')")
     page.wait_for_timeout(50)
     still = heights()
     page.clock.fast_forward(600)
     page.wait_for_timeout(50)
-    check("and stop when it has finished", heights() == still
-          and px() == "neutral")
+    check("and it is gone and still when it has finished",
+          heights() == still and not shown(".px-talk") and px() == "neutral")
     page.evaluate("window.portallAvatar.stand('surprised')")
     page.evaluate("window.portallAvatar.stand('neutral')")
     page.wait_for_timeout(50)
