@@ -9505,6 +9505,37 @@ The shape is this file's pair-of-constants fault in a YAML: two things that
 must agree (the backlight and what the sender is told), set from separate
 places with nothing tying them. Put the state on the thing it describes.
 
+## Only the stack could end a pair scan, and when it did not, nothing did
+
+**Reported as *"ceci m'arrive souvent apres que je compile est d'essayer
+d'associer le bluetooth je suis oblige soit de retirer la clef bluetooth ou
+redemarrer esp32P4"*, with a log that stops at pair()'s own four lines.**
+Everything that undoes a pair scan -- reconnection resumed, the delayed
+report -- hung off Bluedroid's `DISCOVERY_STOPPED` event. If it never arrived,
+reconnection stayed paused for the life of the firmware (no remembered
+speaker or gamepad ever came back), and the next press reached
+`start_discovery`, was refused, and was told to restart the panel. Pulling
+the dongle or restarting are exactly the two things that clear that.
+
+**Why the event did not come is NOT known.** The log over Wi-Fi is lost for
+as long as the inquiry runs, and nothing after it was sent. "After a compile"
+is suggestive -- an OTA restart re-enumerates a dongle that kept its power --
+and is a candidate, not a finding.
+
+What is fixed is that the panel no longer depends on it: `pair()` sets
+`scan_deadline_ms_` to the inquiry's own length plus `SCAN_GRACE_MS` (20 s,
+for Bluedroid's name requests after it), `scan_deadline_tick_()` cancels
+discovery past it and says at error level that the stack never reported the
+end, and a second press during a scan says one is running instead of "restart
+the panel". The late STOPPED a cancel produces is ignored.
+
+**And the panel stayed discoverable for ever after its first pairing.**
+`setup()` sets NON_DISCOVERABLE and `pair()`'s comment says it lifts that
+"only while this runs" -- and nothing ever put it back. `end_scan_()` does
+now, on both ends. `tools/bttest/pairing.cpp` drives both paths through
+`scan_stopped()` (lifted out of the GAP callback so a test can reach it);
+with the deadline disabled six cases fail. **Not flashed.**
+
 ## The jitter buffer went with the resampler, and a video found it
 
 **Reported as a YouTube video "au ralenti" with the sound disturbed.** The
