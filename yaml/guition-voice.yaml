@@ -442,7 +442,18 @@ light:
     name: Backlight
     id: backlight
     restore_mode: RESTORE_DEFAULT_ON
-    
+    # The add-on is told the screen is dark or lit by the BACKLIGHT itself,
+    # so every way of turning it on counts: a tap, the brightness slider,
+    # the Backlight entity in Home Assistant, an automation. Asleep, the
+    # add-on stops rendering, a tap that wakes the panel does not also press
+    # what was under the finger, and the launcher's face says hello when it
+    # wakes. Without these two lines the add-on never learns either, and the
+    # face never greets anybody.
+    on_turn_on:
+      - portall.wake:
+    on_turn_off:
+      - portall.sleep:
+
 touchscreen:
   - platform: gsl3680
     id: my_touch
