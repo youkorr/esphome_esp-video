@@ -228,12 +228,21 @@ void Portall::setup() {
     return;
   }
 
-  // Priority 5 for the USB task, 4 for the decoder: USB has to keep draining
-  // the endpoint or the host stalls, and a decode that runs late only costs a
-  // frame. Core 1 keeps both off the core ESPHome's loop runs on.
+  // Priority 5 for the USB task: it has to keep draining the endpoint or the
+  // host stalls. Core 1 keeps it and the decoder off the core ESPHome's loop
+  // runs on.
   xTaskCreatePinnedToCore(tusb_device_task, "usbd", 4096, nullptr, 5, nullptr, 1);
 #endif  // CONFIG_USB_DISPLAY_DEVICE
-  xTaskCreatePinnedToCore(Portall::decode_task, "udisp", 4096, this, 4, nullptr, 1);
+  // Priority 2 for the decoder: above ESPHome's loop (1), BELOW
+  // micro_wake_word's inference (3). It was 4, and during a video it is busy
+  // most of the time -- 30 whole panels a second at ~20 ms each is 60% of core
+  // 1. The wake word's task is created with no affinity, and ESP-IDF pins a
+  // task to whichever core it first uses the FPU on, so on about half of boots
+  // it shares core 1 with this one, gets what is left, and its 120 ms ring
+  // buffer overflows: "Not enough free bytes in ring buffer", from a panel
+  // playing YouTube or Jellyfin. A missed wake word is a failure somebody
+  // notices; a picture drawn a few milliseconds later is not.
+  xTaskCreatePinnedToCore(Portall::decode_task, "udisp", 4096, this, 2, nullptr, 1);
 
   const size_t psram_after = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
   this->psram_taken_ = psram_before > psram_after ? psram_before - psram_after : 0;
