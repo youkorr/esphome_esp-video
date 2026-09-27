@@ -9701,6 +9701,24 @@ them. These rates stall at 2 MB/s where the 4.21 measurements held to 2.5 --
 the dongle's A2DP now shares 2.4 GHz with the C6 centimetres away, which is
 a candidate and not a measurement. **Not heard on a board.**
 
+### The wake word and the video share a core, and the household's switch said so -- 4.30.2
+
+**Reported after 4.30.1, from a YouTube video the sender's own log called
+perfect** (`t=` advancing 2.0 s per 2 s, `dropped=0`, 30 made and 30 sent,
+`sound 50/s`, `panel wait 1%`): the panel still showed it slow. With the
+household's own switch stopping `micro_wake_word`, *"c'est mieux"*. So the
+slowdown is on the board and the wake word is in it -- the decoder at
+priority 2 under the wake word's 3 on core 1 (the section above) is the
+candidate that fits, and it is **not measured**: the board's own
+`@ ... fps, ... dropped` line during a video was not sent.
+
+The same reply asked for `max_rate` 3000 rather than 2400. The 2.9 MB/s edge
+this file records was measured with the wake word running, so it may not be
+the link's; 3000 is the default now at the household's word, with the
+documentation naming 2400 as the step back. **A stored value wins over a new
+default**, so an install that already saved 2400 keeps it -- the changelog
+says where to change it.
+
 ## Repository conventions
 
 - Work on branch `claude/esphome-pr-outdated-mdq36w`, then merge into `main`

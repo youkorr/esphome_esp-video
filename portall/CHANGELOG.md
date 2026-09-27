@@ -1,5 +1,12 @@
 # Changelog
 
+## 4.30.2
+
+- **`max_rate` is 3000 by default**, up from 2400: a busy video stays
+  sharper. **An add-on already installed keeps the value it has saved**, so
+  set it yourself: Configuration > Defaults > Maximum rate, 3000. If a video
+  freezes for a moment now and then, go back towards 2400.
+
 ## 4.30.1
 
 - **`orb` has its black face.** The eyes now sit on a black disc inside the
