@@ -356,7 +356,7 @@ was, so a launcher nobody touches costs no more than with the other faces.
 The mouth that moves while the voice assistant answers is the one animation
 that runs by itself, and only for as long as the answer.
 
-**`orb` is a glossy ball with two eyes**, and its colour says what it is
+**`orb` is a black face in a glossy coloured ring**, and its colour says what it is
 doing:
 
 | it looks | when |

@@ -1,5 +1,10 @@
 # Changelog
 
+## 4.30.1
+
+- **`orb` has its black face.** The eyes now sit on a black disc inside the
+  coloured ring, as in the original animation.
+
 ## 4.30.0
 
 - **A new avatar, `orb`.** A glossy ball with two eyes whose colour says
