@@ -2179,6 +2179,44 @@ principle, a large piece of work, and not the same path as the speaker:
   microphone) and see whether voice packets arrive on the isochronous
   endpoint. That settles unknown 1 before a line of the rest is written.
 
+### Portall inside an LVGL canvas, which is Rob's suggestion
+
+*"If the usb-display could work in an lvgl canvas that would give more
+functionality using the devices hardware."* An OPTION beside the current
+mode, never a replacement -- the project's framing is "without LVGL", and a
+household that wants no LVGL must keep a YAML that has none.
+
+What it would buy, and why it is worth keeping: an LVGL page that works with
+the server down (a clock, a few local buttons, a "server unreachable" state
+that is more than a frozen last picture); the board's own hardware drawn
+locally beside the dashboard (a camera through esp-video, local sensors);
+and the HA picture as one widget in a layout the YAML controls.
+
+What is read, not guessed: both ESPHome's LVGL and portall write through the
+SAME `display->draw_pixels_at` (lvgl_esphome.cpp's flush callback,
+portall.cpp's draw), so today the two would simply overwrite each other. The
+route is ESPHome's own `canvas` widget (present in 2026.10.0-dev): portall
+decodes into the canvas's buffer instead of the display, invalidates the
+area, and LVGL composes and flushes.
+
+What it costs and what is unknown:
+- **A second copy and a second pass**: decode into the canvas, then LVGL
+  renders the area and flushes it. Nothing for a dashboard; for full motion
+  it adds to exactly the board-side cost the YouTube thread keeps meeting.
+  The user's own `youkorr/lvgl_9.5` PPA work is where that pass would be
+  made cheap.
+- **Threading**: the decode task must not touch LVGL objects; the buffer
+  swap and `lv_obj_invalidate` belong in the loop, with LVGL's lock.
+- **Touch**: LVGL owns the touchscreen; contacts inside the canvas must be
+  re-expressed in the canvas's coordinates and sent up the return channel,
+  the rest left to LVGL widgets.
+- **Geometry**: the sender renders at the CANVAS size, which is what
+  `render_width:` / `render_height:` already express.
+
+Not built, not compiled. First step if it is ever picked up: a canvas of a
+fixed size fed only by the decode task, to measure the extra pass on a whole
+picture before anything about touch or layout is written.
+
 
 ## The panel as a launcher
 
