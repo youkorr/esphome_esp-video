@@ -27,6 +27,7 @@ is allowed to be fetched at all.
 import html
 import http.server
 import json
+import math
 import mimetypes
 import os
 import threading
@@ -1304,6 +1305,286 @@ AVATAR_EXTRAS = """
  </g>"""
 
 
+# "Pixel" -- a face on a screen, the sixth body, asked for after the
+# household saw what EMO does with one ("les 1000+ visages et mouvements de
+# EMO sont super"). Not EMO: its look and its name are LivingAI's, and its
+# animations are not published. What is borrowed is the IDEA every screen
+# robot shares (EMO, Cozmo, Vector, RoboEyes): the expressions are not
+# drawings but settings. Each eye is a rounded rectangle with a height, a
+# width, a roundness and a position, a top lid that lowers and tilts, and a
+# bottom lid that pushes up into a smile; a few extras -- hearts, spirals,
+# a tear, sound bars -- sit on top. Every expression below is a line of
+# numbers, so a new one costs a line and not a drawing.
+#
+# Its own face rather than FACE_SVG, and its own script (PIXEL_JS) that
+# listens to the same three attributes the other faces are driven by --
+# data-mood, data-voice, data-wx -- so the five bodies before it are not
+# touched. The rules those live under hold here too: a change of expression
+# is somebody's doing and eases in 120 ms, a blink snaps, and nothing runs
+# by itself except the blink and the glance.
+PIXEL_EYES = ((52, 52), (98, 52))
+
+
+def _pixel_spiral(cx, cy):
+    points = []
+    turn = 0.0
+    while turn < 4 * math.pi:
+        r = 1.05 * turn
+        points.append(f"{cx + r * math.cos(turn):.1f} {cy + r * math.sin(turn):.1f}")
+        turn += 0.3
+    return "M" + " L".join(points)
+
+
+def _pixel_heart(cx, cy):
+    return (f"M{cx} {cy + 11} C{cx - 19} {cy - 1} {cx - 9} {cy - 16} {cx} {cy - 6} "
+            f"C{cx + 9} {cy - 16} {cx + 19} {cy - 1} {cx} {cy + 11} Z")
+
+
+def _pixel_eye(side, cx, cy):
+    # The eye inside .pb (what blinks and grows), the two lids beside it;
+    # PIXEL_JS gives all three their geometry, so these numbers are only
+    # where they start.
+    return (f'<g class="pe {side}"><g class="pb"><rect class="pr" x="{cx - 11}" '
+            f'y="{cy - 15}" width="22" height="30" rx="8" fill="#35e3ff" '
+            f'filter="url(#pxglow)"/></g>'
+            f'<rect class="ptop" fill="#05080c" style="display:none"/>'
+            f'<ellipse class="pbot" fill="#05080c" style="display:none"/></g>')
+
+
+AVATAR_SHAPES["pixel"] = """
+ <rect x="-5" y="38" width="10" height="30" rx="5" fill="#aab3c2"/>
+ <rect x="145" y="38" width="10" height="30" rx="5" fill="#aab3c2"/>
+ <rect x="0" y="2" width="150" height="104" rx="34" fill="url(#pxshell)"/>
+ <rect x="10" y="12" width="130" height="84" rx="24" fill="#1b2230"/>
+ <rect x="13" y="15" width="124" height="78" rx="21" fill="#05080c"/>"""
+
+(lx, ly), (rx_, ry_) = PIXEL_EYES
+PIXEL_FACE = (
+    """
+ <defs>
+  <filter id="pxglow" x="-50%" y="-50%" width="200%" height="200%">
+   <feGaussianBlur stdDeviation="1.6" result="b"/>
+   <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+  </filter>
+  <clipPath id="pxscr"><rect x="13" y="15" width="124" height="78" rx="21"/></clipPath>
+  <linearGradient id="pxshell" x1="0" y1="0" x2="0" y2="1">
+   <stop offset="0" stop-color="#f4f6fa"/><stop offset="1" stop-color="#c9d0dc"/>
+  </linearGradient>
+ </defs>
+ <g clip-path="url(#pxscr)">
+  <g class="look">"""
+    + _pixel_eye("l", lx, ly) + _pixel_eye("r", rx_, ry_)
+    + f"""</g>
+  <g class="px-x px-laugh" filter="url(#pxglow)">
+   <path d="M{lx - 11} {ly + 4} Q{lx} {ly - 11} {lx + 11} {ly + 4}
+    M{rx_ - 11} {ry_ + 4} Q{rx_} {ry_ - 11} {rx_ + 11} {ry_ + 4}" stroke="#35e3ff"
+    stroke-width="5" stroke-linecap="round" fill="none"/>
+   <path d="M64 70 Q75 84 86 70 Z" fill="#35e3ff"/></g>
+  <path class="px-x px-wink" d="M{rx_ - 11} {ry_ - 2} Q{rx_} {ry_ + 9} {rx_ + 11} {ry_ - 2}"
+   stroke="#35e3ff" stroke-width="5" stroke-linecap="round" fill="none"
+   filter="url(#pxglow)"/>
+  <g class="px-x px-love" fill="#ff4f8b" filter="url(#pxglow)">
+   <path d="{_pixel_heart(lx, ly)}"/><path d="{_pixel_heart(rx_, ry_)}"/></g>
+  <g class="px-x px-dizzy" stroke="#35e3ff" stroke-width="2.6" fill="none"
+   stroke-linecap="round" filter="url(#pxglow)">
+   <path d="{_pixel_spiral(lx, ly)}"/><path d="{_pixel_spiral(rx_, ry_)}"/></g>
+  <g class="px-x px-bars" fill="#35e3ff" filter="url(#pxglow)">"""
+    + "".join(f'<rect class="pbar" x="{75 - 17.5 + i * 7}" y="80" width="4" '
+              f'height="6" rx="2"/>' for i in range(5))
+    + """</g>
+  <path class="px-x px-tear" d="M62 66 q3.5 7 0 10 q-3.5 -3 0 -10z" fill="#7cc8ff"/>
+ </g>
+ <path d="M24 22 Q50 17 70 20" stroke="#fff" stroke-opacity=".08" stroke-width="5"
+  stroke-linecap="round" fill="none"/>
+ <path class="acc sweat" d="M146 -18 q5 8 0 13 q-5 -5 0 -13z" fill="#7cc8ff"/>
+ <g class="acc dots" fill="#35e3ff">
+  <circle cx="132" cy="-2" r="2.4"/><circle cx="140" cy="-9" r="3.2"/>
+  <circle cx="150" cy="-17" r="4"/></g>""")
+
+# Only in a page whose face is Pixel. Not %-formatted, unlike AVATAR_CSS.
+PIXEL_CSS = """
+ #av[data-shape="pixel"] .pr, #av[data-shape="pixel"] .ptop,
+ #av[data-shape="pixel"] .pbot {
+   transition: x .12s ease, y .12s ease, width .12s ease, height .12s ease,
+               rx .12s ease, cx .12s ease, cy .12s ease, ry .12s ease,
+               transform .12s ease;
+ }
+ /* The glance moves the eyes across the screen, a little further than the
+    other faces' pupils; curiosity (--ls) and a blink scale each eye about
+    its own centre, which is why they sit on .pb and not on the pair. */
+ #av[data-shape="pixel"] .look {
+   transform: translate(calc(var(--lx, 0px) * 1.6), calc(var(--ly, 0px) * 1.4));
+ }
+ #av[data-shape="pixel"] .pb {
+   transform-box: fill-box; transform-origin: center;
+   transform: scale(var(--ls, 1));
+ }
+ #av[data-shape="pixel"].blink .pb { transform: scale(var(--ls, 1)) scaleY(.1); }
+ #av[data-shape="pixel"][data-wx="cold"] .pr { fill: #a9dcff; }
+ #av .px-x { display: none; }
+ #av[data-px="laugh"] .px-laugh, #av[data-px="wink"] .px-wink,
+ #av[data-px="love"] .px-love, #av[data-px="dizzy"] .px-dizzy,
+ #av[data-px="listen"] .px-bars, #av[data-px="speak"] .px-bars,
+ #av[data-px="sad"] .px-tear { display: inline; }
+ #av[data-px="laugh"] .pe, #av[data-px="love"] .pe, #av[data-px="dizzy"] .pe,
+ #av[data-px="wink"] .pe.r { display: none; }
+ /* Its own ways of saying what the others say with accessories: bars for
+    listening and speaking, dots for thinking, a drop for the heat. */
+ #av[data-shape="pixel"] .acc.hot, #av[data-shape="pixel"] .acc.waves,
+ #av[data-shape="pixel"] .acc.bubble { display: none; }
+ #av[data-shape="pixel"][data-wx="hot"] .acc.sweat,
+ #av[data-px="think"] .acc.dots { display: inline; }
+ #av[data-shape="pixel"].hello .acc.dots { display: none; }
+"""
+
+PIXEL_JS = """<script>
+(function () {
+  var box = document.getElementById('av');
+  if (!box || box.dataset.shape !== 'pixel' || !window.portallAvatar) return;
+  var api = window.portallAvatar;
+  var EYES = {l: {cx: %(lx)s, cy: %(ly)s}, r: {cx: %(rx)s, cy: %(ry)s}};
+  var BASE = {w: 22, h: 30, r: 8, dx: 0, dy: 0, top: 0, tilt: 0, bot: 0};
+  /* Every expression, as the numbers of its two eyes. `tilt` is the left
+     lid's; the right one mirrors it. An eye named in `l` or `r` takes those
+     numbers on top. Laugh, love and dizzy draw other shapes instead of eyes
+     (PIXEL_CSS hides the eyes for them), so they need no numbers here. */
+  var EXPR = {
+    neutral: {}, laugh: {}, love: {}, dizzy: {},
+    happy: {bot: .45},
+    wink: {l: {bot: .35}},
+    surprised: {w: 27, h: 36, r: 13},
+    listen: {dy: -5},
+    think: {dx: 6, dy: -8, h: 24},
+    speak: {bot: .3, dy: -4},
+    angry: {top: .42, tilt: 22},
+    sad: {top: .4, tilt: -20, dy: 3},
+    tired: {top: .62, dy: 4},
+    suspicious: {dx: 7, top: .55},
+    hot: {top: .3}
+  };
+  function pick() {
+    var mood = box.dataset.mood, voice = box.dataset.voice;
+    if (mood === 'surprised' && voice === 'surprised') return 'listen';
+    if (mood === 'thinking') return 'think';
+    if (mood === 'happy' && voice === 'happy') return 'speak';
+    if (mood === 'sleepy') return 'tired';
+    if (mood === 'neutral' && box.dataset.wx === 'hot') return 'hot';
+    return EXPR[mood] ? mood : 'neutral';
+  }
+  function shape(side, def) {
+    var o = {}, k;
+    for (k in BASE) o[k] = BASE[k];
+    for (k in def) if (k !== 'l' && k !== 'r') o[k] = def[k];
+    if (def[side]) for (k in def[side]) o[k] = def[side][k];
+    if (side === 'r') o.tilt = -o.tilt;
+    var c = EYES[side], x = c.cx + o.dx, y = c.cy + o.dy;
+    var g = box.querySelector('.pe.' + side);
+    var eye = g.querySelector('.pr'), top = g.querySelector('.ptop'),
+        bot = g.querySelector('.pbot');
+    eye.style.x = (x - o.w / 2) + 'px';
+    eye.style.y = (y - o.h / 2) + 'px';
+    eye.style.width = o.w + 'px';
+    eye.style.height = o.h + 'px';
+    eye.style.rx = Math.min(o.r, o.w / 2, o.h / 2) + 'px';
+    if (o.top) {
+      var edge = y - o.h / 2 + o.h * o.top;
+      top.style.display = '';
+      top.style.x = (x - o.w) + 'px';
+      top.style.y = (edge - 40) + 'px';
+      top.style.width = (o.w * 2) + 'px';
+      top.style.height = '40px';
+      top.style.transformOrigin = x + 'px ' + edge + 'px';
+      top.style.transform = 'rotate(' + o.tilt + 'deg)';
+    } else {
+      top.style.display = 'none';
+    }
+    if (o.bot) {
+      bot.style.display = '';
+      bot.style.cx = x + 'px';
+      bot.style.cy = (y + o.h / 2 + o.h * (.55 - o.bot)) + 'px';
+      bot.style.rx = (o.w * .95) + 'px';
+      bot.style.ry = (o.h * .6) + 'px';
+    } else {
+      bot.style.display = 'none';
+    }
+  }
+  /* Speaking moves its bars, four times a second and only while the voice
+     assistant is answering -- the one animation that runs by itself, and it
+     runs for as long as the answer does. */
+  var talking = 0;
+  function bars(moving) {
+    var all = box.querySelectorAll('.pbar');
+    clearInterval(talking);
+    function step() {
+      for (var i = 0; i < all.length; i++) {
+        var h = moving ? 4 + Math.round(Math.random() * 14)
+                       : [6, 12, 18, 12, 6][i];
+        all[i].setAttribute('y', 86 - h);
+        all[i].setAttribute('height', h);
+      }
+    }
+    step();
+    if (moving) talking = setInterval(step, 250);
+  }
+  var shown = '';
+  function draw() {
+    var now = pick();
+    if (now === shown) return;
+    shown = now;
+    box.dataset.px = now;
+    var def = EXPR[now];
+    shape('l', def);
+    shape('r', def);
+    bars(now === 'speak');
+  }
+  new MutationObserver(draw).observe(box, {attributes: true,
+    attributeFilter: ['data-mood', 'data-voice', 'data-wx']});
+  draw();
+
+  /* What a finger does to it. One tap is a smile, a wink or a heart, at
+     random; three in a second and a half make it laugh; five in three
+     seconds make it cross. Registered after the shared handler, so this
+     one's mood is the one that stands. */
+  var taps = [];
+  box.addEventListener('click', function () {
+    var t = Date.now();
+    taps.push(t);
+    taps = taps.filter(function (x) { return t - x < 3000; });
+    var recent = taps.filter(function (x) { return t - x < 1500; }).length;
+    if (taps.length >= 5) api.set('angry', 2500);
+    else if (recent >= 3) api.set('laugh', 2500);
+    else api.set(['happy', 'wink', 'love'][Math.floor(Math.random() * 3)], 2500);
+  });
+  /* Dragged fast, it ends up dizzy: the travel of one drag over its time,
+     judged when the drag ends -- after the shared handler's own smile. */
+  var travel = 0, began = 0, last = null, done = 0;
+  window.addEventListener('wheel', function () {
+    var r = box.getBoundingClientRect(), t = Date.now();
+    if (last && t - began < 2000) {
+      travel += Math.abs(r.left - last[0]) + Math.abs(r.top - last[1]);
+    } else {
+      travel = 0; began = t;
+    }
+    last = [r.left, r.top];
+    clearTimeout(done);
+    done = setTimeout(function () {
+      var seconds = Math.max(.1, (Date.now() - began - 700) / 1000);
+      if (travel / seconds > 1500) api.set('dizzy', 2000);
+      travel = 0; last = null;
+    }, 700);
+  }, true);
+  /* Listened and heard nothing it could use: the voice assistant went from
+     listening straight back to idle, with no thinking in between. */
+  var voiceWas = box.dataset.voice;
+  new MutationObserver(function () {
+    var now = box.dataset.voice;
+    if (voiceWas === 'surprised' && now === 'neutral') api.set('suspicious', 2000);
+    voiceWas = now;
+  }).observe(box, {attributes: true, attributeFilter: ['data-voice']});
+})();
+</script>""" % {"lx": lx, "ly": ly, "rx": rx_, "ry": ry_}
+
+
 def avatar_html(shape=DEFAULT_AVATAR, wx=""):
     """The face in its body, starting with the weather it was served with."""
     body = AVATAR_SHAPES.get(str(shape).lower(), AVATAR_SHAPES[DEFAULT_AVATAR])
@@ -1312,7 +1593,8 @@ def avatar_html(shape=DEFAULT_AVATAR, wx=""):
     return (f'<div id="av" data-mood="neutral" data-voice="neutral" '
             f'data-shape="{shape}" data-wx="{html.escape(wx)}" '
             f'aria-hidden="true">\n<svg viewBox="{AVATAR_VIEW}">'
-            + body + FACE_SVG + AVATAR_EXTRAS + "\n</svg></div>")
+            + body + (PIXEL_FACE if shape == "pixel" else FACE_SVG)
+            + AVATAR_EXTRAS + "\n</svg></div>")
 
 
 # What the weather puts on the face: a cloud when it rains, a snowflake when
@@ -1927,6 +2209,9 @@ def render(links, title="", subtitle="", theme="dark",
                                "height": AVATAR_HEIGHT}
         moving.append(avatar_html(avatar_shape, avatar_weather(weather))
                       + AVATAR_JS % {"path": AVATAR_PATH})
+        if str(avatar_shape).lower() == "pixel":
+            sheet += PIXEL_CSS
+            moving.append(PIXEL_JS)
         if voice:
             moving.append(AVATAR_VOICE_JS % {"path": VOICE_PATH})
 

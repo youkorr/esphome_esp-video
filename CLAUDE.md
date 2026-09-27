@@ -1779,7 +1779,7 @@ the dashboard, where it is invisible while the keys go on working.
 ahead of the `pip install` as well as the `ADD`s, so a bump refetches
 everything — at the cost of the browser download on each update.
 `present_browser()` prints the Chromium version at startup and warns below 114,
-so this is never diagnosed by guesswork again. Currently **4.28.0**.
+so this is never diagnosed by guesswork again. Currently **4.29.0**.
 
 **The image carried two Playwright browsers and needed one.** `playwright
 install chromium` fetches the full Chromium **and** the headless shell -- 597
@@ -9315,6 +9315,51 @@ the `keys: panel` shape again, on a board whose `portall:` block has no id at
 all. `cv.GenerateID()` resolves the only one, read off the codegen
 (`portall_sleepaction_id->set_parent(portall_portall_id)`), and a wrong id is
 still refused.
+
+## Pixel, a face on a screen -- 4.29.0
+
+**Asked as *"les 1000+ visages et mouvements de EMO sont super"*, then *"est
+il possible de crée un autre avatar identique a EMO"*.** Identical, no: EMO
+is LivingAI's product, its look and name are theirs and its animations are
+not published. What every screen robot shares (EMO, Cozmo, Vector, RoboEyes)
+is free, and it is the whole trick: **the expressions are settings, not
+drawings.** Proposed as a sixteen-face sheet first, built on *"ok fait le"*.
+
+`avatar_shape: pixel` is a sixth body with its OWN face (`PIXEL_FACE`, not
+`FACE_SVG`), its own sheet (`PIXEL_CSS`) and its own script (`PIXEL_JS`),
+all added to a page only when the shape is pixel -- so the five faces
+before it are byte for byte what they were. Each eye is a rounded rectangle
+with a height, width, roundness and position, a top lid that lowers and
+tilts, and a bottom lid that pushes up into a smile; `EXPR` in `PIXEL_JS` is
+one line of numbers per expression, and PIXEL_CSS draws the extras (hearts,
+spirals, a tear, bars, dots, a drop) from `data-px`.
+
+**It is driven by the attributes every face already follows** --
+`data-mood`, `data-voice`, `data-wx` -- through a MutationObserver, so the
+voice assistant, the weather, the night, a tap and the greeting reach it
+with no new plumbing. Its own additions are in PIXEL_JS alone: a tap picks
+happy, wink or love at random, three in 1.5 s laugh and five in 3 s get
+cross (a second click listener, registered after the shared one, so its mood
+is the one that stands); a drag over 1500 px/s is dizzy, judged 700 ms after
+the last wheel so it lands after the shared handler's own smile; and voice
+going listening -> idle with no thinking between is suspicious.
+
+Geometry moves through the CSS geometry properties (`style.x`, `height`,
+`rx`, `cx`...), which Chromium transitions, so a change of expression eases
+in 120 ms like the other faces' mood changes. A blink and curiosity are
+transforms on `.pb`, the group round each eye alone -- on the pair, a scale
+about the union's centre would carry the lids with it.
+
+**The one animation that runs by itself is the speaking bars**, four times a
+second and only while the answer lasts. Idle cost measured the same as the
+other faces: **8 changed pictures in 15 s** at noon. `sad` exists and nothing
+sets it: its planned trigger, a link that will not open, is not something
+the page can know.
+
+`tools/checkavatar.py` gained 26 cases under `Pixel:` -- each expression's
+geometry or extras read off the DOM, the voice states, taps counted with a
+controlled clock, a slow and a fast drag, hot and cold, night, the greeting
+and the idle cost. **Not seen on a panel.**
 
 ## Repository conventions
 

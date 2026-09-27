@@ -1,5 +1,15 @@
 # Changelog
 
+## 4.29.0
+
+- **A sixth avatar, `pixel`**: a little white robot whose face is a screen,
+  with two glowing eyes that change shape. It is content, winks or has
+  hearts for eyes when you tap it, laughs after three taps and gets cross
+  after five, is dizzy when dragged fast, shows bars while the voice
+  assistant listens and answers, looks suspicious when it heard nothing it
+  could use, sweats in the heat, turns its eyes pale blue in the cold, and
+  is tired at night. Choose it with `avatar_shape: pixel`.
+
 ## 4.28.0
 
 - **The page's sound can arrive at your panel's own rate, so the panel no

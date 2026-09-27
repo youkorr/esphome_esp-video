@@ -261,7 +261,7 @@ launcher:
   tiles: cards                # cards, or buttons (icon on top, name below)
   focus_color: theme          # the frame around the link a remote is on
   avatar: false               # a small face in the corner, moved with a finger
-  avatar_shape: mochi         # mochi, robot, cat, bear or ghost
+  avatar_shape: mochi         # mochi, robot, cat, bear, ghost or pixel
   avatar_voice: ""            # the voice assistant it follows; empty: the only one
   voice_links: false          # "ouvre Jellyfin" to the voice assistant opens it
   clock:
@@ -327,9 +327,34 @@ glances now and then, and is otherwise still, so a launcher nobody touches
 costs a few small pictures of its eyes rather than a stream.
 
 **Its shape, `avatar_shape:`.** `mochi` (a soft ball, the default), `robot`
-(its antenna lights up with the voice assistant), `cat`, `bear` or `ghost`.
-The face is the same in all five; only the body around it changes. Each
-panel's own launcher can have its own.
+(its antenna lights up with the voice assistant), `cat`, `bear`, `ghost`
+or `pixel`. The face is the same in the first five; only the body around it
+changes. Each panel's own launcher can have its own.
+
+**`pixel` has a face of its own**: a little white robot whose face is a
+screen, with two glowing eyes that change shape. It has the most
+expressions, and each has a reason:
+
+| it looks | when |
+|---|---|
+| content, winks, or has hearts for eyes (at random) | you tap it |
+| laughs | three taps in a row |
+| cross | five taps in a row |
+| dizzy | you drag it fast |
+| surprised | you start moving it |
+| bars under its eyes | the voice assistant is listening |
+| looks up, with little dots | the voice assistant is thinking |
+| moving bars | the voice assistant is answering |
+| suspicious | the voice assistant listened and heard nothing it could use |
+| a drop of sweat | it is 25 °C or more and clear |
+| pale blue eyes | it is 5 °C or less |
+| tired, with z's | from 22 h to 7 h |
+| curious (bigger eyes) | it looks to one side |
+
+Every expression lasts two or three seconds and then goes back to what it
+was, so a launcher nobody touches costs no more than with the other faces.
+The bars that move while the voice assistant answers are the one animation
+that runs by itself, and only for as long as the answer.
 
 **It lives with the house.** Nothing to set for any of this:
 
