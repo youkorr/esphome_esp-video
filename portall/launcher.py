@@ -1630,6 +1630,13 @@ PIXEL_JS = """<script>
 # middle; the ring is 99 across with a stroke of 15 and a quarter of it drawn;
 # the glint is a 3% arc of a circle 250 across. Scaled to a ball of radius 51.
 #
+# The black face in the middle is the file's too -- a disc 250 across, filled
+# black -- and lottie-web does not draw it: the fill's blend mode is "screen",
+# and black screened over anything is the thing underneath. The household's
+# own player ignores the blend mode and draws the disc, and theirs is the
+# picture this copies, so the face is drawn plainly, and the glint runs round
+# its rim, which is where the file puts it.
+#
 # What is NOT copied is the motion between states. The Lottie turns its
 # gradient round and eases every change over dozens of frames, which on a
 # panel is a stream of whole pictures for as long as it is showing. Here a
@@ -1688,6 +1695,8 @@ ORB_FACE = (
     + f"""
  <g class="ob">
   <circle class="ob-skin" cx="{ORB_C[0]}" cy="{ORB_C[1]}" r="{ORB_R}"/>
+  <circle class="ob-face" cx="{ORB_C[0]}" cy="{ORB_C[1]}" r="{250 / 300 * ORB_R:.2f}"
+   fill="#000"/>
   <path d="{_orb_arc(250 / 300 * ORB_R, -76, -65)}" stroke="#fff"
    stroke-width="{5 * _k:.2f}" stroke-linecap="round" fill="none"/>
   <g class="look">{_orb_eye("l", ORB_C[0] - _edx)}{_orb_eye("r", ORB_C[0] + _edx)}</g>

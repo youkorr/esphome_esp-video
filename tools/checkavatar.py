@@ -528,6 +528,10 @@ def orb(browser):
           page.evaluate("!!document.querySelector('#av .ob-skin') && "
                         "!document.querySelector('#av .eye')"))
     rest = eye()
+    face = page.evaluate("getComputedStyle(document.querySelector("
+                         "'#av .ob-face')).fill")
+    check("a black face inside the ring, as the household's player draws it",
+          face == "rgb(0, 0, 0)", face)
     check("at rest: violet-blue, eyes open", state() == "calm"
           and "ob-calm" in skin() and shown(".look"), skin())
     mood("surprised", "surprised")

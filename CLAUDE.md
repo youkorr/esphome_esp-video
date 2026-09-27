@@ -9421,6 +9421,15 @@ answering (4 a second); the jump is four snaps, once. Idle cost measured the
 same as every other face: **8 changed pictures in 15 s**. `checkavatar.py`
 has 14 cases under `Orb:`. **Not seen on a panel.**
 
+**And the rendering was the wrong ruler (4.30.1).** Reported at once: *"au
+milieu ... il manque le fond noir"*. The file's inner disc -- black, 250 on a
+ball of 300 -- has its fill on blend mode 2, SCREEN, and black screened over
+anything is the thing underneath, so lottie-web drew nothing there and the
+contact sheet showed a ball of colour. The household's player ignores the
+blend mode and draws the disc, and that is the picture they mean. Reading the
+layers' `bm` beside the render would have caught it; a render tells you what
+ONE player does.
+
 ## A session cookie died with every restart of the browser -- 4.29.2
 
 **Reported as *"quelque link qui ne conserve pas le login et mot de pass
