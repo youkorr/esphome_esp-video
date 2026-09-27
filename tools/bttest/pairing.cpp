@@ -398,6 +398,61 @@ int main() {
           called_before("esp_a2d_source_disconnect", "esp_bt_gap_remove_bond_device"));
   }
 
+  printf("\na TV box that answers the scan is not taken for a speaker\n");
+  {
+    /* THE REPORTED CASE: every Pair press stopped on 00:04:4B:AA:79:3E, class
+       280424 -- an NVIDIA Shield TV, Audio/Video, minor 9 (set-top box),
+       Capturing and not Rendering. A2DP refused it, and the speaker in
+       pairing mode behind it never got a turn. */
+    static const uint8_t SHIELD_TV[6] = {0x00, 0x04, 0x4B, 0xAA, 0x79, 0x3E};
+    PortallBT bt;
+    esphome::global_preferences->wipe();
+    bt.set_a2dp(true);
+    bt.set_hid_host(true);
+    bt.start_profiles_();
+    say(&PortallBT::pair, bt);
+    g_calls.clear();
+    const std::string said =
+        say_run([&] { bt.heard_device(SHIELD_TV, 0x280424, "SHIELD"); });
+    check("no A2DP connection is asked of it", !called("esp_a2d_source_connect"));
+    check("the scan is not stopped for it", !called("esp_bt_gap_cancel_discovery"));
+    check("and the log says why", said.find("does not play sound") != std::string::npos);
+    say_run([&] { bt.heard_device(OTHER_SPEAKER, COD_SPEAKER, "a new one"); });
+    check("the speaker heard after it is still taken", called("esp_a2d_source_connect"));
+    esphome::g_now_ms += 60000;
+    say_run([&] { bt.scan_deadline_tick_(); });
+  }
+  {
+    // The other sink minors, and an uncategorised device that says Rendering.
+    const uint32_t sinks[] = {0x240418 /* headphones */, 0x240414 /* loudspeaker */,
+                              0x240420 /* car audio */, 0x240400 /* uncategorised, Rendering */};
+    for (uint32_t cod : sinks) {
+      PortallBT bt;
+      esphome::global_preferences->wipe();
+      bt.set_a2dp(true);
+      bt.start_profiles_();
+      say(&PortallBT::pair, bt);
+      g_calls.clear();
+      say_run([&] { bt.heard_device(OTHER_SPEAKER, cod, "sink"); });
+      char what[64];
+      snprintf(what, sizeof(what), "class %06X is taken as a speaker", (unsigned) cod);
+      check(what, called("esp_a2d_source_connect"));
+      esphome::g_now_ms += 60000;
+      say_run([&] { bt.scan_deadline_tick_(); });
+    }
+    PortallBT bt;
+    esphome::global_preferences->wipe();
+    bt.set_a2dp(true);
+    bt.start_profiles_();
+    say(&PortallBT::pair, bt);
+    g_calls.clear();
+    say_run([&] { bt.heard_device(OTHER_SPEAKER, 0x200400, "uncategorised, no Rendering"); });
+    check("an uncategorised A/V device with no Rendering bit is not",
+          !called("esp_a2d_source_connect"));
+    esphome::g_now_ms += 60000;
+    say_run([&] { bt.scan_deadline_tick_(); });
+  }
+
   printf("\na scan the stack never reports ending is ended by the panel\n");
   {
     /* THE REPORTED CASE: "je suis obliger soit de retirer la clef bluetooth

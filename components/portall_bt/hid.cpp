@@ -704,6 +704,33 @@ void PortallBT::hid_reconnect_() {
 #endif
 }
 
+/* WHETHER AN AUDIO/VIDEO DEVICE CAN PLAY WHAT THIS PANEL SENDS IT.
+ *
+ * Audio/Video as a major class says nothing about which end of a stream a
+ * device is. Reported from a panel whose every Pair press walked off to
+ * 00:04:4B:AA:79:3E, class 280424 -- an NVIDIA Shield TV (00:04:4B is
+ * NVIDIA's), minor 9, "Set-top box", with the Capturing service bit and not
+ * Rendering. It is an A2DP SOURCE. The scan stopped on it, A2DP refused it
+ * (BTA_AV_OPEN_EVT::FAILED), and the speaker somebody was holding in pairing
+ * mode never got a turn.
+ *
+ * The Bluetooth assigned numbers say which minors are things that make
+ * sound: wearable headset 1, hands-free 2, loudspeaker 5, headphones 6,
+ * portable audio 7, car audio 8, HiFi 10, video display and loudspeaker 15.
+ * An uncategorised one (0) counts only if it carries the RENDERING service
+ * bit (bit 18), which is what a sink sets. The UGREEN car receiver this was
+ * proved against is 240404: Rendering, minor 1. */
+static bool plays_sound(uint32_t cod, uint32_t minor) {
+  switch (minor) {
+    case 1: case 2: case 5: case 6: case 7: case 8: case 10: case 15:
+      return true;
+    case 0:
+      return (cod & 0x040000) != 0;
+    default:
+      return false;
+  }
+}
+
 void PortallBT::heard_device(const uint8_t *addr, uint32_t cod, const char *name) {
 #ifdef CONFIG_BT_BLUEDROID_ENABLED
   char text[18];
@@ -757,9 +784,10 @@ void PortallBT::heard_device(const uint8_t *addr, uint32_t cod, const char *name
   // could say otherwise.
   esp_bd_addr_t target;
   memcpy(target, addr, 6);
+  const bool sink = plays_sound(cod, minor);
   const bool wanted = (major == ESP_BT_COD_MAJOR_DEV_PERIPHERAL && this->wants_input()) ||
                       (major == ESP_BT_COD_MAJOR_DEV_AV && minor == 0x12 && this->wants_input()) ||
-                      (major == ESP_BT_COD_MAJOR_DEV_AV && this->wants_speaker());
+                      (major == ESP_BT_COD_MAJOR_DEV_AV && sink && this->wants_speaker());
   if (wanted) {
     memcpy(this->pair_target_, addr, 6);
     this->pair_took_ = true;
@@ -781,7 +809,7 @@ void PortallBT::heard_device(const uint8_t *addr, uint32_t cod, const char *name
 #ifdef CONFIG_BT_HID_HOST_ENABLED
     esp_bt_hid_host_connect(target);
 #endif
-  } else if (major == ESP_BT_COD_MAJOR_DEV_AV && this->wants_speaker()) {
+  } else if (major == ESP_BT_COD_MAJOR_DEV_AV && sink && this->wants_speaker()) {
     ESP_LOGI(TAG, "  that is a speaker -- stopping the scan and pairing with it");
     esp_bt_gap_cancel_discovery();
 #ifdef CONFIG_BT_A2DP_ENABLE
@@ -803,6 +831,12 @@ void PortallBT::heard_device(const uint8_t *addr, uint32_t cod, const char *name
     }
     esp_a2d_source_connect(target);
 #endif
+  } else if (major == ESP_BT_COD_MAJOR_DEV_AV && minor != 0x12 && !sink) {
+    // Said, and the scan goes on: nothing is cancelled, so a speaker further
+    // down the list still gets its turn.
+    ESP_LOGI(TAG, "  that is an audio/video device that does not play sound (minor %u: a TV "
+                  "box, a camera, a microphone...) -- passing over it, the scan goes on",
+             (unsigned) minor);
   } else if (major == ESP_BT_COD_MAJOR_DEV_PERIPHERAL || major == ESP_BT_COD_MAJOR_DEV_AV) {
     /* Heard, recognised, and passed over -- which without this line is
      * indistinguishable from not being heard at all.
