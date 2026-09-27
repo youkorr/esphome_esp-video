@@ -1532,6 +1532,18 @@ signed in.
 One directory per panel is not a choice: Chromium locks a profile, and a second
 browser pointed at the same one refuses to start.
 
+**Sites that sign you in "for this session" stay signed in too** (since
+4.29.2). Some sites -- Unraid is one -- keep the login in a cookie with no
+expiry date, which a browser throws away when it closes, and the panel's
+browser is restarted at every update of the add-on and every restart of Home
+Assistant. It now carries on its last session the way a desktop Chrome set to
+"continue where you left off" does, so that cookie survives. You will have to
+sign in to such a site once more after updating; after that it stays.
+
+What still cannot survive a restart is a site that keeps its login only for
+the lifetime of the tab (`sessionStorage`), or one whose server forgets the
+session -- Unraid's own server forgets every login when *it* reboots.
+
 ### What a profile costs, and what is done about it
 
 A profile is a browser's whole home -- what it is signed into, and the cache it

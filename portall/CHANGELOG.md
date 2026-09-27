@@ -1,5 +1,12 @@
 # Changelog
 
+## 4.29.2
+
+- **Unraid, and other sites that sign you in "for the session", stay signed
+  in** when the add-on or Home Assistant restarts. Their login is a cookie
+  with no expiry date, and the panel's browser threw those away every time it
+  was restarted. Sign in once more after this update; it stays after that.
+
 ## 4.29.1
 
 - **Pixel talks with a mouth, and listens with its ears.** The bars that
