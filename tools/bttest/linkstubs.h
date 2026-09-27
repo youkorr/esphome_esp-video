@@ -98,7 +98,10 @@ static ESPPreferences preferences_stub;
 ESPPreferences *global_preferences = &preferences_stub;
 }  // namespace esphome
 esp_err_t esp_bt_gap_register_callback(esp_bt_gap_cb_t) { return ESP_OK; }
-esp_err_t esp_bt_gap_set_scan_mode(esp_bt_connection_mode_t, esp_bt_discovery_mode_t) { note_call("esp_bt_gap_set_scan_mode"); return ESP_OK; }
+// The last discovery mode asked for, because "discoverable only while a scan
+// runs" is a claim about which mode the panel is LEFT in.
+static int g_disc_mode = -1;
+esp_err_t esp_bt_gap_set_scan_mode(esp_bt_connection_mode_t, esp_bt_discovery_mode_t d) { note_call("esp_bt_gap_set_scan_mode"); g_disc_mode = (int) d; return ESP_OK; }
 esp_err_t esp_bt_gap_start_discovery(esp_bt_inq_mode_t, uint8_t, uint8_t) { note_call("esp_bt_gap_start_discovery"); return g_discovery_result; }
 esp_err_t esp_bt_gap_cancel_discovery(void) { note_call("esp_bt_gap_cancel_discovery"); return ESP_OK; }
 esp_err_t esp_bt_gap_set_device_name(const char *) { return ESP_OK; }

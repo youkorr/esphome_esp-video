@@ -168,6 +168,7 @@ void PortallBT::loop() {
   // to Bluedroid's own task, and the speaker platform's play() can be called
   // from an audio task with no business starting or stopping a stream.
   this->a2dp_idle_tick_();
+  this->scan_deadline_tick_();
   this->pair_report_tick_();
 }
 

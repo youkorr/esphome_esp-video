@@ -525,6 +525,11 @@ class PortallBT : public Component {
   uint16_t heard() const { return this->heard_; }
   /// Put the reconnection clock back after a pair scan.
   void resume_reconnect();
+  /// The stack says the pair scan has ended. A member rather than the body of
+  /// the GAP callback so that a test can drive it.
+  void scan_stopped();
+  /// Ends a pair scan the stack never reported ending. See pair().
+  void scan_deadline_tick_();
   /* Say how the pairing went once the Wi-Fi is back.
    *
    * An inquiry sweeps the whole 2.4 GHz band and takes this panel's own link
@@ -778,6 +783,11 @@ class PortallBT : public Component {
   uint8_t pair_link_count_{0};
   void note_links_for_scan_();
   uint32_t pair_report_due_ms_{0};
+  /// When a pair scan is given up on if the stack has not said it ended; 0
+  /// while no scan is running.
+  uint32_t scan_deadline_ms_{0};
+  static constexpr uint32_t SCAN_GRACE_MS = 20000;
+  void end_scan_();
   Remembered remembered_{};
   ESPPreferenceObject remembered_pref_;
   RememberedInputs remembered_inputs_{};

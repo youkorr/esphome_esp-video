@@ -398,6 +398,73 @@ int main() {
           called_before("esp_a2d_source_disconnect", "esp_bt_gap_remove_bond_device"));
   }
 
+  printf("\na scan the stack never reports ending is ended by the panel\n");
+  {
+    /* THE REPORTED CASE: "je suis obliger soit de retirer la clef bluetooth
+       ou redemarer esp32P4", after a pairing whose log stopped at the lines
+       pair() prints. Nothing but Bluedroid's DISCOVERY_STOPPED ended a scan,
+       so when it never came, reconnection stayed paused for good and the next
+       press was refused. The event is simply never delivered here. */
+    PortallBT bt;
+    with_a_speaker_connected(bt);
+    say(&PortallBT::pair, bt);
+    check("the scan pauses reconnection while it runs", bt.reconnect_paused_);
+    esphome::g_now_ms += 12000;
+    say_run([&] { bt.scan_deadline_tick_(); });
+    check("it is not given up on while the inquiry itself could still be running",
+          bt.reconnect_paused_);
+    esphome::g_now_ms += 25000;
+    g_calls.clear();
+    const std::string said = say_run([&] { bt.scan_deadline_tick_(); });
+    check("past its deadline the panel cancels it",
+          called("esp_bt_gap_cancel_discovery"));
+    check("reconnection comes back", !bt.reconnect_paused_);
+    check("the panel is no longer discoverable",
+          g_disc_mode == (int) ESP_BT_NON_DISCOVERABLE);
+    check("and it says the stack never reported the end",
+          said.find("never reported") != std::string::npos);
+    const std::string late = say_run([&] { bt.scan_stopped(); });
+    check("the stop that the cancel produces later says nothing",
+          late.find("scan finished") == std::string::npos);
+    g_calls.clear();
+    say(&PortallBT::pair, bt);
+    check("and the next press scans again", called("esp_bt_gap_start_discovery"));
+  }
+
+  printf("\na scan that ends normally puts everything back\n");
+  {
+    PortallBT bt;
+    with_a_speaker_connected(bt);
+    say(&PortallBT::pair, bt);
+    check("the panel is discoverable while it scans",
+          g_disc_mode == (int) ESP_BT_GENERAL_DISCOVERABLE);
+    /* Nothing put it back before: after the first pairing a panel stayed in
+       every phone's Bluetooth list until it was restarted. */
+    const std::string said = say_run([&] { bt.scan_stopped(); });
+    check("the end is reported", said.find("scan finished") != std::string::npos);
+    check("the panel is not discoverable afterwards",
+          g_disc_mode == (int) ESP_BT_NON_DISCOVERABLE);
+    check("reconnection resumes", !bt.reconnect_paused_);
+    esphome::g_now_ms += 60000;
+    g_calls.clear();
+    say_run([&] { bt.scan_deadline_tick_(); });
+    check("and no deadline fires for a scan that already ended",
+          !called("esp_bt_gap_cancel_discovery"));
+  }
+
+  printf("\na second press during a scan does not start another\n");
+  {
+    PortallBT bt;
+    with_a_speaker_connected(bt);
+    say(&PortallBT::pair, bt);
+    g_calls.clear();
+    const std::string said = say(&PortallBT::pair, bt);
+    check("no second discovery is asked for", !called("esp_bt_gap_start_discovery"));
+    check("it says one is running rather than to restart the panel",
+          said.find("already running") != std::string::npos &&
+              said.find("restart the panel") == std::string::npos);
+  }
+
   if (failures) {
     printf("\n%d check(s) failed\n", failures);
     return 1;

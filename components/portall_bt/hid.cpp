@@ -135,18 +135,8 @@ static void gap_cb(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *param) {
     }
 
     case ESP_BT_GAP_DISC_STATE_CHANGED_EVT:
-      if (param->disc_st_chg.state == ESP_BT_GAP_DISCOVERY_STOPPED) {
-        ESP_LOGI(TAG, "scan finished, %u device(s) heard; the Wi-Fi should come back now",
-                 (unsigned) g_bt->heard());
-        // A count of zero used to read exactly like a scan that never started,
-        // and the two need different next steps: nothing heard is a device not
-        // in pairing mode, or one still connected somewhere else.
-        if (g_bt->heard() == 0)
-          ESP_LOGW(TAG, "  nothing answered. Put the device in PAIRING mode -- a speaker already "
-                        "connected to a telephone or a car will not answer a scan.");
-        g_bt->resume_reconnect();
-        g_bt->say_pairing_later();
-      }
+      if (param->disc_st_chg.state == ESP_BT_GAP_DISCOVERY_STOPPED)
+        g_bt->scan_stopped();
       break;
 
     case ESP_BT_GAP_AUTH_CMPL_EVT:
@@ -873,6 +863,15 @@ void PortallBT::pair() {
    * gamepad, and then paired the speaker that was already working. Replacing
    * a device that is already here is what Forget is for, and forget() still
    * hangs up first -- which is the case that fix was really written for. */
+  /* ONE SCAN AT A TIME. A second press while the first is still running used
+   * to reach esp_bt_gap_start_discovery, be refused, and be told to restart
+   * the panel -- which is advice for a stack that is stuck, given to one that
+   * is merely busy. */
+  if (this->scan_deadline_ms_ != 0) {
+    ESP_LOGW(TAG, "a scan is already running; it ends by itself within %u seconds",
+             (unsigned) ((this->scan_deadline_ms_ - now_ms_()) / 1000 + 1));
+    return;
+  }
   this->reconnect_paused_ = true;
   this->reconnect_backoff_ms_ = 0;
   this->heard_ = 0;
@@ -911,8 +910,78 @@ void PortallBT::pair() {
   if (started != ESP_OK) {
     ESP_LOGE(TAG, "the scan did not start (%d) -- nothing is being looked for. Press this again "
                   "in a few seconds; if it keeps refusing, restart the panel.", (int) started);
+    esp_bt_gap_set_scan_mode(ESP_BT_CONNECTABLE, ESP_BT_NON_DISCOVERABLE);
     this->resume_reconnect();
+    return;
   }
+  /* AND THE PANEL, NOT THE STACK, DECIDES WHEN IT IS OVER. The only thing that
+   * ended a scan was Bluedroid's DISCOVERY_STOPPED event; if it never came,
+   * nothing did. Reconnection stayed paused for the life of the firmware -- so
+   * no remembered speaker or gamepad ever came back -- the panel stayed in
+   * every phone's list, and the next press was refused with "restart the
+   * panel". From the sofa that is exactly "I have to pull the dongle out or
+   * restart the ESP", reported after a pairing whose log stopped at the lines
+   * above.
+   *
+   * The inquiry itself is `length` units of 1.28 s by specification; after it
+   * Bluedroid asks each device heard for its name, each of which can run to a
+   * page timeout. SCAN_GRACE_MS covers that with room, and a scan cut short
+   * there has already reported everything it heard: heard_device() runs on
+   * each result as it arrives. */
+  this->scan_deadline_ms_ = now_ms_() + (uint32_t) length * 1280 + SCAN_GRACE_MS;
+  if (this->scan_deadline_ms_ == 0)
+    this->scan_deadline_ms_ = 1;
+#endif
+}
+
+void PortallBT::scan_stopped() {
+#ifdef CONFIG_BT_BLUEDROID_ENABLED
+  /* Only a scan pair() started and the deadline has not already ended. The
+     cancel the deadline sends produces a STOPPED of its own, later, and a
+     second "scan finished" after the panel has said it gave up would read as
+     a scan that ran twice. */
+  if (this->scan_deadline_ms_ == 0)
+    return;
+  this->scan_deadline_ms_ = 0;
+  ESP_LOGI(TAG, "scan finished, %u device(s) heard; the Wi-Fi should come back now",
+           (unsigned) this->heard_);
+  // A count of zero used to read exactly like a scan that never started,
+  // and the two need different next steps: nothing heard is a device not
+  // in pairing mode, or one still connected somewhere else.
+  if (this->heard_ == 0)
+    ESP_LOGW(TAG, "  nothing answered. Put the device in PAIRING mode -- a speaker already "
+                  "connected to a telephone or a car will not answer a scan.");
+  this->end_scan_();
+#endif
+}
+
+void PortallBT::scan_deadline_tick_() {
+#ifdef CONFIG_BT_BLUEDROID_ENABLED
+  if (this->scan_deadline_ms_ == 0)
+    return;
+  if ((int32_t) (now_ms_() - this->scan_deadline_ms_) < 0)
+    return;
+  this->scan_deadline_ms_ = 0;
+  // Said at error level because it is the evidence: the stack never said the
+  // scan ended, and which half of the transport lost that is the next question.
+  ESP_LOGE(TAG, "the scan never reported that it ended, so this panel is ending it: "
+                "%u device(s) heard, reconnection resumed, no longer discoverable",
+           (unsigned) this->heard_);
+  esp_bt_gap_cancel_discovery();
+  this->end_scan_();
+#endif
+}
+
+void PortallBT::end_scan_() {
+#ifdef CONFIG_BT_BLUEDROID_ENABLED
+  /* Back to CONNECTABLE and NOT discoverable, which is what setup() chose and
+     pair() says it only lifts for the length of a scan. Nothing ever put it
+     back: after the first pairing a panel stayed in every phone's Bluetooth
+     list until it was restarted. A device being paired needs none of it -- this
+     panel pages that device, not the other way round. */
+  esp_bt_gap_set_scan_mode(ESP_BT_CONNECTABLE, ESP_BT_NON_DISCOVERABLE);
+  this->resume_reconnect();
+  this->say_pairing_later();
 #endif
 }
 
