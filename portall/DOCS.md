@@ -1074,24 +1074,26 @@ no drawing at all, and none of these do.
 | 🐳 | `docker` `portainer` `container` `containers` `whale` | ℹ️ | `info` `information` `aide` `help` `about` |
 | 🖧 | `serveur` `server` `cluster` `machines` `noeuds` `nodes` |  |  |
 
-527 names onto 116 icons.
+533 names onto 116 icons.
 
 ### Les logos de services
 
 | service | les noms qui y mènent | service | les noms qui y mènent |
 |---|---|---|---|
-| adguard | `adguard` `adguardhome` | pfsense | `pfsense` |
-| audiobookshelf | `audiobookshelf` `abs` | philipshue | `hue` `philipshue` `philips-hue` |
-| bitwarden | `bitwarden` | pihole | `pihole` `pi-hole` |
-| calibreweb | `calibre` `calibreweb` `calibre-web` | plex | `plex` |
-| docker | `docker` | portainer | `portainer` |
-| duplicati | `duplicati` | proxmox | `proxmox` `pve` |
-| eclipsemosquitto | `mosquitto` `broker` | qbittorrent | `qbittorrent` `qbit` |
-| emby | `emby` | radarr | `radarr` |
-| esphome | `esphome` | raspberrypi | `raspberrypi` `raspberry-pi` `pi` |
-| frigate | `frigate` | reolink | `reolink` |
-| gitea | `gitea` `forgejo` | sonarr | `sonarr` |
-| github | `github` | sonos | `sonos` |
+| adguard | `adguard` `adguardhome` | orange | `orange` `orange-tv` `orangetv` `livebox` |
+| audiobookshelf | `audiobookshelf` `abs` | paperlessngx | `paperless` `paperlessngx` `paperless-ngx` |
+| bitwarden | `bitwarden` | pfsense | `pfsense` |
+| brave | `brave` `brave-search` `bravesearch` | philipshue | `hue` `philipshue` `philips-hue` |
+| calibreweb | `calibre` `calibreweb` `calibre-web` | pihole | `pihole` `pi-hole` |
+| docker | `docker` | plex | `plex` |
+| duplicati | `duplicati` | portainer | `portainer` |
+| eclipsemosquitto | `mosquitto` `broker` | proxmox | `proxmox` `pve` |
+| emby | `emby` | qbittorrent | `qbittorrent` `qbit` |
+| esphome | `esphome` | radarr | `radarr` |
+| frigate | `frigate` | raspberrypi | `raspberrypi` `raspberry-pi` `pi` |
+| gitea | `gitea` `forgejo` | reolink | `reolink` |
+| github | `github` | sonarr | `sonarr` |
+| google | `google` `google-search` `googlesearch` | sonos | `sonos` |
 | grafana | `grafana` | spotify | `spotify` |
 | homeassistant | `home-assistant` `homeassistant` `hass` `ha` `lovelace` | synology | `synology` `dsm` |
 | homebridge | `homebridge` | tailscale | `tailscale` |
@@ -1105,9 +1107,8 @@ no drawing at all, and none of these do.
 | openmediavault | `openmediavault` `omv` | wireguard | `wireguard` |
 | openwrt | `openwrt` | youtube | `youtube` `yt` |
 | opnsense | `opnsense` | zigbee2mqtt | `zigbee2mqtt` `z2m` |
-| paperlessngx | `paperless` `paperlessngx` `paperless-ngx` |  |  |
 
-49 drawn as shapes and 2 carried as a picture, all of them from the add-on itself and never fetched.
+52 drawn as shapes and 2 carried as a picture, all of them from the add-on itself and never fetched.
 
 ### The clock, the date and the weather
 
