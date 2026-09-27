@@ -9526,6 +9526,28 @@ The shape is this file's pair-of-constants fault in a YAML: two things that
 must agree (the backlight and what the sender is told), set from separate
 places with nothing tying them. Put the state on the thing it describes.
 
+### And the greeting is only as good as the YAML that says the panel woke
+
+**Reported as *"le mot bonjour ou bonsoir ne fonctionne plus sur avatar"*.**
+The add-on half was run end to end rather than argued: the shipped sender
+against a fake panel sending `S 0` then `S 1`, on a Pixel launcher, with and
+without a kept profile, short sleep and parked page alike -- `greet_avatar`
+answers True, the bubble is `display: inline`, it reads **Bonjour** under
+`--locale fr-FR`, and a whole panel and then the rectangles of the bubble
+going away reach the socket. Nothing there is broken.
+
+What is broken is where the wake comes from. The household's own
+`yaml/ha-esp32p4 Guition.yaml` has `portall.sleep`/`portall.wake` commented
+out (under the old `usb_display` name), and `yaml/guition-voice.yaml` never
+had them: a panel on either never says it went dark or came back, so the
+greeting has nothing to answer. `guition-voice.yaml` now carries the same
+`on_turn_on`/`on_turn_off` pair as the Bluetooth example. Validated at
+**2026.6.5**, the only esphome in this container this time (the 2026.8.2
+venv did not survive), codegen read: `portall_wakeaction_id->set_parent(udisp)`.
+Two things still make a greeting correctly absent: a panel woken inside
+`blank_after` on a link rather than the launcher (no face there), and a
+`locale:` left at its `en-US` default, which says **Hello**.
+
 ## Only the stack could end a pair scan, and when it did not, nothing did
 
 **Reported as *"ceci m'arrive souvent apres que je compile est d'essayer
