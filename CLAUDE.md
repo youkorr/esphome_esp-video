@@ -1779,7 +1779,7 @@ the dashboard, where it is invisible while the keys go on working.
 ahead of the `pip install` as well as the `ADD`s, so a bump refetches
 everything — at the cost of the browser download on each update.
 `present_browser()` prints the Chromium version at startup and warns below 114,
-so this is never diagnosed by guesswork again. Currently **4.29.2**.
+so this is never diagnosed by guesswork again. Currently **4.29.3**.
 
 **The image carried two Playwright browsers and needed one.** `playwright
 install chromium` fetches the full Chromium **and** the headless shell -- 597
@@ -9406,6 +9406,37 @@ commit, three runs. `--without` reproduces the report (session cookie lost at
 both restarts), `--keep-tabs` reproduces the tab pile-up. **Reolink is not
 verified** -- no route to one from here -- and if its web client keeps its
 token in sessionStorage it is still lost at a restart; the next report says.
+
+### And the TILE left the login behind -- 4.29.3
+
+**Reported the same day: *"quant le server il redemarre il demande le login,
+mais il ne conserve pas meme si il ne redemarre pas"*.** Nothing restarted,
+so 4.29.2 could not be the answer. Unraid's `local_prepend.php` was read
+further: `ini_set("session.cookie_samesite", 'Strict')`. A browser does not
+send a Strict cookie on a navigation that STARTS on another site, and the
+launcher -- 127.0.0.1 -- always is one. Measured on the shipped browser
+against a site on another host: a click on a link and `location.href` arrive
+**without** the cookie, `page.goto` arrives **with** it (it is treated like
+the address bar). So the login was there the whole time and the tile never
+presented it.
+
+`FOLLOW_JS` in launcher.py hands a tile's address to `__udispFollow` when a
+sender has put it there, and does nothing otherwise, so the page in an
+ordinary browser is unchanged. `Follow` in ha_send.py only QUEUES it -- it
+runs inside Playwright's dispatch -- and only for calls from the TOP frame of
+the panel's home origin: a binding on the context is in every page the panel
+shows, and letting any site ask for a typed-address navigation would hand it
+exactly the Strict cookies that setting withholds. The loop opens it with
+`go_to()`, the goto half of `open_link()`; a voice link still goes through
+the face, whose press now also ends in `__udispFollow`.
+
+`tools/checkfollow.py`: the shipped launcher and a Strict site on another
+host; a real click with `Follow` bound hands the address over and the site
+gets its cookie; the same click with nothing bound follows the link and the
+cookie is left behind (the report); another origin calling the binding is
+ignored; and the shipped sender end to end, a voice link pressed by the face
+arriving signed in. **Reolink is still not verified** -- whatever it keeps,
+a tile now arrives the way a typed address does.
 
 ## Repository conventions
 

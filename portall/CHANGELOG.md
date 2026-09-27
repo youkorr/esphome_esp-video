@@ -1,5 +1,14 @@
 # Changelog
 
+## 4.29.3
+
+- **Unraid stays signed in when you press its tile.** Its login cookie is
+  only sent when you arrive from Unraid itself or type its address, never
+  from a link on another page -- and the launcher is another page. So the
+  tile always opened on the login screen. The add-on now opens a tile's
+  address itself, which counts as typing it, and the login goes with it.
+  Nothing changes when the launcher is opened in an ordinary browser.
+
 ## 4.29.2
 
 - **Unraid, and other sites that sign you in "for the session", stay signed
