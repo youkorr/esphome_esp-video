@@ -2415,6 +2415,29 @@ here, not flashed**: the board's `waited N ms/s for LVGL` beside the 580 of
 the stock LVGL is what says how much of the 65 ms it takes back. The 35 ms
 copy is portall's and is unchanged.
 
+**The fork measured the same, and the experiment is PARKED.** Flashed with
+`tab5-portall-canvas-ppa.yaml`: `1280x620 @ 9.2 fps, 31871 us/draw`,
+`waited 560-631 ms/s for LVGL`, and on the add-on's side `9.0 pictures/s,
+panel wait 69%, 15 skipped` -- the numbers of the stock LVGL to within
+noise. So the fork's PPA draw unit and one render pass did not take back
+LVGL's ~65 ms, and what is left is the shape of the mode itself: a whole
+picture is decoded, copied into the canvas, then redrawn, turned and flushed
+by LVGL, one after the other. The user's word: *"meme probleme de fps ...
+mettre cette experience pour plus tard"*. One window read `@ 43.9 fps, 6418
+us/draw`, which is small rectangles rather than whole pictures and is not
+explained.
+
+What stays: the `canvas:` option, the flow control, both examples (headed
+PARKED, pointing at `tab5-portall-screen.yaml`) and `tools/checkcanvas.py`.
+**None of it runs on a panel without `canvas:`** -- every line is under
+`#ifdef USE_LVGL` and returns while `canvas_` is null, and `__init__.py`
+imports lvgl only when the option is set. The one change from this thread
+that reaches every panel is `_let_malloc_spill_to_psram`, which is a fix for
+esp-hosted's assert on any panel whose decoder stalls, not a canvas feature;
+it is not flashed on a plain panel yet. If this is picked up again, the two
+routes above are where the time is -- the decoder writing straight into the
+canvas, or LVGL leaving a hole that portall draws itself.
+
 
 ## The panel as a launcher
 
