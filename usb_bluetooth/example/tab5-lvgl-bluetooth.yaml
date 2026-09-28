@@ -277,11 +277,12 @@ lvgl:
       focus_key:
         border_width: 4
         border_color: 0xffffff
-  # Each page is ONE column that fits the screen, with scrolling off. Widgets
-  # placed at fixed offsets from the centre run off a screen of another shape
-  # (a Tab5 turned to landscape is 720 tall), and LVGL then makes the page
-  # scrollable and draws a scroll bar down its right edge. Heights are a share
-  # of the screen for the same reason.
+  # Each page is ONE column centred on the screen, with scrolling off, so it
+  # holds together in portrait (720x1280) and landscape (1280x720) alike.
+  # Widgets placed at fixed offsets from the centre ran off a landscape screen
+  # and LVGL grew a scroll bar down its right edge. flex_align_track: center
+  # is what centres the column itself: without it LVGL puts the column at the
+  # left and only centres things inside it.
   pages:
     - id: home_page
       bg_color: 0x10141c
@@ -292,10 +293,12 @@ lvgl:
         flex_flow: column
         flex_align_main: center
         flex_align_cross: center
-        pad_row: 24
+        flex_align_track: center
+        pad_row: 28
       widgets:
         - label:
             id: status
+            margin_bottom: 12
             text: "Press a button, or pair a remote"
             text_color: 0xe6e9ef
             text_font: montserrat_28
@@ -304,8 +307,8 @@ lvgl:
         # outline between them, OK presses the one it is on.
         - button:
             id: btn_living
-            width: 80%
-            height: 12%
+            width: 480
+            height: 96
             widgets:
               - label:
                   align: CENTER
@@ -317,8 +320,8 @@ lvgl:
                   text: "Living room"
         - button:
             id: btn_kitchen
-            width: 80%
-            height: 12%
+            width: 480
+            height: 96
             widgets:
               - label:
                   align: CENTER
@@ -330,8 +333,8 @@ lvgl:
                   text: "Kitchen"
         - button:
             id: btn_music
-            width: 80%
-            height: 12%
+            width: 480
+            height: 96
             widgets:
               - label:
                   align: CENTER
@@ -346,8 +349,8 @@ lvgl:
                   media_url: "https://github.com/esphome/home-assistant-voice-pe/raw/dev/sounds/wake_word_triggered.flac"
         - button:
             id: btn_settings
-            width: 80%
-            height: 12%
+            width: 480
+            height: 96
             widgets:
               - label:
                   align: CENTER
@@ -365,9 +368,11 @@ lvgl:
         flex_flow: column
         flex_align_main: center
         flex_align_cross: center
-        pad_row: 16
+        flex_align_track: center
+        pad_row: 12
       widgets:
         - label:
+            margin_bottom: 12
             text: "Settings -- Home or Back returns"
             text_color: 0xe6e9ef
             text_font: montserrat_28
@@ -380,7 +385,8 @@ lvgl:
             text_font: montserrat_20
         - label:
             id: lbl_speaker
-            width: 80%
+            width: 600
+            margin_bottom: 12
             long_mode: WRAP
             text_align: CENTER
             text: "none"
@@ -392,7 +398,8 @@ lvgl:
             text_font: montserrat_20
         - label:
             id: lbl_inputs
-            width: 80%
+            width: 600
+            margin_bottom: 12
             long_mode: WRAP
             text_align: CENTER
             text: "none"
@@ -400,8 +407,8 @@ lvgl:
             text_font: montserrat_20
         - button:
             id: btn_pair
-            width: 80%
-            height: 12%
+            width: 480
+            height: 96
             widgets:
               - label:
                   align: CENTER
@@ -411,8 +418,8 @@ lvgl:
               - usb_bluetooth.pair: dongle
         - button:
             id: btn_back
-            width: 80%
-            height: 12%
+            width: 480
+            height: 96
             widgets:
               - label:
                   align: CENTER
