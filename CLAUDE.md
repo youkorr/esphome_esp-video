@@ -2438,6 +2438,31 @@ it is not flashed on a plain panel yet. If this is picked up again, the two
 routes above are where the time is -- the decoder writing straight into the
 canvas, or LVGL leaving a hole that portall draws itself.
 
+**CORRECTED by the household the same day: "a video in it costs two thirds
+of its frames" is a fact about THIS design, not about LVGL on a P4.** Said
+as *"decoder une video je le fait souvent avec la camera interne des esp32P4
+avec une moyenne 25 fps"* -- through `lvgl_camera_display`, in this very
+repository. Read beside portall's canvas path, the camera path differs in
+exactly the two places the 9 fps is spent:
+
+| | `lvgl_camera_display` | portall canvas mode |
+|---|---|---|
+| the picture reaches LVGL | **zero copy**: an `lv_draw_buf_t` pointed at the camera's own DMA buffer, the pointer swapped each frame | decoded into `rgb_buffer_`, then **memcpy'd** into the canvas: 32-35 ms |
+| next picture vs LVGL drawing this one | **pipelined**: the camera fills the next pool buffer while LVGL draws this one | **serial**: `canvas_wait_()` holds the decoder until REFR_READY, then it copies |
+
+So the 9 is copy + LVGL one after the other, and neither half is the chip's
+ceiling. The route is the camera's: two canvas-sized buffers allocated with
+`jpeg_alloc_decoder_mem()`; a WHOLE-canvas picture -- which is every picture
+of a video -- decoded straight into the one LVGL is not showing, then
+`lv_canvas_set_draw_buf()` to swap; a partial rectangle copied into the one
+it is showing, as now, which stays correct because the next whole picture
+replaces everything. Two things are not known: whether LVGL's own pass is
+really ~65 ms (the wait measured also holds LVGL's refresh timer and the
+turn of portall's loop), and whether the Tab5's 270 costs more than the
+Waveshare's 180 that `lvgl-kawaii.yaml` runs the camera at. The camera's own
+`=== BENCHMARK` line on the Tab5 at 270 would settle the second. Not built;
+the experiment stays parked until asked.
+
 
 ## The panel as a launcher
 
