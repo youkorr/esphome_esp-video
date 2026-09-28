@@ -20,6 +20,14 @@
 # 2026.10.0-dev. Flashed on a Tab5: pairing, the speaker and the remote work.
 # The one-column layout of the pages came after that and has not been flashed.
 
+substitutions:
+  # The media player below as Home Assistant names it: Settings > Devices &
+  # services > ESPHome > this board. Home Assistant builds it from the
+  # friendly name and the player's name, so this is it unless one was renamed.
+  player_entity: media_player.tab5_bluetooth_tab5
+  # Any address Home Assistant can fetch -- MP3, FLAC, WAV, OGG...
+  test_sound: "https://github.com/esphome/home-assistant-voice-pe/raw/dev/sounds/wake_word_triggered.flac"
+
 esphome:
   name: tab5-bluetooth
   friendly_name: Tab5 Bluetooth
@@ -433,9 +441,19 @@ lvgl:
               - lvgl.label.update:
                   id: status
                   text: "Playing a test sound"
-              - media_player.play_media:
-                  id: speaker_player
-                  media_url: "https://github.com/esphome/home-assistant-voice-pe/raw/dev/sounds/wake_word_triggered.flac"
+              # Home Assistant plays it rather than the board fetching it:
+              # it converts whatever the file is (an MP3 included) into the
+              # FLAC at 44100 Hz the pipelines above ask for. Played by the
+              # board itself, only FLAC is decoded and only a 44100 Hz file
+              # would be accepted by the mixer. Needs "Allow the device to
+              # perform Home Assistant actions" ticked on this device in
+              # Home Assistant's ESPHome integration, which is off by default.
+              - homeassistant.action:
+                  action: media_player.play_media
+                  data:
+                    entity_id: ${player_entity}
+                    media_content_id: ${test_sound}
+                    media_content_type: music
         - button:
             id: btn_settings
             width: 480
