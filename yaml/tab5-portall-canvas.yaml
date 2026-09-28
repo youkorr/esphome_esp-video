@@ -1,3 +1,9 @@
+# PARKED -- not for a new panel. Use yaml/tab5-portall-screen.yaml instead.
+# Measured on a Tab5: about 9 whole pictures a second here, against 25-30 in
+# the plain mode, on ESPHome's lvgl and on the household's fork alike. It is
+# kept as a test to come back to; nothing in portall runs it unless a YAML
+# sets `canvas:`.
+#
 # A TEST: the page drawn inside an LVGL canvas instead of onto the display.
 #
 # Asked for as "on fait un test si ca va pas on revient", after a friend of the
