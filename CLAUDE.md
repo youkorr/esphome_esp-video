@@ -2378,6 +2378,25 @@ canvas mode a full-motion picture costs the copy plus LVGL's pass plus a
 rotation, and `fps:` on the video link, or the plain mode, is what a video
 wants.
 
+**Flashed, and the ceiling is now a number.** The next video log had no
+watchdog and no reboot, `0 dropped`, and LVGL's slow operations fell from
+seconds to 121-215 ms -- and the picture ran at **8-9 whole canvases a
+second**: `1280x620 @ 9.0 fps, 35731 us/draw`, `waited 580 ms/s for LVGL`.
+So one picture is ~35 ms of copy plus ~65 ms of LVGL rendering it, turning it
+through the PPA and flushing it, one after the other: about 100 ms, which is
+the 9. The add-on's side agrees (`8.2 pictures/s, 11.2 made/s, 14 skipped,
+panel wait 55%`): the wait is LVGL's pace reaching the sender, as designed.
+Plain mode on the same board does 25-30. **That is the answer to Rob's
+question for full motion**: a canvas is fine for a dashboard and a launcher,
+and a video in it costs two thirds of its frames. Two routes if it is ever
+wanted faster, neither built: decode a whole picture straight into the
+canvas (saves the 35 ms; the decoder writes 16-row units and 620 is not a
+multiple of 16, so it would overrun the buffer as the example stands), or a
+"window" mode where LVGL leaves a hole and portall draws that rectangle
+itself through its own PPA rotation, as plain mode does -- which means two
+writers to one display from two tasks. `fps: 9` on the video link removes
+the skipping in the meantime.
+
 
 ## The panel as a launcher
 
