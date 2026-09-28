@@ -10338,6 +10338,43 @@ component's root is the repository root, so it does not apply.
 `CONFIG_ESP_MAIN_TASK_STACK_SIZE` buys nothing either: `app_main` only starts
 `loopTask` and returns, and setup() runs in loopTask (`esp32/core.cpp`).
 
+## usb_bluetooth/ -- portall_bt on its own, for ESPHome and LVGL
+
+**Asked for as a stand-alone external for somebody who runs LVGL and no
+add-on**, after the question of an ESPHome PR. `usb_bluetooth/components/
+usb_bluetooth` is `portall_bt` renamed (`PortallBT` -> `UsbBluetooth`), with
+`keys:`, `_one_controller_each` and every other reach into `portall` taken
+out, `rtlfw.py` and `cherryusb_patch/` moved INSIDE the component so the
+folder needs nothing beside it, and `device_name` defaulting to the node's
+name. Reached with `external_components: source: type: git ... path:
+usb_bluetooth/components`, which ESPHome's git source supports.
+
+**`binary_sensor: - platform: usb_bluetooth` with `key:` is what only the copy
+has**, and it is the LVGL answer. Two things decided its shape, both read in
+source rather than assumed:
+
+- **On an LVGL keypad only NEXT and PREV move the focus.**
+  `indev_keypad_proc` in `lv_indev.c` (9.5.0) sends every other key to the
+  focused widget, so a remote's arrows wired to `up:`/`down:` would move a
+  slider and never a button. `key:` takes a LIST, so one sensor is
+  `[down, right]` and feeds `next:`.
+- **LVGL READS a keypad on its own timer** (`LVEncoderListener`'s read_cb,
+  30 ms by default), it does not watch the sensor. Most devices here report
+  a press with no release that means anything, and a sensor that went ON and
+  OFF inside one loop would be a press LVGL never saw. So it stays ON for
+  `hold:`, 100 ms, and a second press inside it is OFF-ON again.
+
+The single `key_sink_` became a list of listeners (`add_key_listener`,
+`add_home_listener`); `keys.cpp` is untouched apart from its messages.
+
+**A copy drifts, so `tools/checkusbbt.py` runs checkbt.py's syntax passes and
+the whole `tools/bttest` suite against it, renamed on the fly**, plus
+`tools/usbbttest/keysensor.cpp`; every text replacement it makes must land or
+it stops, rather than silently checking `portall_bt` twice. A fix to
+`portall_bt` is not in the copy until somebody carries it over.
+Example: `usb_bluetooth/example/tab5-lvgl-bluetooth.yaml`, config and codegen
+at 2026.10.0-dev. **Not compiled by ESP-IDF, not flashed.**
+
 ## Repository conventions
 
 - Work on branch `claude/esphome-pr-outdated-mdq36w`, then merge into `main`

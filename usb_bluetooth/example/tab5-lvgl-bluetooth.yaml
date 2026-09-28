@@ -1,0 +1,379 @@
+# usb_bluetooth on an M5Stack Tab5, with ESPHome's own LVGL and nothing else.
+#
+# A USB Bluetooth dongle in the Tab5's USB-A socket gives this board
+# Bluetooth CLASSIC, which the ESP32-C6 beside the P4 does not have:
+#   - a Bluetooth speaker, headphones or a car receiver play the media
+#     player's sound (A2DP);
+#   - a remote, a keyboard or a gamepad moves LVGL's focus and presses the
+#     focused button, through `lvgl: keypads:` (HID, and AVRCP buttons).
+#
+# Pairing: press "Pair a Bluetooth device" in Home Assistant with the device
+# in pairing mode. It is remembered, and reconnected by address after a
+# restart without scanning again. The Wi-Fi drops for the ten seconds a scan
+# lasts -- a Bluetooth inquiry sweeps the whole 2.4 GHz band.
+#
+# Dongles proved: Broadcom BCM20702A1 (Bluetooth 4.0, no firmware needed) and
+# TP-Link UB500 (Realtek RTL8761BU, whose firmware is built in by the
+# component -- nothing to download).
+#
+# This file is checked with `esphome config` and the codegen on ESPHome
+# 2026.10.0-dev. It has NOT been compiled or flashed as it stands; the
+# component under it has run on Tab5, Guition and Waveshare panels.
+
+esphome:
+  name: tab5-bluetooth
+  friendly_name: Tab5 Bluetooth
+
+esp32:
+  board: esp32-p4-evboard
+  cpu_frequency: 360MHz
+  flash_size: 16MB
+  engineering_sample: true
+  framework:
+    type: esp-idf
+    advanced:
+      enable_idf_experimental_features: yes
+
+logger:
+
+api:
+  encryption:
+    key: !secret api_encryption_key
+
+ota:
+  - platform: esphome
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+psram:
+  mode: hex
+  speed: 200MHz
+
+esp_ldo:
+  - voltage: 2.5V
+    channel: 3
+
+i2c:
+  - id: bsp_bus
+    sda: GPIO31
+    scl: GPIO32
+    frequency: 400kHz
+
+esp32_hosted:
+  variant: esp32c6
+  active_high: true
+  clk_pin: GPIO12
+  cmd_pin: GPIO13
+  d0_pin: GPIO11
+  d1_pin: GPIO10
+  d2_pin: GPIO9
+  d3_pin: GPIO8
+  reset_pin: GPIO15
+  slot: 1
+
+external_components:
+  - source:
+      type: git
+      url: https://github.com/youkorr/esphome_esp-video
+      ref: main
+      path: usb_bluetooth/components
+    components: [usb_bluetooth]
+    refresh: 1d
+
+pi4ioe5v6408:
+  - id: pi4ioe1
+    address: 0x43
+  - id: pi4ioe2
+    address: 0x44
+
+switch:
+  - platform: gpio
+    id: wifi_power
+    internal: true
+    pin:
+      pi4ioe5v6408: pi4ioe2
+      number: 0
+    restore_mode: ALWAYS_ON
+
+  # The USB-A socket's 5 V. A USB host supplies the power, and on the Tab5 it
+  # is this expander pin: without it nothing enumerates.
+  - platform: gpio
+    id: usb_5v_power
+    name: USB-A power
+    pin:
+      pi4ioe5v6408: pi4ioe2
+      number: 3
+    restore_mode: ALWAYS_ON
+
+  # Bluetooth off hangs up both profiles and stops reconnecting.
+  - platform: usb_bluetooth
+    name: Bluetooth
+    icon: mdi:bluetooth
+    restore_mode: RESTORE_DEFAULT_ON
+
+usb_bluetooth:
+  id: dongle
+  # The Tab5's USB-A socket is on the high-speed OTG peripheral, which is the
+  # default. Nothing else in this file may use it (no usb_host, no tinyusb).
+  controller: high_speed
+  host_stack: bluedroid
+  audio: true
+  hid: true
+  device_name: Tab5
+
+text_sensor:
+  - platform: usb_bluetooth
+    speaker:
+      name: Bluetooth speaker
+      icon: mdi:speaker-bluetooth
+    input:
+      name: Bluetooth remotes and controllers
+      icon: mdi:remote
+
+button:
+  - platform: template
+    name: Pair a Bluetooth device
+    on_press:
+      - usb_bluetooth.pair: dongle
+  - platform: template
+    name: Forget Bluetooth speaker
+    entity_category: config
+    on_press:
+      - usb_bluetooth.forget_speaker: dongle
+  - platform: template
+    name: Forget Bluetooth remotes and controllers
+    entity_category: config
+    on_press:
+      - usb_bluetooth.forget_input: dongle
+
+# ---------------------------------------------------------------- sound
+# A2DP carries 44100 Hz 16-bit stereo, so the mixer and both pipelines run at
+# 44100 and nothing on the board resamples: Home Assistant converts before it
+# sends. A mono source is written to both sides by the Bluetooth speaker.
+speaker:
+  - platform: usb_bluetooth
+    id: bt_speaker
+    usb_bluetooth_id: dongle
+
+  - platform: mixer
+    id: mixing_speaker
+    output_speaker: bt_speaker
+    source_speakers:
+      - id: announcement_mixing_input
+        timeout: never
+      - id: media_mixing_input
+        timeout: never
+
+media_player:
+  - platform: speaker
+    name: Tab5
+    id: speaker_player
+    task_stack_in_psram: true
+    announcement_pipeline:
+      speaker: announcement_mixing_input
+      format: FLAC
+      sample_rate: 44100
+      num_channels: 1
+    media_pipeline:
+      speaker: media_mixing_input
+      format: FLAC
+      sample_rate: 44100
+      num_channels: 1
+
+# ---------------------------------------------------------------- keys
+# One binary sensor per LVGL key. On an LVGL keypad only `next` and `prev`
+# move the focus -- the arrows go to the focused widget -- so the remote's
+# Down and Right both mean next, and Up and Left both mean previous.
+binary_sensor:
+  - platform: usb_bluetooth
+    id: bt_next
+    key: [down, right]
+  - platform: usb_bluetooth
+    id: bt_prev
+    key: [up, left]
+  - platform: usb_bluetooth
+    id: bt_enter
+    key: enter
+  - platform: usb_bluetooth
+    id: bt_esc
+    key: esc
+  # A remote's Menu and a gamepad's Home. Not an LVGL key here: it brings the
+  # first page back, which is what a Home button is for.
+  - platform: usb_bluetooth
+    id: bt_home
+    key: home
+    on_press:
+      - lvgl.page.show: home_page
+
+# ---------------------------------------------------------------- screen
+display:
+  - platform: mipi_dsi
+    id: main_screen
+    model: M5Stack-Tab5
+    dimensions:
+      width: 720
+      height: 1280
+    pixel_mode: 16
+    update_interval: never
+    auto_clear_enabled: false
+    reset_pin:
+      pi4ioe5v6408: pi4ioe1
+      number: 4
+
+touchscreen:
+  - platform: gt911
+    id: touch_screen
+    i2c_id: bsp_bus
+    update_interval: 16ms
+    reset_pin:
+      pi4ioe5v6408: pi4ioe1
+      number: 5
+    calibration:
+      x_min: 0
+      x_max: 720
+      y_min: 0
+      y_max: 1280
+
+output:
+  - platform: ledc
+    pin: GPIO22
+    id: backlight_pwm
+    frequency: 1000Hz
+
+light:
+  - platform: monochromatic
+    output: backlight_pwm
+    id: backlight
+    name: Backlight
+    restore_mode: ALWAYS_ON
+
+lvgl:
+  displays: main_screen
+  touchscreens: touch_screen
+  color_depth: 16
+  buffer_size: 25%
+  keypads:
+    - next: bt_next
+      prev: bt_prev
+      enter: bt_enter
+      esc: bt_esc
+  # Where the remote is, drawn on every button: a thick white outline on the
+  # one that has the keypad's focus.
+  theme:
+    button:
+      bg_color: 0x2b3342
+      radius: 16
+      text_color: 0xe6e9ef
+      focus_key:
+        border_width: 4
+        border_color: 0xffffff
+  pages:
+    - id: home_page
+      bg_color: 0x10141c
+      widgets:
+        - label:
+            id: status
+            align: TOP_MID
+            y: 60
+            text: "Press a button, or pair a remote"
+            text_color: 0xe6e9ef
+            text_font: montserrat_28
+        - button:
+            id: btn_living
+            align: CENTER
+            y: -300
+            width: 560
+            height: 150
+            widgets:
+              - label:
+                  align: CENTER
+                  text: "Living room"
+                  text_font: montserrat_28
+            on_click:
+              - lvgl.label.update:
+                  id: status
+                  text: "Living room"
+        - button:
+            id: btn_kitchen
+            align: CENTER
+            y: -100
+            width: 560
+            height: 150
+            widgets:
+              - label:
+                  align: CENTER
+                  text: "Kitchen"
+                  text_font: montserrat_28
+            on_click:
+              - lvgl.label.update:
+                  id: status
+                  text: "Kitchen"
+        - button:
+            id: btn_music
+            align: CENTER
+            y: 100
+            width: 560
+            height: 150
+            widgets:
+              - label:
+                  align: CENTER
+                  text: "Test sound"
+                  text_font: montserrat_28
+            on_click:
+              - lvgl.label.update:
+                  id: status
+                  text: "Playing a test sound"
+              - media_player.play_media:
+                  id: speaker_player
+                  media_url: "https://github.com/esphome/home-assistant-voice-pe/raw/dev/sounds/wake_word_triggered.flac"
+        - button:
+            id: btn_settings
+            align: CENTER
+            y: 300
+            width: 560
+            height: 150
+            widgets:
+              - label:
+                  align: CENTER
+                  text: "Settings"
+                  text_font: montserrat_28
+            on_click:
+              - lvgl.page.show: settings_page
+
+    - id: settings_page
+      bg_color: 0x10141c
+      widgets:
+        - label:
+            align: TOP_MID
+            y: 60
+            text: "Settings -- Home or Back returns"
+            text_color: 0xe6e9ef
+            text_font: montserrat_28
+        - button:
+            id: btn_pair
+            align: CENTER
+            y: -100
+            width: 560
+            height: 150
+            widgets:
+              - label:
+                  align: CENTER
+                  text: "Pair a Bluetooth device"
+                  text_font: montserrat_28
+            on_click:
+              - usb_bluetooth.pair: dongle
+        - button:
+            id: btn_back
+            align: CENTER
+            y: 100
+            width: 560
+            height: 150
+            widgets:
+              - label:
+                  align: CENTER
+                  text: "Back"
+                  text_font: montserrat_28
+            on_click:
+              - lvgl.page.show: home_page
