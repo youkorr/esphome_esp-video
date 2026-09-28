@@ -2519,6 +2519,34 @@ and the harness shows the new pixels), whether the fork's PPA draw unit
 reads the canvas coherently after a DMA decode, and the rate -- the board's
 `@ N fps` beside the `waited` and `decoded straight` figures says it.
 
+**Flashed, and it settles the question: the copy was not the limit, LVGL
+is.** On the Tab5, a canvas of 1280x720 playing YouTube:
+
+    1280x720 @ 7.9 fps, 6 us/draw (0 in the PPA ...), 0 dropped
+      waited 902 ms/s for LVGL to draw the canvas, 40 whole pictures
+      decoded straight into it
+    add-on: 7.8 pictures/s, 11.6 made/s, 39 whole, 676 KiB/s,
+            panel wait 54%, 18 skipped, worst gap 560 ms
+
+`6 us/draw` against the 32-35 ms before, and 40 of 40 whole pictures
+decoded straight into the canvas: the zero-copy path works on the board,
+first flash. And the rate did not move: 9 fps at 1280x620 is 7.8 at
+1280x720 pixel for pixel, and 7.9 is what it read. `waited 902 ms/s` is
+the decoder standing idle nine tenths of every second, waiting for LVGL to
+redraw the whole canvas, turn it 270 degrees and flush it -- about 125 ms
+a picture. The copy was never on the critical path in any way that
+mattered; removing it bought nothing a panel can see.
+
+So the conclusion of this whole thread is measured now: **a canvas carries
+a dashboard or the launcher; full motion in it runs at LVGL's full-screen
+pass, about 8 whole pictures a second on a Tab5.** Plain mode does 25-30.
+The zero-copy code stays -- it costs nothing, and it only runs with
+`canvas:`. If video in a canvas is ever wanted again, the one route left
+is the "window" one: LVGL leaves a hole and portall draws that rectangle
+itself through its own PPA, as plain mode does -- two writers to one
+display from two tasks, not built. Meanwhile `fps: 8` on a video link
+stops the skipping (`18 skipped`, `worst gap 560 ms`).
+
 
 ## The panel as a launcher
 
