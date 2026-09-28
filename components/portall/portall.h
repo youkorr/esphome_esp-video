@@ -13,6 +13,10 @@
 #ifdef USE_BUTTON
 #include "esphome/components/button/button.h"
 #endif
+#ifdef USE_LVGL
+#include <lvgl.h>
+#include <atomic>
+#endif
 
 #include <cstdint>
 
@@ -163,6 +167,13 @@ class Portall : public Component
   void update(const touchscreen::TouchPoints_t &points) override;
   void release() override;
 #endif
+#ifdef USE_LVGL
+  /// Draw into an LVGL canvas instead of onto the display. A TEST, asked for
+  /// as "on fait un test si ca va pas on revient": the picture becomes one
+  /// widget in a layout the YAML controls, and LVGL composes and flushes it.
+  /// Nothing here touches the display in this mode -- LVGL owns it.
+  void set_canvas(lv_obj_t *canvas) { this->canvas_ = canvas; }
+#endif
 
   /// Fired from the loop when the host starts and stops sending sound. What a
   /// board has to do about that is its own business -- switch an amplifier on,
@@ -309,6 +320,24 @@ class Portall : public Component
   Frame *take_empty_(uint32_t wait_ms = 0);
   void queue_filled_(Frame *frame);
   bool append_(Frame *frame, const uint8_t *data, size_t len);
+
+#ifdef USE_LVGL
+  // The canvas mode. The draw buffer is LVGL's, set by the lvgl component's
+  // own setup, so it is fetched from loop() the first time rather than here in
+  // setup(), where it may not exist yet. The decode task only ever reads the
+  // pointer; loop() is the only thing that calls into LVGL, which is not
+  // thread safe -- the decode task copies pixels and marks an area, and the
+  // loop tells LVGL about the area.
+  void canvas_tick_();
+  void copy_to_canvas_(const uint8_t *pixels, uint16_t x, uint16_t y, uint16_t w, uint16_t h,
+                       uint16_t src_stride_px);
+  lv_obj_t *canvas_{nullptr};
+  std::atomic<lv_draw_buf_t *> canvas_buf_{nullptr};
+  bool canvas_refused_{false};
+  portMUX_TYPE canvas_lock_ = portMUX_INITIALIZER_UNLOCKED;
+  bool canvas_dirty_{false};
+  lv_area_t canvas_dirty_area_{};
+#endif
 
   display::Display *display_{nullptr};
   uint16_t width_{1024};

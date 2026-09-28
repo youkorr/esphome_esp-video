@@ -328,6 +328,14 @@ def _warn_about_espressif_driver(config):
 # to land on whole panel pixels once scaled.
 CONF_PPA_BURST = "ppa_burst"
 
+# Draw into an LVGL canvas instead of onto the display. A TEST, asked for as
+# "on fait un test si ca va pas on revient", after a friend of the project
+# suggested it: the picture becomes one widget in a layout the YAML controls,
+# beside things the board draws for itself. Named as a string rather than
+# imported, so a board with no lvgl: block never loads that component.
+CONF_CANVAS = "canvas"
+LvCanvas = cg.MockObjClass("lv_canvas_t", parents=[])
+
 _SENDER_TILE = 64
 
 
@@ -445,6 +453,33 @@ def _validate_sample_rate(config):
             "component offers a computer runs at 48000 and plays into the same "
             "speaker, so the two could never agree.",
             path=[CONF_SAMPLE_RATE],
+        )
+    return config
+
+
+def _validate_canvas(config):
+    """Keep the canvas mode to the one shape it was written for.
+
+    The decoder writes each rectangle straight into the canvas's buffer, so
+    the rectangle has to land on the canvas's own pixels: no rotation and no
+    scaling, both of which pass through the accelerator into a buffer of the
+    panel's size. That is the first step asked for -- a canvas of a fixed
+    size fed by the decoder -- and nothing more. The canvas's size and colour
+    format are checked on the board, where they exist, because the lvgl
+    component builds the buffer in its own setup.
+    """
+    if CONF_CANVAS not in config:
+        return config
+    if config[CONF_ROTATION] != 0:
+        raise cv.Invalid(
+            f"{CONF_CANVAS}: is not supported with {CONF_ROTATION}: "
+            f"{config[CONF_ROTATION]}. Turn the page on the add-on's side "
+            f"(rotate: on the panel's entry) and keep rotation: 0 here"
+        )
+    if CONF_RENDER_WIDTH in config or CONF_RENDER_HEIGHT in config:
+        raise cv.Invalid(
+            f"{CONF_CANVAS}: is not supported with {CONF_RENDER_WIDTH}: and "
+            f"{CONF_RENDER_HEIGHT}:. Give the canvas the size the add-on draws"
         )
     return config
 
@@ -615,6 +650,9 @@ CONFIG_SCHEMA = cv.All(
             # the microseconds spent in the accelerator, which is how to
             # choose between them rather than argue about it.
             cv.Optional(CONF_PPA_BURST, default=64): cv.one_of(64, 128, int=True),
+            # An LVGL canvas to draw into, instead of the display. See
+            # _validate_canvas.
+            cv.Optional(CONF_CANVAS): cv.use_id(LvCanvas),
             # The size the host draws on, when that is to be smaller than the
             # panel. What it buys is at the other end: the machine rendering
             # the page pays for every pixel four times -- painting, encoding,
@@ -667,6 +705,7 @@ CONFIG_SCHEMA = cv.All(
     _validate_usb,
     _validate_sample_rate,
     _validate_render_size,
+    _validate_canvas,
     _request_fast_network,
     _remote_buttons,
 )
@@ -686,6 +725,13 @@ async def to_code(config):
     cg.add(var.set_rotation(config[CONF_ROTATION]))
     cg.add(var.set_ppa_burst(config[CONF_PPA_BURST]))
     cg.add(var.set_max_fps(config[CONF_MAX_FPS]))
+    if CONF_CANVAS in config:
+        # Imported here, so only a board that asked for a canvas -- and so has
+        # an lvgl: block -- ever loads the lvgl component's Python.
+        from esphome.components.lvgl.widgets import get_widgets
+
+        widget = (await get_widgets(config, CONF_CANVAS))[0]
+        cg.add(var.set_canvas(widget.obj))
 
     # The remote, one button entity per direction. Nothing is emitted for a
     # panel that never asked, because _remote_buttons left the list absent.

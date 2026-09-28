@@ -118,13 +118,35 @@ void Portall::queue_touch_(const touchscreen::TouchPoints_t &points) {
   if (this->asleep_)
     return;
     
+  /* In canvas mode the page is drawn inside an LVGL canvas, so a contact is
+     re-expressed in the canvas's own coordinates, and one outside it is LVGL's
+     business and never reaches the sender. This runs from the touchscreen's
+     listener, which is the loop, so asking LVGL where the canvas is is safe.
+     A finger that slides off the canvas reads to the sender as a release. */
+  int32_t off_x = 0, off_y = 0;
+#ifdef USE_LVGL
+  const bool clip = this->canvas_ != nullptr;
+  if (clip) {
+    lv_area_t at;
+    lv_obj_get_coords(this->canvas_, &at);
+    off_x = at.x1;
+    off_y = at.y1;
+  }
+#else
+  const bool clip = false;
+#endif
+
   TouchEvent event = {};
   for (const auto &point : points) {
     if (event.count >= UDISP_NET_TOUCH_MAX)
       break;
+    const int32_t x = (int32_t) point.x - off_x;
+    const int32_t y = (int32_t) point.y - off_y;
+    if (clip && (x < 0 || y < 0 || x >= (int32_t) this->out_width_ || y >= (int32_t) this->out_height_))
+      continue;
     event.id[event.count] = point.id;
-    event.x[event.count] = point.x;
-    event.y[event.count] = point.y;
+    event.x[event.count] = x;
+    event.y[event.count] = y;
     event.count++;
   }
 
