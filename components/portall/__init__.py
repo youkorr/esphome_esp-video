@@ -52,7 +52,7 @@ from esphome.const import (
     CONF_ROTATION,
     CONF_WIDTH,
 )
-from esphome.core import CORE, HexInt
+from esphome.core import CORE, HexInt, coroutine_with_priority
 
 CODEOWNERS = ["@youkorr"]
 DEPENDENCIES = ["display"]
@@ -395,6 +395,59 @@ def _request_fast_network(config):
         if request is not None:
             request()
     return config
+
+
+# The malloc() settings below, named once so the user's own sdkconfig_options
+# can be recognised and left alone.
+_SPIRAM_MALLOC = {
+    "CONFIG_SPIRAM_USE_CAPS_ALLOC": False,
+    "CONFIG_SPIRAM_USE_MALLOC": True,
+    "CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL": 131072,
+}
+
+
+@coroutine_with_priority(-1000.0)
+async def _let_malloc_spill_to_psram():
+    """Let malloc() fall back to PSRAM on a panel fed over esp-hosted.
+
+    A panel crashed with `assert failed: sdio_process_rx_task sdio_drv.c:1397
+    (copy_payload)` as soon as a video started. That line is esp-hosted
+    2.12.12 (what ESPHome pins) copying every received Wi-Fi packet into a
+    buffer from plain malloc() and asserting that it got one. The copy is what
+    lwIP holds until the socket is read, so everything the TCP window lets in
+    and the board has not read yet sits in those buffers.
+
+    ESPHome builds with CONFIG_SPIRAM_USE_CAPS_ALLOC, whose own Kconfig says
+    "malloc() stays internal", while its high-performance networking gives a
+    512000-byte window on the grounds that PSRAM is there to hold it. Both
+    are right on their own and together they are a crash: when the decoder
+    falls behind, network.cpp stops reading (that pause IS the flow control),
+    the sender fills the window, and half a megabyte of packets lands in
+    internal RAM, which a P4 does not have to spare. Espressif's own P4 + C6
+    guide pairs esp-hosted with a 65534 window, where it would fit.
+
+    The window is left as ESPHome sets it -- lowering it again is the ceiling
+    this file already had to take out once. What changes is where the excess
+    goes: CONFIG_SPIRAM_USE_MALLOC is ESP-IDF's own default, under which a
+    malloc() that internal RAM cannot serve is served from PSRAM instead of
+    returning NULL, with CONFIG_SPIRAM_MALLOC_RESERVE_INTERNAL (32 KB by
+    default) kept back for task stacks and DMA. ALWAYSINTERNAL at its maximum
+    keeps every allocation of up to 128 KB trying internal RAM first, as
+    before; only what does not fit moves.
+
+    Run at FINAL priority so it follows psram's to_code, which sets
+    CAPS_ALLOC, and only where the crash can happen: a network panel, on
+    esp-hosted, with PSRAM. A value the user wrote in sdkconfig_options wins.
+    """
+    psram = CORE.config.get("psram")
+    if not psram or psram.get("disabled") or "esp32_hosted" not in CORE.config:
+        return
+    framework = (CORE.config.get("esp32") or {}).get("framework") or {}
+    user = framework.get("sdkconfig_options") or {}
+    if any(name in user for name in _SPIRAM_MALLOC):
+        return
+    for name, value in _SPIRAM_MALLOC.items():
+        esp32.add_idf_sdkconfig_option(name, value)
 
 
 def _validate_usb(config):
@@ -756,6 +809,7 @@ async def to_code(config):
             cg.add(btn.set_home())
     if (port := config.get(CONF_PORT)) is not None:
         cg.add(var.set_port(port))
+        CORE.add_job(_let_malloc_spill_to_psram)
         # How fast pictures can arrive is decided by the TCP receive window,
         # and this component no longer sets it: _request_fast_network asks
         # ESPHome for its high-performance networking instead, which turns
