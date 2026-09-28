@@ -2293,6 +2293,49 @@ picture (the board's own `@ N fps, N us/draw` line, beside the same page
 without a canvas), tearing under full motion, and whether a tap in the
 canvas lands on the tile under it.
 
+**And a YouTube video on it rebooted the board, and the canvas only exposed
+it.** From the Tab5's log, eleven seconds after the video started:
+
+    1280x620 @ 0.1 fps, 35304 us/draw (0 in the PPA ...)
+    lvgl took a long time for an operation (203 ms), max is 130 ms
+    assert failed: sdio_process_rx_task sdio_drv.c:1397 (copy_payload)
+
+Line 1397 of esp-hosted 2.12.12 (what ESPHome pins; 2.12.13 identical) is
+`assert(copy_payload)` after a PLAIN `malloc()` of each received Wi-Fi
+packet -- the copy lwIP then holds until the socket is read. ESPHome builds
+with `CONFIG_SPIRAM_USE_CAPS_ALLOC`, whose Kconfig says "malloc() stays
+internal", and its high-performance networking gives a 512000 window "because
+PSRAM is there". So everything the window lets in and the board has not read
+lives in INTERNAL RAM, and when the decoder falls behind network.cpp stops
+reading -- that pause is the flow control -- and half a megabyte of packets
+lands in RAM a P4 does not have. Espressif's own P4 + C6 guide pairs
+esp-hosted with a 65534 window, where it would have fitted.
+
+The canvas made the stall happen: a whole-canvas draw is 35 ms (a PSRAM to
+PSRAM copy of 1.5 MB on top of the decode) where 30 pictures a second allow
+33, and LVGL's own pass took 203 ms. Any panel whose decoder stalls for a
+quarter of a second at video rate can meet the same assert.
+
+`_let_malloc_spill_to_psram()` in portall's `__init__.py`, at FINAL priority
+so it follows psram's to_code: on a panel with `port:`, esp-hosted and
+PSRAM, `CONFIG_SPIRAM_USE_MALLOC` (ESP-IDF's own default) with
+`ALWAYSINTERNAL` at its maximum, 131072. Every allocation up to 128 KB still
+tries internal RAM first; one that internal RAM cannot serve comes from
+PSRAM instead of being NULL, and `SPIRAM_MALLOC_RESERVE_INTERNAL` (32 KB)
+stays back for stacks and DMA. The window is NOT lowered: that is the
+ceiling this file already took out once. A user's own sdkconfig_options
+naming any of the three wins.
+
+Read off the codegen at 2026.8.2 and 2026.10.0-dev with the new
+`tools/checkcodegen.py --sdkconfig WORD`: CAPS_ALLOC True before, MALLOC and
+131072 after on the canvas, Bluetooth and USB-screen examples;
+`ws-wired-portall` (the other component, same esp-hosted and the same
+exposure) and `tab5-bt-probe` (no `port:`) untouched; an override in
+sdkconfig_options left alone. **Not compiled and not flashed**, and whether
+the canvas then keeps up with a video is a separate question: it will stop
+crashing, not get faster. `fps:` on that launcher's video link is the lever
+for that.
+
 
 ## The panel as a launcher
 

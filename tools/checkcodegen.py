@@ -24,6 +24,13 @@ It has to run INSIDE the esphome being checked, so give it that venv's python:
 
     /path/to/venv/bin/python tools/checkcodegen.py yaml/tab5-portall-bluetooth.yaml
     /path/to/venv/bin/python tools/checkcodegen.py --show yaml/*.yaml
+    /path/to/venv/bin/python tools/checkcodegen.py --sdkconfig SPIRAM yaml/x.yaml
+
+`--sdkconfig WORD` prints every sdkconfig option whose name contains WORD, as
+the build will receive it. `esphome config` cannot say what those are: most
+are written from a component's to_code, which it never runs -- and the
+settings a network panel lives or dies by (the TCP window, where malloc may
+put a Wi-Fi packet) are exactly of that kind.
 
 Its blind spots are checkyaml's: micro_wake_word downloads its model while
 validating, and no line of C++ is compiled here by anything.
@@ -75,7 +82,7 @@ def carry_siblings(source, text, into):
             shutil.copy(item, into / item.name)
 
 
-def check(path, show):
+def check(path, show, sdkconfig=None):
     text = pathlib.Path(path).read_text()
     with tempfile.TemporaryDirectory() as tmp:
         tmp = pathlib.Path(tmp)
@@ -116,6 +123,15 @@ def check(path, show):
             traceback.print_exc()
             return 1
         lines = [str(s) for s in CORE.main_statements]
+        options = {}
+        if sdkconfig is not None:
+            from esphome.components.esp32 import KEY_ESP32, KEY_SDKCONFIG_OPTIONS
+
+            options = {
+                k: v
+                for k, v in CORE.data[KEY_ESP32][KEY_SDKCONFIG_OPTIONS].items()
+                if sdkconfig in k
+            }
 
     print(f"  ok     {path}  ({len(lines)} statements)")
     if show:
@@ -123,6 +139,8 @@ def check(path, show):
             for one in line.splitlines():
                 if INTERESTING.search(one):
                     print("         " + one.strip())
+    for name in sorted(options):
+        print(f"         {name}={options[name]}")
     return 0
 
 
@@ -148,15 +166,21 @@ def _refused(path, why):
 
 
 def main():
-    args = [a for a in sys.argv[1:] if a != "--show"]
-    show = "--show" in sys.argv[1:]
+    argv = sys.argv[1:]
+    sdkconfig = None
+    if "--sdkconfig" in argv:
+        at = argv.index("--sdkconfig")
+        sdkconfig = argv[at + 1]
+        del argv[at:at + 2]
+    args = [a for a in argv if a != "--show"]
+    show = "--show" in argv
     paths = args or sorted(
         str(p) for p in (ROOT / "yaml").glob("*.yaml") if p.name not in THEIRS
     )
     if not paths:
         print("  nothing to check")
         return 1
-    return 1 if sum(check(p, show) for p in paths) else 0
+    return 1 if sum(check(p, show, sdkconfig) for p in paths) else 0
 
 
 if __name__ == "__main__":
