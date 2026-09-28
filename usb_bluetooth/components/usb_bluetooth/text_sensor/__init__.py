@@ -46,7 +46,7 @@ import esphome.codegen as cg
 from esphome.components import text_sensor
 import esphome.config_validation as cv
 
-from .. import UsbBluetooth, usb_bluetooth_ns
+from .. import MAX_INPUT_SLOTS, UsbBluetooth, usb_bluetooth_ns
 
 DEPENDENCIES = ["usb_bluetooth"]
 
@@ -57,6 +57,7 @@ UsbBluetoothTextSensor = usb_bluetooth_ns.class_(
 CONF_USB_BLUETOOTH_ID = "usb_bluetooth_id"
 CONF_SPEAKER = "speaker"
 CONF_INPUT = "input"
+CONF_SLOT = "slot"
 
 _SENSOR_SCHEMA = text_sensor.text_sensor_schema(
     UsbBluetoothTextSensor
@@ -66,7 +67,12 @@ CONFIG_SCHEMA = cv.Schema(
     {
         cv.GenerateID(CONF_USB_BLUETOOTH_ID): cv.use_id(UsbBluetooth),
         cv.Optional(CONF_SPEAKER): _SENSOR_SCHEMA,
-        cv.Optional(CONF_INPUT): _SENSOR_SCHEMA,
+        # `slot:` reports ONE input slot rather than the list: what a screen
+        # needs to show one device per row, each with its own Forget
+        # (usb_bluetooth.forget_input with the same slot). "none" when empty.
+        cv.Optional(CONF_INPUT): _SENSOR_SCHEMA.extend(
+            {cv.Optional(CONF_SLOT): cv.int_range(min=1, max=MAX_INPUT_SLOTS)}
+        ),
     }
 )
 
@@ -80,3 +86,5 @@ async def to_code(config):
         await cg.register_component(var, config[key])
         cg.add(var.set_parent(parent))
         cg.add(var.set_speaker(is_speaker))
+        if CONF_SLOT in config[key]:
+            cg.add(var.set_slot(config[key][CONF_SLOT]))

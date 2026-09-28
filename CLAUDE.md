@@ -10393,6 +10393,20 @@ example plus a `usb_uart:`. `tinyusb` is NOT refused: which peripheral it
 takes on a P4 was not established. `portall_bt` has the same hole and is left
 as it was.
 
+**A Forget per device, for a screen -- the copy only.** Asked for so the
+Settings page could be shown to swoboda as a clear interface. `slot:` on
+`text_sensor: input:` and on `usb_bluetooth.forget_input` (1 to 4) reports and
+forgets ONE input slot; without it both work on all of them as before. This
+reverses, for the screen only, the reasoning recorded above that a slot is an
+index nobody can read: on a Home Assistant card that is true, on a screen
+listing one row per slot the row IS how it is read. `tools/usbbttest/
+forgetslot.cpp` drives it, and `checkusbbt.py` checks `MAX_INPUT_SLOTS` in
+Python against `MAX_INPUTS` in C++. The page was drawn in LVGL 9.5.0 before
+it was written, at 1280x720 and 720x1280 -- the same render found that a
+flex column sits at the LEFT unless `flex_align_track: center`, which is what
+the first flash of the example showed. Not flashed. `portall_bt` does not
+have it.
+
 The rest of that PR's shape -- the component installing ESP-IDF's USB Host
 Library ITSELF with its own `usb_host_lib_handle_events` task, instead of a
 second stack -- is the port that would retire CherryUSB and `cherryusb_patch`.
