@@ -17,8 +17,8 @@
 # component -- nothing to download).
 #
 # This file is checked with `esphome config` and the codegen on ESPHome
-# 2026.10.0-dev. It has NOT been compiled or flashed as it stands; the
-# component under it has run on Tab5, Guition and Waveshare panels.
+# 2026.10.0-dev. Flashed on a Tab5: pairing, the speaker and the remote work.
+# The one-column layout of the pages came after that and has not been flashed.
 
 esphome:
   name: tab5-bluetooth
@@ -128,9 +128,17 @@ text_sensor:
     speaker:
       name: Bluetooth speaker
       icon: mdi:speaker-bluetooth
+      on_value:
+        - lvgl.label.update:
+            id: lbl_speaker
+            text: !lambda return x;
     input:
       name: Bluetooth remotes and controllers
       icon: mdi:remote
+      on_value:
+        - lvgl.label.update:
+            id: lbl_inputs
+            text: !lambda return x;
 
 button:
   - platform: template
@@ -269,23 +277,35 @@ lvgl:
       focus_key:
         border_width: 4
         border_color: 0xffffff
+  # Each page is ONE column that fits the screen, with scrolling off. Widgets
+  # placed at fixed offsets from the centre run off a screen of another shape
+  # (a Tab5 turned to landscape is 720 tall), and LVGL then makes the page
+  # scrollable and draws a scroll bar down its right edge. Heights are a share
+  # of the screen for the same reason.
   pages:
     - id: home_page
       bg_color: 0x10141c
+      scrollable: false
+      scrollbar_mode: "OFF"
+      layout:
+        type: flex
+        flex_flow: column
+        flex_align_main: center
+        flex_align_cross: center
+        pad_row: 24
       widgets:
         - label:
             id: status
-            align: TOP_MID
-            y: 60
             text: "Press a button, or pair a remote"
             text_color: 0xe6e9ef
             text_font: montserrat_28
+        # Living room and Kitchen do nothing but say they were pressed: they
+        # are there to try the remote -- Down/Right and Up/Left move the white
+        # outline between them, OK presses the one it is on.
         - button:
             id: btn_living
-            align: CENTER
-            y: -300
-            width: 560
-            height: 150
+            width: 80%
+            height: 12%
             widgets:
               - label:
                   align: CENTER
@@ -297,10 +317,8 @@ lvgl:
                   text: "Living room"
         - button:
             id: btn_kitchen
-            align: CENTER
-            y: -100
-            width: 560
-            height: 150
+            width: 80%
+            height: 12%
             widgets:
               - label:
                   align: CENTER
@@ -312,10 +330,8 @@ lvgl:
                   text: "Kitchen"
         - button:
             id: btn_music
-            align: CENTER
-            y: 100
-            width: 560
-            height: 150
+            width: 80%
+            height: 12%
             widgets:
               - label:
                   align: CENTER
@@ -330,10 +346,8 @@ lvgl:
                   media_url: "https://github.com/esphome/home-assistant-voice-pe/raw/dev/sounds/wake_word_triggered.flac"
         - button:
             id: btn_settings
-            align: CENTER
-            y: 300
-            width: 560
-            height: 150
+            width: 80%
+            height: 12%
             widgets:
               - label:
                   align: CENTER
@@ -344,19 +358,50 @@ lvgl:
 
     - id: settings_page
       bg_color: 0x10141c
+      scrollable: false
+      scrollbar_mode: "OFF"
+      layout:
+        type: flex
+        flex_flow: column
+        flex_align_main: center
+        flex_align_cross: center
+        pad_row: 16
       widgets:
         - label:
-            align: TOP_MID
-            y: 60
             text: "Settings -- Home or Back returns"
             text_color: 0xe6e9ef
             text_font: montserrat_28
+        # What is paired, by name: the two text sensors above write here
+        # whenever it changes. "UGREEN-90748 (46:E8:...) connected", or
+        # "paired, away" while the device is switched off.
+        - label:
+            text: "Speaker"
+            text_color: 0x8a94a6
+            text_font: montserrat_20
+        - label:
+            id: lbl_speaker
+            width: 80%
+            long_mode: WRAP
+            text_align: CENTER
+            text: "none"
+            text_color: 0xe6e9ef
+            text_font: montserrat_20
+        - label:
+            text: "Remotes and controllers"
+            text_color: 0x8a94a6
+            text_font: montserrat_20
+        - label:
+            id: lbl_inputs
+            width: 80%
+            long_mode: WRAP
+            text_align: CENTER
+            text: "none"
+            text_color: 0xe6e9ef
+            text_font: montserrat_20
         - button:
             id: btn_pair
-            align: CENTER
-            y: -100
-            width: 560
-            height: 150
+            width: 80%
+            height: 12%
             widgets:
               - label:
                   align: CENTER
@@ -366,10 +411,8 @@ lvgl:
               - usb_bluetooth.pair: dongle
         - button:
             id: btn_back
-            align: CENTER
-            y: 100
-            width: 560
-            height: 150
+            width: 80%
+            height: 12%
             widgets:
               - label:
                   align: CENTER

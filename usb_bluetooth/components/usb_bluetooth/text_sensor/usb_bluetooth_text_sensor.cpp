@@ -10,7 +10,7 @@ namespace usb_bluetooth {
 static const char *const TAG = "usb_bluetooth.text_sensor";
 
 void UsbBluetoothTextSensor::dump_config() {
-  LOG_TEXT_SENSOR("", "Portall Bluetooth device", this);
+  LOG_TEXT_SENSOR("", "USB Bluetooth device", this);
   ESP_LOGCONFIG(TAG, "  Reporting the %s slot", this->speaker_ ? "speaker" : "input device");
 }
 
