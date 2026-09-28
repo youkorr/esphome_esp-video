@@ -10259,6 +10259,42 @@ documentation naming 2400 as the step back. **A stored value wins over a new
 default**, so an install that already saved 2400 keeps it -- the changelog
 says where to change it.
 
+## esp-hosted 3.x is where the SDIO drop is fixed, and ESPHome PR 19621 opens it
+
+**Pointed at by the household: esphome/esphome#19621**, "Support esp_hosted
+3.x alongside 2.x, keep builds on 2.12.13 for now" -- open, approved when
+read. 3.x is opt-in by pinning `espressif/esp_hosted==3.0.9` under
+`esp32: framework: components:`; the PR emits 3.x's renamed Kconfig symbols
+when it sees the pin. Its limits, read in its `_final_validate`: ESP-IDF 5.5+,
+`active_high: true`, a 4-bit SDIO bus -- every panel here already has all
+three.
+
+**Why it matters here, read in esp-hosted v3.0.9 rather than assumed**
+(`host/mcu/eh_host_mcu_transport/src/eh_host_bus_sdio.c`): the RX staging is
+a ring now, and when it is full the read task WAITS for a free slot -- 2 x
+20 ms, `SDIO_RX_SLOT_WAIT_RETRIES` -- "(backpressure) instead of dropping on
+overrun". 2.12.x discards the packet at once (`H_SDIO_DRV: task still
+writing Rx data to queue!`), which is the ~400 ms TCP stall this file blames
+for the video bursts and for `max_rate`. `CONFIG_ESP_HOSTED_HOST_SDIO_RX_
+STAGING_SLOTS` (2..8, default 2 = the old depth) is the second lever; their
+help says 4 to match a co-processor's 4 credits, "tune on hardware".
+
+Two things that would have been asked, answered from their source:
+- **The C6 keeps its firmware.** docs/migration.md: host 3.x with a
+  co-processor on 2.x is "Back-compatible" (upgrade recommended).
+- **portall_bt is untouched.** Hosted Bluetooth on 3.x is
+  `ESP_HOSTED_HOST_FEAT_BT`, default n, and needs an explicit
+  `esp_hosted_bt_host_stack_setup()` that only esp32_ble calls.
+
+Validated, not flashed: `yaml/tab5-portall-bluetooth.yaml` with the pin and
+`RX_STAGING_SLOTS: "4"` generates on the PR's own tree
+(`CONFIG_ESP_HOSTED_HOST_TRANSPORT_BUS_SDIO`, `..._BUS_WIDTH_4`, pins
+12/13/11/10/9/8, `..._RX_STAGING_SLOTS=4`), and the PR's `esp32_hosted`
+alone as an external component generates the same on 2026.10.0-dev. On
+**2026.8.2 it cannot be borrowed** that way: `ImportError: cannot import name
+'CONF_SLOT' from 'esphome.components.const'`. Nothing in this repository
+changes for it; it is one pin and one sdkconfig line in a panel's YAML.
+
 ## Repository conventions
 
 - Work on branch `claude/esphome-pr-outdated-mdq36w`, then merge into `main`
