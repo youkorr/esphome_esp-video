@@ -110,6 +110,34 @@ static void hold_wifi_for_stream(bool &held, bool want) {
 #endif
 }
 
+#if defined(USE_TOUCHSCREEN) && defined(USE_LVGL)
+/* From the glass to LVGL's own coordinates, when the lvgl: block turns the
+   screen. The inverse of what LVGL's flush does with each area it draws --
+   read in ESPHome's lvgl_esphome.cpp (draw_buffer_) and in youkorr/lvgl_9.5's
+   (rotate_touch_point), which agree: at 270 a logical pixel (lx, ly) lands at
+   (ly, W - 1 - lx). W and H are LVGL's logical width and height, already
+   swapped for a quarter turn. */
+static void canvas_turn_(uint16_t degrees, int32_t w, int32_t h, int32_t &x, int32_t &y) {
+  const int32_t px = x, py = y;
+  switch (degrees) {
+    case 90:
+      x = py;
+      y = h - 1 - px;
+      break;
+    case 180:
+      x = w - 1 - px;
+      y = h - 1 - py;
+      break;
+    case 270:
+      x = w - 1 - py;
+      y = px;
+      break;
+    default:
+      break;
+  }
+}
+#endif
+
 #ifdef USE_TOUCHSCREEN
 void Portall::queue_touch_(const touchscreen::TouchPoints_t &points) {
   if (this->touch_queue_ == nullptr)
@@ -124,6 +152,7 @@ void Portall::queue_touch_(const touchscreen::TouchPoints_t &points) {
      listener, which is the loop, so asking LVGL where the canvas is is safe.
      A finger that slides off the canvas reads to the sender as a release. */
   int32_t off_x = 0, off_y = 0;
+  int32_t lw = 0, lh = 0;
 #ifdef USE_LVGL
   const bool clip = this->canvas_ != nullptr;
   if (clip) {
@@ -131,6 +160,9 @@ void Portall::queue_touch_(const touchscreen::TouchPoints_t &points) {
     lv_obj_get_coords(this->canvas_, &at);
     off_x = at.x1;
     off_y = at.y1;
+    lv_display_t *disp = lv_obj_get_display(this->canvas_);
+    lw = lv_display_get_horizontal_resolution(disp);
+    lh = lv_display_get_vertical_resolution(disp);
   }
 #else
   const bool clip = false;
@@ -140,8 +172,13 @@ void Portall::queue_touch_(const touchscreen::TouchPoints_t &points) {
   for (const auto &point : points) {
     if (event.count >= UDISP_NET_TOUCH_MAX)
       break;
-    const int32_t x = (int32_t) point.x - off_x;
-    const int32_t y = (int32_t) point.y - off_y;
+    int32_t x = point.x, y = point.y;
+#ifdef USE_LVGL
+    if (clip)
+      canvas_turn_(this->canvas_rotation_, lw, lh, x, y);
+#endif
+    x -= off_x;
+    y -= off_y;
     if (clip && (x < 0 || y < 0 || x >= (int32_t) this->out_width_ || y >= (int32_t) this->out_height_))
       continue;
     event.id[event.count] = point.id;

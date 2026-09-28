@@ -10,7 +10,8 @@
 # Three things have to agree, and only the first two are checked:
 #   - portall's width:/height: are the CANVAS's size, not the panel's;
 #   - the canvas has no `transparent:` (the decoder writes RGB565);
-#   - the add-on's entry for this panel draws at that same size (720x1180).
+#   - the add-on's entry for this panel draws at that same size (1280x620),
+#     with rotate: "0" -- LVGL's rotation: 270 turns the canvas with the rest.
 #
 # Not compiled and not run on a board. The whole of this mode is one commit;
 # if it does not work it goes.
@@ -156,6 +157,11 @@ lvgl:
   touchscreens: touch_screen
   color_depth: 16
   buffer_size: 25%
+  # The Tab5 held in landscape. LVGL turns the WHOLE screen, the canvas with
+  # it, so portall's own rotation: stays 0 and the add-on's rotate: is "0" --
+  # the page is drawn the way it is seen. Contacts are turned to match from
+  # this same setting, read at compile time.
+  rotation: 270
   pages:
     - id: home
       bg_color: 0x10141c
@@ -174,14 +180,18 @@ lvgl:
             id: page_canvas
             x: 0
             y: ${bar}
-            width: 720
-            height: 1180
+            width: 1280
+            height: 620
 
 portall:
   display_id: main_screen
   canvas: page_canvas
-  width: 720
-  height: 1180
+  width: 1280
+  height: 620
   port: 5000
+  # A whole 1280x620 page can weigh more than the 128 KB default, and a
+  # picture over the limit is dropped: only the small rectangles would land,
+  # leaving pieces of old pages on the canvas.
+  max_frame_bytes: 300000
   usb: false
   touchscreen_id: touch_screen

@@ -173,6 +173,10 @@ class Portall : public Component
   /// widget in a layout the YAML controls, and LVGL composes and flushes it.
   /// Nothing here touches the display in this mode -- LVGL owns it.
   void set_canvas(lv_obj_t *canvas) { this->canvas_ = canvas; }
+  /// The `rotation:` of the lvgl: block, read at codegen. LVGL draws the canvas
+  /// in its own turned coordinates and the touchscreen reports the glass's, so
+  /// a contact has to be turned the same way before it can be placed on it.
+  void set_canvas_rotation(uint16_t degrees) { this->canvas_rotation_ = degrees; }
 #endif
 
   /// Fired from the loop when the host starts and stops sending sound. What a
@@ -332,6 +336,7 @@ class Portall : public Component
   void copy_to_canvas_(const uint8_t *pixels, uint16_t x, uint16_t y, uint16_t w, uint16_t h,
                        uint16_t src_stride_px);
   lv_obj_t *canvas_{nullptr};
+  uint16_t canvas_rotation_{0};
   std::atomic<lv_draw_buf_t *> canvas_buf_{nullptr};
   bool canvas_refused_{false};
   portMUX_TYPE canvas_lock_ = portMUX_INITIALIZER_UNLOCKED;
