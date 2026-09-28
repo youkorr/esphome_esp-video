@@ -47,7 +47,7 @@ and a media player sounding through Bluetooth, is in
 
 | option | default | |
 |---|---|---|
-| `controller` | `high_speed` | `high_speed` or `full_speed`: the P4 OTG peripheral the dongle's socket is on. Nothing else (`usb_host`, `tinyusb`) may use it. |
+| `controller` | `high_speed` | `high_speed` or `full_speed`: the P4 OTG peripheral the dongle's socket is on. |
 | `host_stack` | `none` | `bluedroid` brings ESP-IDF's Classic host into the build. `none` only enumerates the dongle and runs an inquiry. |
 | `audio` | `false` | A2DP source and AVRCP. |
 | `hid` | `false` | HID host, up to four input devices at once. |
@@ -120,6 +120,11 @@ On M5Stack Tab5, Guition 10" and Waveshare 7B boards:
 - **A pairing scan takes the Wi-Fi down for as long as it runs.** An inquiry
   sweeps the whole 2.4 GHz band at full power, beside the C6's antenna. The
   board scans only when asked to pair; reconnection is by address.
+- **ESPHome's `usb_host` cannot be used at the same time**, nor `usb_uart`,
+  which pulls it in. This component runs its own USB host stack (CherryUSB)
+  and `usb_host` installs ESP-IDF's on the high-speed controller, so the two
+  would own the same hardware; the build refuses it, the way
+  esphome/esphome#16944 refuses a USB camera beside `usb_host`.
 - **The C6's own Bluetooth cannot be used at the same time.** `esp32_ble`
   (`bluetooth_proxy`, `esp32_ble_tracker`, ...) attaches the C6 to the same
   Bluedroid; the build refuses both.

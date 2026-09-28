@@ -49,6 +49,7 @@ from pathlib import Path
 
 import esphome.codegen as cg
 from esphome.components import esp32
+from esphome.components.usb_host import DOMAIN as USB_HOST_DOMAIN
 import esphome.config_validation as cv
 from esphome.const import CONF_ID, CONF_TRIGGER_ID
 from esphome.core import CORE
@@ -268,8 +269,43 @@ def _one_bluedroid_transport(config):
     )
 
 
+def _refuse_beside_usb_host(config):
+    """This component and ESPHome's usb_host cannot both be in one firmware.
+
+    The same rule, for the same reason, as `_reject_uvc_beside_usb_host` in
+    esphome/esphome#16944 (esp_video_camera): two owners of a USB host is a
+    boot that goes wrong, not a clear failure, so it is refused here.
+
+    Here the two are not even the same stack. This component drives the dongle
+    through CherryUSB, which takes the OTG peripheral's registers and interrupt
+    for itself; usb_host installs ESP-IDF's USB Host Library with an empty
+    `usb_host_config_t`, and a zero `peripheral_map` is the HIGH-SPEED
+    peripheral on a P4 (ESP-IDF v5.5.5 usb_host.h), with no option to move it.
+    So with `controller: high_speed`, the default, both drivers sit on one
+    register block and one interrupt line -- the interrupt watchdog timeout
+    portall already met when TinyUSB and CherryUSB shared that peripheral.
+    With `controller: full_speed` the two would be on different peripherals,
+    and that pairing has never been run; it is refused all the same until it
+    has been.
+
+    usb_uart AUTO_LOADs usb_host, so checking for the one domain catches both.
+    """
+    if USB_HOST_DOMAIN not in fv.full_config.get():
+        return config
+    raise cv.Invalid(
+        "usb_bluetooth cannot be used in the same configuration as the usb_host "
+        "component (which usb_uart also pulls in): usb_bluetooth runs its own "
+        "USB host stack for the dongle, and usb_host installs ESP-IDF's on the "
+        "high-speed controller, so the two would own the same USB hardware and "
+        "the result is a crash at boot rather than a clear failure. Use one or "
+        "the other for now.",
+        path=[CONF_CONTROLLER],
+    )
+
+
 def _final_validate(config):
     _one_bluedroid_transport(config)
+    _refuse_beside_usb_host(config)
     return config
 
 
