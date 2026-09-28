@@ -195,15 +195,37 @@ USB_BLUETOOTH_ACTION_SCHEMA = automation.maybe_simple_id(
     USB_BLUETOOTH_ACTION_SCHEMA,
     synchronous=True,
 )
-@automation.register_action(
-    "usb_bluetooth.forget_input",
-    ForgetInputAction,
-    USB_BLUETOOTH_ACTION_SCHEMA,
-    synchronous=True,
-)
 async def usb_bluetooth_action_to_code(config, action_id, template_arg, args):
     var = cg.new_Pvariable(action_id, template_arg)
     await cg.register_parented(var, config[CONF_ID])
+    return var
+
+
+# `slot:` forgets the ONE input device in that slot, 1 to 4; without it,
+# every input device. A slot is only something a person can name on a screen
+# that lists them one row each -- text_sensor's `input: slot:` is that row --
+# which is why it is optional and the action still reads as a role without it.
+CONF_SLOT = "slot"
+MAX_INPUT_SLOTS = 4  # MAX_INPUTS in usb_bluetooth.h
+
+
+@automation.register_action(
+    "usb_bluetooth.forget_input",
+    ForgetInputAction,
+    # maybe_simple_id, so `usb_bluetooth.forget_input: dongle` still reads.
+    automation.maybe_simple_id(
+        {
+            cv.GenerateID(): cv.use_id(UsbBluetooth),
+            cv.Optional(CONF_SLOT): cv.int_range(min=1, max=MAX_INPUT_SLOTS),
+        }
+    ),
+    synchronous=True,
+)
+async def usb_bluetooth_forget_input_to_code(config, action_id, template_arg, args):
+    var = cg.new_Pvariable(action_id, template_arg)
+    await cg.register_parented(var, config[CONF_ID])
+    if CONF_SLOT in config:
+        cg.add(var.set_slot(config[CONF_SLOT]))
     return var
 
 

@@ -64,6 +64,13 @@ Platforms: `speaker`, `binary_sensor` (`key:`), `switch` (Bluetooth on/off),
 `text_sensor` (`speaker:` / `input:`, which device and whether it is
 connected).
 
+Up to four remotes and controllers are remembered, each in a slot. For a
+screen that lists them one row each, `input:` takes `slot: 1` to `4` and
+reports that slot alone (`none` when it is empty), and
+`usb_bluetooth.forget_input` takes the same `slot:` to forget that one device
+and leave the others. Without `slot:` both work on all of them. The example's
+Settings page is built this way: a row per device with its own Forget.
+
 ## Keys, and LVGL
 
 Every device is turned into one vocabulary in `keys.cpp`:

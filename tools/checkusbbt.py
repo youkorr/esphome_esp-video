@@ -17,6 +17,7 @@ portall_bt -> usb_bluetooth, and a single key sink -> listeners.
 import pathlib
 import shutil
 import subprocess
+import re
 import sys
 import tempfile
 
@@ -60,9 +61,23 @@ def checker(tests):
     )
 
 
+def same_slot_count():
+    """The YAML's slot range and the C++ array are two copies of one number."""
+    py = re.search(r"^MAX_INPUT_SLOTS = (\d+)", (COPY / "__init__.py").read_text(), re.M)
+    cpp = re.search(r"MAX_INPUTS = (\d+);", (COPY / "usb_bluetooth.h").read_text())
+    if not py or not cpp or py.group(1) != cpp.group(1):
+        print(f"  ECHEC  MAX_INPUT_SLOTS in __init__.py and MAX_INPUTS in usb_bluetooth.h differ "
+              f"({py and py.group(1)} against {cpp and cpp.group(1)})")
+        return False
+    print(f"  ok     {py.group(1)} input slots, in the YAML and the C++ alike")
+    return True
+
+
 def main() -> int:
     if not COPY.is_dir():
         print(f"  {COPY} is not there")
+        return 1
+    if not same_slot_count():
         return 1
     with tempfile.TemporaryDirectory() as tmp:
         tmp = pathlib.Path(tmp)

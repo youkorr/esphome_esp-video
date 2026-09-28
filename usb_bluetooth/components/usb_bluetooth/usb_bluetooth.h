@@ -473,11 +473,20 @@ class UsbBluetooth : public Component {
   bool bt_enabled() const { return !this->bt_off_; }
 
   /// Forget by ROLE rather than every bond at once: the speaker, or every
-  /// input device. There is no per-device action and that is deliberate --
-  /// one would need an index a household has no way to read, which is the
-  /// mechanism-instead-of-a-name this component keeps being corrected into
-  /// not building.
+  /// input device.
   void forget_one(bool speaker);
+
+  /// Forget ONE input device, by the slot it sits in (0 .. MAX_INPUTS - 1).
+  /// A slot means nothing in Home Assistant, which is why there is no such
+  /// button there; it means something on a screen that lists the slots one
+  /// row each (describe_input, below), with a Forget beside each row. That
+  /// row is how the slot becomes readable. Hangs the device up first, for
+  /// the reason forget_one records.
+  void forget_input(uint8_t slot);
+
+  /// One slot of the input side, in describe_role's words, or "none" when
+  /// nothing sits in it -- one row of a screen that lists them.
+  std::string describe_input(uint8_t slot) const;
 
   /// One line for a text sensor: what the device calls itself, its address,
   /// and whether it is connected -- or "none".
@@ -521,6 +530,12 @@ class UsbBluetooth : public Component {
    * open" leaves a live ACL whose key has just been removed -- which is the
    * "even Forget does not help" this component has already paid for once. */
   void drop_link_to_(const uint8_t *addr, bool speaker);
+  /// Hang up and forget the input device in slot `i`, keeping its report map
+  /// for the next one. False when nothing sits there. The caller saves.
+  bool forget_input_slot_(uint8_t i);
+  /// "Name (address) connected" -- one device, in the words both
+  /// describe_role and describe_input use.
+  std::string describe_device_(const uint8_t *addr, const char *name, bool open) const;
   /// How many devices a pair scan heard, so the end of one can say whether it
   /// heard anything at all. Counted in heard_device, which is the only thing
   /// an inquiry result reaches.
@@ -889,7 +904,17 @@ template<typename... Ts> class ForgetSpeakerAction final : public Action<Ts...>,
 
 template<typename... Ts> class ForgetInputAction final : public Action<Ts...>, public Parented<UsbBluetooth> {
  public:
-  void play(const Ts &...) override { this->parent_->forget_one(false); }
+  /// 0 forgets every input device; 1 .. MAX_INPUTS the one in that slot.
+  void set_slot(uint8_t slot) { this->slot_ = slot; }
+  void play(const Ts &...) override {
+    if (this->slot_ == 0)
+      this->parent_->forget_one(false);
+    else
+      this->parent_->forget_input(this->slot_ - 1);
+  }
+
+ protected:
+  uint8_t slot_{0};
 };
 
 }  // namespace usb_bluetooth

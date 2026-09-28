@@ -1287,6 +1287,34 @@ void UsbBluetooth::ask_remote_name_(const uint8_t *addr) {
 #endif
 }
 
+std::string UsbBluetooth::describe_device_(const uint8_t *addr, const char *name, bool open) const {
+#ifdef CONFIG_BT_BLUEDROID_ENABLED
+  char text[18];
+  say_addr(text, addr);
+  std::string out = name[0] != '\0' ? std::string(name) + " (" + text + ")" : std::string(text);
+  if (this->bt_off_)
+    return out + " (Bluetooth off)";
+  return out + (open ? " connected" : " paired, away");
+#else
+  (void) addr;
+  (void) name;
+  (void) open;
+  return "none";
+#endif
+}
+
+std::string UsbBluetooth::describe_input(uint8_t slot) const {
+#ifdef CONFIG_BT_BLUEDROID_ENABLED
+  if (slot >= MAX_INPUTS || !this->inputs_[slot].used)
+    return "none";
+  const InputDevice &d = this->inputs_[slot];
+  return this->describe_device_(d.addr, d.name, d.open);
+#else
+  (void) slot;
+  return "none";
+#endif
+}
+
 std::string UsbBluetooth::describe_role(bool speaker) const {
 #ifdef CONFIG_BT_BLUEDROID_ENABLED
   // The NAME first when there is one, because that is what somebody reading a
@@ -1294,13 +1322,7 @@ std::string UsbBluetooth::describe_role(bool speaker) const {
   // The address stays beside it: two remotes of the same model are the same
   // name, and it is the address that a pair or forget action works on.
   auto one_device = [this](const uint8_t *addr, const char *name, bool open) {
-    char text[18];
-    say_addr(text, addr);
-    std::string out = name[0] != '\0' ? std::string(name) + " (" + text + ")"
-                                     : std::string(text);
-    if (this->bt_off_)
-      return out + " (Bluetooth off)";
-    return out + (open ? " connected" : " paired, away");
+    return this->describe_device_(addr, name, open);
   };
 
   if (speaker) {
@@ -1397,11 +1419,50 @@ void UsbBluetooth::forget_one(bool speaker) {
     return;
   }
 
-  /* EVERY INPUT DEVICE, because there is no index a household could name one
-     by. This is the way back from a gamepad somebody gave away and the way to
-     make room when all four slots are taken, and it says how many went. */
+  /* EVERY INPUT DEVICE. This is the way back from a gamepad somebody gave
+     away and the way to make room when all four slots are taken; one device
+     at a time is forget_input(slot), for a screen that lists the slots. */
   uint8_t gone = 0;
   for (uint8_t i = 0; i < MAX_INPUTS; i++) {
+    if (this->forget_input_slot_(i))
+      gone++;
+  }
+  if (gone == 0) {
+    ESP_LOGW(TAG, "no input device is remembered and none is connected, so there is nothing to "
+                  "forget");
+    return;
+  }
+  this->save_inputs_();
+#else
+  (void) speaker;
+#endif
+}
+
+void UsbBluetooth::forget_input(uint8_t slot) {
+#ifdef CONFIG_BT_BLUEDROID_ENABLED
+  if (!this->profiles_up_) {
+    ESP_LOGW(TAG, "nothing to forget yet -- no dongle has answered");
+    return;
+  }
+  if (slot >= MAX_INPUTS) {
+    ESP_LOGW(TAG, "there is no input slot %u -- they run from 1 to %u", (unsigned) slot + 1,
+             (unsigned) MAX_INPUTS);
+    return;
+  }
+  if (!this->forget_input_slot_(slot)) {
+    ESP_LOGW(TAG, "input slot %u is empty, so there is nothing to forget", (unsigned) slot + 1);
+    return;
+  }
+  this->save_inputs_();
+#else
+  (void) slot;
+#endif
+}
+
+bool UsbBluetooth::forget_input_slot_(uint8_t i) {
+#ifdef CONFIG_BT_BLUEDROID_ENABLED
+  char text[18];
+  {
     InputDevice &d = this->inputs_[i];
     /* `used` rather than `used && remembered`: a device that connected when
        every slot was full holds a slot without being remembered, and it is
@@ -1409,7 +1470,7 @@ void UsbBluetooth::forget_one(bool speaker) {
        skipped here and by drop_links_ alike, so no button in this component
        could hang it up. */
     if (!d.used)
-      continue;
+      return false;
     say_addr(text, d.addr);
     esp_bd_addr_t target;
     memcpy(target, d.addr, 6);
@@ -1426,16 +1487,11 @@ void UsbBluetooth::forget_one(bool speaker) {
     d.map = keep;
     if (d.map != nullptr)
       d.map->clear();
-    gone++;
   }
-  if (gone == 0) {
-    ESP_LOGW(TAG, "no input device is remembered and none is connected, so there is nothing to "
-                  "forget");
-    return;
-  }
-  this->save_inputs_();
+  return true;
 #else
-  (void) speaker;
+  (void) i;
+  return false;
 #endif
 }
 
