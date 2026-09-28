@@ -10295,6 +10295,35 @@ alone as an external component generates the same on 2026.10.0-dev. On
 'CONF_SLOT' from 'esphome.components.const'`. Nothing in this repository
 changes for it; it is one pin and one sdkconfig line in a panel's YAML.
 
+**Flashed on 2026.10.0-dev with 3.0.9, and the household's own block then read
+line by line against the sources** (ESP-IDF v5.5.5 `esp_psram/esp32p4/
+Kconfig.spiram`, esp-hosted v3.0.9 `Kconfig.host.sdio`, esp_wifi_remote
+`idf_v5.5/Kconfig.wifi.in`) and through the PR's codegen. Most of it is inert,
+and one line works against this component:
+
+- **2.x names do nothing on 3.x.** `CONFIG_ESP_HOSTED_SDIO_RX_Q_SIZE` is
+  `CONFIG_ESP_HOSTED_HOST_SDIO_RX_Q_SIZE` now; `..._MEMPOOL_PREFER_SPIRAM` is
+  gone (`esp32_hosted: use_psram:` emits the 3.x pair). A Kconfig name nobody
+  defines is dropped in silence -- the shape this file records most.
+- **Options with no prompt cannot be set.** On a P4 `SPIRAM_FETCH_INSTRUCTIONS`,
+  `SPIRAM_RODATA` and `SPIRAM_SPEED` are bare `bool`/`int`; the first two are
+  SELECTED by `SPIRAM_XIP_FROM_PSRAM`, so writing "n" beside it changes
+  nothing. `CONFIG_ESP32_SPIRAM_SUPPORT` is the ESP32's name;
+  `CONFIG_ESP_TASK_LOOP_STACK_SIZE` exists nowhere -- ESPHome's loop stack is
+  `esp32: framework: advanced: loop_task_stack_size:` (8192..32768).
+- **`CONFIG_SPIRAM_USE_MALLOC: "y"` switches `_let_malloc_spill_to_psram`
+  off**, because a household's own option naming it wins -- and ESPHome's
+  `CONFIG_SPIRAM_USE_CAPS_ALLOC=True` stays beside it, two members of one
+  Kconfig choice, and `SPIRAM_MALLOC_ALWAYSINTERNAL` is left at IDF's 16384
+  instead of 131072. Without the line the codegen reads CAPS_ALLOC False,
+  MALLOC True, 131072, which is the fix for esp-hosted's `copy_payload` assert.
+- `enable_idf_experimental_features` is not needed by 360 MHz, 200 MHz PSRAM
+  or esp_hosted 3.0.9. The `WIFI_RMT_*` names exist and the values are in
+  range.
+
+The `external_components: github://pr#19621` line is needed until the PR is
+merged into dev, and must go then: a merged PR's branch is usually deleted.
+
 ## Repository conventions
 
 - Work on branch `claude/esphome-pr-outdated-mdq36w`, then merge into `main`
