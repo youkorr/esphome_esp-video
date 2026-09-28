@@ -5,6 +5,10 @@
 
 #include "esp_heap_caps.h"
 #include "esp_timer.h"
+#ifdef USE_LVGL
+#include "esp_cache.h"
+#include "esp_memory_utils.h"
+#endif
 
 #include <cmath>
 #include <cstring>
@@ -703,9 +707,36 @@ void Portall::run_decode_task() {
     const uint16_t padded_w = (frame->width + 15) & ~15;
     const uint16_t padded_h = (frame->height + 15) & ~15;
 
+    uint8_t *decode_into = this->rgb_buffer_;
+    size_t decode_room = this->rgb_buffer_len_;
+#ifdef USE_LVGL
+    // A TEST, like the rest of canvas mode. With two canvas buffers, a picture
+    // that covers the whole canvas -- which is every picture of a video -- is
+    // decoded straight into the one LVGL is not showing, and the loop hands it
+    // to LVGL afterwards: no copy, and the decoder works on the next picture
+    // while LVGL draws this one. Anything smaller is decoded as before and
+    // copied into the one being shown. Nothing is written anywhere while a
+    // finished picture is still waiting to be handed over, because until then
+    // the buffer that is about to become the back is the one LVGL reads.
+    bool direct = false;
+    if (this->canvas_ != nullptr) {
+      if (!this->canvas_settle_()) {
+        this->frames_dropped_++;
+        this->dropped_no_buffer_++;
+        xQueueSend(this->empty_queue_, &frame, 0);
+        continue;
+      }
+      direct = this->canvas_zero_copy_() && this->ppa_client_ == nullptr && frame->x == 0 && frame->y == 0 &&
+               frame->width == this->out_width_ && frame->height == this->out_height_;
+      if (direct) {
+        decode_into = this->canvas_back_();
+        decode_room = this->canvas_pair_len_;
+      }
+    }
+#endif
     uint32_t out_size = 0;
-    esp_err_t err = jpeg_decoder_process(this->jpeg_, &decode_cfg, frame->data, frame->received, this->rgb_buffer_,
-                                         this->rgb_buffer_len_, &out_size);
+    esp_err_t err = jpeg_decoder_process(this->jpeg_, &decode_cfg, frame->data, frame->received, decode_into,
+                                         decode_room, &out_size);
     if (err == ESP_OK) {
 #ifdef USE_LVGL
       // Before the clock starts: the wait is LVGL's time, not the copy's.
@@ -737,7 +768,10 @@ void Portall::run_decode_task() {
         x_pad = 0;
       }
 #ifdef USE_LVGL
-      if (this->canvas_ != nullptr) {
+      if (direct) {
+        // Already where LVGL will read it; the loop does the rest.
+        this->canvas_publish_();
+      } else if (this->canvas_ != nullptr) {
         // Into LVGL's buffer, not onto the panel: LVGL owns the display in
         // this mode and composes the canvas with whatever else is on screen.
         this->copy_to_canvas_(pixels, dst_x, dst_y, dst_w, dst_h, dst_w + x_pad);
@@ -796,9 +830,12 @@ void Portall::run_decode_task() {
         // The canvas's own cost, beside the copy the line above counts: how
         // long the decoder stood waiting for LVGL to draw what it was given.
         // Near a second a second is LVGL, not the network, setting the rate.
+        // And how many pictures went into the canvas without a copy: every
+        // whole one, when the two buffers could be had. None at all means the
+        // mode is copying, and the boot log says why.
         if (this->canvas_ != nullptr)
-          ESP_LOGD(TAG, "  waited %u ms/s for LVGL to draw the canvas",
-                   (unsigned) (this->canvas_wait_ms_ * 1000 / elapsed));
+          ESP_LOGD(TAG, "  waited %u ms/s for LVGL to draw the canvas, %u whole pictures decoded straight into it",
+                   (unsigned) (this->canvas_wait_ms_ * 1000 / elapsed), (unsigned) this->canvas_swaps_.load());
 #endif
         this->logged_stats_ = true;
         this->last_fps_ = fps;
@@ -815,6 +852,7 @@ void Portall::run_decode_task() {
       this->ppa_us_ = 0;
 #ifdef USE_LVGL
       this->canvas_wait_ms_ = 0;
+      this->canvas_swaps_.store(0);
 #endif
     }
   }
@@ -888,6 +926,32 @@ void Portall::loop() {
 }
 
 #ifdef USE_LVGL
+// The two buffers of the zero-copy canvas, from the decoder's own allocator:
+// the JPEG engine writes into them by DMA, so they have to sit on cache lines
+// the way rgb_buffer_ does, and they are the same size -- a whole canvas,
+// rounded up to the decoder's 16x16 units (620 rows is 624 here).
+bool Portall::allocate_canvas_pair_() {
+  jpeg_decode_memory_alloc_cfg_t out_cfg = {};
+  out_cfg.buffer_direction = JPEG_DEC_ALLOC_OUTPUT_BUFFER;
+  const size_t wanted = (size_t) this->padded_width_ * this->padded_height_ * 2;
+  for (int i = 0; i < 2; i++) {
+    size_t got = 0;
+    this->canvas_pair_[i] = (uint8_t *) jpeg_alloc_decoder_mem(wanted, &out_cfg, &got);
+    if (this->canvas_pair_[i] == nullptr) {
+      if (i == 1)
+        heap_caps_free(this->canvas_pair_[0]);
+      this->canvas_pair_[0] = nullptr;
+      ESP_LOGW(TAG, "Could not allocate two %u byte canvas buffers; copying into LVGL's own instead",
+               (unsigned) wanted);
+      return false;
+    }
+    this->canvas_pair_len_ = got;
+  }
+  return true;
+}
+#endif
+
+#ifdef USE_LVGL
 void Portall::canvas_tick_() {
   lv_draw_buf_t *buf = this->canvas_buf_.load();
   if (buf == nullptr) {
@@ -928,7 +992,47 @@ void Portall::canvas_tick_() {
     // after an invalidate is the one that drew it.
     lv_display_add_event_cb(lv_obj_get_display(this->canvas_), Portall::canvas_rendered_, LV_EVENT_REFR_READY,
                             this);
+    if (this->allocate_canvas_pair_()) {
+      // LVGL is handed the first of the pair, with whatever the canvas already
+      // showed copied into it. The stride is the decoder's padded width, so a
+      // whole picture decoded into either buffer is already laid out as LVGL
+      // reads it; the rows past the canvas's height are the decoder's slack.
+      const uint32_t stride = (uint32_t) this->padded_width_ * 2;
+      for (uint32_t row = 0; row < buf->header.h; row++)
+        std::memcpy(this->canvas_pair_[0] + row * stride, buf->data + row * buf->header.stride,
+                    (size_t) buf->header.w * 2);
+      if (esp_ptr_external_ram(this->canvas_pair_[0]))
+        esp_cache_msync(this->canvas_pair_[0], this->canvas_pair_len_,
+                        ESP_CACHE_MSYNC_FLAG_DIR_C2M | ESP_CACHE_MSYNC_FLAG_TYPE_DATA);
+      lv_draw_buf_init(&this->canvas_shown_, buf->header.w, buf->header.h, LV_COLOR_FORMAT_RGB565, stride,
+                       this->canvas_pair_[0], this->canvas_pair_len_);
+      lv_draw_buf_set_flag(&this->canvas_shown_, LV_IMAGE_FLAGS_MODIFIABLE);
+      lv_canvas_set_draw_buf(this->canvas_, &this->canvas_shown_);
+      this->canvas_front_ = 0;
+      ESP_LOGI(TAG, "  without a copy: two buffers of %u KiB, a whole picture is decoded straight into one",
+               (unsigned) (this->canvas_pair_len_ / 1024));
+      buf = &this->canvas_shown_;
+    }
     this->canvas_buf_.store(buf);
+  }
+
+  // A whole picture the decoder has finished: LVGL is given that buffer. This
+  // is the loop, the one thread LVGL runs on, so no refresh is part-way
+  // through the old front at this moment -- and nothing after this reads it,
+  // which is what lets the decoder write into it next. lv_canvas_set_draw_buf
+  // drops LVGL's image cache for it and invalidates the whole canvas.
+  const int8_t swap = this->canvas_swap_.load();
+  if (swap >= 0) {
+    this->canvas_shown_.data = this->canvas_pair_[swap];
+    lv_canvas_set_draw_buf(this->canvas_, &this->canvas_shown_);
+    lv_obj_invalidate(this->canvas_);
+    portENTER_CRITICAL(&this->canvas_lock_);
+    this->canvas_dirty_ = false;
+    portEXIT_CRITICAL(&this->canvas_lock_);
+    this->canvas_inflight_.store(true);
+    this->canvas_swaps_++;
+    this->canvas_swap_.store(-1);
+    return;
   }
 
   // Tell LVGL what the decoder changed. The decoder only marks the area; this
@@ -968,6 +1072,30 @@ void Portall::canvas_wait_(uint16_t picture) {
   this->canvas_wait_ms_ += millis() - began;
 }
 
+bool Portall::canvas_settle_() {
+  // Every picture, whole or not, waits for a swap the loop has not taken:
+  // until it is taken the front is about to stop being the front, and the
+  // back is the picture about to be shown. Bounded like canvas_wait_(); a
+  // loop that never runs costs the picture, never a buffer LVGL is reading.
+  const uint32_t began = millis();
+  while (this->canvas_swap_.load() >= 0) {
+    if (millis() - began >= CANVAS_WAIT_MS)
+      return false;
+    vTaskDelay(1);
+  }
+  this->canvas_wait_ms_ += millis() - began;
+  return true;
+}
+
+void Portall::canvas_publish_() {
+  // The back buffer holds a whole picture: it becomes the front the next
+  // time the loop runs. From here the decoder's own idea of the front is the
+  // new one, and canvas_settle_() stops it writing anywhere until the loop
+  // has made that true.
+  this->canvas_front_ ^= 1;
+  this->canvas_swap_.store(this->canvas_front_);
+}
+
 void Portall::copy_to_canvas_(const uint8_t *pixels, uint16_t x, uint16_t y, uint16_t w, uint16_t h,
                               uint16_t src_stride_px) {
   lv_draw_buf_t *buf = this->canvas_buf_.load();
@@ -990,6 +1118,18 @@ void Portall::copy_to_canvas_(const uint8_t *pixels, uint16_t x, uint16_t y, uin
   for (uint16_t row = 0; row < h; row++) {
     std::memcpy(buf->data + (size_t) (y + row) * stride + (size_t) x * 2,
                 pixels + (size_t) row * src_stride_px * 2, row_bytes);
+  }
+  // Out of the CPU's cache and into PSRAM. LVGL's PPA draw unit reads the
+  // canvas by DMA, which does not see the cache -- lvgl_camera_display
+  // writes back for the same reason -- and in the zero-copy mode this
+  // buffer is the next one the JPEG engine writes into: a dirty line left
+  // behind and evicted after that write would put these old pixels back
+  // over the new picture.
+  if (esp_ptr_external_ram(buf->data)) {
+    uint8_t *first = buf->data + (size_t) y * stride + (size_t) x * 2;
+    uint8_t *last = buf->data + (size_t) (y + h - 1) * stride + (size_t) (x + w) * 2;
+    esp_cache_msync(first, last - first,
+                    ESP_CACHE_MSYNC_FLAG_DIR_C2M | ESP_CACHE_MSYNC_FLAG_TYPE_DATA | ESP_CACHE_MSYNC_FLAG_UNALIGNED);
   }
   portENTER_CRITICAL(&this->canvas_lock_);
   const lv_area_t added = {(int32_t) x, (int32_t) y, (int32_t) (x + w - 1), (int32_t) (y + h - 1)};
