@@ -342,6 +342,18 @@ class Portall : public Component
   portMUX_TYPE canvas_lock_ = portMUX_INITIALIZER_UNLOCKED;
   bool canvas_dirty_{false};
   lv_area_t canvas_dirty_area_{};
+  // Flow control. Set by the loop when it hands LVGL an area, cleared by
+  // LVGL's REFR_READY on the same thread once that area has been rendered and
+  // flushed; the decode task waits on it before it starts copying a NEW
+  // picture. Without it the decoder copies 1.5 MB pictures at the rate they
+  // arrive while LVGL renders, rotates and flushes each of them in turn --
+  // measured on a Tab5 under a video: operations of the lvgl loop running for
+  // one to three and a half seconds, then the task watchdog.
+  void canvas_wait_(uint16_t picture);
+  static void canvas_rendered_(lv_event_t *event);
+  std::atomic<bool> canvas_inflight_{false};
+  uint16_t canvas_picture_{0xFFFF};
+  uint32_t canvas_wait_ms_{0};
 #endif
 
   display::Display *display_{nullptr};

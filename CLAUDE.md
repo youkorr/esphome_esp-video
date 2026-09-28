@@ -2336,6 +2336,48 @@ the canvas then keeps up with a video is a separate question: it will stop
 crashing, not get faster. `fps:` on that launcher's video link is the lever
 for that.
 
+**The next video got past that and met the watchdog instead, and the log is
+the measurement this test existed for.** No crash in esp-hosted; instead:
+
+    1280x620 @ 14.2 fps, 45463 us/draw (0 in the PPA ...)
+    lvgl took a long time for an operation (1259 ms) ... (2938) ... (3531)
+    task_wdt: Task watchdog got triggered ... loopTask (CPU 1)
+
+**45 ms is the copy of one whole canvas, PSRAM to PSRAM**, where the same
+picture drawn straight to the display costs a fraction of that -- and it is
+only the half the board's line counts. LVGL then renders that area and, with
+`rotation: 270`, turns it through the PPA **in blocking mode** before the
+flush (`ppa_rotate_` -> `PPA_TRANS_MODE_BLOCKING`, read in 2026.8.2), all on
+the loop. Meanwhile nothing stopped the decoder: at priority 2 on core 1 it
+copied the next picture as soon as it arrived, over the one LVGL was reading,
+into the memory LVGL, the PPA and the display's own scanout all share. The
+loop fell seconds behind until it did not feed the watchdog at all.
+
+So the decoder now waits for LVGL. `canvas_tick_` sets `canvas_inflight_`
+when it invalidates; LVGL's own **`LV_EVENT_REFR_READY`**, sent at the end of
+every refresh after the flush and even when nothing was redrawn
+(`lv_refr.c`, 9.5.0), clears it on the loop's own thread; and
+`canvas_wait_()` holds the FIRST rectangle of a new picture until then, up to
+`CANVAS_WAIT_MS` (1000) so a paused LVGL cannot stop the decoder for good. A
+held picture holds its frame buffer, the socket stops being read, and the
+add-on sees `panel wait` -- the same flow control the display path has always
+had, now with LVGL's pace behind it instead of the decoder's. It also means a
+new picture no longer lands on rows LVGL is still reading. The board's stats
+line gains `waited N ms/s for LVGL to draw the canvas`, which says whether
+LVGL is what sets the rate.
+
+`tools/checkcanvas.py` drives it against a real LVGL 9.5.0: in flight after
+an invalidate, cleared by LVGL's REFR_READY, a new picture held exactly until
+a refresh run from inside its sleep, the rest of a picture not held, the
+bound, and nothing held with nothing in flight. Those cases cannot run
+against the flashed code, which had no wait at all -- the fault is an
+absence, and the watchdog is not reproducible on a workstation. **Not
+compiled by a real toolchain, not flashed.** It will stop the loop starving;
+it will not make a whole-canvas video fast. The measured figure stands: in
+canvas mode a full-motion picture costs the copy plus LVGL's pass plus a
+rotation, and `fps:` on the video link, or the plain mode, is what a video
+wants.
+
 
 ## The panel as a launcher
 

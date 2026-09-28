@@ -23,6 +23,10 @@ It also checks the touch half: canvas_turn_() in network.cpp, which turns a
 contact from the glass into LVGL's coordinates when `lvgl: rotation:` turns
 the screen, against ESPHome's own rotation loops run on a test picture.
 
+And the flow control: canvas_wait_() holding a new picture until LVGL's own
+REFR_READY says the last one was drawn, with a vTaskDelay that runs LVGL's
+refresh in its place.
+
 What it does not cover: the decode task's real concurrency with LVGL's
 render, and anything about a real panel.
 """
@@ -55,7 +59,10 @@ def shipped():
     start = "#ifdef USE_LVGL\nvoid Portall::canvas_tick_()"
     a = text.index(start)
     b = text.index("#endif  // USE_LVGL", a)
-    return text[a + len("#ifdef USE_LVGL\n"):b]
+    # The wait's bound is a constant at the top of the file; carried across
+    # rather than restated, so the harness cannot disagree with it.
+    wait = re.search(r"CANVAS_WAIT_MS = (\d+);", text).group(1)
+    return f"static constexpr uint32_t CANVAS_WAIT_MS = {wait};\n" + text[a + len("#ifdef USE_LVGL\n"):b]
 
 
 def turn():

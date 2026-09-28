@@ -15,9 +15,26 @@ static int g_errors = 0, g_infos = 0;
 #define ESP_LOGE(tag, ...) (g_errors++, printf("    E: " __VA_ARGS__), printf("\n"))
 #define ESP_LOGI(tag, ...) (g_infos++, printf("    I: " __VA_ARGS__), printf("\n"))
 static const char *const TAG = "portall";
+// The decode task's clock and its sleep. A sleep advances the clock by one
+// millisecond and, when asked, runs LVGL's refresh -- which is what the loop
+// does on the board while the decoder sleeps.
+static uint32_t g_ms = 0;
+static int g_delays = 0, g_refresh_after = -1;
+static lv_display_t *g_disp = nullptr;
+static uint32_t millis() { return g_ms; }
+static void vTaskDelay(uint32_t) {
+  g_ms++;
+  if (++g_delays == g_refresh_after)
+    lv_refr_now(g_disp);
+}
 struct Portall {
   void canvas_tick_();
   void copy_to_canvas_(const uint8_t *pixels, uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint16_t src_stride_px);
+  void canvas_wait_(uint16_t picture);
+  static void canvas_rendered_(lv_event_t *event);
+  std::atomic<bool> canvas_inflight_{false};
+  uint16_t canvas_picture_{0xFFFF};
+  uint32_t canvas_wait_ms_{0};
   lv_obj_t *canvas_{nullptr};
   std::atomic<lv_draw_buf_t *> canvas_buf_{nullptr};
   bool canvas_refused_{false};
@@ -57,6 +74,7 @@ int main() {
   lv_init();
   lv_tick_set_cb(tick);
   lv_display_t *d = lv_display_create(SW, SH);
+  g_disp = d;
   static uint16_t draw[SW * SH];
   lv_display_set_buffers(d, draw, nullptr, sizeof(draw), LV_DISPLAY_RENDER_MODE_PARTIAL);
   lv_display_set_flush_cb(d, flush);
@@ -100,6 +118,46 @@ int main() {
   p.canvas_tick_();
   lv_refr_now(d);
   ok(g_screen[60 * SW + 50] == 0xF800 && g_screen[201 * SW + 233] == 0xF800, "both reach the screen");
+
+  // Flow control: a picture handed to LVGL is in flight until LVGL has drawn it.
+  p.copy_to_canvas_((const uint8_t *) src.data(), 10, 20, w, h, w + pad);
+  p.canvas_tick_();
+  ok(p.canvas_inflight_.load(), "an area handed to LVGL is in flight");
+  lv_refr_now(d);
+  ok(!p.canvas_inflight_.load(), "and LVGL's own REFR_READY clears it once drawn");
+
+  // The decoder waits at a NEW picture until then -- here LVGL draws after the
+  // decoder's third sleep.
+  p.copy_to_canvas_((const uint8_t *) src.data(), 10, 20, w, h, w + pad);
+  p.canvas_tick_();
+  g_delays = 0;
+  g_refresh_after = 3;
+  uint32_t t0 = g_ms;
+  p.canvas_wait_(7);
+  ok(g_delays == 3 && g_ms - t0 == 3 && !p.canvas_inflight_.load(),
+     "a new picture waits until LVGL has drawn the last one, and no longer");
+  ok(p.canvas_wait_ms_ == 3, "and the wait is counted");
+
+  // The rest of that picture follows without waiting, even with an area out.
+  p.copy_to_canvas_((const uint8_t *) src.data(), 30, 20, w, h, w + pad);
+  p.canvas_tick_();
+  g_delays = 0;
+  g_refresh_after = -1;
+  p.canvas_wait_(7);
+  ok(g_delays == 0, "a later rectangle of the same picture does not wait");
+
+  // An LVGL that never draws -- paused, or the canvas on a page not shown --
+  // costs a second a picture, not the decoder.
+  t0 = g_ms;
+  p.canvas_wait_(8);
+  ok(g_ms - t0 == CANVAS_WAIT_MS && p.canvas_inflight_.load(),
+     "an LVGL that never draws holds a picture for the bound and no longer");
+
+  // Nothing in flight, nothing to wait for.
+  lv_refr_now(d);
+  g_delays = 0;
+  p.canvas_wait_(9);
+  ok(g_delays == 0, "with nothing in flight a new picture goes straight in");
 
   // A rectangle past the edge writes nothing.
   lv_draw_buf_t *buf = p.canvas_buf_.load();
