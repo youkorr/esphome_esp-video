@@ -2278,7 +2278,20 @@ calls neither. `tools/checkcanvas.py` runs ESPHome's own rotation loops,
 copied, on a test picture and feeds every pixel's place on the glass back
 through the shipped function: all four angles land exactly, and swapping the
 90 and 270 cases fails every point. Validated and generated at
-2026.10.0-dev. **Not flashed.**
+2026.10.0-dev.
+
+**And it runs on a Tab5, from a photograph with no words**: LVGL's bar
+upright along the top with its own clock, the add-on's launcher whole in the
+1280x620 canvas under it -- tiles, clock, weather, wallpaper and the face --
+and none of the mixture of the first run. So `lvgl: rotation: 270`, portall's
+`rotation: 0` and `max_frame_bytes: 300000` together were the answer; which
+of the last two cleared the mixture is not separated, since both changed in
+one flash. The straight stripes are gone; what remains is curved ripples
+over the wallpaper, which is the camera's moire rather than the panel's.
+Still NOT known: what the copy and LVGL's second pass cost on a whole
+picture (the board's own `@ N fps, N us/draw` line, beside the same page
+without a canvas), tearing under full motion, and whether a tap in the
+canvas lands on the tile under it.
 
 
 ## The panel as a launcher
