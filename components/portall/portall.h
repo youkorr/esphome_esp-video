@@ -354,6 +354,30 @@ class Portall : public Component
   std::atomic<bool> canvas_inflight_{false};
   uint16_t canvas_picture_{0xFFFF};
   uint32_t canvas_wait_ms_{0};
+  // Zero copy, the way lvgl_camera_display shows a camera: two canvas-sized
+  // buffers from the decoder's own allocator, and LVGL is given whichever one
+  // is FRONT. A whole-canvas picture -- every picture of a video -- is decoded
+  // straight into the BACK one and the loop swaps them, so neither the 32-35
+  // ms copy nor waiting for LVGL before decoding is left: the decoder fills
+  // the back while LVGL draws the front. A partial rectangle still goes
+  // through rgb_buffer_ and is copied into the front, as before; the next
+  // whole picture replaces everything anyway. If the pair cannot be
+  // allocated the mode falls back to copying into LVGL's own buffer.
+  bool allocate_canvas_pair_();
+  bool canvas_settle_();
+  uint8_t *canvas_back_() const { return this->canvas_pair_[this->canvas_front_ ^ 1]; }
+  void canvas_publish_();
+  bool canvas_zero_copy_() const { return this->canvas_buf_.load() == &this->canvas_shown_; }
+  uint8_t *canvas_pair_[2]{nullptr, nullptr};
+  size_t canvas_pair_len_{0};
+  lv_draw_buf_t canvas_shown_{};
+  // The decode task's side: which buffer is (or is about to be) FRONT.
+  uint8_t canvas_front_{0};
+  // Set by the decode task to the buffer it wants shown, taken by the loop.
+  // -1 is nothing waiting. Nothing is written into either buffer while a
+  // swap is waiting: the front is about to stop being the front.
+  std::atomic<int8_t> canvas_swap_{-1};
+  std::atomic<uint32_t> canvas_swaps_{0};  // counted on the loop, read and cleared by the decoder
 #endif
 
   display::Display *display_{nullptr};

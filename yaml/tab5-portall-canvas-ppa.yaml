@@ -4,6 +4,15 @@
 # kept as a test to come back to; nothing in portall runs it unless a YAML
 # sets `canvas:`.
 #
+# SINCE THEN, A SECOND TEST: without the copy. A whole picture -- every picture
+# of a video -- is now decoded straight into one of two canvas-sized buffers
+# and handed to LVGL, the way lvgl_camera_display shows the camera, so the
+# decoder works on the next picture while LVGL draws this one. It costs two
+# more buffers of 1.5 MiB of PSRAM at 1280x620. The boot log says "without a
+# copy" when it is on, and the board's stats line ends "N whole pictures
+# decoded straight into it". Not compiled, not flashed; the camera's own
+# 10-15 fps on the same LVGL is the likely ceiling, not 25.
+#
 # The canvas test, on the household's own LVGL (youkorr/lvgl_9.5) instead of
 # ESPHome's. Asked as "il me semble avoir eu le meme probleme avec lvgl de
 # chez esphome que je n'ai pas retrouve sur mon lvgl".

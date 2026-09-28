@@ -2463,6 +2463,62 @@ Waveshare's 180 that `lvgl-kawaii.yaml` runs the camera at. The camera's own
 `=== BENCHMARK` line on the Tab5 at 270 would settle the second. Not built;
 the experiment stays parked until asked.
 
+**The camera's own line came back, and it lowers the target:** *"entre 10 et
+15 fps, 28% cpu, 50 a 73 ms avec use_img: true et use_ppa: true"*. The
+camera's "25 fps" was the camera's rate, not what reaches the screen through
+LVGL: on the same LVGL a whole picture costs LVGL 50-73 ms even with zero
+copy. So 10-15 is the honest ceiling for a whole-canvas video, against 9 now.
+
+**Built as a test, asked for in those words: *"construis ce mode sans copie
+mais garde en tete ce n'est que des teste"*.** Exactly the route above:
+
+- `allocate_canvas_pair_()` takes two buffers of `padded_width_ x
+  padded_height_` from `jpeg_alloc_decoder_mem` (1280x620 is 1280x624, 1.5
+  MiB each) the first time the canvas is found. LVGL is given ONE
+  `lv_draw_buf_t canvas_shown_` with the decoder's padded stride, whose
+  `.data` is what changes -- the canvas's existing pixels are copied into the
+  first buffer so nothing flickers. If the pair cannot be had it says so and
+  copies into LVGL's own buffer, as before.
+- A picture at 0,0 of the canvas's full size, with no accelerator pass
+  (canvas mode refuses rotation and render size, so there never is one), is
+  decoded straight into `canvas_back_()`; after `canvas_wait_()` the decoder
+  `canvas_publish_()`es it and the LOOP swaps (`lv_canvas_set_draw_buf`,
+  which drops LVGL's image cache, then an invalidate). The swap is on the
+  loop because that is LVGL's thread: no refresh is part-way through the old
+  front at that moment, which is what lets the decoder write into it next.
+- `canvas_settle_()` holds EVERY picture while a swap is waiting, bounded at
+  `CANVAS_WAIT_MS` and dropped as `no buffer` past it: until the loop has
+  swapped, the back is the picture about to be shown and the front is about
+  to stop being the front, so there is nowhere safe to write.
+- `copy_to_canvas_()` now writes its rows back out of the cache
+  (`esp_cache_msync` C2M, UNALIGNED, only for PSRAM). Two reasons, and the
+  second is new with the pair: LVGL's PPA draw unit reads by DMA, and the
+  buffer a rectangle was copied into is the next one the JPEG engine writes
+  into -- a dirty line evicted after that write would put old pixels back
+  over the new picture. `lvgl_camera_display` writes back for the first.
+- The stats line: `waited N ms/s for LVGL to draw the canvas, N whole
+  pictures decoded straight into it`. Zero there with pictures arriving
+  means the mode is copying, and the boot log's `without a copy` line (or
+  its absence) says why.
+
+`tools/checkcanvas.py` drives the shipped code against LVGL 9.5.0: the pair
+taken with the canvas's content carried and still on screen, a published
+picture not shown until the loop runs, the swap drawing the new buffer over
+the whole canvas and only there, no copy and no write-back for a whole
+picture, a rectangle after the swap landing in the NEW front and written
+back, `canvas_settle_` waiting exactly until a loop run inside its sleep,
+the bound, the late swap, and the fallback when allocation fails. Without
+the swap's pointer change five cases fail; without the settle, three. Its
+first failure was the ruler: the old front already had red where the new
+case looked for none.
+
+**Not compiled by a real toolchain, not flashed.** Not known: whether
+`lv_canvas_set_draw_buf` on the same `lv_draw_buf_t` with a new `.data`
+behaves on the board as it does here (it drops the cache for that pointer,
+and the harness shows the new pixels), whether the fork's PPA draw unit
+reads the canvas coherently after a DMA decode, and the rate -- the board's
+`@ N fps` beside the `waited` and `decoded straight` figures says it.
+
 
 ## The panel as a launcher
 
