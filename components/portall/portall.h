@@ -16,6 +16,7 @@
 #ifdef USE_LVGL
 #include <lvgl.h>
 #include <atomic>
+#include <functional>
 #endif
 
 #include <cstdint>
@@ -177,6 +178,13 @@ class Portall : public Component
   /// in its own turned coordinates and the touchscreen reports the glass's, so
   /// a contact has to be turned the same way before it can be placed on it.
   void set_canvas_rotation(uint16_t degrees) { this->canvas_rotation_ = degrees; }
+  /// Pauses and resumes the lvgl component, emitted into main.cpp at codegen
+  /// as a call to its set_paused(), so this header needs none of that
+  /// component's. What it is for is the video mode below: Espressif's own
+  /// answer to video beside LVGL -- "Dummy Draw" in esp_lvgl_adapter -- is to
+  /// stop LVGL and write to the display directly, and ESPHome's lvgl already
+  /// has the stop. A TEST, like the rest of canvas mode.
+  void set_lvgl_pause(std::function<void(bool)> pause) { this->lvgl_pause_ = std::move(pause); }
 #endif
 
   /// Fired from the loop when the host starts and stops sending sound. What a
@@ -378,6 +386,41 @@ class Portall : public Component
   // swap is waiting: the front is about to stop being the front.
   std::atomic<int8_t> canvas_swap_{-1};
   std::atomic<uint32_t> canvas_swaps_{0};  // counted on the loop, read and cleared by the decoder
+
+  // Video mode. Measured on a Tab5: with the copy gone, a whole canvas still
+  // came out at 7.9 pictures a second, the decoder waiting 902 ms of every
+  // second for LVGL to redraw the canvas, turn the screen and flush it. So
+  // while whole pictures stream, LVGL is paused and each picture goes to the
+  // display the way plain mode sends it -- decoded, turned by this
+  // component's own accelerator pass, drawn -- and it is still decoded INTO
+  // the canvas, so LVGL has the latest one when it resumes. Only one of the
+  // two ever writes to the display: the decoder draws only once the loop has
+  // paused LVGL, and stops before it asks for LVGL back.
+  //
+  //   OFF -> ENTERING   decoder: whole pictures are streaming
+  //   ENTERING -> ON    loop: LVGL paused, canvas placement read
+  //   ON -> LEAVING     decoder: nothing whole for VIDEO_LEAVE_MS; the latest
+  //                     picture is published for LVGL
+  //   LEAVING -> OFF    loop: that picture swapped in, LVGL resumed
+  enum : uint8_t { VIDEO_OFF, VIDEO_ENTERING, VIDEO_ON, VIDEO_LEAVING };
+  void video_tick_();
+  void video_note_(bool whole);
+  void video_check_leave_();
+  bool video_draw_(const uint8_t *src, uint16_t src_w, uint16_t src_h, uint16_t x, uint16_t y, uint16_t w,
+                   uint16_t h);
+  void copy_into_back_(const uint8_t *pixels, uint16_t x, uint16_t y, uint16_t w, uint16_t h,
+                       uint16_t src_stride_px);
+  std::function<void(bool)> lvgl_pause_;
+  std::atomic<uint8_t> video_{VIDEO_OFF};
+  uint8_t video_run_{0};
+  uint32_t video_whole_ms_{0};
+  uint32_t video_drawn_{0};
+  // Whether the BACK buffer holds the newest picture yet. On entering it holds
+  // the one before; a rectangle copied into it then would land on a stale page.
+  bool video_back_ready_{false};
+  // Where the canvas sits on LVGL's (turned) screen, and that screen's size.
+  // Written by the loop before it sets VIDEO_ON, read by the decoder after.
+  int32_t video_canvas_x_{0}, video_canvas_y_{0}, video_screen_w_{0}, video_screen_h_{0};
 #endif
 
   display::Display *display_{nullptr};
