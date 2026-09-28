@@ -47,6 +47,13 @@ static constexpr uint32_t AUDIO_IDLE_MS = 500;
 // rectangles at once and the decoder is momentarily behind -- and short enough
 // that a decoder which has genuinely stopped does not hold the socket shut.
 static constexpr uint32_t FRAME_WAIT_MS = 250;
+#ifdef USE_LVGL
+// The longest the decoder waits for LVGL to finish drawing the last picture
+// before it copies the next one anyway. A bound rather than a promise: an LVGL
+// that is paused, or a canvas on a page nobody is showing, must not stop the
+// decoder for good -- one picture a second is what it then gets.
+static constexpr uint32_t CANVAS_WAIT_MS = 1000;
+#endif
 
 // TinyUSB's callbacks are plain C with no context argument, so the one instance
 // has to be reachable from file scope. A second portall would need a second
@@ -700,6 +707,11 @@ void Portall::run_decode_task() {
     esp_err_t err = jpeg_decoder_process(this->jpeg_, &decode_cfg, frame->data, frame->received, this->rgb_buffer_,
                                          this->rgb_buffer_len_, &out_size);
     if (err == ESP_OK) {
+#ifdef USE_LVGL
+      // Before the clock starts: the wait is LVGL's time, not the copy's.
+      if (this->canvas_ != nullptr)
+        this->canvas_wait_(frame->id);
+#endif
       uint32_t start = micros();
       // The decoded rows are padded_w wide even when fewer pixels are wanted;
       // x_pad tells the display to skip the difference at the end of each line.
@@ -780,6 +792,14 @@ void Portall::run_decode_task() {
                  (unsigned) this->frames_dropped_,
                  (unsigned) this->dropped_no_buffer_, (unsigned) this->dropped_too_soon_, (unsigned) this->dropped_decode_,
                  (unsigned) this->dropped_rotate_);
+#ifdef USE_LVGL
+        // The canvas's own cost, beside the copy the line above counts: how
+        // long the decoder stood waiting for LVGL to draw what it was given.
+        // Near a second a second is LVGL, not the network, setting the rate.
+        if (this->canvas_ != nullptr)
+          ESP_LOGD(TAG, "  waited %u ms/s for LVGL to draw the canvas",
+                   (unsigned) (this->canvas_wait_ms_ * 1000 / elapsed));
+#endif
         this->logged_stats_ = true;
         this->last_fps_ = fps;
       }
@@ -793,6 +813,9 @@ void Portall::run_decode_task() {
       this->dropped_rotate_ = 0;
       this->draw_us_ = 0;
       this->ppa_us_ = 0;
+#ifdef USE_LVGL
+      this->canvas_wait_ms_ = 0;
+#endif
     }
   }
 }
@@ -900,6 +923,11 @@ void Portall::canvas_tick_() {
       return;
     }
     ESP_LOGI(TAG, "Drawing into an LVGL canvas of %ux%u", (unsigned) buf->header.w, (unsigned) buf->header.h);
+    // REFR_READY is sent at the end of every refresh of that display, after
+    // rendering and flushing, and even when nothing was redrawn -- so the one
+    // after an invalidate is the one that drew it.
+    lv_display_add_event_cb(lv_obj_get_display(this->canvas_), Portall::canvas_rendered_, LV_EVENT_REFR_READY,
+                            this);
     this->canvas_buf_.store(buf);
   }
 
@@ -918,7 +946,26 @@ void Portall::canvas_tick_() {
   lv_area_t coords;
   lv_obj_get_coords(this->canvas_, &coords);
   lv_area_move(&area, coords.x1, coords.y1);
+  this->canvas_inflight_.store(true);
   lv_obj_invalidate_area(this->canvas_, &area);
+}
+
+void Portall::canvas_rendered_(lv_event_t *event) {
+  static_cast<Portall *>(lv_event_get_user_data(event))->canvas_inflight_.store(false);
+}
+
+void Portall::canvas_wait_(uint16_t picture) {
+  // Only at the first rectangle of a picture: the rest of it follows without
+  // waiting, or a picture split in pieces would pay a refresh per piece.
+  if (picture == this->canvas_picture_)
+    return;
+  this->canvas_picture_ = picture;
+  const uint32_t began = millis();
+  // vTaskDelay rather than a spin: the loop that has to run for this to
+  // clear shares the core with this task, at a lower priority.
+  while (this->canvas_inflight_.load() && millis() - began < CANVAS_WAIT_MS)
+    vTaskDelay(1);
+  this->canvas_wait_ms_ += millis() - began;
 }
 
 void Portall::copy_to_canvas_(const uint8_t *pixels, uint16_t x, uint16_t y, uint16_t w, uint16_t h,
@@ -935,8 +982,11 @@ void Portall::copy_to_canvas_(const uint8_t *pixels, uint16_t x, uint16_t y, uin
   const size_t row_bytes = (size_t) w * 2;
   // A plain copy, which is the extra pass this test exists to measure: it is
   // counted in the stats line's us/draw like the display write it replaces.
-  // LVGL may be reading these rows while they are written; at worst a frame
-  // shows a torn rectangle, and the next invalidate draws it whole.
+  // A new picture starts only once LVGL has drawn the last (canvas_wait_), so
+  // LVGL is not reading these rows while the first of them are written. The
+  // later rectangles of one picture can still meet a render the earlier ones
+  // started; at worst that shows a torn rectangle, and the next invalidate
+  // draws it whole.
   for (uint16_t row = 0; row < h; row++) {
     std::memcpy(buf->data + (size_t) (y + row) * stride + (size_t) x * 2,
                 pixels + (size_t) row * src_stride_px * 2, row_bytes);
