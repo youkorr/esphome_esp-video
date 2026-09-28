@@ -2397,6 +2397,24 @@ itself through its own PPA rotation, as plain mode does -- which means two
 writers to one display from two tasks. `fps: 9` on the video link removes
 the skipping in the meantime.
 
+**Then the household said their own LVGL never had this**, and pointed at
+`youkorr/lvgl_9.5`, branch `claude/jolly-lamport-ERZOC`. Read, not assumed:
+its `use_ppa:` registers a PPA draw unit that takes an opaque RGB565 image --
+which is exactly what a canvas is -- off the CPU (`lv_draw_ppa.tcc`,
+`LV_DRAW_TASK_TYPE_IMAGE`), rotates with its own PPA client, and their Tab5
+runs it at `buffer_size: 100%` (one render pass, where the canvas example had
+four). Its `rotate_touch_point` is the same arithmetic as portall's
+`canvas_turn_`, which already named that fork, so touches need nothing.
+`yaml/tab5-portall-canvas-ppa.yaml` is the canvas example on that fork; the
+codegen at 2026.8.2 against the fork's tree emits `LvglComponent(..., 1,
+...)`, `set_lvgl_rotation(270)`, the PPA defines and
+`set_canvas_rotation(270)`. Its async flush is switched off in the source
+(`ENABLE_ASYNC_ROTATION = false`) and its zero-copy present needs
+`full_refresh` and its own mipi_dsi, so neither is in play. **Not compiled
+here, not flashed**: the board's `waited N ms/s for LVGL` beside the 580 of
+the stock LVGL is what says how much of the 65 ms it takes back. The 35 ms
+copy is portall's and is unchanged.
+
 
 ## The panel as a launcher
 
