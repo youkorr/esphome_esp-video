@@ -10375,6 +10375,32 @@ it stops, rather than silently checking `portall_bt` twice. A fix to
 Example: `usb_bluetooth/example/tab5-lvgl-bluetooth.yaml`, config and codegen
 at 2026.10.0-dev. **Not compiled by ESP-IDF, not flashed.**
 
+**And it refuses ESPHome's `usb_host`, the way the household's own
+esphome/esphome#16944 does.** Asked as *"il faut faire comme ma pr 16944 ...
+verifie comment j'ai fait pour usb host qui ne cohabite pas ensemble"*: that
+PR's `_reject_uvc_beside_usb_host` is a FINAL_VALIDATE that imports
+`usb_host`'s DOMAIN and refuses `enable_uvc` beside it, because two owners of
+the USB host is a boot loop rather than a clear failure. `usb_bluetooth` had
+the same hole and worse: CherryUSB on one side, ESP-IDF's USB Host Library on
+the other, and `usb_host` calls `usb_host_install()` with an empty config,
+whose zero `peripheral_map` is the HIGH-SPEED peripheral on a P4 (read in
+ESP-IDF v5.5.5 `usb_host.h`) -- the one `controller:` defaults to.
+`_refuse_beside_usb_host` refuses it whatever `controller:` says, since the
+full-speed pairing has never been run; `usb_uart` AUTO_LOADs `usb_host`, so
+one domain catches both. Reproduced at 2026.10.0-dev: the example plus
+`usb_host:` read `ok 534 statements` before, and is refused after, as is the
+example plus a `usb_uart:`. `tinyusb` is NOT refused: which peripheral it
+takes on a P4 was not established. `portall_bt` has the same hole and is left
+as it was.
+
+The rest of that PR's shape -- the component installing ESP-IDF's USB Host
+Library ITSELF with its own `usb_host_lib_handle_events` task, instead of a
+second stack -- is the port that would retire CherryUSB and `cherryusb_patch`.
+Not built: the whole transport is written against CherryUSB's blocking urbs
+(probe, HCI commands, inquiry, the Realtek download, both reader tasks), and
+ESP-IDF's transfers are asynchronous and do not time out, so it is a rewrite
+rather than a rename, and nothing here can run it.
+
 ## Repository conventions
 
 - Work on branch `claude/esphome-pr-outdated-mdq36w`, then merge into `main`
