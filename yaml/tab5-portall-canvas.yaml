@@ -15,6 +15,13 @@
 # pass is the limit ("waited 902 ms/s"). Fine for a dashboard; for video use
 # yaml/tab5-portall-screen.yaml, or fps: 8 on the video link.
 #
+# A THIRD TEST, Espressif's answer ("Dummy Draw" in esp_lvgl_adapter): while
+# whole pictures stream, portall PAUSES LVGL and draws them on the display
+# itself, turned by its own PPA, then gives LVGL back a second after the
+# video stops. Needs `resume_on_input: false` on lvgl: (below). The stats line
+# ends "N drawn directly with LVGL paused"; the clock bar is frozen during a
+# video. Not compiled, not flashed.
+#
 # A TEST: the page drawn inside an LVGL canvas instead of onto the display.
 #
 # Asked for as "on fait un test si ca va pas on revient", after a friend of the
@@ -179,6 +186,10 @@ lvgl:
   # the page is drawn the way it is seen. Contacts are turned to match from
   # this same setting, read at compile time.
   rotation: 270
+  # A video in the canvas is drawn with LVGL PAUSED (portall's video mode,
+  # Espressif's "Dummy Draw"); a touch must not wake it on top of the video.
+  # portall refuses the build without this line.
+  resume_on_input: false
   pages:
     - id: home
       bg_color: 0x10141c

@@ -7,6 +7,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <functional>
 #include <vector>
 typedef int portMUX_TYPE;
 #define portMUX_INITIALIZER_UNLOCKED 0
@@ -15,6 +16,10 @@ typedef int portMUX_TYPE;
 static int g_errors = 0, g_infos = 0;
 #define ESP_LOGE(tag, ...) (g_errors++, printf("    E: " __VA_ARGS__), printf("\n"))
 #define ESP_LOGI(tag, ...) (g_infos++, printf("    I: " __VA_ARGS__), printf("\n"))
+#define ESP_LOGD(tag, ...) (printf("    D: " __VA_ARGS__), printf("\n"))
+typedef int esp_err_t;
+#define ESP_OK 0
+static const char *esp_err_to_name(esp_err_t) { return "err"; }
 static const char *const TAG = "portall";
 // The cache write-back is counted rather than done: a workstation has one
 // coherent memory, and the question is only whether it is asked for.
@@ -33,6 +38,72 @@ static lv_display_t *g_disp = nullptr;
 struct Portall;
 static Portall *g_ticker = nullptr;  // whose loop runs at g_refresh_after
 static uint32_t millis() { return g_ms; }
+static uint32_t micros() { return g_ms * 1000; }
+
+// The panel behind LVGL, for video mode: what portall draws on it directly.
+// Its size is the TURNED one of LVGL's screen, set per case.
+static int g_pw = 0, g_ph = 0;
+static std::vector<uint16_t> g_phys;
+static int g_draws = 0;
+namespace display {
+enum ColorOrder { COLOR_ORDER_RGB };
+enum ColorBitness { COLOR_BITNESS_565 };
+struct Display {
+  void draw_pixels_at(int x, int y, int w, int h, const uint8_t *ptr, ColorOrder, ColorBitness, bool, int, int,
+                      int x_pad) {
+    g_draws++;
+    const uint16_t *px = (const uint16_t *) ptr;
+    for (int r = 0; r < h; r++)
+      for (int c = 0; c < w; c++)
+        if (x + c >= 0 && x + c < g_pw && y + r >= 0 && y + r < g_ph)
+          g_phys[(y + r) * g_pw + x + c] = px[r * (w + x_pad) + c];
+  }
+};
+}  // namespace display
+
+// The accelerator, modelled on its documented meaning: rotation_angle is
+// COUNTER-clockwise. What is being checked is that portall's placement and
+// angle, together, put each pixel where LVGL's own rotation would.
+typedef void *ppa_client_handle_t;
+typedef enum {
+  PPA_SRM_ROTATION_ANGLE_0,
+  PPA_SRM_ROTATION_ANGLE_90,
+  PPA_SRM_ROTATION_ANGLE_180,
+  PPA_SRM_ROTATION_ANGLE_270
+} ppa_srm_rotation_angle_t;
+enum { PPA_SRM_COLOR_MODE_RGB565 };
+enum { PPA_TRANS_MODE_BLOCKING };
+struct ppa_in_t { const void *buffer; uint32_t pic_w, pic_h, block_w, block_h, block_offset_x, block_offset_y; int srm_cm; };
+struct ppa_out_t { void *buffer; uint32_t buffer_size, pic_w, pic_h, block_offset_x, block_offset_y; int srm_cm; };
+struct ppa_srm_oper_config_t {
+  ppa_in_t in;
+  ppa_out_t out;
+  ppa_srm_rotation_angle_t rotation_angle;
+  float scale_x, scale_y;
+  int mode;
+};
+static int g_ppa_calls = 0;
+static esp_err_t ppa_do_scale_rotate_mirror(ppa_client_handle_t, const ppa_srm_oper_config_t *c) {
+  g_ppa_calls++;
+  const uint16_t *in = (const uint16_t *) c->in.buffer;
+  uint16_t *out = (uint16_t *) c->out.buffer;
+  const int w = c->in.block_w, h = c->in.block_h;
+  for (int iy = 0; iy < h; iy++)
+    for (int ix = 0; ix < w; ix++) {
+      int ox, oy;
+      switch (c->rotation_angle) {
+        case PPA_SRM_ROTATION_ANGLE_90: ox = iy; oy = w - 1 - ix; break;
+        case PPA_SRM_ROTATION_ANGLE_180: ox = w - 1 - ix; oy = h - 1 - iy; break;
+        case PPA_SRM_ROTATION_ANGLE_270: ox = h - 1 - iy; oy = ix; break;
+        default: ox = ix; oy = iy; break;
+      }
+      if ((uint32_t) ox >= c->out.pic_w || (uint32_t) oy >= c->out.pic_h ||
+          (size_t) (oy * c->out.pic_w + ox) * 2 >= c->out.buffer_size)
+        return 1;
+      out[oy * c->out.pic_w + ox] = in[iy * c->in.pic_w + ix];
+    }
+  return ESP_OK;
+}
 static void tick_loop();
 static void vTaskDelay(uint32_t) {
   g_ms++;
@@ -55,6 +126,29 @@ struct Portall {
   std::atomic<int8_t> canvas_swap_{-1};
   std::atomic<uint32_t> canvas_swaps_{0};
   uint16_t padded_width_{0}, padded_height_{0};
+  // Video mode.
+  enum : uint8_t { VIDEO_OFF, VIDEO_ENTERING, VIDEO_ON, VIDEO_LEAVING };
+  void video_tick_();
+  void video_note_(bool whole);
+  void video_check_leave_();
+  bool video_draw_(const uint8_t *src, uint16_t src_w, uint16_t src_h, uint16_t x, uint16_t y, uint16_t w,
+                   uint16_t h);
+  void copy_into_back_(const uint8_t *pixels, uint16_t x, uint16_t y, uint16_t w, uint16_t h,
+                       uint16_t src_stride_px);
+  std::function<void(bool)> lvgl_pause_;
+  std::atomic<uint8_t> video_{VIDEO_OFF};
+  uint8_t video_run_{0};
+  uint32_t video_whole_ms_{0};
+  uint32_t video_drawn_{0};
+  bool video_back_ready_{false};
+  int32_t video_canvas_x_{0}, video_canvas_y_{0}, video_screen_w_{0}, video_screen_h_{0};
+  ppa_client_handle_t ppa_client_{nullptr};
+  uint8_t *rot_buffer_{nullptr};
+  size_t rot_buffer_len_{0};
+  uint32_t ppa_us_{0};
+  bool logged_rotate_error_{false};
+  display::Display *display_{nullptr};
+  uint16_t canvas_rotation_{0};
   static void canvas_rendered_(lv_event_t *event);
   std::atomic<bool> canvas_inflight_{false};
   uint16_t canvas_picture_{0xFFFF};
@@ -68,6 +162,7 @@ struct Portall {
   uint16_t out_width_{0}, out_height_{0};
 };
 #include "shipped.inc"  // written by tools/checkcanvas.py from portall.cpp
+#include "turn.inc"     // canvas_turn_(), from network.cpp: LVGL's rotation, inverted
 
 // The board's allocator is jpeg_alloc_decoder_mem, which this machine does
 // not have; what matters is the size, and that it can fail.
@@ -118,6 +213,131 @@ static lv_obj_t *make_canvas(int w, int h, lv_color_format_t cf, int x, int y) {
   lv_canvas_fill_bg(c, lv_color_black(), LV_OPA_COVER);
   lv_obj_set_pos(c, x, y);
   return c;
+}
+
+
+// Video mode, one LVGL rotation: three whole pictures pause LVGL, the next are
+// drawn on the panel directly -- each pixel must land where LVGL's own
+// rotation would put it -- and a second with nothing whole gives LVGL back
+// with the newest picture in the canvas.
+static void video_case(int degrees) {
+  printf("  -- video mode, lvgl rotation %d\n", degrees);
+  const bool quarter = degrees == 90 || degrees == 270;
+  g_pw = quarter ? SH : SW;
+  g_ph = quarter ? SW : SH;
+  g_phys.assign((size_t) g_pw * g_ph, 0xABCD);
+  lv_refr_now(g_disp);
+
+  Portall v;
+  lv_obj_t *c = make_canvas(200, 150, LV_COLOR_FORMAT_RGB565, 50, 60);
+  lv_refr_now(g_disp);
+  v.canvas_ = c;
+  v.out_width_ = 200;
+  v.out_height_ = 150;
+  v.padded_width_ = 208;
+  v.padded_height_ = 160;
+  v.canvas_rotation_ = degrees;
+  bool paused = false;
+  int pauses = 0, resumes = 0;
+  v.lvgl_pause_ = [&](bool p) {
+    paused = p;
+    (p ? pauses : resumes)++;
+  };
+  display::Display panel;
+  v.display_ = &panel;
+  static int accel;
+  if (degrees != 0)
+    v.ppa_client_ = &accel;
+  v.rot_buffer_len_ = ((size_t) 200 * 150 * 2 + 63) & ~(size_t) 63;
+  v.rot_buffer_ = (uint8_t *) aligned_alloc(64, v.rot_buffer_len_);
+  v.canvas_tick_();
+  ok(v.canvas_zero_copy_(), "the canvas takes its two buffers");
+
+  for (int i = 1; i <= 3; i++) {
+    g_ms += 40;
+    decode_whole(v.canvas_back_(), v, (uint16_t) (0x1111 * i));
+    v.canvas_publish_();
+    v.video_note_(true);
+    if (i == 2)
+      ok(v.video_.load() == Portall::VIDEO_OFF, "two whole pictures do not pause LVGL yet");
+    v.canvas_tick_();
+    v.video_tick_();
+  }
+  ok(v.video_.load() == Portall::VIDEO_ON && paused && pauses == 1, "the third whole picture in a row pauses LVGL");
+  ok(v.video_canvas_x_ == 50 && v.video_canvas_y_ == 60 && v.video_screen_w_ == SW && v.video_screen_h_ == SH,
+     "and the canvas's place on LVGL's screen is read on the loop");
+
+  // A rectangle first, before any whole picture in video mode: the back
+  // buffer holds an older page and has to be brought up to date.
+  uint16_t *b = (uint16_t *) v.canvas_back_();
+  std::vector<uint16_t> red((16 + 4) * 8, 0xF800);
+  v.copy_into_back_((const uint8_t *) red.data(), 10, 20, 16, 8, 20);
+  ok(b[0] == 0x3333 && b[20 * 208 + 10] == 0xF800 && b[27 * 208 + 25] == 0xF800 && b[20 * 208 + 26] == 0x3333,
+     "a first rectangle lands on the newest page, not on the one before it");
+
+  // A whole picture, every pixel its own value.
+  g_ms += 40;
+  for (int y = 0; y < 160; y++)
+    for (int x = 0; x < 208; x++) b[y * 208 + x] = (uint16_t) (y * 208 + x + 1);
+  v.video_back_ready_ = true;
+  g_draws = 0;
+  g_ppa_calls = 0;
+  ok(v.video_draw_((const uint8_t *) b, 208, 160, 0, 0, 200, 150), "a whole picture is drawn on the panel");
+  v.video_note_(true);
+  int bad = 0, inside = 0, stray = 0;
+  for (int py = 0; py < g_ph; py++)
+    for (int px = 0; px < g_pw; px++) {
+      int32_t x = px, y = py;
+      canvas_turn_(degrees, SW, SH, x, y);
+      const uint16_t got = g_phys[py * g_pw + px];
+      if (x >= 50 && x < 250 && y >= 60 && y < 210) {
+        inside++;
+        if (got != b[(y - 60) * 208 + (x - 50)])
+          bad++;
+      } else if (got != 0xABCD) {
+        stray++;
+      }
+    }
+  ok(bad == 0 && inside == 200 * 150, "every pixel lands where LVGL's own rotation puts it");
+  ok(stray == 0, "and nothing outside the canvas is written");
+  ok(g_draws == 1 && g_ppa_calls == (degrees ? 1 : 0), "one accelerator pass when turned, one draw");
+
+  // A rectangle in video mode: into the canvas, and onto the panel.
+  v.copy_into_back_((const uint8_t *) red.data(), 100, 100, 16, 8, 20);
+  ok(v.video_draw_((const uint8_t *) red.data(), 20, 8, 100, 100, 16, 8), "a rectangle is drawn on the panel");
+  int red_ok = 0, red_bad = 0;
+  for (int py = 0; py < g_ph; py++)
+    for (int px = 0; px < g_pw; px++) {
+      int32_t x = px, y = py;
+      canvas_turn_(degrees, SW, SH, x, y);
+      const bool in = x >= 150 && x < 166 && y >= 160 && y < 168;
+      const uint16_t got = g_phys[py * g_pw + px];
+      if (in)
+        (got == 0xF800 ? red_ok : red_bad)++;
+      else if (x >= 50 && x < 250 && y >= 60 && y < 210 && got != b[(y - 60) * 208 + (x - 50)])
+        red_bad++;
+    }
+  ok(red_ok == 16 * 8 && red_bad == 0, "at the rectangle's place and nowhere else");
+
+  // Partial rectangles alone do not keep video mode.
+  g_ms += VIDEO_LEAVE_MS - 1;
+  v.video_check_leave_();
+  ok(v.video_.load() == Portall::VIDEO_ON, "under a second without a whole picture, LVGL stays paused");
+  g_ms += 1;
+  v.video_check_leave_();
+  ok(v.video_.load() == Portall::VIDEO_LEAVING && v.canvas_swap_.load() >= 0,
+     "a second without one publishes the newest picture for LVGL");
+  v.video_tick_();
+  ok(paused, "LVGL is not resumed before that picture is swapped in");
+  v.canvas_tick_();
+  v.video_tick_();
+  ok(!paused && resumes == 1 && v.video_.load() == Portall::VIDEO_OFF, "then it is resumed, once");
+  lv_refr_now(g_disp);
+  ok(g_screen[(60 + 100) * SW + 50 + 100] == 0xF800 && g_screen[(60 + 5) * SW + 50 + 7] == b[5 * 208 + 7] &&
+         g_screen[(60 + 149) * SW + 50 + 199] == b[149 * 208 + 199],
+     "and LVGL draws the newest picture, rectangle included");
+  lv_obj_delete(c);
+  free(v.rot_buffer_);
 }
 
 int main() {
@@ -308,6 +528,9 @@ int main() {
   ok(((uint16_t *) own->data)[20 * (own->header.stride / 2) + 10] == 0xF800, "and a rectangle lands in it");
   lv_obj_delete(f.canvas_);
   g_pair_ok = true;
+
+  for (int degrees : {270, 90, 180, 0})
+    video_case(degrees);
 
   // Wrong size, wrong format: refused once, said once, never written.
   Portall q;

@@ -57,6 +57,15 @@ static constexpr uint32_t FRAME_WAIT_MS = 250;
 // that is paused, or a canvas on a page nobody is showing, must not stop the
 // decoder for good -- one picture a second is what it then gets.
 static constexpr uint32_t CANVAS_WAIT_MS = 1000;
+// Video mode (see portall.h): this many whole pictures, each within
+// VIDEO_GAP_MS of the last, pause LVGL and send them straight to the display;
+// VIDEO_LEAVE_MS with no whole picture gives LVGL back. Three at the rate a
+// page moves is a tenth of a second -- a dashboard changing view gets a few
+// whole pictures in a burst and may enter too, which costs nothing: they are
+// drawn faster, and a second later LVGL redraws the same screen.
+static constexpr uint8_t VIDEO_ENTER_PICTURES = 3;
+static constexpr uint32_t VIDEO_GAP_MS = 250;
+static constexpr uint32_t VIDEO_LEAVE_MS = 1000;
 #endif
 
 // TinyUSB's callbacks are plain C with no context argument, so the one instance
@@ -186,6 +195,16 @@ void Portall::setup() {
     this->mark_failed(LOG_STR("Rotation setup failed"));
     return;
   }
+
+#ifdef USE_LVGL
+  // Video mode draws on the panel itself, so on a turned screen it needs the
+  // accelerator plain mode uses. Without it the canvas still works; only
+  // video stays at LVGL's pace.
+  if (this->canvas_ != nullptr && this->lvgl_pause_ && this->canvas_rotation_ != 0 && !this->allocate_rotation_()) {
+    ESP_LOGW(TAG, "No accelerator for the canvas's video mode; video will be drawn by LVGL");
+    this->lvgl_pause_ = nullptr;
+  }
+#endif
 
   if (!this->allocate_frames_()) {
     this->mark_failed(LOG_STR("Frame buffer allocation failed"));
@@ -650,10 +669,26 @@ void Portall::run_decode_task() {
   decode_cfg.output_format = JPEG_DECODE_OUT_FORMAT_RGB565;
   decode_cfg.rgb_order = JPEG_DEC_RGB_ELEMENT_ORDER_BGR;
 
+  bool canvas_mode = false;
+#ifdef USE_LVGL
+  canvas_mode = this->canvas_ != nullptr;
+#endif
+
   while (true) {
     Frame *frame = nullptr;
-    if (xQueueReceive(this->filled_queue_, &frame, portMAX_DELAY) != pdTRUE)
+    // In canvas mode the decoder also has to notice when a video has STOPPED,
+    // which is an absence of pictures, so it does not wait for ever.
+    if (xQueueReceive(this->filled_queue_, &frame, canvas_mode ? pdMS_TO_TICKS(100) : portMAX_DELAY) != pdTRUE) {
+#ifdef USE_LVGL
+      if (canvas_mode)
+        this->video_check_leave_();
+#endif
       continue;
+    }
+#ifdef USE_LVGL
+    if (canvas_mode)
+      this->video_check_leave_();
+#endif
 
     // A host that sends faster than this board can draw is not doing anything
     // wrong -- it has no way to know -- but decoding and rotating a frame that
@@ -719,6 +754,8 @@ void Portall::run_decode_task() {
     // finished picture is still waiting to be handed over, because until then
     // the buffer that is about to become the back is the one LVGL reads.
     bool direct = false;
+    // Video mode: LVGL is paused and this task draws on the display itself.
+    bool video = false;
     if (this->canvas_ != nullptr) {
       if (!this->canvas_settle_()) {
         this->frames_dropped_++;
@@ -726,8 +763,11 @@ void Portall::run_decode_task() {
         xQueueSend(this->empty_queue_, &frame, 0);
         continue;
       }
-      direct = this->canvas_zero_copy_() && this->ppa_client_ == nullptr && frame->x == 0 && frame->y == 0 &&
-               frame->width == this->out_width_ && frame->height == this->out_height_;
+      video = this->video_.load() == VIDEO_ON;
+      // Canvas mode refuses rotation: and render sizes, so the picture is the
+      // canvas's own size; the accelerator, when there is one, is video mode's.
+      direct = this->canvas_zero_copy_() && this->rotation_ == 0 && !this->scaling_ && frame->x == 0 &&
+               frame->y == 0 && frame->width == this->out_width_ && frame->height == this->out_height_;
       if (direct) {
         decode_into = this->canvas_back_();
         decode_room = this->canvas_pair_len_;
@@ -740,7 +780,8 @@ void Portall::run_decode_task() {
     if (err == ESP_OK) {
 #ifdef USE_LVGL
       // Before the clock starts: the wait is LVGL's time, not the copy's.
-      if (this->canvas_ != nullptr)
+      // Not in video mode, where LVGL is paused and draws nothing to wait for.
+      if (this->canvas_ != nullptr && !video)
         this->canvas_wait_(frame->id);
 #endif
       uint32_t start = micros();
@@ -754,7 +795,7 @@ void Portall::run_decode_task() {
 
       const uint8_t *pixels = this->rgb_buffer_;
       int x_pad = padded_w - frame->width;
-      if (this->ppa_client_ != nullptr) {
+      if (this->ppa_client_ != nullptr && !canvas_mode) {
         // Drawing the unrotated buffer instead would be worse than dropping the
         // frame: after a quarter turn the axes are swapped, so it would go to
         // the panel at the wrong shape and in the wrong place.
@@ -768,7 +809,21 @@ void Portall::run_decode_task() {
         x_pad = 0;
       }
 #ifdef USE_LVGL
-      if (direct) {
+      if (video) {
+        // Kept in the canvas as well, so LVGL has the newest picture when it
+        // resumes, then sent to the display the way plain mode sends it.
+        bool drawn;
+        if (direct) {
+          this->video_back_ready_ = true;
+          drawn = this->video_draw_(decode_into, this->padded_width_, this->padded_height_, 0, 0, frame->width,
+                                    frame->height);
+        } else {
+          this->copy_into_back_(pixels, dst_x, dst_y, dst_w, dst_h, dst_w + x_pad);
+          drawn = this->video_draw_(pixels, padded_w, padded_h, dst_x, dst_y, frame->width, frame->height);
+        }
+        if (drawn)
+          this->video_drawn_++;
+      } else if (direct) {
         // Already where LVGL will read it; the loop does the rest.
         this->canvas_publish_();
       } else if (this->canvas_ != nullptr) {
@@ -780,6 +835,10 @@ void Portall::run_decode_task() {
         this->display_->draw_pixels_at(dst_x, dst_y, dst_w, dst_h, pixels, display::COLOR_ORDER_RGB,
                                        display::COLOR_BITNESS_565, false, 0, 0, x_pad);
       this->draw_us_ += micros() - start;
+#ifdef USE_LVGL
+      if (this->canvas_ != nullptr)
+        this->video_note_(direct);
+#endif
       this->frames_drawn_++;
       this->last_draw_ms_ = millis();
       this->last_frame_w_ = frame->width;
@@ -834,8 +893,11 @@ void Portall::run_decode_task() {
         // whole one, when the two buffers could be had. None at all means the
         // mode is copying, and the boot log says why.
         if (this->canvas_ != nullptr)
-          ESP_LOGD(TAG, "  waited %u ms/s for LVGL to draw the canvas, %u whole pictures decoded straight into it",
-                   (unsigned) (this->canvas_wait_ms_ * 1000 / elapsed), (unsigned) this->canvas_swaps_.load());
+          ESP_LOGD(TAG,
+                   "  waited %u ms/s for LVGL to draw the canvas, %u whole pictures decoded straight into it, "
+                   "%u drawn directly with LVGL paused",
+                   (unsigned) (this->canvas_wait_ms_ * 1000 / elapsed), (unsigned) this->canvas_swaps_.load(),
+                   (unsigned) this->video_drawn_);
 #endif
         this->logged_stats_ = true;
         this->last_fps_ = fps;
@@ -853,6 +915,7 @@ void Portall::run_decode_task() {
 #ifdef USE_LVGL
       this->canvas_wait_ms_ = 0;
       this->canvas_swaps_.store(0);
+      this->video_drawn_ = 0;
 #endif
     }
   }
@@ -878,8 +941,10 @@ void Portall::loop() {
   this->retry_release_();
 #endif
 #ifdef USE_LVGL
-  if (this->canvas_ != nullptr)
+  if (this->canvas_ != nullptr) {
     this->canvas_tick_();
+    this->video_tick_();
+  }
 #endif
 
 #if CFG_TUD_AUDIO
@@ -1094,6 +1159,169 @@ void Portall::canvas_publish_() {
   // has made that true.
   this->canvas_front_ ^= 1;
   this->canvas_swap_.store(this->canvas_front_);
+}
+
+// Where a rectangle of LVGL's (turned) screen lands on the panel, for a screen
+// turned clockwise by `degrees` -- the same arithmetic as place_, which is the
+// one plain mode is proven with, and checked in tools/checkcanvas.py against
+// the rotation loops of ESPHome's own lvgl. sw x sh is the screen as LVGL
+// sees it.
+static void turn_rect_(uint16_t degrees, int32_t sw, int32_t sh, int32_t x, int32_t y, int32_t w, int32_t h,
+                       int32_t &px, int32_t &py, int32_t &pw, int32_t &ph) {
+  switch (degrees) {
+    case 90:
+      px = sh - y - h;
+      py = x;
+      pw = h;
+      ph = w;
+      break;
+    case 180:
+      px = sw - x - w;
+      py = sh - y - h;
+      pw = w;
+      ph = h;
+      break;
+    case 270:
+      px = y;
+      py = sw - x - w;
+      pw = h;
+      ph = w;
+      break;
+    default:
+      px = x;
+      py = y;
+      pw = w;
+      ph = h;
+      break;
+  }
+}
+
+void Portall::video_note_(bool whole) {
+  // Only whole pictures start or keep a video: a dashboard's ticking clock is
+  // a stream of small rectangles, and that is LVGL's to draw.
+  if (!whole)
+    return;
+  const uint32_t now = millis();
+  if (now - this->video_whole_ms_ > VIDEO_GAP_MS)
+    this->video_run_ = 0;
+  this->video_whole_ms_ = now;
+  if (this->video_run_ < 255)
+    this->video_run_++;
+  if (this->video_run_ >= VIDEO_ENTER_PICTURES && this->video_.load() == VIDEO_OFF && this->lvgl_pause_ &&
+      (this->canvas_rotation_ == 0 || this->ppa_client_ != nullptr) && this->canvas_zero_copy_())
+    this->video_.store(VIDEO_ENTERING);
+}
+
+void Portall::video_check_leave_() {
+  if (this->video_.load() != VIDEO_ON || millis() - this->video_whole_ms_ < VIDEO_LEAVE_MS)
+    return;
+  // The back buffer holds the newest picture: hand it to LVGL like any other,
+  // and stop drawing BEFORE asking for LVGL back, so the two never overlap.
+  if (this->video_back_ready_)
+    this->canvas_publish_();
+  this->video_back_ready_ = false;
+  this->video_run_ = 0;
+  this->video_.store(VIDEO_LEAVING);
+}
+
+void Portall::video_tick_() {
+  const uint8_t state = this->video_.load();
+  if (state == VIDEO_ENTERING) {
+    // Read on the loop, LVGL's thread, before the decoder may use it.
+    lv_area_t at;
+    lv_obj_get_coords(this->canvas_, &at);
+    lv_display_t *disp = lv_obj_get_display(this->canvas_);
+    this->video_canvas_x_ = at.x1;
+    this->video_canvas_y_ = at.y1;
+    this->video_screen_w_ = lv_display_get_horizontal_resolution(disp);
+    this->video_screen_h_ = lv_display_get_vertical_resolution(disp);
+    this->lvgl_pause_(true);
+    this->video_.store(VIDEO_ON);
+    ESP_LOGD(TAG, "Whole pictures are streaming: LVGL paused, drawing them on the display directly");
+  } else if (state == VIDEO_LEAVING && this->canvas_swap_.load() < 0) {
+    // The newest picture has been swapped in by canvas_tick_ above; resuming
+    // redraws the whole screen from it.
+    this->lvgl_pause_(false);
+    this->video_.store(VIDEO_OFF);
+    ESP_LOGD(TAG, "The stream has settled: LVGL drawing the canvas again");
+  }
+}
+
+bool Portall::video_draw_(const uint8_t *src, uint16_t src_w, uint16_t src_h, uint16_t x, uint16_t y, uint16_t w,
+                          uint16_t h) {
+  int32_t px, py, pw, ph;
+  turn_rect_(this->canvas_rotation_, this->video_screen_w_, this->video_screen_h_, this->video_canvas_x_ + x,
+             this->video_canvas_y_ + y, w, h, px, py, pw, ph);
+  if (px < 0 || py < 0)
+    return false;
+  if (this->canvas_rotation_ == 0) {
+    this->display_->draw_pixels_at(px, py, pw, ph, src, display::COLOR_ORDER_RGB, display::COLOR_BITNESS_565, false,
+                                   0, 0, src_w - w);
+    return true;
+  }
+  ppa_srm_oper_config_t srm = {};
+  srm.in.buffer = src;
+  srm.in.pic_w = src_w;
+  srm.in.pic_h = src_h;
+  srm.in.block_w = w;
+  srm.in.block_h = h;
+  srm.in.block_offset_x = 0;
+  srm.in.block_offset_y = 0;
+  srm.in.srm_cm = PPA_SRM_COLOR_MODE_RGB565;
+  srm.out.buffer = this->rot_buffer_;
+  srm.out.buffer_size = this->rot_buffer_len_;
+  srm.out.pic_w = pw;
+  srm.out.pic_h = ph;
+  srm.out.block_offset_x = 0;
+  srm.out.block_offset_y = 0;
+  srm.out.srm_cm = PPA_SRM_COLOR_MODE_RGB565;
+  // The accelerator turns counter-clockwise; LVGL's rotation: is clockwise.
+  srm.rotation_angle = this->canvas_rotation_ == 90    ? PPA_SRM_ROTATION_ANGLE_270
+                       : this->canvas_rotation_ == 180 ? PPA_SRM_ROTATION_ANGLE_180
+                                                       : PPA_SRM_ROTATION_ANGLE_90;
+  srm.scale_x = 1.0f;
+  srm.scale_y = 1.0f;
+  srm.mode = PPA_TRANS_MODE_BLOCKING;
+  const uint32_t ppa_started = micros();
+  const esp_err_t err = ppa_do_scale_rotate_mirror(this->ppa_client_, &srm);
+  this->ppa_us_ += micros() - ppa_started;
+  if (err != ESP_OK) {
+    if (!this->logged_rotate_error_) {
+      this->logged_rotate_error_ = true;
+      ESP_LOGE(TAG, "PPA rotation for the canvas's video mode failed: %s", esp_err_to_name(err));
+    }
+    return false;
+  }
+  this->display_->draw_pixels_at(px, py, pw, ph, this->rot_buffer_, display::COLOR_ORDER_RGB,
+                                 display::COLOR_BITNESS_565, false, 0, 0, 0);
+  return true;
+}
+
+void Portall::copy_into_back_(const uint8_t *pixels, uint16_t x, uint16_t y, uint16_t w, uint16_t h,
+                              uint16_t src_stride_px) {
+  uint8_t *back = this->canvas_back_();
+  const size_t stride = (size_t) this->padded_width_ * 2;
+  if ((uint32_t) x + w > this->out_width_ || (uint32_t) y + h > this->out_height_)
+    return;
+  // Entering, the back buffer holds the picture BEFORE the one LVGL was last
+  // given. Bring it up to date once, or this rectangle lands on a stale page
+  // that LVGL would show if the video stopped now.
+  const bool whole = !this->video_back_ready_;
+  if (whole) {
+    std::memcpy(back, this->canvas_pair_[this->canvas_front_], this->canvas_pair_len_);
+    this->video_back_ready_ = true;
+  }
+  for (uint16_t row = 0; row < h; row++)
+    std::memcpy(back + (size_t) (y + row) * stride + (size_t) x * 2, pixels + (size_t) row * src_stride_px * 2,
+                (size_t) w * 2);
+  // Out of the cache before the JPEG engine writes the next whole picture here
+  // by DMA; see copy_to_canvas_.
+  if (esp_ptr_external_ram(back)) {
+    uint8_t *first = whole ? back : back + (size_t) y * stride + (size_t) x * 2;
+    uint8_t *last = whole ? back + this->canvas_pair_len_ : back + (size_t) (y + h - 1) * stride + (size_t) (x + w) * 2;
+    esp_cache_msync(first, last - first,
+                    ESP_CACHE_MSYNC_FLAG_DIR_C2M | ESP_CACHE_MSYNC_FLAG_TYPE_DATA | ESP_CACHE_MSYNC_FLAG_UNALIGNED);
+  }
 }
 
 void Portall::copy_to_canvas_(const uint8_t *pixels, uint16_t x, uint16_t y, uint16_t w, uint16_t h,

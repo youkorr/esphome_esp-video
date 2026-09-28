@@ -61,8 +61,11 @@ def shipped():
     b = text.index("#endif  // USE_LVGL", a)
     # The wait's bound is a constant at the top of the file; carried across
     # rather than restated, so the harness cannot disagree with it.
-    wait = re.search(r"CANVAS_WAIT_MS = (\d+);", text).group(1)
-    return f"static constexpr uint32_t CANVAS_WAIT_MS = {wait};\n" + text[a + len("#ifdef USE_LVGL\n"):b]
+    # Every constant of the canvas block is carried across the same way.
+    block = text[text.index("static constexpr uint32_t CANVAS_WAIT_MS"):]
+    block = block[:block.index("#endif")]
+    consts = "".join(line + "\n" for line in block.splitlines() if line.startswith("static constexpr"))
+    return consts + text[a + len("#ifdef USE_LVGL\n"):b]
 
 
 def turn():
@@ -102,6 +105,10 @@ def main():
     with tempfile.TemporaryDirectory() as tmp:
         tmp = pathlib.Path(tmp)
         (tmp / "shipped.inc").write_text(shipped())
+        # The harness's video-mode cases place pixels on a turned panel and
+        # read them back through the shipped touch conversion, which is itself
+        # checked against ESPHome's rotation loops below.
+        (tmp / "turn.inc").write_text(turn())
         binary = tmp / "harness"
         subprocess.run(["g++", "-std=c++17", "-O0", "-Wall", "-Wno-unused-function", *flags,
                         f"-I{tmp}", str(HERE / "harness.cpp"), *map(str, objects), "-o", str(binary),

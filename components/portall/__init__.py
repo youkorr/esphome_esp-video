@@ -41,6 +41,7 @@ import esphome.automation as automation
 import esphome.codegen as cg
 from esphome.components import button, display, esp32, speaker, touchscreen
 import esphome.config_validation as cv
+import esphome.final_validate as fv
 from esphome.const import (
     CONF_HEIGHT,
     CONF_ICON,
@@ -764,6 +765,31 @@ CONFIG_SCHEMA = cv.All(
 )
 
 
+def _video_keeps_lvgl_paused(config):
+    """Refuse an lvgl: that a touch would wake in the middle of a video.
+
+    With `canvas:`, a video is drawn with LVGL PAUSED (see portall.h, video
+    mode) -- Espressif's own "Dummy Draw" answer. ESPHome's lvgl resumes
+    itself on any touch unless `resume_on_input: false`, which it defaults to
+    true, and a resume in the middle of a video would put LVGL and this
+    component on the display at once. Read in lvgl_esphome.h (2026.10.0-dev):
+    LVTouchListener::release() calls maybe_wakeup().
+    """
+    if CONF_CANVAS not in config:
+        return config
+    for block in fv.full_config.get().get("lvgl") or []:
+        if block.get("resume_on_input", True):
+            raise cv.Invalid(
+                f"{CONF_CANVAS}: pauses LVGL while a video plays and draws it "
+                "directly, and a touch would resume LVGL on top of it. Add "
+                "`resume_on_input: false` to the lvgl: block."
+            )
+    return config
+
+
+FINAL_VALIDATE_SCHEMA = _video_keeps_lvgl_paused
+
+
 async def to_code(config):
     var = cg.new_Pvariable(config[CONF_ID])
     await cg.register_component(var, config)
@@ -796,6 +822,19 @@ async def to_code(config):
         }
         if len(turns) == 1:
             cg.add(var.set_canvas_rotation(turns.pop()))
+        # Video mode pauses and resumes the lvgl component. Emitted as a call
+        # into main.cpp, where its header is already in scope, so portall's
+        # own header needs none of it.
+        blocks = CORE.config.get("lvgl") or []
+        if len(blocks) == 1:
+            lvgl_var = await cg.get_variable(blocks[0][CONF_ID])
+            cg.add(
+                var.set_lvgl_pause(
+                    cg.RawExpression(
+                        f"[](bool paused) {{ {lvgl_var}->set_paused(paused, false); }}"
+                    )
+                )
+            )
 
     # The remote, one button entity per direction. Nothing is emitted for a
     # panel that never asked, because _remote_buttons left the list absent.

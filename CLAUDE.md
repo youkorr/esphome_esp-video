@@ -2547,6 +2547,70 @@ itself through its own PPA, as plain mode does -- two writers to one
 display from two tasks, not built. Meanwhile `fps: 8` on a video link
 stops the skipping (`18 skipped`, `worst gap 560 ms`).
 
+**Espressif's own answer is to stop LVGL, and ESPHome already can.** Asked
+as *"cherche chez espressif"*. esp-iot-solution's `esp_lvgl_adapter` has a
+**Dummy Draw** mode that "bypasses LVGL's rendering pipeline entirely", with
+"Video playback (camera preview, MJPEG, H.264 decode output)" as its first
+use (`examples/display/gui/lvgl_dummy_draw`, ESP32-P4 among its targets).
+The same README says of the PPA: "reduces CPU load ... usually does not
+deliver noticeable FPS gains" -- which is the fork's 9.2 against 9.0 -- and
+that rotation reduces FPS. ESPHome's lvgl has the stop already:
+`LvglComponent::set_paused(paused, show_snow)` (read in 2026.10.0-dev and in
+the fork), whose loop returns at once while paused and which invalidates
+the whole screen on resume.
+
+**Built as a test, asked for as *"construit le test"*: video mode.** With
+`canvas:`, three whole pictures in a row (each within 250 ms of the last)
+pause LVGL; from then on each picture is decoded into the canvas's back
+buffer as before AND sent to the display the way plain mode sends it --
+turned by portall's own PPA pass from the lvgl block's `rotation:`, drawn
+with `draw_pixels_at`. A second with no whole picture publishes the newest
+one and resumes LVGL, which redraws the screen from it. The states are in
+portall.h (`VIDEO_OFF/ENTERING/ON/LEAVING`); the decoder draws only once
+the LOOP has paused LVGL, and stops before it asks for LVGL back, so the
+display never has two writers -- the hazard that kept the "window" idea
+unbuilt. `set_lvgl_pause` is emitted into main.cpp as a lambda calling
+`set_paused`, the keys-sink pattern, so portall's header includes none of
+the lvgl component.
+
+**`resume_on_input: false` on `lvgl:` is required, and the build refuses
+without it.** ESPHome's lvgl defaults it to true and `LVTouchListener::
+release()` calls `maybe_wakeup()`, so a tap during a video would resume LVGL
+on top of it. `_video_keeps_lvgl_paused` is portall's first
+`FINAL_VALIDATE_SCHEMA`; both canvas examples carry the line. Reproduced:
+the example without it is refused with the message, with it validates.
+
+Two details that would have been faults:
+
+- **A rectangle arriving right after entering would land on a stale page.**
+  The back buffer then holds the picture BEFORE the one LVGL was last given,
+  so `copy_into_back_` brings it up to date once (a whole-buffer copy) before
+  the first rectangle.
+- **The decoder waits at the queue with a timeout in canvas mode**, because
+  a video STOPPING is an absence of pictures, which a `portMAX_DELAY` wait
+  never notices.
+
+`tools/checkcanvas.py` drives it against LVGL 9.5.0 at 270, 90, 180 and 0:
+two whole pictures do not pause, the third does, the canvas's place is read
+on the loop, a first rectangle lands on the newest page, **every pixel of a
+whole picture drawn on a modelled panel is where LVGL's own rotation puts
+it** (read back through `canvas_turn_`, itself checked against ESPHome's
+rotation loops), nothing outside the canvas is touched, a rectangle lands at
+its place, under a second keeps LVGL paused, a second publishes, LVGL is not
+resumed before the swap, and LVGL then draws the newest picture. The PPA is
+modelled on its documented meaning, counter-clockwise. With the 90 angle
+wrong, the catch-up copy removed, the resume before the swap, or the 270
+placement on the wrong side, 2 to 4 cases fail each. The codegen at 2026.8.2
+emits `set_lvgl_pause([](bool paused) { lvgl_lvglcomponent_id->set_paused(
+paused, false); })` for both examples (the fork's through a local checkout).
+
+**Not compiled by ESP-IDF, not flashed.** What is not known: the rate --
+plain mode on the Tab5 does 25-30, and this is plain mode's path plus
+decoding into a canvas buffer -- and whether a paused LVGL leaves anything
+running that touches the display (read: nothing in its loop). The stats
+line ends `N drawn directly with LVGL paused`; the log says when LVGL is
+paused and resumed. The bar LVGL draws is frozen while a video plays.
+
 
 ## The panel as a launcher
 
