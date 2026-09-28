@@ -2217,6 +2217,39 @@ Not built, not compiled. First step if it is ever picked up: a canvas of a
 fixed size fed only by the decode task, to measure the extra pass on a whole
 picture before anything about touch or layout is written.
 
+**BUILT AS A TEST, asked for as *"ont fait un test si sa va pas ont
+revient"*.** `canvas: <id>` on portall names an LVGL `canvas` widget, and the
+decode task writes each rectangle into its draw buffer instead of calling
+`draw_pixels_at` -- the only place portall ever touched the display. The rest
+is the threading rule above, kept: the decode task copies rows and marks an
+area under a portMUX; `loop()` fetches the buffer the first time (the lvgl
+component builds it in its own setup), refuses a canvas that is not RGB565
+or not portall's `width:` x `height:` -- one error line, nothing drawn -- and
+calls `lv_obj_invalidate_area` with the area moved to screen coordinates.
+Contacts are moved into the canvas's coordinates in `queue_touch_` and those
+outside it are not sent, so the bar LVGL draws stays LVGL's. Rotation and
+render size are refused with it: both go through the accelerator into a
+panel-sized buffer. `yaml/tab5-portall-canvas.yaml` is a clock bar over a
+720x1180 canvas.
+
+**`tools/checkcanvas.py` compiles the shipped two functions against a real
+LVGL and draws with them** on a display with no panel, reading the pixels
+back off the flush callback. Its first run found that `lv_area_join()` is in
+LVGL 9's PRIVATE headers (`lv_area_private.h`, in 9.5.0 and 9.6 alike): the
+first version would have failed to compile on the board. Against a copy with
+the invalidate removed, or the move to screen coordinates, three cases fail.
+Build against 9.5.0, which is ESPHome's `LVGL_VERSION`, not the newest.
+
+What is NOT known, and is the point of the test: what the copy and LVGL's
+second pass cost on a whole picture (the board's `us/draw` counts the copy,
+not LVGL's render), whether tearing shows (the decoder writes rows LVGL may
+be reading), and the touch offset, which nothing here runs. `esphome config`
+and the codegen pass at 2026.10.0-dev (`set_canvas(page_canvas)` after
+`lv_canvas_set_draw_buf`). Not compiled by an ESP-IDF toolchain, not flashed.
+To remove it: the `canvas:` option and `_validate_canvas`, everything under
+`#ifdef USE_LVGL` in portall.h, portall.cpp and network.cpp, the example and
+the two tools.
+
 
 ## The panel as a launcher
 

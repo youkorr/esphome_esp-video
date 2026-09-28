@@ -1,0 +1,187 @@
+# A TEST: the page drawn inside an LVGL canvas instead of onto the display.
+#
+# Asked for as "on fait un test si ca va pas on revient", after a friend of the
+# project suggested it. The panel's own LVGL owns the screen: a bar along the
+# top drawn by the board itself (a clock, which goes on working with the
+# server down), and the Home Assistant page under it in a canvas of a fixed
+# size, fed by the JPEG decoder. Touches inside the canvas go to the page; touches on the bar
+# are LVGL's.
+#
+# Three things have to agree, and only the first two are checked:
+#   - portall's width:/height: are the CANVAS's size, not the panel's;
+#   - the canvas has no `transparent:` (the decoder writes RGB565);
+#   - the add-on's entry for this panel draws at that same size (720x1180).
+#
+# Not compiled and not run on a board. The whole of this mode is one commit;
+# if it does not work it goes.
+substitutions:
+  name: tab5-portall-canvas
+  bar: "100"
+
+esphome:
+  name: tab5-portall-canvas
+  friendly_name: tab5_portall_canvas
+
+esp32:
+  board: esp32-p4-evboard
+  cpu_frequency: 360MHz
+  flash_size: 16MB
+  engineering_sample: true
+  framework:
+    type: esp-idf
+    advanced:
+      enable_idf_experimental_features: yes
+
+logger:
+
+api:
+  encryption:
+    key: !secret api_encryption_key
+
+psram:
+  mode: hex
+  speed: 200MHz
+  ignore_not_found: false
+
+esp_ldo:
+  - voltage: 2.5V
+    channel: 3
+
+i2c:
+  - id: bsp_bus
+    sda: GPIO31
+    scl: GPIO32
+    frequency: 400kHz
+
+ota:
+  - platform: esphome
+
+esp32_hosted:
+  variant: esp32c6
+  active_high: true
+  clk_pin: GPIO12
+  cmd_pin: GPIO13
+  d0_pin: GPIO11
+  d1_pin: GPIO10
+  d2_pin: GPIO9
+  d3_pin: GPIO8
+  reset_pin: GPIO15
+  use_psram: false
+  slot: 1
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  power_save_mode: none
+
+time:
+  - platform: homeassistant
+    id: ha_time
+    on_time:
+      - seconds: 0
+        then:
+          - lvgl.label.update:
+              id: bar_clock
+              text: !lambda 'return id(ha_time).now().strftime("%H:%M");'
+
+external_components:
+  - source:
+      type: git
+      url: https://github.com/youkorr/esphome_esp-video
+      ref: main
+    components: [portall]
+    refresh: 0s
+
+pi4ioe5v6408:
+  - id: pi4ioe1
+    address: 0x43
+  - id: pi4ioe2
+    address: 0x44
+
+switch:
+  - platform: gpio
+    id: wifi_power
+    pin:
+      pi4ioe5v6408: pi4ioe2
+      number: 0
+    restore_mode: ALWAYS_ON
+
+output:
+  - platform: ledc
+    pin: GPIO22
+    id: backlight_pwm
+    frequency: 1000Hz
+
+light:
+  - platform: monochromatic
+    output: backlight_pwm
+    id: backlight
+    name: Backlight
+    restore_mode: ALWAYS_ON
+    on_turn_on:
+      - portall.wake
+    on_turn_off:
+      - portall.sleep
+
+touchscreen:
+  - platform: gt911
+    id: touch_screen
+    i2c_id: bsp_bus
+    update_interval: 8ms
+    reset_pin:
+      pi4ioe5v6408: pi4ioe1
+      number: 5
+    calibration:
+      x_min: 0
+      x_max: 720
+      y_min: 0
+      y_max: 1280
+
+display:
+  - platform: mipi_dsi
+    id: main_screen
+    model: M5Stack-Tab5
+    dimensions:
+      width: 720
+      height: 1280
+    pixel_mode: 16
+    update_interval: never
+    auto_clear_enabled: false
+    reset_pin:
+      pi4ioe5v6408: pi4ioe1
+      number: 4
+
+lvgl:
+  displays: main_screen
+  touchscreens: touch_screen
+  color_depth: 16
+  buffer_size: 25%
+  pages:
+    - id: home
+      bg_color: 0x10141c
+      widgets:
+        # The board's own part of the screen: this is what works with the
+        # server down, which is the point of the test.
+        - label:
+            id: bar_clock
+            x: 24
+            y: 30
+            text: "--:--"
+            text_color: 0xe6e9ef
+            text_font: montserrat_28
+        # The page. Same size as portall's width:/height: below.
+        - canvas:
+            id: page_canvas
+            x: 0
+            y: ${bar}
+            width: 720
+            height: 1180
+
+portall:
+  display_id: main_screen
+  canvas: page_canvas
+  width: 720
+  height: 1180
+  port: 5000
+  usb: false
+  touchscreen_id: touch_screen

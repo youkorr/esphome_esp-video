@@ -724,8 +724,15 @@ void Portall::run_decode_task() {
         pixels = this->rot_buffer_;
         x_pad = 0;
       }
-      this->display_->draw_pixels_at(dst_x, dst_y, dst_w, dst_h, pixels, display::COLOR_ORDER_RGB,
-                                     display::COLOR_BITNESS_565, false, 0, 0, x_pad);
+#ifdef USE_LVGL
+      if (this->canvas_ != nullptr) {
+        // Into LVGL's buffer, not onto the panel: LVGL owns the display in
+        // this mode and composes the canvas with whatever else is on screen.
+        this->copy_to_canvas_(pixels, dst_x, dst_y, dst_w, dst_h, dst_w + x_pad);
+      } else
+#endif
+        this->display_->draw_pixels_at(dst_x, dst_y, dst_w, dst_h, pixels, display::COLOR_ORDER_RGB,
+                                       display::COLOR_BITNESS_565, false, 0, 0, x_pad);
       this->draw_us_ += micros() - start;
       this->frames_drawn_++;
       this->last_draw_ms_ = millis();
@@ -809,6 +816,10 @@ void Portall::loop() {
 #if CFG_TUD_HID
   this->retry_release_();
 #endif
+#ifdef USE_LVGL
+  if (this->canvas_ != nullptr)
+    this->canvas_tick_();
+#endif
 
 #if CFG_TUD_AUDIO
   // The host does not announce that it has stopped; it simply stops sending.
@@ -853,6 +864,100 @@ void Portall::loop() {
   }
 }
 
+#ifdef USE_LVGL
+void Portall::canvas_tick_() {
+  lv_draw_buf_t *buf = this->canvas_buf_.load();
+  if (buf == nullptr) {
+    if (this->canvas_refused_)
+      return;
+    // The lvgl component gives the canvas its buffer in its own setup, which
+    // may run after this component's -- so it is looked for here, on the loop,
+    // until it exists.
+    buf = lv_canvas_get_draw_buf(this->canvas_);
+    if (buf == nullptr)
+      return;
+    // Two things have to agree and nothing else can check them: the decoder
+    // writes RGB565, so the canvas has to hold RGB565 (not `transparent:
+    // true`, which is ARGB8888, and an LVGL at 16-bit colour); and the host
+    // draws at this component's width x height, so the canvas has to be that
+    // size. Refusing to draw says what is wrong; drawing anyway would scribble
+    // past the end of somebody else's buffer.
+    if (buf->header.cf != LV_COLOR_FORMAT_RGB565) {
+      ESP_LOGE(TAG,
+               "The canvas holds colour format %u, and the picture is RGB565. Give the canvas no `transparent:` and "
+               "LVGL `color_depth: 16`. Nothing will be drawn into it.",
+               (unsigned) buf->header.cf);
+      this->canvas_refused_ = true;
+      return;
+    }
+    if (buf->header.w != this->out_width_ || buf->header.h != this->out_height_) {
+      ESP_LOGE(TAG,
+               "The canvas is %ux%u and portall draws %ux%u. Set portall's width: and height: to the canvas's size "
+               "(and the add-on's panel to the same). Nothing will be drawn into it.",
+               (unsigned) buf->header.w, (unsigned) buf->header.h, (unsigned) this->out_width_,
+               (unsigned) this->out_height_);
+      this->canvas_refused_ = true;
+      return;
+    }
+    ESP_LOGI(TAG, "Drawing into an LVGL canvas of %ux%u", (unsigned) buf->header.w, (unsigned) buf->header.h);
+    this->canvas_buf_.store(buf);
+  }
+
+  // Tell LVGL what the decoder changed. The decoder only marks the area; this
+  // is the thread LVGL runs on, and the only one that may call into it.
+  lv_area_t area;
+  bool dirty;
+  portENTER_CRITICAL(&this->canvas_lock_);
+  dirty = this->canvas_dirty_;
+  area = this->canvas_dirty_area_;
+  this->canvas_dirty_ = false;
+  portEXIT_CRITICAL(&this->canvas_lock_);
+  if (!dirty)
+    return;
+  // The marked area is in the canvas's own pixels; LVGL wants the screen's.
+  lv_area_t coords;
+  lv_obj_get_coords(this->canvas_, &coords);
+  lv_area_move(&area, coords.x1, coords.y1);
+  lv_obj_invalidate_area(this->canvas_, &area);
+}
+
+void Portall::copy_to_canvas_(const uint8_t *pixels, uint16_t x, uint16_t y, uint16_t w, uint16_t h,
+                              uint16_t src_stride_px) {
+  lv_draw_buf_t *buf = this->canvas_buf_.load();
+  if (buf == nullptr)
+    return;
+  // Checked once against the canvas's size in canvas_tick_(), and again here
+  // per rectangle, because a rectangle past the edge would write into
+  // whatever PSRAM follows the buffer.
+  if ((uint32_t) x + w > buf->header.w || (uint32_t) y + h > buf->header.h)
+    return;
+  const uint32_t stride = buf->header.stride;
+  const size_t row_bytes = (size_t) w * 2;
+  // A plain copy, which is the extra pass this test exists to measure: it is
+  // counted in the stats line's us/draw like the display write it replaces.
+  // LVGL may be reading these rows while they are written; at worst a frame
+  // shows a torn rectangle, and the next invalidate draws it whole.
+  for (uint16_t row = 0; row < h; row++) {
+    std::memcpy(buf->data + (size_t) (y + row) * stride + (size_t) x * 2,
+                pixels + (size_t) row * src_stride_px * 2, row_bytes);
+  }
+  portENTER_CRITICAL(&this->canvas_lock_);
+  const lv_area_t added = {(int32_t) x, (int32_t) y, (int32_t) (x + w - 1), (int32_t) (y + h - 1)};
+  if (this->canvas_dirty_) {
+    // By hand: lv_area_join() is in LVGL 9's private headers, not its API.
+    lv_area_t &into = this->canvas_dirty_area_;
+    into.x1 = LV_MIN(into.x1, added.x1);
+    into.y1 = LV_MIN(into.y1, added.y1);
+    into.x2 = LV_MAX(into.x2, added.x2);
+    into.y2 = LV_MAX(into.y2, added.y2);
+  } else {
+    this->canvas_dirty_area_ = added;
+    this->canvas_dirty_ = true;
+  }
+  portEXIT_CRITICAL(&this->canvas_lock_);
+}
+#endif  // USE_LVGL
+
 void Portall::dump_config() {
   // Named for what it is, and ordered by which way the picture actually
   // arrives. It used to open with "USB Extended Display" and mention the
@@ -865,6 +970,10 @@ void Portall::dump_config() {
     ESP_LOGCONFIG(TAG, "  Sender draws %ux%u, scaled up by the pixel-processing accelerator",
                   (unsigned) this->render_width_, (unsigned) this->render_height_);
   }
+#ifdef USE_LVGL
+  if (this->canvas_ != nullptr)
+    ESP_LOGCONFIG(TAG, "  Drawn into an LVGL canvas rather than onto the display (a test)");
+#endif
   if (this->port_ != 0) {
     ESP_LOGCONFIG(TAG, "  Over the network: listening on TCP port %u", (unsigned) this->port_);
 #ifdef USE_TOUCHSCREEN
