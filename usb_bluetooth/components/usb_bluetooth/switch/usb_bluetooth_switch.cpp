@@ -22,7 +22,7 @@ void UsbBluetoothSwitch::setup() {
 }
 
 void UsbBluetoothSwitch::dump_config() {
-  LOG_SWITCH("", "Portall Bluetooth", this);
+  LOG_SWITCH("", "USB Bluetooth", this);
   ESP_LOGCONFIG(TAG, "  Off hangs up and stops paging; the dongle stays enumerated");
 }
 
