@@ -19,8 +19,12 @@ not whatever is newest:
     git clone --depth 1 -b v9.5.0 https://github.com/lvgl/lvgl /tmp/lvgl
     python3 tools/checkcanvas.py --lvgl /tmp/lvgl
 
-What it does not cover: the touch offset in network.cpp, the decode task's
-real concurrency with LVGL's render, and anything about a real panel.
+It also checks the touch half: canvas_turn_() in network.cpp, which turns a
+contact from the glass into LVGL's coordinates when `lvgl: rotation:` turns
+the screen, against ESPHome's own rotation loops run on a test picture.
+
+What it does not cover: the decode task's real concurrency with LVGL's
+render, and anything about a real panel.
 """
 
 import argparse
@@ -52,6 +56,13 @@ def shipped():
     a = text.index(start)
     b = text.index("#endif  // USE_LVGL", a)
     return text[a + len("#ifdef USE_LVGL\n"):b]
+
+
+def turn():
+    text = (ROOT / "components" / "portall" / "network.cpp").read_text()
+    a = text.index("static void canvas_turn_(")
+    b = text.index("\n}\n", a) + 3
+    return text[a:b]
 
 
 def main():
@@ -88,7 +99,14 @@ def main():
         subprocess.run(["g++", "-std=c++17", "-O0", "-Wall", "-Wno-unused-function", *flags,
                         f"-I{tmp}", str(HERE / "harness.cpp"), *map(str, objects), "-o", str(binary),
                         "-lm"], check=True)
-        return subprocess.run([str(binary)]).returncode
+        failed = subprocess.run([str(binary)]).returncode
+        # The touch half: the shipped canvas_turn_() against ESPHome's own
+        # rotation loops. Needs no LVGL.
+        (tmp / "turn.inc").write_text(turn())
+        turner = tmp / "turn"
+        subprocess.run(["g++", "-std=c++17", "-O1", "-Wall", f"-I{tmp}", str(HERE / "turn.cpp"),
+                        "-o", str(turner)], check=True)
+        return subprocess.run([str(turner)]).returncode or failed
 
 
 if __name__ == "__main__":

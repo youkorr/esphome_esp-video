@@ -52,7 +52,7 @@ from esphome.const import (
     CONF_ROTATION,
     CONF_WIDTH,
 )
-from esphome.core import HexInt
+from esphome.core import CORE, HexInt
 
 CODEOWNERS = ["@youkorr"]
 DEPENDENCIES = ["display"]
@@ -732,6 +732,17 @@ async def to_code(config):
 
         widget = (await get_widgets(config, CONF_CANVAS))[0]
         cg.add(var.set_canvas(widget.obj))
+        # The picture needs no turning -- LVGL turns the whole screen, canvas
+        # included -- but a contact does: the touchscreen reports the glass's
+        # coordinates and the canvas is placed in LVGL's. Read off the lvgl:
+        # block rather than asked for, so it cannot disagree with it. Both
+        # ESPHome's lvgl and youkorr/lvgl_9.5 store `rotation:` as its degrees.
+        turns = {
+            int(block.get(CONF_ROTATION, 0))
+            for block in (CORE.config.get("lvgl") or [])
+        }
+        if len(turns) == 1:
+            cg.add(var.set_canvas_rotation(turns.pop()))
 
     # The remote, one button entity per direction. Nothing is emitted for a
     # panel that never asked, because _remote_buttons left the list absent.

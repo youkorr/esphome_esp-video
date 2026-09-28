@@ -2250,6 +2250,36 @@ To remove it: the `canvas:` option and `_validate_canvas`, everything under
 `#ifdef USE_LVGL` in portall.h, portall.cpp and network.cpp, the example and
 the two tools.
 
+**The first flash came back as a photograph of a mixture**, with the Tab5
+held in landscape: LVGL's clock bar sideways along one edge -- the example
+was portrait -- and inside the canvas pieces of two pages at once, a Home
+Assistant dashboard from ten minutes earlier among the launcher, over fine
+horizontal stripes. Two things in the example explain the first half and
+neither is proven: **`max_frame_bytes` was left at its 128 KB default** where
+the household's own Tab5 configuration carries 300000, and a board drops any
+picture over the limit -- so the whole-panel redraws that would have painted
+over an old page never landed, and only small rectangles did (the board logs
+`Ignoring frames ... of at most 131072 bytes` once when it happens). The
+stripes are NOT explained: they may be the camera's moiré on the panel, and
+the next photograph after this change says which.
+
+**Landscape is LVGL's `rotation:`, which ESPHome's own lvgl has had since at
+least 2026.8.2** (software rotation, PPA-accelerated on a P4, read in its
+`draw_buffer_`), so it needs nothing from the household's fork. LVGL turns
+the whole screen, canvas included, so portall's `rotation:` stays 0 and the
+add-on's `rotate:` is "0"; the canvas is 1280x620 under a 100 px bar. What
+does need turning is a contact: the touchscreen reports the glass, the
+canvas is placed in LVGL's turned coordinates. `canvas_turn_()` in
+network.cpp is the inverse of the flush, with the angle read at codegen off
+the `lvgl:` block (`set_canvas_rotation(270)`, read in the generated C++)
+rather than asked for. ESPHome's `rotate_coordinates()` and the fork's
+`rotate_touch_point()` do the same job under two names, which is why portall
+calls neither. `tools/checkcanvas.py` runs ESPHome's own rotation loops,
+copied, on a test picture and feeds every pixel's place on the glass back
+through the shipped function: all four angles land exactly, and swapping the
+90 and 270 cases fails every point. Validated and generated at
+2026.10.0-dev. **Not flashed.**
+
 
 ## The panel as a launcher
 
