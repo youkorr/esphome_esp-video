@@ -10324,6 +10324,20 @@ and one line works against this component:
 The `external_components: github://pr#19621` line is needed until the PR is
 merged into dev, and must go then: a merged PR's branch is usually deleted.
 
+**Why the pin and the PR only work as a pair.** ESPHome's stock
+`esp32_hosted` (2026.10.0-dev) calls `add_idf_component(esp_hosted,
+2.12.12)` and writes 2.x names (`CONFIG_SLAVE_IDF_TARGET_*`, the SDIO pins and
+reset). `add_idf_component` lets the LAST caller win with only a warning
+("version conflict ... replaced by"), so the pin alone either silently becomes
+2.12.12 again or runs 3.0.9 with none of its pins set. The PR is what writes
+the 3.x names. esp-hosted 3.x does ship a table mapping the old
+`CONFIG_ESP_HOSTED_SDIO_RX_Q_SIZE` to the new name -- in `host/
+sdkconfig.rename` -- and IDF only reads a component's TOP-LEVEL
+`sdkconfig.rename` (`tools/cmake/kconfig.cmake:42`, v5.5.5), and the
+component's root is the repository root, so it does not apply.
+`CONFIG_ESP_MAIN_TASK_STACK_SIZE` buys nothing either: `app_main` only starts
+`loopTask` and returns, and setup() runs in loopTask (`esp32/core.cpp`).
+
 ## Repository conventions
 
 - Work on branch `claude/esphome-pr-outdated-mdq36w`, then merge into `main`
