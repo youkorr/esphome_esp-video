@@ -185,7 +185,7 @@ Assistant dashboard to appear; without one it does neither.
 | Option | What it is |
 |---|---|
 | `name` | What this panel is called in the log |
-| `enabled` | **Off: the add-on leaves this screen alone** -- no sender, no search for it on the network -- while keeping its settings and its browser profile. For a screen being reflashed, repaired or unplugged. Empty means on. If the switch does not show in the form, turn on **Show unused optional configuration options** at the top of the Configuration page, or add `enabled: false` under that screen in **Edit in YAML** |
+| `enabled` | **Off: the add-on leaves this screen alone** -- no sender, no search for it on the network -- while keeping its settings and its browser profile. For a screen being reflashed, repaired or unplugged. Empty means on. A screen saved before this switch existed has it written in, switched on, by the add-on at its next start, so it shows in the form |
 | `host`, `port` | The panel's address, and its `port:` |
 | `url` | The page to render. A Home Assistant dashboard, or any other site. From inside an add-on a Home Assistant address is `http://homeassistant:8123/...` -- see below |
 | `token` | An **override**, for the rare panel that opens a *different* Home Assistant from the rest of the house, or that shows a dashboard directly rather than reaching one through a link. Leave it empty otherwise: the Home Assistant link carries the token every panel uses, because a token belongs to an address and a link is the only thing here that names one. The launcher's weather needs neither |

@@ -1,5 +1,14 @@
 # Changelog
 
+## 4.31.1
+
+- **The "Screen in use" switch now shows on every screen.** Screens saved
+  before 4.31.0 had no value for it, so the form did not show it. At its
+  next start the add-on writes it, switched on, into every saved screen that
+  lacks it -- once, and nothing else in your configuration changes
+  (`!secret` values stay as they are). Close and reopen the Configuration
+  page to see it.
+
 ## 4.31.0
 
 - **A switch per screen: `enabled`.** Switch a screen off under My screens

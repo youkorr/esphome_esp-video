@@ -99,8 +99,87 @@ def main():
     check("carries no --enabled, which the sender does not know",
           not any("enabled" in part for part in line), " ".join(line[:6]))
 
+    print("The switch written into saved screens:")
+    supervisor_cases()
+
     print("ok" if not faults else f"{len(faults)} ECHEC")
     return 1 if faults else 0
+
+
+def supervisor_cases():
+    """show_enabled_switch() against a stand-in Supervisor that records."""
+    import http.server
+
+    state = {"options": None, "posted": [], "fail": False}
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def log_message(self, *_):
+            pass
+
+        def do_GET(self):
+            if self.path != "/addons/self/info" or state["fail"]:
+                self.send_response(500)
+                self.end_headers()
+                return
+            body = json.dumps({"result": "ok",
+                               "data": {"options": state["options"]}}).encode()
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(body)
+
+        def do_POST(self):
+            length = int(self.headers["Content-Length"])
+            state["posted"].append((self.path, self.headers.get("Authorization"),
+                                    json.loads(self.rfile.read(length))))
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b'{"result":"ok","data":{}}')
+
+    server = http.server.HTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    run.SUPERVISOR_API = f"http://127.0.0.1:{server.server_port}"
+    os.environ["SUPERVISOR_TOKEN"] = "stand-in"
+
+    saved = {
+        "panels": [panel("salon", host="!secret salon_ip"),
+                   panel("cuisine", enabled=False)],
+        "links": [{"name": "Home Assistant", "url": "http://homeassistant:8123",
+                   "token": "!secret ha_token"}],
+        "defaults": {"fps": 25},
+    }
+    state["options"] = json.loads(json.dumps(saved))
+    wrote = run.show_enabled_switch()
+    check("a screen saved without the switch gets it", wrote and len(state["posted"]) == 1)
+    path, auth, body = state["posted"][0]
+    got = body["options"]
+    check("sent to the add-on's own options, with its own token",
+          path == "/addons/self/options" and auth == "Bearer stand-in", f"{path} {auth}")
+    check("switched ON", got["panels"][0].get("enabled") is True)
+    check("right after the name, where the form lists it",
+          list(got["panels"][0])[:2] == ["name", "enabled"], ", ".join(list(got["panels"][0])[:3]))
+    check("a screen already switched off stays off", got["panels"][1]["enabled"] is False)
+    check("!secret references are sent back as references",
+          got["panels"][0]["host"] == "!secret salon_ip"
+          and got["links"][0]["token"] == "!secret ha_token")
+    rest = {k: v for k, v in got["panels"][0].items() if k != "enabled"}
+    check("nothing else about the screen changes, nor anything else saved",
+          rest == saved["panels"][0] and got["links"] == saved["links"]
+          and got["defaults"] == saved["defaults"])
+
+    state["options"], state["posted"] = got, []
+    check("once they all have it, nothing is written again",
+          run.show_enabled_switch() is False and state["posted"] == [])
+
+    state["fail"] = True
+    check("a Supervisor that does not answer costs a log line, not the add-on",
+          run.show_enabled_switch() is False and state["posted"] == [])
+
+    del os.environ["SUPERVISOR_TOKEN"]
+    state["fail"] = False
+    state["options"] = json.loads(json.dumps(saved))
+    check("outside Home Assistant nothing is asked at all",
+          run.show_enabled_switch() is False and state["posted"] == [])
+    server.shutdown()
 
 
 if __name__ == "__main__":
