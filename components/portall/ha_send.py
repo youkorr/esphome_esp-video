@@ -1445,8 +1445,17 @@ def go_to(page, url):
     """
     from playwright.sync_api import TimeoutError as PageTimeout
 
+    # "commit", not "domcontentloaded": return as soon as the site has
+    # answered and its page has started. The loop is blocked while goto
+    # waits, so every picture of the page loading waited too -- a site whose
+    # script takes 1.5 s to arrive left the launcher frozen on the panel for
+    # the whole 1.5 s and then showed the page at once, which reads as the
+    # add-on hanging. Measured by tools/checklinkspeed.py: the page's first
+    # paint reaches the panel after 40-60 ms instead of never, and the whole
+    # page as early as before. Chromium keeps the old picture until the new
+    # page can paint, so a slow stylesheet shows no white screen either way.
     try:
-        page.goto(url, wait_until="domcontentloaded",
+        page.goto(url, wait_until="commit",
                   timeout=LOAD_TIMEOUT_S * 1000)
     except PageTimeout:
         print(f"Warning: {url} had not finished loading after "

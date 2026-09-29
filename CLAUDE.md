@@ -1802,7 +1802,7 @@ the dashboard, where it is invisible while the keys go on working.
 ahead of the `pip install` as well as the `ADD`s, so a bump refetched
 everything — at the cost of the browser download on each update.
 `present_browser()` prints the Chromium version at startup and warns below 114,
-so this is never diagnosed by guesswork again. Currently **4.31.1**.
+so this is never diagnosed by guesswork again. Currently **4.31.2**.
 
 **CORRECTED in 4.29.5: the cost was every update, and a pin removes it.**
 Asked as *"verifie addon ... si il ya pas des elements qui freine la
@@ -10516,6 +10516,23 @@ Not built: the whole transport is written against CherryUSB's blocking urbs
 (probe, HCI commands, inquiry, the Realtek download, both reader tasks), and
 ESP-IDF's transfers are asynchronous and do not time out, so it is a rewrite
 rather than a rename, and nothing here can run it.
+
+## A tapped link froze the launcher for the whole of the site's load -- 4.31.2
+
+**Reported as links taking so long that people think the add-on is broken.**
+`go_to()` called `page.goto(wait_until="domcontentloaded")` inside the loop,
+and the loop is blocked while it waits -- so no picture of the new page
+could be sent before DOMContentLoaded, which waits for every deferred and
+module script. `tools/checklinkspeed.py` serves a page whose shell paints at
+once and whose module script takes 1.5 s, runs the shipped sender against a
+fake panel that decodes every whole picture, and times the colours: **the
+shell never reached the panel and the page arrived at 1.56 s; with
+`wait_until="commit"` the shell arrives at 40-60 ms and the page at 1.54 s.**
+`--ref REV` runs an older sender. `--styled` delays a stylesheet instead and
+reads for a white picture: none either way, because Chromium keeps the old
+page until the new one can paint. The launcher's own `open_page()` (home,
+start, wake) keeps its waits -- they are written for Home Assistant's first
+picture. **Not measured on a real site or panel.**
 
 ## Repository conventions
 
