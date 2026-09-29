@@ -10501,6 +10501,14 @@ because a Portall panel has no LVGL Settings screen to hold them; codegen read
 at 2026.10.0-dev, and `usb_host:` beside it is refused with the message.
 **Not compiled by ESP-IDF, not flashed.**
 
+**The Guition's own file is `yaml/hassit-esp32p4.yaml`**, and the rows were
+first handed over as "copy these blocks from the Tab5 example" -- to somebody
+whose Guition file was already in the repository. Ask which file a panel runs,
+or look in `yaml/`, before telling anybody to copy from an example. The rows
+are in it now (`dongle` as the id); it validates at 2026.10.0-dev with PR
+19621 only once its empty `api: encryption: key:` is given a value, which is
+theirs to set. `checkcodegen.py --show` prints `set_slot` too now.
+
 The rest of that PR's shape -- the component installing ESP-IDF's USB Host
 Library ITSELF with its own `usb_host_lib_handle_events` task, instead of a
 second stack -- is the port that would retire CherryUSB and `cherryusb_patch`.

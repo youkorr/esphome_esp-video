@@ -372,6 +372,46 @@ text_sensor:
       name: "Bluetooth controller"
       icon: mdi:controller
 
+  # One row per device: up to four speakers remembered (ONE plays at a time,
+  # the others read "not in use") and four controllers or remotes. An empty
+  # row reads "none". The Use and Forget buttons below act on the same row.
+  - platform: portall_bt
+    speaker:
+      name: "Bluetooth speaker 1"
+      icon: mdi:speaker-bluetooth
+      slot: 1
+    input:
+      name: "Bluetooth controller 1"
+      icon: mdi:controller
+      slot: 1
+  - platform: portall_bt
+    speaker:
+      name: "Bluetooth speaker 2"
+      icon: mdi:speaker-bluetooth
+      slot: 2
+    input:
+      name: "Bluetooth controller 2"
+      icon: mdi:controller
+      slot: 2
+  - platform: portall_bt
+    speaker:
+      name: "Bluetooth speaker 3"
+      icon: mdi:speaker-bluetooth
+      slot: 3
+    input:
+      name: "Bluetooth controller 3"
+      icon: mdi:controller
+      slot: 3
+  - platform: portall_bt
+    speaker:
+      name: "Bluetooth speaker 4"
+      icon: mdi:speaker-bluetooth
+      slot: 4
+    input:
+      name: "Bluetooth controller 4"
+      icon: mdi:controller
+      slot: 4
+
     
       
             
@@ -574,6 +614,98 @@ button:
     entity_category: config
     on_press:
       - portall_bt.forget: dongle
+
+  # Row 1: play through speaker 1, or forget speaker 1 / controller 1 alone.
+  - platform: template
+    name: "Use Bluetooth speaker 1"
+    icon: mdi:speaker-play
+    on_press:
+      - portall_bt.use_speaker:
+          id: dongle
+          slot: 1
+  - platform: template
+    name: "Forget Bluetooth speaker 1"
+    entity_category: config
+    on_press:
+      - portall_bt.forget_speaker:
+          id: dongle
+          slot: 1
+  - platform: template
+    name: "Forget Bluetooth controller 1"
+    entity_category: config
+    on_press:
+      - portall_bt.forget_input:
+          id: dongle
+          slot: 1
+
+  # Row 2: play through speaker 2, or forget speaker 2 / controller 2 alone.
+  - platform: template
+    name: "Use Bluetooth speaker 2"
+    icon: mdi:speaker-play
+    on_press:
+      - portall_bt.use_speaker:
+          id: dongle
+          slot: 2
+  - platform: template
+    name: "Forget Bluetooth speaker 2"
+    entity_category: config
+    on_press:
+      - portall_bt.forget_speaker:
+          id: dongle
+          slot: 2
+  - platform: template
+    name: "Forget Bluetooth controller 2"
+    entity_category: config
+    on_press:
+      - portall_bt.forget_input:
+          id: dongle
+          slot: 2
+
+  # Row 3: play through speaker 3, or forget speaker 3 / controller 3 alone.
+  - platform: template
+    name: "Use Bluetooth speaker 3"
+    icon: mdi:speaker-play
+    on_press:
+      - portall_bt.use_speaker:
+          id: dongle
+          slot: 3
+  - platform: template
+    name: "Forget Bluetooth speaker 3"
+    entity_category: config
+    on_press:
+      - portall_bt.forget_speaker:
+          id: dongle
+          slot: 3
+  - platform: template
+    name: "Forget Bluetooth controller 3"
+    entity_category: config
+    on_press:
+      - portall_bt.forget_input:
+          id: dongle
+          slot: 3
+
+  # Row 4: play through speaker 4, or forget speaker 4 / controller 4 alone.
+  - platform: template
+    name: "Use Bluetooth speaker 4"
+    icon: mdi:speaker-play
+    on_press:
+      - portall_bt.use_speaker:
+          id: dongle
+          slot: 4
+  - platform: template
+    name: "Forget Bluetooth speaker 4"
+    entity_category: config
+    on_press:
+      - portall_bt.forget_speaker:
+          id: dongle
+          slot: 4
+  - platform: template
+    name: "Forget Bluetooth controller 4"
+    entity_category: config
+    on_press:
+      - portall_bt.forget_input:
+          id: dongle
+          slot: 4
 
 
     
