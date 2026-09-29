@@ -1802,7 +1802,7 @@ the dashboard, where it is invisible while the keys go on working.
 ahead of the `pip install` as well as the `ADD`s, so a bump refetched
 everything — at the cost of the browser download on each update.
 `present_browser()` prints the Chromium version at startup and warns below 114,
-so this is never diagnosed by guesswork again. Currently **4.31.0**.
+so this is never diagnosed by guesswork again. Currently **4.31.1**.
 
 **CORRECTED in 4.29.5: the cost was every update, and a pin removes it.**
 Asked as *"verifie addon ... si il ya pas des elements qui freine la
@@ -10366,12 +10366,25 @@ screen away for repair is kept rather than swept. Every panel off is not an
 exit: the add-on logs it and waits for SIGTERM, because an add-on that stops
 reads as broken and a restart loop is worse.
 
-The one thing not settled is whether the Supervisor's form SHOWS an optional
-field nobody has set inside a list item -- the 4.18.1 lesson says it may not.
-New installs get `enabled: true` in the default options; for the rest the
-changelog names "Show unused optional configuration options" and Edit in
-YAML. `tools/checkenabled.py` runs the real main() with recorders in place of
-the senders.
+**It did not show, reported the same day: *"il aurait fallu qu'il soit
+visible dans option de mes ecrans"*.** Read in the frontend rather than
+guessed: the Supervisor filters nothing (`UiOptions` in apps/options.py), the
+object selector's edit dialog lists every field, and ha-form hides only by
+condition -- but the form draws from the SAVED value, and a saved screen had
+none. Defaults are merged into dicts, never into list items, so config.yaml
+cannot supply one. `show_enabled_switch()` writes `enabled: true` after the
+name of every saved screen lacking it, once, through `/addons/self/options`
+(open to an add-on for itself: `api_bypass` in api/middleware/security.py).
+That route REPLACES the stored options after validation, so the whole set
+from `/addons/self/info` goes back -- which keeps `!secret` references, where
+/data/options.json would have written the secrets out. The first attempt was
+refused by the session's permission check as rewriting the household's
+configuration unasked; it was built after they agreed (*"ok fait le"*). A
+screen ADDED in the form gets no value either (an optional boolean has no
+initial value in computeInitialHaFormData), reads as on, and is filled at the
+next start. `tools/checkenabled.py` runs the real main() with recorders, and
+the write against a stand-in Supervisor. **Not run against a real
+Supervisor.**
 
 ## usb_bluetooth/ -- portall_bt on its own, for ESPHome and LVGL
 

@@ -1119,6 +1119,69 @@ def in_use(panel):
     return not given(value) or truthy(value)
 
 
+# The Supervisor's own API, which an add-on reaches with SUPERVISOR_TOKEN. A
+# name so a check can point it at a stand-in.
+SUPERVISOR_API = "http://supervisor"
+
+
+def show_enabled_switch():
+    """Write `enabled: true` into every saved screen that has no such key.
+
+    WHY. Reported straight after the switch shipped: "il aurait fallu qu'il
+    soit visible dans option de mes ecrans". A screen saved before 4.31.0 has
+    no `enabled` at all, and the form draws a switch from the SAVED value --
+    so on those screens it was missing or drawn off while the screen was on,
+    depending on the frontend. Nothing in config.yaml can fix that: defaults
+    are merged into dicts, never into the items of a list. The household
+    agreed to the add-on writing it ("ok fait le").
+
+    Through the Supervisor's own /addons/self/options -- open to every add-on
+    for itself, no hassio_api needed (api/middleware/security.py,
+    api_bypass). That route REPLACES the stored options after validating
+    them, so the whole set is sent back as /addons/self/info hands it over,
+    which keeps "!secret" references as references rather than writing the
+    secrets out. Only when some screen lacks the key, so it happens once; any
+    failure is said and forgotten -- a screen with no key is on anyway, and
+    the panels must never wait on this.
+    """
+    import urllib.request
+
+    token = os.environ.get("SUPERVISOR_TOKEN")
+    if not token:
+        return False
+    headers = {"Authorization": f"Bearer {token}",
+               "Content-Type": "application/json"}
+    try:
+        with urllib.request.urlopen(urllib.request.Request(
+                f"{SUPERVISOR_API}/addons/self/info", headers=headers),
+                timeout=10) as answer:
+            options = json.loads(answer.read().decode())["data"]["options"]
+        panels = options.get("panels") or []
+        missing = [p for p in panels if isinstance(p, dict) and "enabled" not in p]
+        if not missing:
+            return False
+        # Right after the name, which is where the form lists it.
+        options["panels"] = [
+            p if not isinstance(p, dict) or "enabled" in p else
+            {**{k: v for k, v in p.items() if k == "name"}, "enabled": True,
+             **{k: v for k, v in p.items() if k != "name"}}
+            for p in panels
+        ]
+        body = json.dumps({"options": options}).encode()
+        with urllib.request.urlopen(urllib.request.Request(
+                f"{SUPERVISOR_API}/addons/self/options", data=body,
+                headers=headers, method="POST"), timeout=10) as answer:
+            answer.read()
+    except Exception as err:  # noqa: BLE001 - an accessory, never the panels
+        say(f"Could not add the \"Screen in use\" switch to the saved screens "
+            f"({err}). They are all on; add enabled: false by hand in Edit in "
+            f"YAML to switch one off.")
+        return False
+    say(f"Added the \"Screen in use\" switch to {len(missing)} saved screen(s), "
+        "switched on. It shows in the form under My screens from now on.")
+    return True
+
+
 def serve(panel, name, stop, remote=None):
     """Run one panel's sender, restarting it until asked to stop."""
     seed_profile(panel, name)
@@ -1357,6 +1420,11 @@ def main():
         say("No panels configured. Set them in the add-on options, or point "
             "$UDISP_CONFIG at a JSON file, or set HOST, URL and TOKEN.")
         return 1
+
+    # Beside the panels, never in front of them: two requests to the
+    # Supervisor, and a screen must not wait on a form.
+    threading.Thread(target=show_enabled_switch, name="enabled-switch",
+                     daemon=True).start()
 
     # Before anything is started, and after the list is known to be a real
     # one: a browser holding a profile open is not a folder to be removing.
