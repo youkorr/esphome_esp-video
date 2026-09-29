@@ -1,5 +1,15 @@
 # Changelog
 
+## 4.31.0
+
+- **A switch per screen: `enabled`.** Switch a screen off under My screens
+  and the add-on stops looking for it -- for a reflash, a repair or a screen
+  you have unplugged -- and keeps its settings and everything signed into on
+  it for when you switch it back on. If you do not see the switch, turn on
+  "Show unused optional configuration options" at the top of the
+  Configuration page, or add `enabled: false` under that screen in Edit in
+  YAML. Screens set up before this update are on.
+
 ## 4.30.3
 
 - **The temperature takes a colour**, like the clock and the date: Launcher >

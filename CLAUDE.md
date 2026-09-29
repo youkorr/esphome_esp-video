@@ -1802,7 +1802,7 @@ the dashboard, where it is invisible while the keys go on working.
 ahead of the `pip install` as well as the `ADD`s, so a bump refetched
 everything — at the cost of the browser download on each update.
 `present_browser()` prints the Chromium version at startup and warns below 114,
-so this is never diagnosed by guesswork again. Currently **4.30.3**.
+so this is never diagnosed by guesswork again. Currently **4.31.0**.
 
 **CORRECTED in 4.29.5: the cost was every update, and a pin removes it.**
 Asked as *"verifie addon ... si il ya pas des elements qui freine la
@@ -10348,6 +10348,30 @@ sdkconfig.rename` -- and IDF only reads a component's TOP-LEVEL
 component's root is the repository root, so it does not apply.
 `CONFIG_ESP_MAIN_TASK_STACK_SIZE` buys nothing either: `app_main` only starts
 `loopTask` and returns, and setup() runs in loopTask (`esp32/core.cpp`).
+
+## A screen can be switched off without being deleted -- 4.31.0
+
+**Asked as a switch per screen "qui permet de faire soit une maintenance de
+esp32P4 ou de choisir lequel va fonctionner avec Portall cela evite qu'il
+fasse une recherche de ecran alors que je l'ai deconnecter".** `enabled:` on a
+panel entry, `bool?` -- optional because a new COMPULSORY key inside a list
+item would stop every saved configuration with "Missing option" (the
+`launchers:` section records why). `in_use()` in run.py reads a missing or
+blank value as ON, so every panel saved before it is served as before.
+
+Switched off, a panel gets no sender, no launcher of its own, no HomeKit
+accessory and no voice routing -- main() drops it from the list after
+`sweep_profiles()`, which is still handed EVERY panel, so the profile of a
+screen away for repair is kept rather than swept. Every panel off is not an
+exit: the add-on logs it and waits for SIGTERM, because an add-on that stops
+reads as broken and a restart loop is worse.
+
+The one thing not settled is whether the Supervisor's form SHOWS an optional
+field nobody has set inside a list item -- the 4.18.1 lesson says it may not.
+New installs get `enabled: true` in the default options; for the rest the
+changelog names "Show unused optional configuration options" and Edit in
+YAML. `tools/checkenabled.py` runs the real main() with recorders in place of
+the senders.
 
 ## usb_bluetooth/ -- portall_bt on its own, for ESPHome and LVGL
 

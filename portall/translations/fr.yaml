@@ -10,6 +10,10 @@ configuration:
         name: Nom de l'écran
         description: 'Un nom simple : salon, cuisine… Sert aussi dans « Page de liens propre à un écran
           ».'
+      enabled:
+        name: ✅ Écran actif
+        description: 'Décochez pour une maintenance ou un écran débranché : l''add-on ne le cherche plus
+          et garde ses réglages.'
       host:
         name: Adresse IP de l'écran
         description: Par exemple 192.168.1.11. Elle est dans le journal de l'écran (ESPHome).
