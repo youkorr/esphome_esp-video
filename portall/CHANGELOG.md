@@ -1,5 +1,16 @@
 # Changelog
 
+## 4.31.2
+
+- **A link starts showing at once.** Opening a link used to wait until the
+  site had finished loading its page before the panel was sent anything, so
+  the launcher stayed frozen for the whole load and then the page appeared
+  in one go -- which looked like the add-on had hung. The panel now shows the
+  page as it loads, from the first thing the site paints: measured at 40 to
+  60 ms after the tap instead of the full load time, with the finished page
+  arriving as early as before. How long the site itself takes to load is
+  still the site's.
+
 ## 4.31.1
 
 - **The "Screen in use" switch now shows on every screen.** Screens saved
