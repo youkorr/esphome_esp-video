@@ -175,7 +175,13 @@ int main() {
           !called("esp_a2d_source_connect"));
     say_run([&] { bt.heard_device(SPEAKER_TWO, COD_SPEAKER, "a second one"); });
     say_run([&] { bt.scan_stopped(); });
+    // A speaker is connected, so the new one waits for it to let go: see the
+    // replacing case below for why asking at once was a request thrown away.
     check("a speaker it does NOT have is taken once the scan has stopped",
+          called("esp_a2d_source_disconnect"));
+    say_run([&] { bt.on_a2dp_closed(false, SPEAKER); });
+    bt.sink_step_();
+    check("and asked for once the old speaker has gone",
           called("esp_a2d_source_connect"));
     check("and only the first one heard", counted("esp_a2d_source_connect") == 1);
   }
@@ -338,8 +344,63 @@ int main() {
     // old one's place rather than joining it.
     say_run([&] { bt.heard_device(OTHER_SPEAKER, COD_SPEAKER, "a new one"); });
     say_run([&] { bt.scan_stopped(); });
-    check("the old speaker is hung up before the new one is asked for",
-          called_before("esp_a2d_source_disconnect", "esp_a2d_source_connect"));
+    check("the old speaker is hung up",
+          called("esp_a2d_source_disconnect"));
+    /* AND THE NEW ONE IS NOT ASKED FOR YET. Bluedroid drops a connection
+       request made while it is closing the old link (btc_av.c, CLOSING state,
+       unhandled) -- a headset that "ne prend pas". It is asked for once the
+       old one is reported gone. */
+    check("the new speaker is not asked for while the old one is closing",
+          !called("esp_a2d_source_connect"));
+    bt.sink_step_();
+    check("nor on the next turn of the loop", !called("esp_a2d_source_connect"));
+    say_run([&] { bt.on_a2dp_closed(false, SPEAKER); });
+    bt.sink_step_();
+    check("the new speaker is asked for once the old one has gone",
+          called_before("esp_a2d_source_disconnect", "esp_a2d_source_connect") &&
+              counted("esp_a2d_source_connect") == 1);
+    check("and the old one is not paged back meanwhile",
+          [&] {
+            const size_t before = counted("esp_a2d_source_connect");
+            for (int i = 0; i < 20; i++) {
+              esphome::g_now_ms += 1000;
+              bt.loop();
+            }
+            return counted("esp_a2d_source_connect") == before;
+          }());
+    say_run([&] { bt.on_a2dp_open(OTHER_SPEAKER); });
+    check("and once it has connected it is the speaker this board remembers",
+          memcmp(bt.remembered_.sink, OTHER_SPEAKER, 6) == 0);
+  }
+  {
+    // The old speaker is AWAY and being paged when a new one is chosen: the
+    // page in flight is the stack's one A2DP slot, and a second request is
+    // answered DISCONNECTED and thrown away (btc_av.c, OPENING state).
+    PortallBT bt;
+    esphome::global_preferences->wipe();
+    bt.set_a2dp(true);
+    bt.start_profiles_();
+    bt.on_a2dp_ready();
+    bt.on_a2dp_open(SPEAKER);
+    bt.on_a2dp_closed(true, SPEAKER);  // switched off
+    esphome::g_now_ms += 3000;
+    bt.loop();                         // the clock pages it again
+    say(&PortallBT::pair, bt);
+    g_calls.clear();
+    say_run([&] { bt.heard_device(OTHER_SPEAKER, COD_SPEAKER, "a headset"); });
+    say_run([&] { bt.scan_stopped(); });
+    check("a new speaker is not asked for while the old one is still being paged",
+          !called("esp_a2d_source_connect"));
+    say_run([&] { bt.on_a2dp_closed(false, SPEAKER); });  // that page timed out
+    bt.sink_step_();
+    check("and is asked for as soon as that page has ended",
+          counted("esp_a2d_source_connect") == 1);
+    say_run([&] { bt.on_a2dp_closed(false, OTHER_SPEAKER); });  // and it failed too
+    check("a new speaker that does not answer is given up, not asked for again",
+          [&] {
+            bt.sink_step_();
+            return counted("esp_a2d_source_connect") == 1;
+          }());
   }
   {
     PortallBT bt;

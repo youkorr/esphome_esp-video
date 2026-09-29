@@ -34,7 +34,8 @@ class UsbBluetoothTextSensor : public text_sensor::TextSensor, public PollingCom
   void set_parent(UsbBluetooth *parent) { this->parent_ = parent; }
   /// true reports the speaker slot, false the input one.
   void set_speaker(bool speaker) { this->speaker_ = speaker; }
-  /// 1 .. MAX_INPUTS reports that one input slot; 0, the list of them all.
+  /// 1 .. MAX_INPUTS reports that one input slot (or, with set_speaker(true),
+  /// that one remembered speaker); 0, the list or the speaker playing.
   void set_slot(uint8_t slot) { this->slot_ = slot; }
 
   void update() override;

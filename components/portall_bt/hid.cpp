@@ -1033,14 +1033,10 @@ void PortallBT::connect_pair_target_() {
      * leaving the old link up would have the stack asked for a second sink it
      * cannot carry. Input devices have four slots and are genuinely added, so
      * nothing is dropped for them. */
-    if (this->a2dp_open_ && addr_set(this->open_sink_) &&
-        memcmp(this->open_sink_, target, 6) != 0) {
-      char old_text[18];
-      say_addr(old_text, this->open_sink_);
-      ESP_LOGI(TAG, "  hanging up %s first -- this panel drives one speaker at a time", old_text);
-      this->drop_link_to_(this->open_sink_, true);
-    }
-    esp_a2d_source_connect(target);
+    /* Not connected here: WANTED, and sink_step_() hangs the old one up and
+     * connects this one once the stack is free -- see request_sink_() for
+     * why doing both in the same breath was a request the stack threw away. */
+    this->request_sink_(target);
 #endif
   } else {
 #ifdef CONFIG_BT_HID_HOST_ENABLED

@@ -70,6 +70,13 @@ def same_slot_count():
               f"({py and py.group(1)} against {cpp and cpp.group(1)})")
         return False
     print(f"  ok     {py.group(1)} input slots, in the YAML and the C++ alike")
+    py = re.search(r"^MAX_SPEAKER_SLOTS = (\d+)", (COPY / "__init__.py").read_text(), re.M)
+    cpp = re.search(r"MAX_SINKS = (\d+);", (COPY / "usb_bluetooth.h").read_text())
+    if not py or not cpp or py.group(1) != cpp.group(1):
+        print(f"  ECHEC  MAX_SPEAKER_SLOTS in __init__.py and MAX_SINKS in usb_bluetooth.h differ "
+              f"({py and py.group(1)} against {cpp and cpp.group(1)})")
+        return False
+    print(f"  ok     {py.group(1)} speaker slots, in the YAML and the C++ alike")
     return True
 
 

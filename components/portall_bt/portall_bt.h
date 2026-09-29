@@ -304,7 +304,27 @@ class PortallBT : public Component {
   bool speaker_connected() const { return this->a2dp_open_; }
   void on_a2dp_ready();
   void on_a2dp_open(const uint8_t *addr);
-  void on_a2dp_closed(bool abnormal);
+  /// `addr` is the device the stack says went away -- the one a connection
+  /// was being asked of, when the attempt failed. nullptr where it is not
+  /// known.
+  void on_a2dp_closed(bool abnormal, const uint8_t *addr = nullptr);
+  /// The stack is connecting or disconnecting a speaker: nothing else may be
+  /// asked of it until that settles.
+  void on_a2dp_busy();
+  /* ONE SPEAKER AT A TIME, IN ORDER.
+   *
+   * Asking for a new speaker while the old one is still connected -- or while
+   * the old one is still being paged -- is dropped by Bluedroid without a word.
+   * Read in ESP-IDF v5.5.5's btc_av.c: a connection request in the CLOSING
+   * state reaches the handler's `default:` and is unhandled, and one in the
+   * OPENING state for another device is answered DISCONNECTED and thrown
+   * away. So hanging up the old speaker and asking for the new one in the
+   * same breath asked for nothing, and the reconnection clock then paged the
+   * OLD speaker back. Reported as a headset and earbuds that "ne prend pas".
+   *
+   * So the new one is WANTED, and sink_step_() asks for it only once the stack
+   * is free: the old link closed, no page in flight. */
+  void request_sink_(const uint8_t *addr);
   void on_a2dp_audio(bool started);
   /// AVRCP, from the speaker's own buttons. `code` is an esp_avrc_pt_cmd_t --
   /// 0x44 play, 0x46 pause, 0x4B next, 0x4C previous -- and the volume is a
@@ -604,6 +624,7 @@ class PortallBT : public Component {
   void start_a2dp_();
   void remember_sink_(const uint8_t *addr);
   void a2dp_reconnect_();
+  void sink_step_();
   void drain_media_();
 
   // Attaches the transport, initialises Bluedroid and enables it, in that
@@ -682,6 +703,20 @@ class PortallBT : public Component {
   static constexpr uint32_t A2DP_IDLE_MS = 10000;
   uint32_t pcm_fed_at_{0};
   bool a2dp_ctrl_asked_{false};
+  // The speaker wanted next, and what has been done about it; see
+  // request_sink_(). Cleared when it connects, when its attempt fails, and
+  // after SINK_WANT_MS whatever happened.
+  uint8_t sink_want_[6]{};
+  uint32_t sink_want_until_{0};
+  bool sink_want_asked_{false};
+  bool sink_hanging_up_{false};
+  // A connect or disconnect in flight. Set when one is asked for and when the
+  // stack says CONNECTING or DISCONNECTING; cleared when it settles, and after
+  // A2DP_BUSY_MS in case it never says so.
+  volatile bool a2dp_busy_{false};
+  uint32_t a2dp_busy_since_{0};
+  static constexpr uint32_t SINK_WANT_MS = 30000;
+  static constexpr uint32_t A2DP_BUSY_MS = 15000;
   void a2dp_idle_tick_();
 
   RealtekImage rtl_images_[MAX_RTL_IMAGES]{};

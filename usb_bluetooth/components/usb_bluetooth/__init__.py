@@ -121,6 +121,8 @@ ForgetAction = usb_bluetooth_ns.class_("ForgetAction", automation.Action)
 # were argued into, by the same person, and they were right each time.
 ForgetSpeakerAction = usb_bluetooth_ns.class_("ForgetSpeakerAction", automation.Action)
 ForgetInputAction = usb_bluetooth_ns.class_("ForgetInputAction", automation.Action)
+# Several speakers are remembered and one plays; this chooses which.
+UseSpeakerAction = usb_bluetooth_ns.class_("UseSpeakerAction", automation.Action)
 # What `on_hid_report` hands the YAML: the bytes the device sent, nothing
 # invented. ESP_HIDH_DATA_IND_EVT carries no report id -- see usb_bluetooth.h.
 HID_REPORT_TRIGGER = automation.Trigger.template(cg.std_vector.template(cg.uint8))
@@ -189,12 +191,6 @@ USB_BLUETOOTH_ACTION_SCHEMA = automation.maybe_simple_id(
 @automation.register_action(
     "usb_bluetooth.forget", ForgetAction, USB_BLUETOOTH_ACTION_SCHEMA, synchronous=True
 )
-@automation.register_action(
-    "usb_bluetooth.forget_speaker",
-    ForgetSpeakerAction,
-    USB_BLUETOOTH_ACTION_SCHEMA,
-    synchronous=True,
-)
 async def usb_bluetooth_action_to_code(config, action_id, template_arg, args):
     var = cg.new_Pvariable(action_id, template_arg)
     await cg.register_parented(var, config[CONF_ID])
@@ -207,6 +203,49 @@ async def usb_bluetooth_action_to_code(config, action_id, template_arg, args):
 # which is why it is optional and the action still reads as a role without it.
 CONF_SLOT = "slot"
 MAX_INPUT_SLOTS = 4  # MAX_INPUTS in usb_bluetooth.h
+MAX_SPEAKER_SLOTS = 4  # MAX_SINKS in usb_bluetooth.h
+
+
+# `slot:` forgets the speaker remembered in that slot; without it, the one
+# playing -- which is what the action always did.
+@automation.register_action(
+    "usb_bluetooth.forget_speaker",
+    ForgetSpeakerAction,
+    automation.maybe_simple_id(
+        {
+            cv.GenerateID(): cv.use_id(UsbBluetooth),
+            cv.Optional(CONF_SLOT): cv.int_range(min=1, max=MAX_SPEAKER_SLOTS),
+        }
+    ),
+    synchronous=True,
+)
+async def usb_bluetooth_forget_speaker_to_code(config, action_id, template_arg, args):
+    var = cg.new_Pvariable(action_id, template_arg)
+    await cg.register_parented(var, config[CONF_ID])
+    if CONF_SLOT in config:
+        cg.add(var.set_slot(config[CONF_SLOT]))
+    return var
+
+
+# Play through the speaker remembered in that slot: the one playing is hung up
+# and this one connected once the Bluetooth stack has let the other go. One
+# plays at a time -- A2DP from this board is a single stream.
+@automation.register_action(
+    "usb_bluetooth.use_speaker",
+    UseSpeakerAction,
+    cv.Schema(
+        {
+            cv.GenerateID(): cv.use_id(UsbBluetooth),
+            cv.Required(CONF_SLOT): cv.int_range(min=1, max=MAX_SPEAKER_SLOTS),
+        }
+    ),
+    synchronous=True,
+)
+async def usb_bluetooth_use_speaker_to_code(config, action_id, template_arg, args):
+    var = cg.new_Pvariable(action_id, template_arg)
+    await cg.register_parented(var, config[CONF_ID])
+    cg.add(var.set_slot(config[CONF_SLOT]))
+    return var
 
 
 @automation.register_action(

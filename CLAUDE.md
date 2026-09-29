@@ -10407,6 +10407,38 @@ flex column sits at the LEFT unless `flex_align_track: center`, which is what
 the first flash of the example showed. Not flashed. `portall_bt` does not
 have it.
 
+**A headset and earbuds were "not taken", and the connect was being dropped
+by Bluedroid itself.** Reported as *"je vient de tester avec un casque et
+ecouteur bluetooth il ne prend pas"*, on a board with the UGREEN already
+connected. Pairing a speaker hung up the old one and, on the next line, asked
+for the new one. Read in ESP-IDF v5.5.5 `btc_av.c`: A2DP source has ONE peer
+(one `btc_av_cb`), and a `BTC_AV_CONNECT_REQ_EVT` arriving in the CLOSING
+state is unhandled and dropped, while one arriving in OPENING for another
+device is reported DISCONNECTED. So the disconnect won and the connect
+vanished, with the new device already paired and bonded -- a speaker that
+"pairs and never plays". Both components now DEFER it: `request_sink_()`
+records the wanted speaker, `sink_step_()` (from `loop()`) hangs up the old
+one and asks for the new one only after `on_a2dp_closed()` says the link is
+down, with `a2dp_busy_` covering CONNECTING/DISCONNECTING and a 30 s give-up
+that names a speaker which never answers. The reconnection clock stands back
+while a switch is wanted, or it would page the old one straight back.
+`tools/bttest/pairing.cpp` asserts the order; against the old code the
+connect is called before the close. **Not flashed.**
+
+**Several speakers remembered, one playing -- the copy only.** Asked for in
+the same breath (*"si je comprend bien il ne prend que une seul conexion
+bluetooth pour audio ?"*, then *"ok fait le"*). `RememberedSinks` is a NEW
+preference (`usb_bluetooth_sinks`, four addresses) beside the old single
+`Remembered.sink`, which stays the one playing and is carried into the list on
+the first boot -- the same upgrade rule as the input list. `speaker: slot:` and
+`usb_bluetooth.use_speaker` / `forget_speaker` with `slot:` give the Settings
+page a row per speaker with Use and Forget; `use_speaker` goes through the
+deferred switch above. `tools/usbbttest/speakers.cpp` (18 cases), and
+`checkusbbt.py` checks `MAX_SPEAKER_SLOTS` against `MAX_SINKS`. The example's
+codegen was read at 2026.10.0-dev (`set_slot` on every row's action and
+sensor). **Not compiled by ESP-IDF, not flashed**, and `portall_bt` keeps one
+speaker.
+
 The rest of that PR's shape -- the component installing ESP-IDF's USB Host
 Library ITSELF with its own `usb_host_lib_handle_events` task, instead of a
 second stack -- is the port that would retire CherryUSB and `cherryusb_patch`.

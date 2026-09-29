@@ -155,7 +155,10 @@ static void a2dp_cb(esp_a2d_cb_event_t event, esp_a2d_cb_param_t *param) {
       if (param->conn_stat.state == ESP_A2D_CONNECTION_STATE_CONNECTED) {
         g_a2dp->on_a2dp_open(param->conn_stat.remote_bda);
       } else if (param->conn_stat.state == ESP_A2D_CONNECTION_STATE_DISCONNECTED) {
-        g_a2dp->on_a2dp_closed(param->conn_stat.disc_rsn == ESP_A2D_DISC_RSN_ABNORMAL);
+        g_a2dp->on_a2dp_closed(param->conn_stat.disc_rsn == ESP_A2D_DISC_RSN_ABNORMAL,
+                               param->conn_stat.remote_bda);
+      } else {
+        g_a2dp->on_a2dp_busy();
       }
       break;
 
@@ -526,8 +529,17 @@ void PortallBT::on_a2dp_ready() {
     this->reconnect_backoff_ms_ = 2000;
 }
 
+void PortallBT::on_a2dp_busy() {
+  this->a2dp_busy_ = true;
+  this->a2dp_busy_since_ = millis();
+}
+
 void PortallBT::on_a2dp_open(const uint8_t *addr) {
 #if defined(CONFIG_BT_BLUEDROID_ENABLED) && defined(CONFIG_BT_A2DP_ENABLE)
+  this->a2dp_busy_ = false;
+  this->sink_hanging_up_ = false;
+  if (memcmp(addr, this->sink_want_, 6) == 0)
+    memset(this->sink_want_, 0, 6);  // what was wanted is here
   ESP_LOGI(TAG, "speaker %02X:%02X:%02X:%02X:%02X:%02X is connected", addr[0], addr[1], addr[2], addr[3],
            addr[4], addr[5]);
   this->a2dp_open_ = true;
@@ -558,7 +570,19 @@ void PortallBT::on_a2dp_open(const uint8_t *addr) {
 #endif
 }
 
-void PortallBT::on_a2dp_closed(bool abnormal) {
+void PortallBT::on_a2dp_closed(bool abnormal, const uint8_t *addr) {
+  this->a2dp_busy_ = false;
+  this->sink_hanging_up_ = false;
+  /* THE WANTED SPEAKER'S OWN ATTEMPT FAILED -- off, out of range, or it
+   * refused. Given up rather than retried: the reconnection clock takes the
+   * remembered speaker back, which is what a panel had before. */
+  if (addr != nullptr && this->sink_want_asked_ && memcmp(addr, this->sink_want_, 6) == 0) {
+    ESP_LOGW(TAG, "the speaker %02X:%02X:%02X:%02X:%02X:%02X did not connect -- is it switched on "
+                  "and in range?",
+             addr[0], addr[1], addr[2], addr[3], addr[4], addr[5]);
+    memset(this->sink_want_, 0, 6);
+    this->sink_want_asked_ = false;
+  }
   /* A FAILED ATTEMPT ARRIVES HERE TOO, and that is what made the backoff a
    * fiction. Bluedroid reports a connection that never opened as a
    * DISCONNECTED state -- `BTA_AV_OPEN_EVT::FAILED status: 2` in the log,
@@ -620,10 +644,71 @@ void PortallBT::remember_sink_(const uint8_t *addr) {
 #endif
 }
 
+void PortallBT::request_sink_(const uint8_t *addr) {
+#if defined(CONFIG_BT_BLUEDROID_ENABLED) && defined(CONFIG_BT_A2DP_ENABLE)
+  memcpy(this->sink_want_, addr, 6);
+  this->sink_want_until_ = millis() + SINK_WANT_MS;
+  this->sink_want_asked_ = false;
+  this->sink_hanging_up_ = false;
+  this->sink_step_();
+#else
+  (void) addr;
+#endif
+}
+
+void PortallBT::sink_step_() {
+#if defined(CONFIG_BT_BLUEDROID_ENABLED) && defined(CONFIG_BT_A2DP_ENABLE)
+  bool wanted = false;
+  for (uint8_t b : this->sink_want_)
+    wanted |= b != 0;
+  if (!wanted)
+    return;
+  const uint32_t at = millis();
+  if (this->a2dp_busy_ && (int32_t) (at - this->a2dp_busy_since_) > (int32_t) A2DP_BUSY_MS)
+    this->a2dp_busy_ = false;  // the stack never said it had settled; stop waiting on it
+  if ((int32_t) (at - this->sink_want_until_) > 0) {
+    ESP_LOGW(TAG, "gave up waiting for the Bluetooth stack to connect the new speaker");
+    memset(this->sink_want_, 0, 6);
+    this->sink_want_asked_ = false;
+    return;
+  }
+  if (this->a2dp_open_) {
+    if (memcmp(this->open_sink_, this->sink_want_, 6) == 0) {
+      memset(this->sink_want_, 0, 6);
+      this->sink_want_asked_ = false;
+      return;
+    }
+    if (!this->sink_hanging_up_) {
+      ESP_LOGI(TAG, "  hanging up %02X:%02X:%02X:%02X:%02X:%02X first -- one speaker at a time",
+               this->open_sink_[0], this->open_sink_[1], this->open_sink_[2], this->open_sink_[3],
+               this->open_sink_[4], this->open_sink_[5]);
+      this->sink_hanging_up_ = true;
+      this->on_a2dp_busy();
+      esp_a2d_source_disconnect(this->open_sink_);
+    }
+    return;
+  }
+  if (this->a2dp_busy_ || this->sink_want_asked_)
+    return;
+  ESP_LOGI(TAG, "  asking %02X:%02X:%02X:%02X:%02X:%02X to connect", this->sink_want_[0],
+           this->sink_want_[1], this->sink_want_[2], this->sink_want_[3], this->sink_want_[4],
+           this->sink_want_[5]);
+  this->sink_want_asked_ = true;
+  this->on_a2dp_busy();
+  esp_a2d_source_connect(this->sink_want_);
+#endif
+}
+
 void PortallBT::a2dp_reconnect_() {
 #if defined(CONFIG_BT_BLUEDROID_ENABLED) && defined(CONFIG_BT_A2DP_ENABLE)
   if (!this->a2dp_ || !this->a2dp_up_ || this->a2dp_open_ || !this->remembered_.has_sink)
     return;
+  // A speaker is wanted instead; paging this one would be dropped at best and
+  // would take the stack's one A2DP slot from it at worst.
+  for (uint8_t b : this->sink_want_)
+    if (b != 0)
+      return;
+  this->on_a2dp_busy();
   ESP_LOGD(TAG, "asking the speaker to connect (no scan, by address)");
   esp_a2d_source_connect(this->remembered_.sink);
 #endif
