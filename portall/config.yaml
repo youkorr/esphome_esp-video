@@ -1,5 +1,5 @@
 name: Portall
-version: "4.30.3"
+version: "4.31.0"
 # Home Assistant identifies an add-on by its slug, so this one moving from
 # usb_display_panel to portall makes the Supervisor see a NEW add-on: options
 # are not carried over and /data starts empty, which means the browser
@@ -51,6 +51,11 @@ options:
   # default.
   panels:
     - name: salon
+      # Off: the add-on leaves this screen alone -- no sender, no search for
+      # it on the network -- and keeps everything else about it, its settings
+      # and its browser profile, for when it is switched back on. For a
+      # screen being reflashed, repaired or simply unplugged.
+      enabled: true
       host: ip_esp32P4
       # launcher for the page of links this add-on builds, or an address of
       # this panel's own.
@@ -338,6 +343,7 @@ options:
 schema:
   panels:
     - name: str
+      enabled: bool?
       host: str
       url: str
       width: int(16,4096)

@@ -246,6 +246,10 @@ def check_reaches_sender(folder):
         # automation it writes in Home Assistant, and never a sender's flag.
         # tools/checkvoicelinks.py checks it reaches the automation.
         "voice",
+        # Whether the panel is served at all: read in main() before any
+        # sender exists. tools/checkpanels.py checks a switched-off panel
+        # gets no sender and keeps its profile.
+        "enabled",
     }
 
     def leaves(spec, path=()):

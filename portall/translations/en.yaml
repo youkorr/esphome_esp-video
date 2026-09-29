@@ -9,6 +9,10 @@ configuration:
       name:
         name: Screen name
         description: 'A simple name: living, kitchen… Also used in "A screen''s own link page".'
+      enabled:
+        name: ✅ Screen in use
+        description: 'Untick for maintenance or an unplugged screen: the add-on stops looking for it and
+          keeps its settings.'
       host:
         name: Screen IP address
         description: For example 192.168.1.11. It is in the screen's ESPHome log.

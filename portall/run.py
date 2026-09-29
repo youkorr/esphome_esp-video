@@ -1103,6 +1103,22 @@ class Remote:
         return True
 
 
+def in_use(panel):
+    """Whether this panel is to be served -- its `enabled` switch.
+
+    Asked for as a switch per screen "qui permet de faire soit une
+    maintenance ... cela evite qu'il fasse une recherche de ecran alors que je
+    l'ai deconnecter". A screen that is reflashed or unplugged would otherwise
+    have a sender trying to reach it for ever, and a log full of it.
+
+    Missing or blank means ON: the field is optional, every configuration
+    saved before it existed has none, and none of those panels was switched
+    off.
+    """
+    value = panel.get("enabled")
+    return not given(value) or truthy(value)
+
+
 def serve(panel, name, stop, remote=None):
     """Run one panel's sender, restarting it until asked to stop."""
     seed_profile(panel, name)
@@ -1344,7 +1360,27 @@ def main():
 
     # Before anything is started, and after the list is known to be a real
     # one: a browser holding a profile open is not a folder to be removing.
+    # EVERY panel, switched off or not: a screen away for maintenance keeps
+    # its profile -- the sites signed into from it -- for when it comes back.
     sweep_profiles(panels)
+
+    paused = [p for p in panels if not in_use(p)]
+    panels = [p for p in panels if in_use(p)]
+    for panel in paused:
+        say(f"[{panel.get('name') or panel.get('host')}] switched off (enabled: "
+            "false) -- not served, and not looked for on the network. Its "
+            "settings and its profile are kept.")
+    if not panels:
+        # Not an exit: an add-on that stops looks broken in Home Assistant,
+        # and a restart loop is worse. It waits, doing nothing, until it is
+        # stopped -- saving the options restarts it anyway.
+        say("Every panel is switched off, so there is nothing to serve. Switch "
+            "one back on under My screens and restart the add-on.")
+        idle = threading.Event()
+        signal.signal(signal.SIGTERM, lambda *_: idle.set())
+        signal.signal(signal.SIGINT, lambda *_: idle.set())
+        idle.wait()
+        return 0
 
     # Before the check below, because a panel asking for the launcher has no
     # url of its own until this has given it one.
