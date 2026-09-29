@@ -271,6 +271,21 @@ void PortallBT::load_remembered_() {
   if (this->remembered_inputs_.count > MAX_INPUTS)
     this->remembered_inputs_.count = MAX_INPUTS;
 
+  /* THE SPEAKERS LIST, carried across from the single speaker a board
+     remembered before it existed. */
+  this->sinks_pref_ =
+      global_preferences->make_preference<RememberedSinks>(fnv1_hash("portall_bt_sinks"));
+  if (!this->sinks_pref_.load(&this->remembered_sinks_)) {
+    this->remembered_sinks_ = RememberedSinks{};
+    if (this->remembered_.has_sink) {
+      memcpy(this->remembered_sinks_.addr[0], this->remembered_.sink, 6);
+      this->remembered_sinks_.count = 1;
+      this->sinks_pref_.save(&this->remembered_sinks_);
+    }
+  }
+  if (this->remembered_sinks_.count > MAX_SINKS)
+    this->remembered_sinks_.count = MAX_SINKS;
+
   // The live table starts as the remembered one: away, but paged for.
   for (uint8_t i = 0; i < this->remembered_inputs_.count; i++) {
     memcpy(this->inputs_[i].addr, this->remembered_inputs_.addr[i], 6);
@@ -769,7 +784,8 @@ void PortallBT::heard_device(const uint8_t *addr, uint32_t cod, const char *name
   bool known_speaker = false;
   (void) known_speaker;
 #ifdef CONFIG_BT_A2DP_ENABLE
-  known_speaker = this->remembered_.has_sink && memcmp(addr, this->remembered_.sink, 6) == 0;
+  known_speaker = (this->remembered_.has_sink && memcmp(addr, this->remembered_.sink, 6) == 0) ||
+                  this->sink_slot_(addr) >= 0;
 #endif
   const bool known_input = this->remembered_input_(addr);
   if (known_speaker || known_input) {
@@ -1248,8 +1264,12 @@ void PortallBT::note_remote_name(const uint8_t *addr, const char *name) {
   else if (this->remembered_.has_sink &&
            memcmp(addr, this->remembered_.sink, 6) == 0)
     slot = this->sink_name_;
-  if (slot == nullptr)
+  // A remembered speaker keeps its own name too, for its row on a screen.
+  const int8_t sink = this->sink_slot_(addr);
+  if (slot == nullptr && sink < 0)
     return;
+  if (slot == nullptr)
+    slot = this->sink_names_[sink];
 
   // The printable run, and no further. A device does not have to terminate a
   // fixed-width field -- a TP-Link dongle padded its own with something else
@@ -1283,6 +1303,34 @@ void PortallBT::ask_remote_name_(const uint8_t *addr) {
 #endif
 }
 
+std::string PortallBT::describe_device_(const uint8_t *addr, const char *name, bool open) const {
+#ifdef CONFIG_BT_BLUEDROID_ENABLED
+  char text[18];
+  say_addr(text, addr);
+  std::string out = name[0] != '\0' ? std::string(name) + " (" + text + ")" : std::string(text);
+  if (this->bt_off_)
+    return out + " (Bluetooth off)";
+  return out + (open ? " connected" : " paired, away");
+#else
+  (void) addr;
+  (void) name;
+  (void) open;
+  return "none";
+#endif
+}
+
+std::string PortallBT::describe_input(uint8_t slot) const {
+#ifdef CONFIG_BT_BLUEDROID_ENABLED
+  if (slot >= MAX_INPUTS || !this->inputs_[slot].used)
+    return "none";
+  const InputDevice &d = this->inputs_[slot];
+  return this->describe_device_(d.addr, d.name, d.open);
+#else
+  (void) slot;
+  return "none";
+#endif
+}
+
 std::string PortallBT::describe_role(bool speaker) const {
 #ifdef CONFIG_BT_BLUEDROID_ENABLED
   // The NAME first when there is one, because that is what somebody reading a
@@ -1290,13 +1338,7 @@ std::string PortallBT::describe_role(bool speaker) const {
   // The address stays beside it: two remotes of the same model are the same
   // name, and it is the address that a pair or forget action works on.
   auto one_device = [this](const uint8_t *addr, const char *name, bool open) {
-    char text[18];
-    say_addr(text, addr);
-    std::string out = name[0] != '\0' ? std::string(name) + " (" + text + ")"
-                                     : std::string(text);
-    if (this->bt_off_)
-      return out + " (Bluetooth off)";
-    return out + (open ? " connected" : " paired, away");
+    return this->describe_device_(addr, name, open);
   };
 
   if (speaker) {
@@ -1377,7 +1419,11 @@ void PortallBT::forget_one(bool speaker) {
       memcpy(target, this->remembered_.sink, 6);
       esp_bt_gap_remove_bond_device(target);
       ESP_LOGI(TAG, "forgot the speaker %s -- link key and role both", text);
+      const int8_t listed = this->sink_slot_(this->remembered_.sink);
+      if (listed >= 0)
+        this->drop_sink_((uint8_t) listed);
     }
+    memset(this->sink_want_, 0, 6);
 
     /* CLEARED HERE rather than left to the disconnection event, and the input
      * side has always done so. Waiting means this panel goes on believing it
@@ -1393,11 +1439,50 @@ void PortallBT::forget_one(bool speaker) {
     return;
   }
 
-  /* EVERY INPUT DEVICE, because there is no index a household could name one
-     by. This is the way back from a gamepad somebody gave away and the way to
-     make room when all four slots are taken, and it says how many went. */
+  /* EVERY INPUT DEVICE. This is the way back from a gamepad somebody gave
+     away and the way to make room when all four slots are taken; one device
+     at a time is forget_input(slot), for a screen that lists the slots. */
   uint8_t gone = 0;
   for (uint8_t i = 0; i < MAX_INPUTS; i++) {
+    if (this->forget_input_slot_(i))
+      gone++;
+  }
+  if (gone == 0) {
+    ESP_LOGW(TAG, "no input device is remembered and none is connected, so there is nothing to "
+                  "forget");
+    return;
+  }
+  this->save_inputs_();
+#else
+  (void) speaker;
+#endif
+}
+
+void PortallBT::forget_input(uint8_t slot) {
+#ifdef CONFIG_BT_BLUEDROID_ENABLED
+  if (!this->profiles_up_) {
+    ESP_LOGW(TAG, "nothing to forget yet -- no dongle has answered");
+    return;
+  }
+  if (slot >= MAX_INPUTS) {
+    ESP_LOGW(TAG, "there is no input slot %u -- they run from 1 to %u", (unsigned) slot + 1,
+             (unsigned) MAX_INPUTS);
+    return;
+  }
+  if (!this->forget_input_slot_(slot)) {
+    ESP_LOGW(TAG, "input slot %u is empty, so there is nothing to forget", (unsigned) slot + 1);
+    return;
+  }
+  this->save_inputs_();
+#else
+  (void) slot;
+#endif
+}
+
+bool PortallBT::forget_input_slot_(uint8_t i) {
+#ifdef CONFIG_BT_BLUEDROID_ENABLED
+  char text[18];
+  {
     InputDevice &d = this->inputs_[i];
     /* `used` rather than `used && remembered`: a device that connected when
        every slot was full holds a slot without being remembered, and it is
@@ -1405,7 +1490,7 @@ void PortallBT::forget_one(bool speaker) {
        skipped here and by drop_links_ alike, so no button in this component
        could hang it up. */
     if (!d.used)
-      continue;
+      return false;
     say_addr(text, d.addr);
     esp_bd_addr_t target;
     memcpy(target, d.addr, 6);
@@ -1422,16 +1507,11 @@ void PortallBT::forget_one(bool speaker) {
     d.map = keep;
     if (d.map != nullptr)
       d.map->clear();
-    gone++;
   }
-  if (gone == 0) {
-    ESP_LOGW(TAG, "no input device is remembered and none is connected, so there is nothing to "
-                  "forget");
-    return;
-  }
-  this->save_inputs_();
+  return true;
 #else
-  (void) speaker;
+  (void) i;
+  return false;
 #endif
 }
 
@@ -1462,6 +1542,10 @@ void PortallBT::forget() {
   this->remembered_pref_.save(&this->remembered_);
   this->remembered_inputs_ = RememberedInputs{};
   this->inputs_pref_.save(&this->remembered_inputs_);
+  this->remembered_sinks_ = RememberedSinks{};
+  this->sinks_pref_.save(&this->remembered_sinks_);
+  memset(this->sink_names_, 0, sizeof(this->sink_names_));
+  memset(this->sink_want_, 0, 6);
   // The names go with them. A name left beside an address that has changed
   // reads as correct, which is worse than showing no name at all.
   this->sink_name_[0] = '\0';
@@ -1479,6 +1563,130 @@ void PortallBT::forget() {
       keep->clear();
   }
   ESP_LOGI(TAG, "forgot %d paired device(s), link keys and roles both", bonded);
+#endif
+}
+
+int8_t PortallBT::sink_slot_(const uint8_t *addr) const {
+  for (uint8_t i = 0; i < this->remembered_sinks_.count && i < MAX_SINKS; i++)
+    if (memcmp(this->remembered_sinks_.addr[i], addr, 6) == 0)
+      return (int8_t) i;
+  return -1;
+}
+
+void PortallBT::add_sink_(const uint8_t *addr) {
+  if (this->sink_slot_(addr) >= 0)
+    return;
+  uint8_t at = this->remembered_sinks_.count;
+  if (at >= MAX_SINKS) {
+    /* FULL. The newest speaker is the one somebody just paired, so it stays;
+       the LAST row that is not the one playing makes room, and says so. */
+    at = MAX_SINKS - 1;
+    if (this->remembered_.has_sink && memcmp(this->remembered_sinks_.addr[at], this->remembered_.sink, 6) == 0)
+      at = MAX_SINKS - 2;
+    char text[18];
+    say_addr(text, this->remembered_sinks_.addr[at]);
+    ESP_LOGW(TAG, "%u speakers are remembered already; %s makes room for the new one", (unsigned) MAX_SINKS,
+             text);
+  } else {
+    this->remembered_sinks_.count++;
+  }
+  memcpy(this->remembered_sinks_.addr[at], addr, 6);
+  this->sink_names_[at][0] = '\0';
+  this->sinks_pref_.save(&this->remembered_sinks_);
+}
+
+void PortallBT::drop_sink_(uint8_t slot) {
+  if (slot >= this->remembered_sinks_.count)
+    return;
+  for (uint8_t i = slot; i + 1 < this->remembered_sinks_.count; i++) {
+    memcpy(this->remembered_sinks_.addr[i], this->remembered_sinks_.addr[i + 1], 6);
+    memcpy(this->sink_names_[i], this->sink_names_[i + 1], sizeof(this->sink_names_[i]));
+  }
+  this->remembered_sinks_.count--;
+  memset(this->remembered_sinks_.addr[this->remembered_sinks_.count], 0, 6);
+  this->sink_names_[this->remembered_sinks_.count][0] = '\0';
+  this->sinks_pref_.save(&this->remembered_sinks_);
+}
+
+void PortallBT::use_speaker(uint8_t slot) {
+#if defined(CONFIG_BT_BLUEDROID_ENABLED) && defined(CONFIG_BT_A2DP_ENABLE)
+  if (slot >= this->remembered_sinks_.count) {
+    ESP_LOGW(TAG, "no speaker is remembered in slot %u", (unsigned) slot + 1);
+    return;
+  }
+  const uint8_t *addr = this->remembered_sinks_.addr[slot];
+  char text[18];
+  say_addr(text, addr);
+  if (this->a2dp_open_ && memcmp(this->open_sink_, addr, 6) == 0) {
+    ESP_LOGI(TAG, "%s is already the speaker playing", text);
+    return;
+  }
+  ESP_LOGI(TAG, "switching to the speaker %s", text);
+  /* IT BECOMES THE SPEAKER NOW, not once it has connected: the reconnection
+     clock pages the speaker in `Remembered`, and leaving the old one there
+     would have it paged back the moment it was hung up. */
+  memcpy(this->remembered_.sink, addr, 6);
+  this->remembered_.has_sink = true;
+  this->remembered_pref_.save(&this->remembered_);
+  memcpy(this->sink_name_, this->sink_names_[slot], sizeof(this->sink_name_));
+  this->reconnect_backoff_ms_ = RECONNECT_FIRST_MS;
+  this->request_sink_(addr);
+#else
+  (void) slot;
+#endif
+}
+
+void PortallBT::forget_speaker_slot(uint8_t slot) {
+#if defined(CONFIG_BT_BLUEDROID_ENABLED)
+  if (!this->profiles_up_) {
+    ESP_LOGW(TAG, "nothing to forget yet -- no dongle has answered");
+    return;
+  }
+  if (slot >= this->remembered_sinks_.count) {
+    ESP_LOGW(TAG, "no speaker is remembered in slot %u, so there is nothing to forget", (unsigned) slot + 1);
+    return;
+  }
+  const uint8_t *addr = this->remembered_sinks_.addr[slot];
+  if (this->remembered_.has_sink && memcmp(addr, this->remembered_.sink, 6) == 0) {
+    this->forget_one(true);  // the one playing: hung up first, as ever
+    return;
+  }
+  char text[18];
+  say_addr(text, addr);
+  esp_bd_addr_t target;
+  memcpy(target, addr, 6);
+  // Not the one playing, so not connected -- but hung up anyway if it is, for
+  // the reason forget_one gives about a bond removed under a live link.
+  if (this->a2dp_open_ && memcmp(this->open_sink_, addr, 6) == 0)
+    this->drop_link_to_(addr, true);
+  esp_bt_gap_remove_bond_device(target);
+  if (memcmp(this->sink_want_, addr, 6) == 0)
+    memset(this->sink_want_, 0, 6);
+  this->drop_sink_(slot);
+  ESP_LOGI(TAG, "forgot the speaker %s -- link key and role both", text);
+#else
+  (void) slot;
+#endif
+}
+
+std::string PortallBT::describe_speaker(uint8_t slot) const {
+#if defined(CONFIG_BT_BLUEDROID_ENABLED)
+  if (slot >= this->remembered_sinks_.count)
+    return "none";
+  const uint8_t *addr = this->remembered_sinks_.addr[slot];
+  const bool playing_one = this->remembered_.has_sink && memcmp(addr, this->remembered_.sink, 6) == 0;
+  if (playing_one) {
+    const bool open = this->a2dp_open_ && memcmp(this->open_sink_, addr, 6) == 0;
+    return this->describe_device_(addr, this->sink_names_[slot][0] != '\0' ? this->sink_names_[slot] : this->sink_name_,
+                                  open);
+  }
+  char text[18];
+  say_addr(text, addr);
+  const char *name = this->sink_names_[slot];
+  return name[0] != '\0' ? std::string(name) + " (" + text + ") not in use" : std::string(text) + " not in use";
+#else
+  (void) slot;
+  return "none";
 #endif
 }
 

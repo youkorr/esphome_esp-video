@@ -10401,8 +10401,8 @@ full-speed pairing has never been run; `usb_uart` AUTO_LOADs `usb_host`, so
 one domain catches both. Reproduced at 2026.10.0-dev: the example plus
 `usb_host:` read `ok 534 statements` before, and is refused after, as is the
 example plus a `usb_uart:`. `tinyusb` is NOT refused: which peripheral it
-takes on a P4 was not established. `portall_bt` has the same hole and is left
-as it was.
+takes on a P4 was not established. `portall_bt` had the same hole; it is
+refused there too now (see below).
 
 **A Forget per device, for a screen -- the copy only.** Asked for so the
 Settings page could be shown to swoboda as a clear interface. `slot:` on
@@ -10415,8 +10415,8 @@ forgetslot.cpp` drives it, and `checkusbbt.py` checks `MAX_INPUT_SLOTS` in
 Python against `MAX_INPUTS` in C++. The page was drawn in LVGL 9.5.0 before
 it was written, at 1280x720 and 720x1280 -- the same render found that a
 flex column sits at the LEFT unless `flex_align_track: center`, which is what
-the first flash of the example showed. Not flashed. `portall_bt` does not
-have it.
+the first flash of the example showed. Not flashed. `portall_bt` has it now
+too (see below).
 
 **A headset and earbuds were "not taken", and the connect was being dropped
 by Bluedroid itself.** Reported as *"je vient de tester avec un casque et
@@ -10447,8 +10447,22 @@ page a row per speaker with Use and Forget; `use_speaker` goes through the
 deferred switch above. `tools/usbbttest/speakers.cpp` (18 cases), and
 `checkusbbt.py` checks `MAX_SPEAKER_SLOTS` against `MAX_SINKS`. The example's
 codegen was read at 2026.10.0-dev (`set_slot` on every row's action and
-sensor). **Not compiled by ESP-IDF, not flashed**, and `portall_bt` keeps one
-speaker.
+sensor). **Not compiled by ESP-IDF, not flashed.**
+
+**Carried back into `portall_bt`, asked for once it worked:** *"pour
+usb_bluetooth je l'ai tester super il fonctionne bien avec use_bluetooth qu'il
+faudrait aussi pour portall"*. The speakers list, `use_speaker`, `slot:` on
+`forget_speaker` / `forget_input` and on both text sensor entries, and
+`_refuse_beside_usb_host`. Done by renaming the copy BACK and diffing file by
+file, so everything that differed was either one of these, the word board
+against panel, or the `keys:` sinks that are portall's own -- and those stay.
+`speakers.cpp` and `forgetslot.cpp` moved from `tools/usbbttest/` into
+`tools/bttest/`, so one test now runs on both components through
+`checkusbbt.py`'s rename. `yaml/tab5-portall-bluetooth.yaml` puts a row per
+speaker and per controller in Home Assistant (a text sensor, Use, Forget),
+because a Portall panel has no LVGL Settings screen to hold them; codegen read
+at 2026.10.0-dev, and `usb_host:` beside it is refused with the message.
+**Not compiled by ESP-IDF, not flashed.**
 
 The rest of that PR's shape -- the component installing ESP-IDF's USB Host
 Library ITSELF with its own `usb_host_lib_handle_events` task, instead of a

@@ -484,6 +484,49 @@ text_sensor:
       name: "Bluetooth remotes and controllers"
       icon: mdi:remote
 
+  # ONE ROW PER DEVICE, which is what the Use and Forget buttons below act on.
+  # Up to four speakers are remembered and ONE plays at a time -- A2DP from
+  # this panel is a single stream -- so a speaker row reads "not in use" until
+  # its Use button is pressed. A controller row is one of the four input
+  # slots. An empty row reads "none". A slot is only a number, and it is this
+  # row that says which device sits in it.
+  - platform: portall_bt
+    speaker:
+      name: "Bluetooth speaker 1"
+      icon: mdi:speaker-bluetooth
+      slot: 1
+    input:
+      name: "Bluetooth controller 1"
+      icon: mdi:remote
+      slot: 1
+  - platform: portall_bt
+    speaker:
+      name: "Bluetooth speaker 2"
+      icon: mdi:speaker-bluetooth
+      slot: 2
+    input:
+      name: "Bluetooth controller 2"
+      icon: mdi:remote
+      slot: 2
+  - platform: portall_bt
+    speaker:
+      name: "Bluetooth speaker 3"
+      icon: mdi:speaker-bluetooth
+      slot: 3
+    input:
+      name: "Bluetooth controller 3"
+      icon: mdi:remote
+      slot: 3
+  - platform: portall_bt
+    speaker:
+      name: "Bluetooth speaker 4"
+      icon: mdi:speaker-bluetooth
+      slot: 4
+    input:
+      name: "Bluetooth controller 4"
+      icon: mdi:remote
+      slot: 4
+
 button:
   # Pairing is an ACTION and never a loop. An inquiry sweeps the whole 2.4 GHz
   # band at full power and was measured taking this board's Wi-Fi down for
@@ -504,11 +547,7 @@ button:
     on_press:
       - portall_bt.pair: dongle
 
-  # One KIND at a time, which is what somebody looking at the entity above
-  # actually wants: the speaker has been replaced, the controllers have not.
-  # There is no per-device button and that is deliberate -- one would need an
-  # index a household has no way to read, and the way to make room when all
-  # four input slots are full is to clear them and pair again.
+  # One KIND at a time: the speaker playing, or every controller.
   - platform: template
     name: "Forget Bluetooth speaker"
     entity_category: config
@@ -529,3 +568,91 @@ button:
     entity_category: config
     on_press:
       - portall_bt.forget: dongle
+
+  # Row 1: play through speaker 1 (the one playing is hung up first, and this
+  # one asked for once the Bluetooth stack has let the other go), or forget
+  # speaker 1 / controller 1 alone.
+  - platform: template
+    name: "Use Bluetooth speaker 1"
+    icon: mdi:speaker-play
+    on_press:
+      - portall_bt.use_speaker:
+          slot: 1
+  - platform: template
+    name: "Forget Bluetooth speaker 1"
+    entity_category: config
+    on_press:
+      - portall_bt.forget_speaker:
+          slot: 1
+  - platform: template
+    name: "Forget Bluetooth controller 1"
+    entity_category: config
+    on_press:
+      - portall_bt.forget_input:
+          slot: 1
+
+  # Row 2: play through speaker 2 (the one playing is hung up first, and this
+  # one asked for once the Bluetooth stack has let the other go), or forget
+  # speaker 2 / controller 2 alone.
+  - platform: template
+    name: "Use Bluetooth speaker 2"
+    icon: mdi:speaker-play
+    on_press:
+      - portall_bt.use_speaker:
+          slot: 2
+  - platform: template
+    name: "Forget Bluetooth speaker 2"
+    entity_category: config
+    on_press:
+      - portall_bt.forget_speaker:
+          slot: 2
+  - platform: template
+    name: "Forget Bluetooth controller 2"
+    entity_category: config
+    on_press:
+      - portall_bt.forget_input:
+          slot: 2
+
+  # Row 3: play through speaker 3 (the one playing is hung up first, and this
+  # one asked for once the Bluetooth stack has let the other go), or forget
+  # speaker 3 / controller 3 alone.
+  - platform: template
+    name: "Use Bluetooth speaker 3"
+    icon: mdi:speaker-play
+    on_press:
+      - portall_bt.use_speaker:
+          slot: 3
+  - platform: template
+    name: "Forget Bluetooth speaker 3"
+    entity_category: config
+    on_press:
+      - portall_bt.forget_speaker:
+          slot: 3
+  - platform: template
+    name: "Forget Bluetooth controller 3"
+    entity_category: config
+    on_press:
+      - portall_bt.forget_input:
+          slot: 3
+
+  # Row 4: play through speaker 4 (the one playing is hung up first, and this
+  # one asked for once the Bluetooth stack has let the other go), or forget
+  # speaker 4 / controller 4 alone.
+  - platform: template
+    name: "Use Bluetooth speaker 4"
+    icon: mdi:speaker-play
+    on_press:
+      - portall_bt.use_speaker:
+          slot: 4
+  - platform: template
+    name: "Forget Bluetooth speaker 4"
+    entity_category: config
+    on_press:
+      - portall_bt.forget_speaker:
+          slot: 4
+  - platform: template
+    name: "Forget Bluetooth controller 4"
+    entity_category: config
+    on_press:
+      - portall_bt.forget_input:
+          slot: 4
