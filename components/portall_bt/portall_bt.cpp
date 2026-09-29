@@ -163,6 +163,7 @@ void PortallBT::loop() {
   // it is one comparison against a clock and a call every few seconds.
   this->drain_reports_();
   this->drain_media_();
+  this->sink_step_();
   this->reconnect_tick_();
   // Asked from the loop rather than from feed_audio: esp_a2d_media_ctrl posts
   // to Bluedroid's own task, and the speaker platform's play() can be called

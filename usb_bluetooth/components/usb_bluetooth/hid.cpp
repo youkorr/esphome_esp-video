@@ -271,6 +271,21 @@ void UsbBluetooth::load_remembered_() {
   if (this->remembered_inputs_.count > MAX_INPUTS)
     this->remembered_inputs_.count = MAX_INPUTS;
 
+  /* THE SPEAKERS LIST, carried across from the single speaker a board
+     remembered before it existed. */
+  this->sinks_pref_ =
+      global_preferences->make_preference<RememberedSinks>(fnv1_hash("usb_bluetooth_sinks"));
+  if (!this->sinks_pref_.load(&this->remembered_sinks_)) {
+    this->remembered_sinks_ = RememberedSinks{};
+    if (this->remembered_.has_sink) {
+      memcpy(this->remembered_sinks_.addr[0], this->remembered_.sink, 6);
+      this->remembered_sinks_.count = 1;
+      this->sinks_pref_.save(&this->remembered_sinks_);
+    }
+  }
+  if (this->remembered_sinks_.count > MAX_SINKS)
+    this->remembered_sinks_.count = MAX_SINKS;
+
   // The live table starts as the remembered one: away, but paged for.
   for (uint8_t i = 0; i < this->remembered_inputs_.count; i++) {
     memcpy(this->inputs_[i].addr, this->remembered_inputs_.addr[i], 6);
@@ -769,7 +784,8 @@ void UsbBluetooth::heard_device(const uint8_t *addr, uint32_t cod, const char *n
   bool known_speaker = false;
   (void) known_speaker;
 #ifdef CONFIG_BT_A2DP_ENABLE
-  known_speaker = this->remembered_.has_sink && memcmp(addr, this->remembered_.sink, 6) == 0;
+  known_speaker = (this->remembered_.has_sink && memcmp(addr, this->remembered_.sink, 6) == 0) ||
+                  this->sink_slot_(addr) >= 0;
 #endif
   const bool known_input = this->remembered_input_(addr);
   if (known_speaker || known_input) {
@@ -1033,14 +1049,10 @@ void UsbBluetooth::connect_pair_target_() {
      * leaving the old link up would have the stack asked for a second sink it
      * cannot carry. Input devices have four slots and are genuinely added, so
      * nothing is dropped for them. */
-    if (this->a2dp_open_ && addr_set(this->open_sink_) &&
-        memcmp(this->open_sink_, target, 6) != 0) {
-      char old_text[18];
-      say_addr(old_text, this->open_sink_);
-      ESP_LOGI(TAG, "  hanging up %s first -- this board drives one speaker at a time", old_text);
-      this->drop_link_to_(this->open_sink_, true);
-    }
-    esp_a2d_source_connect(target);
+    /* Not connected here: WANTED, and sink_step_() hangs the old one up and
+     * connects this one once the stack is free -- see request_sink_() for
+     * why doing both in the same breath was a request the stack threw away. */
+    this->request_sink_(target);
 #endif
   } else {
 #ifdef CONFIG_BT_HID_HOST_ENABLED
@@ -1252,8 +1264,12 @@ void UsbBluetooth::note_remote_name(const uint8_t *addr, const char *name) {
   else if (this->remembered_.has_sink &&
            memcmp(addr, this->remembered_.sink, 6) == 0)
     slot = this->sink_name_;
-  if (slot == nullptr)
+  // A remembered speaker keeps its own name too, for its row on a screen.
+  const int8_t sink = this->sink_slot_(addr);
+  if (slot == nullptr && sink < 0)
     return;
+  if (slot == nullptr)
+    slot = this->sink_names_[sink];
 
   // The printable run, and no further. A device does not have to terminate a
   // fixed-width field -- a TP-Link dongle padded its own with something else
@@ -1403,7 +1419,11 @@ void UsbBluetooth::forget_one(bool speaker) {
       memcpy(target, this->remembered_.sink, 6);
       esp_bt_gap_remove_bond_device(target);
       ESP_LOGI(TAG, "forgot the speaker %s -- link key and role both", text);
+      const int8_t listed = this->sink_slot_(this->remembered_.sink);
+      if (listed >= 0)
+        this->drop_sink_((uint8_t) listed);
     }
+    memset(this->sink_want_, 0, 6);
 
     /* CLEARED HERE rather than left to the disconnection event, and the input
      * side has always done so. Waiting means this board goes on believing it
@@ -1522,6 +1542,10 @@ void UsbBluetooth::forget() {
   this->remembered_pref_.save(&this->remembered_);
   this->remembered_inputs_ = RememberedInputs{};
   this->inputs_pref_.save(&this->remembered_inputs_);
+  this->remembered_sinks_ = RememberedSinks{};
+  this->sinks_pref_.save(&this->remembered_sinks_);
+  memset(this->sink_names_, 0, sizeof(this->sink_names_));
+  memset(this->sink_want_, 0, 6);
   // The names go with them. A name left beside an address that has changed
   // reads as correct, which is worse than showing no name at all.
   this->sink_name_[0] = '\0';
@@ -1539,6 +1563,130 @@ void UsbBluetooth::forget() {
       keep->clear();
   }
   ESP_LOGI(TAG, "forgot %d paired device(s), link keys and roles both", bonded);
+#endif
+}
+
+int8_t UsbBluetooth::sink_slot_(const uint8_t *addr) const {
+  for (uint8_t i = 0; i < this->remembered_sinks_.count && i < MAX_SINKS; i++)
+    if (memcmp(this->remembered_sinks_.addr[i], addr, 6) == 0)
+      return (int8_t) i;
+  return -1;
+}
+
+void UsbBluetooth::add_sink_(const uint8_t *addr) {
+  if (this->sink_slot_(addr) >= 0)
+    return;
+  uint8_t at = this->remembered_sinks_.count;
+  if (at >= MAX_SINKS) {
+    /* FULL. The newest speaker is the one somebody just paired, so it stays;
+       the LAST row that is not the one playing makes room, and says so. */
+    at = MAX_SINKS - 1;
+    if (this->remembered_.has_sink && memcmp(this->remembered_sinks_.addr[at], this->remembered_.sink, 6) == 0)
+      at = MAX_SINKS - 2;
+    char text[18];
+    say_addr(text, this->remembered_sinks_.addr[at]);
+    ESP_LOGW(TAG, "%u speakers are remembered already; %s makes room for the new one", (unsigned) MAX_SINKS,
+             text);
+  } else {
+    this->remembered_sinks_.count++;
+  }
+  memcpy(this->remembered_sinks_.addr[at], addr, 6);
+  this->sink_names_[at][0] = '\0';
+  this->sinks_pref_.save(&this->remembered_sinks_);
+}
+
+void UsbBluetooth::drop_sink_(uint8_t slot) {
+  if (slot >= this->remembered_sinks_.count)
+    return;
+  for (uint8_t i = slot; i + 1 < this->remembered_sinks_.count; i++) {
+    memcpy(this->remembered_sinks_.addr[i], this->remembered_sinks_.addr[i + 1], 6);
+    memcpy(this->sink_names_[i], this->sink_names_[i + 1], sizeof(this->sink_names_[i]));
+  }
+  this->remembered_sinks_.count--;
+  memset(this->remembered_sinks_.addr[this->remembered_sinks_.count], 0, 6);
+  this->sink_names_[this->remembered_sinks_.count][0] = '\0';
+  this->sinks_pref_.save(&this->remembered_sinks_);
+}
+
+void UsbBluetooth::use_speaker(uint8_t slot) {
+#if defined(CONFIG_BT_BLUEDROID_ENABLED) && defined(CONFIG_BT_A2DP_ENABLE)
+  if (slot >= this->remembered_sinks_.count) {
+    ESP_LOGW(TAG, "no speaker is remembered in slot %u", (unsigned) slot + 1);
+    return;
+  }
+  const uint8_t *addr = this->remembered_sinks_.addr[slot];
+  char text[18];
+  say_addr(text, addr);
+  if (this->a2dp_open_ && memcmp(this->open_sink_, addr, 6) == 0) {
+    ESP_LOGI(TAG, "%s is already the speaker playing", text);
+    return;
+  }
+  ESP_LOGI(TAG, "switching to the speaker %s", text);
+  /* IT BECOMES THE SPEAKER NOW, not once it has connected: the reconnection
+     clock pages the speaker in `Remembered`, and leaving the old one there
+     would have it paged back the moment it was hung up. */
+  memcpy(this->remembered_.sink, addr, 6);
+  this->remembered_.has_sink = true;
+  this->remembered_pref_.save(&this->remembered_);
+  memcpy(this->sink_name_, this->sink_names_[slot], sizeof(this->sink_name_));
+  this->reconnect_backoff_ms_ = RECONNECT_FIRST_MS;
+  this->request_sink_(addr);
+#else
+  (void) slot;
+#endif
+}
+
+void UsbBluetooth::forget_speaker_slot(uint8_t slot) {
+#if defined(CONFIG_BT_BLUEDROID_ENABLED)
+  if (!this->profiles_up_) {
+    ESP_LOGW(TAG, "nothing to forget yet -- no dongle has answered");
+    return;
+  }
+  if (slot >= this->remembered_sinks_.count) {
+    ESP_LOGW(TAG, "no speaker is remembered in slot %u, so there is nothing to forget", (unsigned) slot + 1);
+    return;
+  }
+  const uint8_t *addr = this->remembered_sinks_.addr[slot];
+  if (this->remembered_.has_sink && memcmp(addr, this->remembered_.sink, 6) == 0) {
+    this->forget_one(true);  // the one playing: hung up first, as ever
+    return;
+  }
+  char text[18];
+  say_addr(text, addr);
+  esp_bd_addr_t target;
+  memcpy(target, addr, 6);
+  // Not the one playing, so not connected -- but hung up anyway if it is, for
+  // the reason forget_one gives about a bond removed under a live link.
+  if (this->a2dp_open_ && memcmp(this->open_sink_, addr, 6) == 0)
+    this->drop_link_to_(addr, true);
+  esp_bt_gap_remove_bond_device(target);
+  if (memcmp(this->sink_want_, addr, 6) == 0)
+    memset(this->sink_want_, 0, 6);
+  this->drop_sink_(slot);
+  ESP_LOGI(TAG, "forgot the speaker %s -- link key and role both", text);
+#else
+  (void) slot;
+#endif
+}
+
+std::string UsbBluetooth::describe_speaker(uint8_t slot) const {
+#if defined(CONFIG_BT_BLUEDROID_ENABLED)
+  if (slot >= this->remembered_sinks_.count)
+    return "none";
+  const uint8_t *addr = this->remembered_sinks_.addr[slot];
+  const bool playing_one = this->remembered_.has_sink && memcmp(addr, this->remembered_.sink, 6) == 0;
+  if (playing_one) {
+    const bool open = this->a2dp_open_ && memcmp(this->open_sink_, addr, 6) == 0;
+    return this->describe_device_(addr, this->sink_names_[slot][0] != '\0' ? this->sink_names_[slot] : this->sink_name_,
+                                  open);
+  }
+  char text[18];
+  say_addr(text, addr);
+  const char *name = this->sink_names_[slot];
+  return name[0] != '\0' ? std::string(name) + " (" + text + ") not in use" : std::string(text) + " not in use";
+#else
+  (void) slot;
+  return "none";
 #endif
 }
 

@@ -11,7 +11,9 @@ static const char *const TAG = "usb_bluetooth.text_sensor";
 
 void UsbBluetoothTextSensor::dump_config() {
   LOG_TEXT_SENSOR("", "USB Bluetooth device", this);
-  if (this->speaker_)
+  if (this->speaker_ && this->slot_ != 0)
+    ESP_LOGCONFIG(TAG, "  Reporting speaker slot %u", (unsigned) this->slot_);
+  else if (this->speaker_)
     ESP_LOGCONFIG(TAG, "  Reporting the speaker");
   else if (this->slot_ != 0)
     ESP_LOGCONFIG(TAG, "  Reporting input slot %u", (unsigned) this->slot_);
@@ -22,8 +24,13 @@ void UsbBluetoothTextSensor::dump_config() {
 void UsbBluetoothTextSensor::update() {
   if (this->parent_ == nullptr)
     return;
-  const std::string now = !this->speaker_ && this->slot_ != 0 ? this->parent_->describe_input(this->slot_ - 1)
-                                                               : this->parent_->describe_role(this->speaker_);
+  std::string now;
+  if (this->slot_ == 0)
+    now = this->parent_->describe_role(this->speaker_);
+  else if (this->speaker_)
+    now = this->parent_->describe_speaker(this->slot_ - 1);
+  else
+    now = this->parent_->describe_input(this->slot_ - 1);
   // Only on a change: an unchanged state is still a message on the API
   // connection, and this one is read by somebody glancing at a card.
   if (!this->has_state() || this->state != now)

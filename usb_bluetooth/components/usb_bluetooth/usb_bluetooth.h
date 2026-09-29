@@ -203,6 +203,18 @@ struct RememberedInputs {
   uint8_t count;
 } __attribute__((packed));
 
+/* SEVERAL SPEAKERS REMEMBERED, ONE PLAYING. A2DP source is one stream --
+ * Bluedroid's btc_av holds one peer -- so only one plays at a time; what this
+ * adds is not having to pair again to go from the car receiver to a headset.
+ * The one playing is `Remembered.sink`, as it always was, and the reconnection
+ * clock pages that one only. Its own record under its own key, for the reason
+ * RememberedInputs gives. */
+static constexpr uint8_t MAX_SINKS = 4;
+struct RememberedSinks {
+  uint8_t addr[MAX_SINKS][6];
+  uint8_t count;
+} __attribute__((packed));
+
 /* The four analog axes a gamepad is steered with, and the report SHAPES a
    device may name itself over -- both per device, which is why they are here
    rather than inside the component. */
@@ -304,7 +316,27 @@ class UsbBluetooth : public Component {
   bool speaker_connected() const { return this->a2dp_open_; }
   void on_a2dp_ready();
   void on_a2dp_open(const uint8_t *addr);
-  void on_a2dp_closed(bool abnormal);
+  /// `addr` is the device the stack says went away -- the one a connection
+  /// was being asked of, when the attempt failed. nullptr where it is not
+  /// known.
+  void on_a2dp_closed(bool abnormal, const uint8_t *addr = nullptr);
+  /// The stack is connecting or disconnecting a speaker: nothing else may be
+  /// asked of it until that settles.
+  void on_a2dp_busy();
+  /* ONE SPEAKER AT A TIME, IN ORDER.
+   *
+   * Asking for a new speaker while the old one is still connected -- or while
+   * the old one is still being paged -- is dropped by Bluedroid without a word.
+   * Read in ESP-IDF v5.5.5's btc_av.c: a connection request in the CLOSING
+   * state reaches the handler's `default:` and is unhandled, and one in the
+   * OPENING state for another device is answered DISCONNECTED and thrown
+   * away. So hanging up the old speaker and asking for the new one in the
+   * same breath asked for nothing, and the reconnection clock then paged the
+   * OLD speaker back. Reported as a headset and earbuds that "ne prend pas".
+   *
+   * So the new one is WANTED, and sink_step_() asks for it only once the stack
+   * is free: the old link closed, no page in flight. */
+  void request_sink_(const uint8_t *addr);
   void on_a2dp_audio(bool started);
   /// AVRCP, from the speaker's own buttons. `code` is an esp_avrc_pt_cmd_t --
   /// 0x44 play, 0x46 pause, 0x4B next, 0x4C previous -- and the volume is a
@@ -488,6 +520,16 @@ class UsbBluetooth : public Component {
   /// nothing sits in it -- one row of a screen that lists them.
   std::string describe_input(uint8_t slot) const;
 
+  /// Play through the speaker remembered in `slot` (0 .. MAX_SINKS - 1)
+  /// instead of the one playing now: the one playing is hung up, and this one
+  /// asked for once the stack has let it go.
+  void use_speaker(uint8_t slot);
+  /// Forget the speaker in `slot` -- hung up first if it is the one playing.
+  void forget_speaker_slot(uint8_t slot);
+  /// One remembered speaker, for a row on a screen: "in use" and connected or
+  /// away for the one playing, "not in use" for the others, "none" when empty.
+  std::string describe_speaker(uint8_t slot) const;
+
   /// One line for a text sensor: what the device calls itself, its address,
   /// and whether it is connected -- or "none".
   ///
@@ -621,6 +663,7 @@ class UsbBluetooth : public Component {
   void start_a2dp_();
   void remember_sink_(const uint8_t *addr);
   void a2dp_reconnect_();
+  void sink_step_();
   void drain_media_();
 
   // Attaches the transport, initialises Bluedroid and enables it, in that
@@ -701,6 +744,20 @@ class UsbBluetooth : public Component {
   static constexpr uint32_t A2DP_IDLE_MS = 10000;
   uint32_t pcm_fed_at_{0};
   bool a2dp_ctrl_asked_{false};
+  // The speaker wanted next, and what has been done about it; see
+  // request_sink_(). Cleared when it connects, when its attempt fails, and
+  // after SINK_WANT_MS whatever happened.
+  uint8_t sink_want_[6]{};
+  uint32_t sink_want_until_{0};
+  bool sink_want_asked_{false};
+  bool sink_hanging_up_{false};
+  // A connect or disconnect in flight. Set when one is asked for and when the
+  // stack says CONNECTING or DISCONNECTING; cleared when it settles, and after
+  // A2DP_BUSY_MS in case it never says so.
+  volatile bool a2dp_busy_{false};
+  uint32_t a2dp_busy_since_{0};
+  static constexpr uint32_t SINK_WANT_MS = 30000;
+  static constexpr uint32_t A2DP_BUSY_MS = 15000;
   void a2dp_idle_tick_();
 
   RealtekImage rtl_images_[MAX_RTL_IMAGES]{};
@@ -814,6 +871,12 @@ class UsbBluetooth : public Component {
   Remembered remembered_{};
   ESPPreferenceObject remembered_pref_;
   RememberedInputs remembered_inputs_{};
+  RememberedSinks remembered_sinks_{};
+  ESPPreferenceObject sinks_pref_;
+  char sink_names_[MAX_SINKS][MAX_REMOTE_NAME + 1]{};
+  int8_t sink_slot_(const uint8_t *addr) const;
+  void add_sink_(const uint8_t *addr);
+  void drop_sink_(uint8_t slot);
   ESPPreferenceObject inputs_pref_;
   /* Which remembered input device gets asked for next. A page is 5.12 s of
      radio by default, and this component already had to learn that overlapping
@@ -899,7 +962,26 @@ template<typename... Ts> class ForgetAction final : public Action<Ts...>, public
  * knows what the button does without looking anything up. */
 template<typename... Ts> class ForgetSpeakerAction final : public Action<Ts...>, public Parented<UsbBluetooth> {
  public:
-  void play(const Ts &...) override { this->parent_->forget_one(true); }
+  /// 0 forgets the speaker playing; 1 .. MAX_SINKS the one in that slot.
+  void set_slot(uint8_t slot) { this->slot_ = slot; }
+  void play(const Ts &...) override {
+    if (this->slot_ == 0)
+      this->parent_->forget_one(true);
+    else
+      this->parent_->forget_speaker_slot(this->slot_ - 1);
+  }
+
+ protected:
+  uint8_t slot_{0};
+};
+
+template<typename... Ts> class UseSpeakerAction final : public Action<Ts...>, public Parented<UsbBluetooth> {
+ public:
+  void set_slot(uint8_t slot) { this->slot_ = slot; }
+  void play(const Ts &...) override { this->parent_->use_speaker(this->slot_ - 1); }
+
+ protected:
+  uint8_t slot_{1};
 };
 
 template<typename... Ts> class ForgetInputAction final : public Action<Ts...>, public Parented<UsbBluetooth> {

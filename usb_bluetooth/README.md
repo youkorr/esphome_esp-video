@@ -59,7 +59,8 @@ and a media player sounding through Bluetooth, is in
 | `test_tone` | `0` | A sine in Hz played when nothing else is, to prove the speaker link. |
 
 Actions: `usb_bluetooth.pair`, `usb_bluetooth.forget`,
-`usb_bluetooth.forget_speaker`, `usb_bluetooth.forget_input`.
+`usb_bluetooth.forget_speaker`, `usb_bluetooth.forget_input`,
+`usb_bluetooth.use_speaker`.
 Platforms: `speaker`, `binary_sensor` (`key:`), `switch` (Bluetooth on/off),
 `text_sensor` (`speaker:` / `input:`, which device and whether it is
 connected).
@@ -70,6 +71,17 @@ reports that slot alone (`none` when it is empty), and
 `usb_bluetooth.forget_input` takes the same `slot:` to forget that one device
 and leave the others. Without `slot:` both work on all of them. The example's
 Settings page is built this way: a row per device with its own Forget.
+
+Up to four speakers are remembered too, and ONE plays at a time -- an A2DP
+source is one stream with one encoder. Pairing a new speaker adds it and makes
+it the one playing. `speaker:` with `slot: 1` to `4` reports that speaker
+alone -- its name and whether it is connected, `not in use` for one that is
+remembered and not playing, `none` for an empty slot -- and
+`usb_bluetooth.use_speaker` with the same `slot:` switches to it: the one
+playing is hung up, and the chosen one is asked for only once the stack says
+the first link is closed (Bluedroid drops a connection asked for while
+another is still closing). `usb_bluetooth.forget_speaker` takes `slot:` too;
+without it, it forgets the one playing.
 
 ## Keys, and LVGL
 

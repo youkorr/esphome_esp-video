@@ -132,25 +132,21 @@ usb_bluetooth:
   device_name: Tab5
 
 text_sensor:
-  # For Home Assistant: the speaker, and every remote or controller on one
-  # line. Also what the Settings screen shows for the speaker, and whether it
-  # says "None paired" under Remotes and controllers.
+  # For Home Assistant: the speaker playing, and every remote or controller
+  # on one line. On the screen they say whether a section reads "None paired".
   - platform: usb_bluetooth
     speaker:
       name: Bluetooth speaker
       icon: mdi:speaker-bluetooth
       update_interval: 1s
       on_value:
-        - lvgl.label.update:
-            id: lbl_speaker
-            text: !lambda 'return x == "none" ? std::string("No speaker paired") : x;'
         - if:
             condition:
               lambda: 'return x == "none";'
             then:
-              - lvgl.widget.hide: btn_forget_speaker
+              - lvgl.widget.show: lbl_no_speakers
             else:
-              - lvgl.widget.show: btn_forget_speaker
+              - lvgl.widget.hide: lbl_no_speakers
     input:
       name: Bluetooth remotes and controllers
       icon: mdi:remote
@@ -163,11 +159,107 @@ text_sensor:
               - lvgl.widget.show: lbl_no_inputs
             else:
               - lvgl.widget.hide: lbl_no_inputs
-  # For the screen: ONE row per input slot, 1 to 4, each with its own Forget
-  # (usb_bluetooth.forget_input with the same slot). Internal, because a slot
-  # means nothing on a Home Assistant card -- it means something here, where
-  # the row shows which device sits in it. A row hides itself when its slot
-  # is empty. Polled every second so a Forget shows at once.
+  # For the screen: ONE row per remembered speaker and per input slot, 1 to 4
+  # each, with its own buttons. Internal, because a slot means nothing on a
+  # Home Assistant card -- here the row shows which device sits in it. A row
+  # hides itself when its slot is empty, and a speaker's Use button shows only
+  # on the ones not playing. Polled every second so a change shows at once.
+  - platform: usb_bluetooth
+    speaker:
+      id: bt_speaker_1
+      internal: true
+      slot: 1
+      update_interval: 1s
+      on_value:
+        - lvgl.label.update:
+            id: lbl_speaker_1
+            text: !lambda return x;
+        - if:
+            condition:
+              lambda: 'return x == "none";'
+            then:
+              - lvgl.widget.hide: row_speaker_1
+            else:
+              - lvgl.widget.show: row_speaker_1
+        - if:
+            condition:
+              lambda: 'return x.find("not in use") != std::string::npos;'
+            then:
+              - lvgl.widget.show: btn_use_speaker_1
+            else:
+              - lvgl.widget.hide: btn_use_speaker_1
+  - platform: usb_bluetooth
+    speaker:
+      id: bt_speaker_2
+      internal: true
+      slot: 2
+      update_interval: 1s
+      on_value:
+        - lvgl.label.update:
+            id: lbl_speaker_2
+            text: !lambda return x;
+        - if:
+            condition:
+              lambda: 'return x == "none";'
+            then:
+              - lvgl.widget.hide: row_speaker_2
+            else:
+              - lvgl.widget.show: row_speaker_2
+        - if:
+            condition:
+              lambda: 'return x.find("not in use") != std::string::npos;'
+            then:
+              - lvgl.widget.show: btn_use_speaker_2
+            else:
+              - lvgl.widget.hide: btn_use_speaker_2
+  - platform: usb_bluetooth
+    speaker:
+      id: bt_speaker_3
+      internal: true
+      slot: 3
+      update_interval: 1s
+      on_value:
+        - lvgl.label.update:
+            id: lbl_speaker_3
+            text: !lambda return x;
+        - if:
+            condition:
+              lambda: 'return x == "none";'
+            then:
+              - lvgl.widget.hide: row_speaker_3
+            else:
+              - lvgl.widget.show: row_speaker_3
+        - if:
+            condition:
+              lambda: 'return x.find("not in use") != std::string::npos;'
+            then:
+              - lvgl.widget.show: btn_use_speaker_3
+            else:
+              - lvgl.widget.hide: btn_use_speaker_3
+  - platform: usb_bluetooth
+    speaker:
+      id: bt_speaker_4
+      internal: true
+      slot: 4
+      update_interval: 1s
+      on_value:
+        - lvgl.label.update:
+            id: lbl_speaker_4
+            text: !lambda return x;
+        - if:
+            condition:
+              lambda: 'return x == "none";'
+            then:
+              - lvgl.widget.hide: row_speaker_4
+            else:
+              - lvgl.widget.show: row_speaker_4
+        - if:
+            condition:
+              lambda: 'return x.find("not in use") != std::string::npos;'
+            then:
+              - lvgl.widget.show: btn_use_speaker_4
+            else:
+              - lvgl.widget.hide: btn_use_speaker_4
   - platform: usb_bluetooth
     input:
       id: bt_input_1
@@ -466,8 +558,10 @@ lvgl:
             on_click:
               - lvgl.page.show: settings_page
 
-    # What is paired, one row per device with a Forget beside it. A Forget
-    # hangs that device up and removes its pairing; nothing else is touched.
+    # What is paired, one row per device. Speakers: several are remembered
+    # and ONE plays -- Use switches to another, Forget removes one. Remotes
+    # and controllers: up to four at once. Side by side on a landscape screen,
+    # one above the other in portrait.
     - id: settings_page
       bg_color: 0x10141c
       scrollable: false
@@ -478,226 +572,450 @@ lvgl:
         flex_align_main: center
         flex_align_cross: center
         flex_align_track: center
-        pad_row: 10
+        pad_row: 14
       widgets:
         - label:
-            margin_bottom: 6
             text: "Bluetooth"
             text_color: 0xe6e9ef
             text_font: montserrat_28
-        - label:
-            text: "Speaker"
-            text_color: 0x8a94a6
-            text_font: montserrat_20
         - obj:
-            id: row_speaker
-            width: 680
+            width: 100%
             height: SIZE_CONTENT
-            bg_color: 0x1b2130
+            bg_opa: TRANSP
             border_width: 0
-            radius: 12
-            pad_all: 10
-            pad_left: 18
+            pad_all: 0
             scrollable: false
             layout:
               type: flex
-              flex_flow: row
-              flex_align_cross: center
+              flex_flow: row_wrap
+              flex_align_main: center
+              flex_align_cross: start
               flex_align_track: center
-              pad_column: 12
+              pad_row: 16
+              pad_column: 24
             widgets:
-              - label:
-                  id: lbl_speaker
-                  flex_grow: 1
-                  long_mode: WRAP
-                  text: ""
-                  text_color: 0xe6e9ef
-                  text_font: montserrat_20
-              - button:
-                  id: btn_forget_speaker
-                  width: 130
-                  height: 52
-                  bg_color: 0x6b2f37
-                  widgets:
-                    - label:
-                        align: CENTER
-                        text: "Forget"
-                        text_font: montserrat_20
-                  on_click:
-                    - usb_bluetooth.forget_speaker: dongle
-        - label:
-            margin_top: 8
-            text: "Remotes and controllers"
-            text_color: 0x8a94a6
-            text_font: montserrat_20
-        - label:
-            id: lbl_no_inputs
-            text: "None paired"
-            text_color: 0xe6e9ef
-            text_font: montserrat_20
-        - obj:
-            id: row_input_1
-            hidden: true
-            width: 680
-            height: SIZE_CONTENT
-            bg_color: 0x1b2130
-            border_width: 0
-            radius: 12
-            pad_all: 10
-            pad_left: 18
-            scrollable: false
-            layout:
-              type: flex
-              flex_flow: row
-              flex_align_cross: center
-              flex_align_track: center
-              pad_column: 12
-            widgets:
-              - label:
-                  id: lbl_input_1
-                  flex_grow: 1
-                  long_mode: WRAP
-                  text: ""
-                  text_color: 0xe6e9ef
-                  text_font: montserrat_20
-              - button:
-                  id: btn_forget_input_1
-                  width: 130
-                  height: 52
-                  bg_color: 0x6b2f37
-                  widgets:
-                    - label:
-                        align: CENTER
-                        text: "Forget"
-                        text_font: montserrat_20
-                  on_click:
-                    - usb_bluetooth.forget_input:
-                        id: dongle
-                        slot: 1
-        - obj:
-            id: row_input_2
-            hidden: true
-            width: 680
-            height: SIZE_CONTENT
-            bg_color: 0x1b2130
-            border_width: 0
-            radius: 12
-            pad_all: 10
-            pad_left: 18
-            scrollable: false
-            layout:
-              type: flex
-              flex_flow: row
-              flex_align_cross: center
-              flex_align_track: center
-              pad_column: 12
-            widgets:
-              - label:
-                  id: lbl_input_2
-                  flex_grow: 1
-                  long_mode: WRAP
-                  text: ""
-                  text_color: 0xe6e9ef
-                  text_font: montserrat_20
-              - button:
-                  id: btn_forget_input_2
-                  width: 130
-                  height: 52
-                  bg_color: 0x6b2f37
-                  widgets:
-                    - label:
-                        align: CENTER
-                        text: "Forget"
-                        text_font: montserrat_20
-                  on_click:
-                    - usb_bluetooth.forget_input:
-                        id: dongle
-                        slot: 2
-        - obj:
-            id: row_input_3
-            hidden: true
-            width: 680
-            height: SIZE_CONTENT
-            bg_color: 0x1b2130
-            border_width: 0
-            radius: 12
-            pad_all: 10
-            pad_left: 18
-            scrollable: false
-            layout:
-              type: flex
-              flex_flow: row
-              flex_align_cross: center
-              flex_align_track: center
-              pad_column: 12
-            widgets:
-              - label:
-                  id: lbl_input_3
-                  flex_grow: 1
-                  long_mode: WRAP
-                  text: ""
-                  text_color: 0xe6e9ef
-                  text_font: montserrat_20
-              - button:
-                  id: btn_forget_input_3
-                  width: 130
-                  height: 52
-                  bg_color: 0x6b2f37
-                  widgets:
-                    - label:
-                        align: CENTER
-                        text: "Forget"
-                        text_font: montserrat_20
-                  on_click:
-                    - usb_bluetooth.forget_input:
-                        id: dongle
-                        slot: 3
-        - obj:
-            id: row_input_4
-            hidden: true
-            width: 680
-            height: SIZE_CONTENT
-            bg_color: 0x1b2130
-            border_width: 0
-            radius: 12
-            pad_all: 10
-            pad_left: 18
-            scrollable: false
-            layout:
-              type: flex
-              flex_flow: row
-              flex_align_cross: center
-              flex_align_track: center
-              pad_column: 12
-            widgets:
-              - label:
-                  id: lbl_input_4
-                  flex_grow: 1
-                  long_mode: WRAP
-                  text: ""
-                  text_color: 0xe6e9ef
-                  text_font: montserrat_20
-              - button:
-                  id: btn_forget_input_4
-                  width: 130
-                  height: 52
-                  bg_color: 0x6b2f37
-                  widgets:
-                    - label:
-                        align: CENTER
-                        text: "Forget"
-                        text_font: montserrat_20
-                  on_click:
-                    - usb_bluetooth.forget_input:
-                        id: dongle
-                        slot: 4
+            - obj:
+                width: 600
+                height: SIZE_CONTENT
+                bg_opa: TRANSP
+                border_width: 0
+                pad_all: 0
+                scrollable: false
+                layout:
+                  type: flex
+                  flex_flow: column
+                  flex_align_cross: center
+                  pad_row: 8
+                widgets:
+                  - label:
+                      text: "Speakers -- one plays at a time"
+                      text_color: 0x8a94a6
+                      text_font: montserrat_20
+                  - label:
+                      id: lbl_no_speakers
+                      text: "None paired"
+                      text_color: 0xe6e9ef
+                      text_font: montserrat_20
+                  - obj:
+                      id: row_speaker_1
+                      hidden: true
+                      width: 600
+                      height: SIZE_CONTENT
+                      bg_color: 0x1b2130
+                      border_width: 0
+                      radius: 12
+                      pad_all: 8
+                      pad_left: 16
+                      scrollable: false
+                      layout:
+                        type: flex
+                        flex_flow: row
+                        flex_align_cross: center
+                        flex_align_track: center
+                        pad_column: 10
+                      widgets:
+                        - label:
+                            id: lbl_speaker_1
+                            flex_grow: 1
+                            long_mode: WRAP
+                            text: ""
+                            text_color: 0xe6e9ef
+                            text_font: montserrat_20
+                        - button:
+                            id: btn_use_speaker_1
+                            hidden: true
+                            width: 90
+                            height: 48
+                            bg_color: 0x2b4a3a
+                            widgets:
+                              - label:
+                                  align: CENTER
+                                  text: "Use"
+                                  text_font: montserrat_20
+                            on_click:
+                              - usb_bluetooth.use_speaker:
+                                  id: dongle
+                                  slot: 1
+                        - button:
+                            id: btn_forget_speaker_1
+                            width: 110
+                            height: 48
+                            bg_color: 0x6b2f37
+                            widgets:
+                              - label:
+                                  align: CENTER
+                                  text: "Forget"
+                                  text_font: montserrat_20
+                            on_click:
+                              - usb_bluetooth.forget_speaker:
+                                  id: dongle
+                                  slot: 1
+                  - obj:
+                      id: row_speaker_2
+                      hidden: true
+                      width: 600
+                      height: SIZE_CONTENT
+                      bg_color: 0x1b2130
+                      border_width: 0
+                      radius: 12
+                      pad_all: 8
+                      pad_left: 16
+                      scrollable: false
+                      layout:
+                        type: flex
+                        flex_flow: row
+                        flex_align_cross: center
+                        flex_align_track: center
+                        pad_column: 10
+                      widgets:
+                        - label:
+                            id: lbl_speaker_2
+                            flex_grow: 1
+                            long_mode: WRAP
+                            text: ""
+                            text_color: 0xe6e9ef
+                            text_font: montserrat_20
+                        - button:
+                            id: btn_use_speaker_2
+                            hidden: true
+                            width: 90
+                            height: 48
+                            bg_color: 0x2b4a3a
+                            widgets:
+                              - label:
+                                  align: CENTER
+                                  text: "Use"
+                                  text_font: montserrat_20
+                            on_click:
+                              - usb_bluetooth.use_speaker:
+                                  id: dongle
+                                  slot: 2
+                        - button:
+                            id: btn_forget_speaker_2
+                            width: 110
+                            height: 48
+                            bg_color: 0x6b2f37
+                            widgets:
+                              - label:
+                                  align: CENTER
+                                  text: "Forget"
+                                  text_font: montserrat_20
+                            on_click:
+                              - usb_bluetooth.forget_speaker:
+                                  id: dongle
+                                  slot: 2
+                  - obj:
+                      id: row_speaker_3
+                      hidden: true
+                      width: 600
+                      height: SIZE_CONTENT
+                      bg_color: 0x1b2130
+                      border_width: 0
+                      radius: 12
+                      pad_all: 8
+                      pad_left: 16
+                      scrollable: false
+                      layout:
+                        type: flex
+                        flex_flow: row
+                        flex_align_cross: center
+                        flex_align_track: center
+                        pad_column: 10
+                      widgets:
+                        - label:
+                            id: lbl_speaker_3
+                            flex_grow: 1
+                            long_mode: WRAP
+                            text: ""
+                            text_color: 0xe6e9ef
+                            text_font: montserrat_20
+                        - button:
+                            id: btn_use_speaker_3
+                            hidden: true
+                            width: 90
+                            height: 48
+                            bg_color: 0x2b4a3a
+                            widgets:
+                              - label:
+                                  align: CENTER
+                                  text: "Use"
+                                  text_font: montserrat_20
+                            on_click:
+                              - usb_bluetooth.use_speaker:
+                                  id: dongle
+                                  slot: 3
+                        - button:
+                            id: btn_forget_speaker_3
+                            width: 110
+                            height: 48
+                            bg_color: 0x6b2f37
+                            widgets:
+                              - label:
+                                  align: CENTER
+                                  text: "Forget"
+                                  text_font: montserrat_20
+                            on_click:
+                              - usb_bluetooth.forget_speaker:
+                                  id: dongle
+                                  slot: 3
+                  - obj:
+                      id: row_speaker_4
+                      hidden: true
+                      width: 600
+                      height: SIZE_CONTENT
+                      bg_color: 0x1b2130
+                      border_width: 0
+                      radius: 12
+                      pad_all: 8
+                      pad_left: 16
+                      scrollable: false
+                      layout:
+                        type: flex
+                        flex_flow: row
+                        flex_align_cross: center
+                        flex_align_track: center
+                        pad_column: 10
+                      widgets:
+                        - label:
+                            id: lbl_speaker_4
+                            flex_grow: 1
+                            long_mode: WRAP
+                            text: ""
+                            text_color: 0xe6e9ef
+                            text_font: montserrat_20
+                        - button:
+                            id: btn_use_speaker_4
+                            hidden: true
+                            width: 90
+                            height: 48
+                            bg_color: 0x2b4a3a
+                            widgets:
+                              - label:
+                                  align: CENTER
+                                  text: "Use"
+                                  text_font: montserrat_20
+                            on_click:
+                              - usb_bluetooth.use_speaker:
+                                  id: dongle
+                                  slot: 4
+                        - button:
+                            id: btn_forget_speaker_4
+                            width: 110
+                            height: 48
+                            bg_color: 0x6b2f37
+                            widgets:
+                              - label:
+                                  align: CENTER
+                                  text: "Forget"
+                                  text_font: montserrat_20
+                            on_click:
+                              - usb_bluetooth.forget_speaker:
+                                  id: dongle
+                                  slot: 4
+            - obj:
+                width: 600
+                height: SIZE_CONTENT
+                bg_opa: TRANSP
+                border_width: 0
+                pad_all: 0
+                scrollable: false
+                layout:
+                  type: flex
+                  flex_flow: column
+                  flex_align_cross: center
+                  pad_row: 8
+                widgets:
+                  - label:
+                      text: "Remotes and controllers"
+                      text_color: 0x8a94a6
+                      text_font: montserrat_20
+                  - label:
+                      id: lbl_no_inputs
+                      text: "None paired"
+                      text_color: 0xe6e9ef
+                      text_font: montserrat_20
+                  - obj:
+                      id: row_input_1
+                      hidden: true
+                      width: 600
+                      height: SIZE_CONTENT
+                      bg_color: 0x1b2130
+                      border_width: 0
+                      radius: 12
+                      pad_all: 8
+                      pad_left: 16
+                      scrollable: false
+                      layout:
+                        type: flex
+                        flex_flow: row
+                        flex_align_cross: center
+                        flex_align_track: center
+                        pad_column: 10
+                      widgets:
+                        - label:
+                            id: lbl_input_1
+                            flex_grow: 1
+                            long_mode: WRAP
+                            text: ""
+                            text_color: 0xe6e9ef
+                            text_font: montserrat_20
+                        - button:
+                            id: btn_forget_input_1
+                            width: 110
+                            height: 48
+                            bg_color: 0x6b2f37
+                            widgets:
+                              - label:
+                                  align: CENTER
+                                  text: "Forget"
+                                  text_font: montserrat_20
+                            on_click:
+                              - usb_bluetooth.forget_input:
+                                  id: dongle
+                                  slot: 1
+                  - obj:
+                      id: row_input_2
+                      hidden: true
+                      width: 600
+                      height: SIZE_CONTENT
+                      bg_color: 0x1b2130
+                      border_width: 0
+                      radius: 12
+                      pad_all: 8
+                      pad_left: 16
+                      scrollable: false
+                      layout:
+                        type: flex
+                        flex_flow: row
+                        flex_align_cross: center
+                        flex_align_track: center
+                        pad_column: 10
+                      widgets:
+                        - label:
+                            id: lbl_input_2
+                            flex_grow: 1
+                            long_mode: WRAP
+                            text: ""
+                            text_color: 0xe6e9ef
+                            text_font: montserrat_20
+                        - button:
+                            id: btn_forget_input_2
+                            width: 110
+                            height: 48
+                            bg_color: 0x6b2f37
+                            widgets:
+                              - label:
+                                  align: CENTER
+                                  text: "Forget"
+                                  text_font: montserrat_20
+                            on_click:
+                              - usb_bluetooth.forget_input:
+                                  id: dongle
+                                  slot: 2
+                  - obj:
+                      id: row_input_3
+                      hidden: true
+                      width: 600
+                      height: SIZE_CONTENT
+                      bg_color: 0x1b2130
+                      border_width: 0
+                      radius: 12
+                      pad_all: 8
+                      pad_left: 16
+                      scrollable: false
+                      layout:
+                        type: flex
+                        flex_flow: row
+                        flex_align_cross: center
+                        flex_align_track: center
+                        pad_column: 10
+                      widgets:
+                        - label:
+                            id: lbl_input_3
+                            flex_grow: 1
+                            long_mode: WRAP
+                            text: ""
+                            text_color: 0xe6e9ef
+                            text_font: montserrat_20
+                        - button:
+                            id: btn_forget_input_3
+                            width: 110
+                            height: 48
+                            bg_color: 0x6b2f37
+                            widgets:
+                              - label:
+                                  align: CENTER
+                                  text: "Forget"
+                                  text_font: montserrat_20
+                            on_click:
+                              - usb_bluetooth.forget_input:
+                                  id: dongle
+                                  slot: 3
+                  - obj:
+                      id: row_input_4
+                      hidden: true
+                      width: 600
+                      height: SIZE_CONTENT
+                      bg_color: 0x1b2130
+                      border_width: 0
+                      radius: 12
+                      pad_all: 8
+                      pad_left: 16
+                      scrollable: false
+                      layout:
+                        type: flex
+                        flex_flow: row
+                        flex_align_cross: center
+                        flex_align_track: center
+                        pad_column: 10
+                      widgets:
+                        - label:
+                            id: lbl_input_4
+                            flex_grow: 1
+                            long_mode: WRAP
+                            text: ""
+                            text_color: 0xe6e9ef
+                            text_font: montserrat_20
+                        - button:
+                            id: btn_forget_input_4
+                            width: 110
+                            height: 48
+                            bg_color: 0x6b2f37
+                            widgets:
+                              - label:
+                                  align: CENTER
+                                  text: "Forget"
+                                  text_font: montserrat_20
+                            on_click:
+                              - usb_bluetooth.forget_input:
+                                  id: dongle
+                                  slot: 4
         - obj:
             width: 680
             height: SIZE_CONTENT
             bg_opa: TRANSP
             border_width: 0
             pad_all: 0
-            margin_top: 8
             scrollable: false
             layout:
               type: flex
