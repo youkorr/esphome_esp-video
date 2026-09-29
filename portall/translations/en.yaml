@@ -190,6 +190,9 @@ configuration:
             description: For example weather.forecast_home. Empty = no weather.
           size:
             name: Size
+          color:
+            name: Temperature colour
+            description: theme = the theme's own colour. The sky is an emoji and keeps its colours.
       background:
         name: 🖼️ Wallpaper
         fields:
@@ -312,6 +315,8 @@ configuration:
         description: For example weather.forecast_home.
       weather_size:
         name: ⛅ Weather size
+      weather_color:
+        name: ⛅ Temperature colour
       background:
         name: 🖼️ Wallpaper
         description: An address (http://…) or a file / folder in /media.

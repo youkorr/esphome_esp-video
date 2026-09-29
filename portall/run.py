@@ -384,7 +384,7 @@ def truthy(value):
 LAUNCHER_OWN = (
     "theme", "columns", "align", "tiles", "focus_color", "avatar",
     "avatar_shape", "avatar_voice", "clock", "clock_size", "clock_color", "date_size", "date_color",
-    "weather", "weather_size",
+    "weather", "weather_size", "weather_color",
     "background", "background_motion", "background_blur", "background_dim",
     "slideshow", "slideshow_urls", "slideshow_seconds", "slideshow_fade",
     "slideshow_rescan",
@@ -516,6 +516,8 @@ def start_launcher(config, port=None, house_links=(), label=""):
                        or launcher.FOLLOW_THEME),
         weather_size=str(config.get("launcher_weather_size")
                          or launcher.DEFAULT_SIZE),
+        weather_color=str(config.get("launcher_weather_color")
+                          or launcher.FOLLOW_THEME),
         align=str(config.get("launcher_align") or "left"),
         tiles=str(config.get("launcher_tiles") or "cards"),
         focus_color=str(config.get("launcher_focus_color")
@@ -637,7 +639,8 @@ _GROUPED = {
                   "color": "launcher_clock_color"},
         "date": {"size": "launcher_date_size", "color": "launcher_date_color"},
         "weather": {"entity": "launcher_weather",
-                    "size": "launcher_weather_size"},
+                    "size": "launcher_weather_size",
+                    "color": "launcher_weather_color"},
         "background": {"source": "launcher_background",
                        "motion": "launcher_background_motion",
                        "blur": "launcher_background_blur",

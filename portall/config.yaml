@@ -1,5 +1,5 @@
 name: Portall
-version: "4.30.2"
+version: "4.30.3"
 # Home Assistant identifies an add-on by its slug, so this one moving from
 # usb_display_panel to portall makes the Supervisor see a NEW add-on: options
 # are not carried over and /data starts empty, which means the browser
@@ -166,9 +166,11 @@ options:
       # token: and no url: from you, and it does not care where you put the
       # dashboard's token -- the page itself never reaches Home Assistant.
       entity: ""
-      # The weather has no colour of its own: it is an emoji, which a browser
-      # draws in its own colours whatever this said.
       size: medium
+      # The colour of the TEMPERATURE, the same list as the clock's and the
+      # date's. The sky beside it is an emoji, which a browser draws in its
+      # own colours whatever this says.
+      color: theme
     background:
       # A wallpaper is any of four things:
       #   nothing         -- the plain colour
@@ -394,6 +396,7 @@ schema:
     weather:
       entity: str?
       size: list(small|medium|large|huge)?
+      color: list(theme|slate|gray|zinc|neutral|stone|red|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose|white|black)?
     background:
       source: str?
       motion: bool?
@@ -435,6 +438,7 @@ schema:
       date_color: list(theme|slate|gray|zinc|neutral|stone|red|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose|white|black)?
       weather: str?
       weather_size: list(small|medium|large|huge)?
+      weather_color: list(theme|slate|gray|zinc|neutral|stone|red|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose|white|black)?
       background: str?
       background_motion: bool?
       background_blur: list(off|sm|md|xl)?

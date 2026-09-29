@@ -274,6 +274,7 @@ launcher:
   weather:
     entity: weather.forecast_home   # empty for none
     size: medium
+    color: theme              # the temperature's colour, the same palette names
   background:
     source: http://homeassistant:8123/local/wall.jpg
     motion: false             # let a GIF or an MP4 actually move
@@ -549,7 +550,7 @@ launcher's:
 | `theme`, `columns`, `align`, `tiles`, `focus_color`, `avatar`, `avatar_shape`, `avatar_voice` | `launcher: theme`, `columns`, `align`, `tiles`, `focus_color`, `avatar`, `avatar_shape`, `avatar_voice` |
 | `clock`, `clock_size`, `clock_color` | `launcher: clock: show`, `size`, `color` |
 | `date_size`, `date_color` | `launcher: date: size`, `color` |
-| `weather`, `weather_size` | `launcher: weather: entity`, `size` |
+| `weather`, `weather_size`, `weather_color` | `launcher: weather: entity`, `size`, `color` |
 | `background`, `background_motion`, `background_blur`, `background_dim` | `launcher: background: source`, `motion`, `blur`, `dim` |
 | `slideshow`, `slideshow_urls`, `slideshow_seconds`, `slideshow_fade`, `slideshow_rescan` | `launcher: slideshow: enabled`, `urls`, `seconds`, `fade`, `rescan` |
 
@@ -1304,6 +1305,7 @@ launcher:
     color: slate               # the same palette names
   weather:
     size: small                # the same four
+    color: amber               # the temperature, the same palette names
 ```
 
 This is Homepage's shape rather than its words: a fixed list for each thing
@@ -1323,8 +1325,9 @@ whichever theme is on.
 The date sits **under** the time, which is what a clock looks like everywhere
 else, and it carries the year.
 
-The weather has no colour of its own on purpose: it is an emoji, which the
-browser draws in its own colours whatever you asked for.
+The weather's colour is the **temperature's**. The sky beside it is an emoji,
+which the browser draws in its own colours whatever you ask for, so only the
+number takes the colour.
 
 ## The keyboard
 

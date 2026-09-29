@@ -2279,7 +2279,7 @@ def _one_focus(want):
 
 
 def _bar(clock_size, clock_color, date_size, date_color, weather_size, align,
-         focus_color=FOLLOW_THEME):
+         focus_color=FOLLOW_THEME, weather_color=FOLLOW_THEME):
     """The rules the named settings come to, or nothing when all are default.
 
     Every one of them is a list in the add-on's form, so what arrives here is
@@ -2295,6 +2295,11 @@ def _bar(clock_size, clock_color, date_size, date_color, weather_size, align,
     # rule as well as set a colour -- both live on .date, so the later one in
     # the sheet wins and this is it.
     out += _one_colour(".date", date_color)
+    # The TEMPERATURE, not the sky: the sky is an emoji and a browser draws
+    # those in their own colours whatever a rule says, while the number beside
+    # it is text, faint by default, and the same two-rule race as the date --
+    # .wx .out is (0,2,0) and this comes later in the sheet.
+    out += _one_colour(".wx .out", weather_color)
     out += _one_focus(focus_color)
     where = str(align or "left").lower()
     if where in ("center", "centre", "right"):
@@ -2315,7 +2320,7 @@ def render(links, title="", subtitle="", theme="dark",
            motion=False, slideshow=False, every=30, fade=1, rescan=60,
            urls=(), mirrored=False, shape="cards", focus_color=FOLLOW_THEME,
            avatar=False, avatar_at=None, voice=False,
-           avatar_shape=DEFAULT_AVATAR):
+           avatar_shape=DEFAULT_AVATAR, weather_color=FOLLOW_THEME):
     """The page, as one string.
 
     Every value is escaped. These come from a configuration file a person
@@ -2454,7 +2459,7 @@ def render(links, title="", subtitle="", theme="dark",
     # size of each widget on a fixed scale and has no CSS field at all, which
     # is the shape this follows now.
     sheet = _bar(clock_size, clock_color, date_size, date_color,
-                 weather_size, align, focus_color)
+                 weather_size, align, focus_color, weather_color)
 
     try:
         every, fade, rescan = float(every), float(fade), float(rescan)
@@ -2551,7 +2556,7 @@ def start(links, title="", subtitle="", theme="dark",
           motion=False, slideshow=False, every=30, fade=1, rescan=60,
           urls=(), port=PORT, tiles="cards", focus_color=FOLLOW_THEME,
           avatar=False, avatar_file=None, voice=None,
-          avatar_shape=DEFAULT_AVATAR):
+          avatar_shape=DEFAULT_AVATAR, weather_color=FOLLOW_THEME):
     """Serve the page for as long as the add-on runs. Returns its address.
 
     One call is one launcher: its links, its look, its weather, its
@@ -2639,7 +2644,8 @@ def start(links, title="", subtitle="", theme="dark",
                 motion, slideshow, every, fade, rescan, addresses,
                 mirrored, shape=tiles, focus_color=focus_color,
                 avatar=avatar, avatar_at=spot["at"],
-                voice=voice is not None, avatar_shape=avatar_shape).encode()
+                voice=voice is not None, avatar_shape=avatar_shape,
+                weather_color=weather_color).encode()
             held = cache["page"] = (key, body)
         return held[1]
 
