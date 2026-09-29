@@ -1,5 +1,16 @@
 # Changelog
 
+## 4.31.3
+
+- **A tile opens as soon as it is touched.** A tapped tile used to wait for
+  the add-on to release the pressed button before the link was opened. It is
+  handed over the moment the button goes down now: measured from the finger
+  lifting to the first picture of the new page, about 50 ms against about
+  150 in 4.31.2. A link opened by voice or by a remote starts in about 43 ms
+  instead of 40 to 80.
+- **Coming home takes half the time to settle**: the launcher is given
+  150 ms before its first picture instead of 300.
+
 ## 4.31.2
 
 - **A link starts showing at once.** Opening a link used to wait until the

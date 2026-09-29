@@ -141,6 +141,9 @@ FULL_REDRAW_SECONDS = 30.0
 # what bounds how stale a change can be before it is even noticed; not
 # zero, because each look is a round trip into the browser.
 PUMP_MS = 8
+# The beat while a new page is on its way -- see the loop. Only from a
+# navigation to the first picture of it.
+NEW_PAGE_PUMP_MS = 1
 # How often to say "still here" when there is nothing to send. A sender that
 # only transmits what changed is silent while nothing changes, and silence is
 # indistinguishable from having died; the board's patience has to be longer
@@ -1553,11 +1556,12 @@ def settle_ms():
     moment the wait ended. What is left is a margin for its own layout, not an
     allowance for a page that might still be arriving. It costs at worst one
     extra picture: the page after a gesture is a full redraw anyway, and
-    anything that paints after it is a difference like any other.
+    anything that paints after it is a difference like any other. It was
+    300 ms and is 150, asked for by a household that found coming home slow.
     """
     if open_page.is_home_assistant is not False:
         return 3000
-    return 300 if open_page.is_launcher else 800
+    return 150 if open_page.is_launcher else 800
 
 
 def explain_unreachable(url, error):
@@ -2615,10 +2619,12 @@ class Screencast:
             return
         self._latest = None
         self._unacked.clear()
-        try:
-            self._session.send("Page.stopScreencast")
-        except Exception:  # noqa: BLE001 - a closed page needs no stopping
-            pass
+        # Started again WITHOUT being stopped first. Starting a screencast
+        # that is already running resets its frames in flight and hands over
+        # the page as it is, which is all this is for -- and the stop was a
+        # round trip of its own that, sent while a navigation is under way,
+        # took 9 ms of the 40-60 between a tapped link and its first picture
+        # (tools/checklinkspeed.py --trace).
         self._start()
 
     def freeze_animations(self):
@@ -4031,6 +4037,7 @@ class Injector:
                     # scroll goes to whatever is under it -- a dashboard has
                     # panes that scroll on their own -- but do not press yet.
                     self._page.mouse.move(x, y)
+                    self._pointer = (x, y)
                 if self.verbose:
                     print(f"[{stamp()}] contact at "
                           f"({point[0]:.0f},{point[1]:.0f}) on the panel -> "
@@ -4195,7 +4202,13 @@ class Injector:
 
     def _press(self, x, y):
         """Put the button down. tick() is what lets it go again."""
-        self._page.mouse.move(x, y)
+        # Not moved again when the finger lifted where it landed, which is
+        # what a still finger does: the pointer was put there when it landed,
+        # and every dispatch waits for the browser's next frame (16 ms,
+        # measured) -- time a tapped link's page is waiting behind.
+        if getattr(self, "_pointer", None) != (x, y):
+            self._page.mouse.move(x, y)
+            self._pointer = (x, y)
         self._page.mouse.down()
         if not self.press_hold:
             # Asked for the old behaviour: both halves in one go, and nothing
@@ -4203,6 +4216,11 @@ class Injector:
             self._page.mouse.up()
             return
         self._release_at = time.monotonic() + self.press_hold
+
+    @property
+    def pressing(self):
+        """A replayed tap is down and waiting for tick() to let it go."""
+        return self._release_at is not None
 
     def release_press(self, now=None):
         """Let go of a held tap. With no time given, let go whatever the clock.
@@ -5330,7 +5348,22 @@ def main():
                     # free: every one of them is a round trip through the
                     # browser's protocol, and at eight milliseconds that is a
                     # hundred and twenty-five a second for nothing.
-                    page.wait_for_timeout(PUMP_MS if awake else SLEEP_PUMP_MS)
+                    #
+                    # Faster while a new page is on its way and nothing of it
+                    # has been sent. A frame that arrives during the wait is
+                    # only looked at when the wait ends, so the eight
+                    # milliseconds were most of what stood between a tapped
+                    # link's first paint and the panel. It lasts from the
+                    # navigation to the first picture of it, a few tens of
+                    # milliseconds, so it costs nothing worth counting.
+                    # And while a tap is held down: a launcher tile hands its
+                    # address over on pointerdown, and that call is only
+                    # heard at the end of a wait.
+                    hurry = home_pending is not None or (
+                        injector is not None and injector.pressing)
+                    page.wait_for_timeout(
+                        (NEW_PAGE_PUMP_MS if hurry else PUMP_MS)
+                        if awake else SLEEP_PUMP_MS)
                     started = time.monotonic()
                     if awake:
                         worst_turn = max(worst_turn, started - turn_at)
@@ -5874,7 +5907,22 @@ def main():
                         # The page has just changed under us and a still page
                         # will not paint again, so the picture has to be asked
                         # for rather than waited for.
-                        capture.restart()
+                        #
+                        # Except after a LINK, which go_to leaves at commit:
+                        # nothing of the new page has been painted yet, so
+                        # its first paint is still to come and will arrive on
+                        # its own. Restarting there cost a round trip of
+                        # ~10 ms while the navigation was under way, and
+                        # handed over the OLD page as its first frame (the
+                        # browser keeps it on screen until the new one can
+                        # paint), which then used the frame limit's slot and
+                        # held the real first picture back another ~20 ms.
+                        # What is in hand predates the commit and is the old
+                        # page, so it is dropped rather than sent.
+                        if link is not None:
+                            capture.request(discard=True)
+                        else:
+                            capture.restart()
                     if keyboard is not None:
                         keyboard.tick(now)
                     if args.stats and now - stats_at >= 5.0:

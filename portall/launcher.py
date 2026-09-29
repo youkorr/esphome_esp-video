@@ -1052,13 +1052,40 @@ PRESS_JS = """<script>
 # it the address and the sender navigates. With no sender -- this page open
 # in an ordinary browser -- the link is an ordinary link and nothing changes.
 # The press look is untouched: PRESS_JS runs on pointerdown, before this.
+#
+# And it is handed over on POINTERDOWN, not on the click. The sender holds a
+# replayed tap down for PRESS_HOLD_S (80 ms) so that a page's :active look is
+# caught by a picture, and only then lets go -- so waiting for the click
+# started every tile 80 ms and a mouseup's round trip late. Measured with a
+# finger sent up a fake panel's return channel (tools/checklinkspeed.py
+# --tap): about 150 ms from the finger lifting to the first picture of the
+# new page, against about 60 now. Nothing is lost by not waiting: the sender
+# replays a tap only once the finger has lifted without dragging, so a
+# pointerdown here is already a decided tap, and the launcher's own press look
+# is a class PRESS_JS holds for 200 ms, which stays on screen until the new
+# page can paint. The click that follows is swallowed, or it would open the
+# tile a second time; OK on a remote is a click with no pointerdown, and is
+# handed over there as before.
 FOLLOW_JS = """<script>
 (function () {
+  var handed = 0;
+  function tileOf(e) {
+    var tile = e.target.closest && e.target.closest('a.tile');
+    return tile && /^https?:/.test(tile.href) ? tile : null;
+  }
+  document.addEventListener('pointerdown', function (e) {
+    if (e.defaultPrevented || e.button !== 0 || !window.__udispFollow) return;
+    var tile = tileOf(e);
+    if (!tile) return;
+    handed = Date.now();
+    window.__udispFollow(tile.href);
+  });
   document.addEventListener('click', function (e) {
     if (e.defaultPrevented || !window.__udispFollow) return;
-    var tile = e.target.closest && e.target.closest('a.tile');
-    if (!tile || !/^https?:/.test(tile.href)) return;
+    var tile = tileOf(e);
+    if (!tile) return;
     e.preventDefault();
+    if (Date.now() - handed < 1000) return;
     window.__udispFollow(tile.href);
   });
 })();

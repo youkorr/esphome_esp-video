@@ -1802,7 +1802,7 @@ the dashboard, where it is invisible while the keys go on working.
 ahead of the `pip install` as well as the `ADD`s, so a bump refetched
 everything — at the cost of the browser download on each update.
 `present_browser()` prints the Chromium version at startup and warns below 114,
-so this is never diagnosed by guesswork again. Currently **4.31.2**.
+so this is never diagnosed by guesswork again. Currently **4.31.3**.
 
 **CORRECTED in 4.29.5: the cost was every update, and a pin removes it.**
 Asked as *"verifie addon ... si il ya pas des elements qui freine la
@@ -10533,6 +10533,40 @@ reads for a white picture: none either way, because Chromium keeps the old
 page until the new one can paint. The launcher's own `open_page()` (home,
 start, wake) keeps its waits -- they are written for Home Assistant's first
 picture. **Not measured on a real site or panel.**
+
+### And the 40-60 ms that were left were mostly ours -- 4.31.3
+
+**Asked straight after: *"je pense que tu peut faire mieux que 40-60ms"*, and
+the launcher's settle 300 -> 150 ms.** `checklinkspeed.py --trace` (TRACE
+lines printed with `time.monotonic()`, which is the same clock across
+processes on Linux, from a patched copy passed as `--sender`) split it:
+
+- **`Screencast.restart()`'s stopScreencast took ~9 ms** sent mid-navigation,
+  and the start that followed ~10 more. `restart()` no longer stops first --
+  a start on a running screencast resets it and hands the page over, which is
+  all it was for. And after a LINK it is not called at all: go_to returns at
+  commit with nothing of the new page painted, so its first paint arrives by
+  itself; restarting handed over the OLD page (Chromium holds it until the
+  new one paints) as a first frame that took the frame limit's slot and held
+  the real one back ~20 ms. `request(discard=True)` there, because what is in
+  hand predates the commit.
+- **The 8 ms pump**: a frame arriving mid-wait was seen at its end.
+  `NEW_PAGE_PUMP_MS = 1` from a navigation to its first picture, and while a
+  replayed tap is held down (`Injector.pressing`).
+- **A tapped tile waited for the click**, which comes after `PRESS_HOLD_S`
+  (80 ms) and a mouseup's round trip. `FOLLOW_JS` hands the address over on
+  POINTERDOWN now and swallows the click after it; a remote's OK is a click
+  with no pointerdown and still goes through. The sender replays a tap only
+  once the finger has lifted undragged, so a pointerdown there is decided.
+- `_press()` does not `mouse.move` again when the finger lifted where it
+  landed (every dispatch waits for the browser's next frame).
+
+`--tap` sends a real contact up the fake panel's return channel onto the
+launcher's tile: **138-190 ms in 4.31.2, ~50 now**; the control path 42-79
+-> ~43. What is left is the site answering (goto to commit, ~10 ms locally)
+and the browser's first paint of the new page (~20 ms), neither ours. The
+launcher's settle is 150 ms; how much a launcher with a wallpaper or a
+slideshow needs is not measured. **Not measured on a panel.**
 
 ## Repository conventions
 

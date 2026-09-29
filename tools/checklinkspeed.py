@@ -36,6 +36,9 @@ SENDER_DIR = HERE / "components" / "portall"
 sys.path.insert(0, str(SENDER_DIR))
 
 REF = None
+SENDER = None
+TAP = False
+TRACE = False
 DELAY = 1.5
 PATH = "page"
 args = sys.argv[1:]
@@ -43,6 +46,12 @@ while args:
     flag = args.pop(0)
     if flag == "--ref":
         REF = args.pop(0)
+    elif flag == "--sender":
+        SENDER = pathlib.Path(args.pop(0))
+    elif flag == "--trace":
+        TRACE = True
+    elif flag == "--tap":
+        TAP = True
     elif flag == "--styled":
         PATH = "styled"
     elif flag == "--script-delay":
@@ -96,6 +105,8 @@ class Site(http.server.BaseHTTPRequestHandler):
 
 
 def sender_path():
+    if SENDER is not None:
+        return SENDER
     if REF is None:
         return SENDER_DIR / "ha_send.py"
     where = pathlib.Path(tempfile.mkdtemp())
@@ -108,16 +119,41 @@ def sender_path():
     return where / "ha_send.py"
 
 
+HOME_URL = None
+TILE_AT = (0, 0)
+
+
+def tap_setup(site):
+    """A launcher whose one tile opens the slow page, and where that tile is."""
+    global HOME_URL, TILE_AT
+    sys.path.insert(0, str(HERE / "portall"))
+    import launcher
+    from playwright.sync_api import sync_playwright
+    HOME_URL = launcher.start(
+        [{"name": "Slow", "url": f"{site}/{PATH}", "icon": "tv"}],
+        port=launcher.ANY_PORT)
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch(executable_path=BROWSER or None)
+        page = browser.new_page(viewport={"width": 400, "height": 240})
+        page.goto(HOME_URL)
+        box = page.locator("a.tile").bounding_box()
+        TILE_AT = (int(box["x"] + box["width"] / 2),
+                   int(box["y"] + box["height"] / 2))
+        browser.close()
+
+
 def run_once(site):
     from udisp_send import _HEADER, UDISP_TYPE_JPG
     from PIL import Image
     seen = []           # (monotonic, colour) of every whole picture
+    panel = []          # the connection, so a finger can be sent up it
     listener = socket.socket()
     listener.bind(("127.0.0.1", 0))
     listener.listen(1)
 
     def accept():
         conn, _ = listener.accept()
+        panel.append(conn)
         stream = b""
         try:
             while True:
@@ -147,7 +183,7 @@ def run_once(site):
 
     command = [sys.executable, "-u", str(sender_path()),
                "--host", "127.0.0.1", "--port",
-               str(listener.getsockname()[1]), "--url", f"{site}/home",
+               str(listener.getsockname()[1]), "--url", HOME_URL or f"{site}/home",
                "--no-token", "--not-home-assistant", "--width", "400",
                "--height", "240", "--audio", "off", "--keyboard", "off",
                "--control"]
@@ -161,13 +197,25 @@ def run_once(site):
                      daemon=True).start()
     try:
         end = time.monotonic() + 40
-        while time.monotonic() < end and not any(
-                near(c, HOME) for _, c in seen):
+        while time.monotonic() < end and not (
+                any(near(c, HOME) for _, c in seen)
+                or (TAP and seen)):
             time.sleep(0.05)
-        time.sleep(1.0)
-        asked = time.monotonic()
-        process.stdin.write(f"open {site}/{PATH}?{time.time()}\n")
-        process.stdin.flush()
+        time.sleep(1.5)
+        if TAP:
+            # A finger on the tile, the way the board reports one: a
+            # contact, then a release. The sender acts on the release, so
+            # that is when this starts counting.
+            x, y = TILE_AT
+            panel[0].sendall(b"T\x01\x00" + x.to_bytes(2, "little")
+                             + y.to_bytes(2, "little"))
+            time.sleep(0.06)
+            asked = time.monotonic()
+            panel[0].sendall(b"T\x00")
+        else:
+            asked = time.monotonic()
+            process.stdin.write(f"open {site}/{PATH}?{time.time()}\n")
+            process.stdin.flush()
         end = asked + DELAY + 10
         while time.monotonic() < end and not any(
                 t > asked and near(c, PAGE) for t, c in seen):
@@ -179,6 +227,16 @@ def run_once(site):
         page = next((t - asked for t, c in seen
                      if t > asked and near(c, PAGE)), None)
         opened = [line.strip() for line in out if "opened" in line]
+        if TRACE:
+            marks = []
+            for line in out:
+                if line.startswith("TRACE "):
+                    tag, at = line.split()[1:3]
+                    if float(at) > asked:
+                        marks.append(f"{tag} {(float(at) - asked) * 1000:.0f}")
+            got = [f"panel {(t - asked) * 1000:.0f} {c}" for t, c in seen
+                   if t > asked][:3]
+            print("    " + ", ".join(marks[:14] + got))
         return shell, page, blank, opened
     finally:
         process.kill()
@@ -196,6 +254,10 @@ def main():
     threading.Thread(target=server.serve_forever, daemon=True).start()
     site = f"http://127.0.0.1:{server.server_address[1]}"
     what = "stylesheet" if PATH == "styled" else "script"
+    if TAP:
+        tap_setup(site)
+        print(f"A finger on the launcher's tile at {TILE_AT}, counted from "
+              f"the moment it lifts:")
     print(f"{'working tree' if REF is None else REF}, a page whose {what} "
           f"takes {DELAY:.1f}s to arrive:")
     for _ in range(3):
