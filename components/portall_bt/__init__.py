@@ -135,6 +135,7 @@ from pathlib import Path
 
 import esphome.codegen as cg
 from esphome.components import esp32
+from esphome.components.usb_host import DOMAIN as USB_HOST_DOMAIN
 import esphome.config_validation as cv
 from esphome.const import CONF_ID, CONF_TRIGGER_ID
 import esphome.final_validate as fv
@@ -237,6 +238,8 @@ ForgetAction = portall_bt_ns.class_("ForgetAction", automation.Action)
 # were argued into, by the same person, and they were right each time.
 ForgetSpeakerAction = portall_bt_ns.class_("ForgetSpeakerAction", automation.Action)
 ForgetInputAction = portall_bt_ns.class_("ForgetInputAction", automation.Action)
+# Several speakers are remembered and one plays; this chooses which.
+UseSpeakerAction = portall_bt_ns.class_("UseSpeakerAction", automation.Action)
 # What `on_hid_report` hands the YAML: the bytes the device sent, nothing
 # invented. ESP_HIDH_DATA_IND_EVT carries no report id -- see portall_bt.h.
 HID_REPORT_TRIGGER = automation.Trigger.template(cg.std_vector.template(cg.uint8))
@@ -305,21 +308,80 @@ PORTALL_BT_ACTION_SCHEMA = automation.maybe_simple_id(
 @automation.register_action(
     "portall_bt.forget", ForgetAction, PORTALL_BT_ACTION_SCHEMA, synchronous=True
 )
-@automation.register_action(
-    "portall_bt.forget_speaker",
-    ForgetSpeakerAction,
-    PORTALL_BT_ACTION_SCHEMA,
-    synchronous=True,
-)
-@automation.register_action(
-    "portall_bt.forget_input",
-    ForgetInputAction,
-    PORTALL_BT_ACTION_SCHEMA,
-    synchronous=True,
-)
 async def portall_bt_action_to_code(config, action_id, template_arg, args):
     var = cg.new_Pvariable(action_id, template_arg)
     await cg.register_parented(var, config[CONF_ID])
+    return var
+
+
+# `slot:` forgets the ONE input device in that slot, 1 to 4; without it,
+# every input device. A slot is only something a person can name on a screen
+# that lists them one row each -- text_sensor's `input: slot:` is that row --
+# which is why it is optional and the action still reads as a role without it.
+CONF_SLOT = "slot"
+MAX_INPUT_SLOTS = 4  # MAX_INPUTS in portall_bt.h
+MAX_SPEAKER_SLOTS = 4  # MAX_SINKS in portall_bt.h
+
+
+# `slot:` forgets the speaker remembered in that slot; without it, the one
+# playing -- which is what the action always did.
+@automation.register_action(
+    "portall_bt.forget_speaker",
+    ForgetSpeakerAction,
+    automation.maybe_simple_id(
+        {
+            cv.GenerateID(): cv.use_id(PortallBT),
+            cv.Optional(CONF_SLOT): cv.int_range(min=1, max=MAX_SPEAKER_SLOTS),
+        }
+    ),
+    synchronous=True,
+)
+async def portall_bt_forget_speaker_to_code(config, action_id, template_arg, args):
+    var = cg.new_Pvariable(action_id, template_arg)
+    await cg.register_parented(var, config[CONF_ID])
+    if CONF_SLOT in config:
+        cg.add(var.set_slot(config[CONF_SLOT]))
+    return var
+
+
+# Play through the speaker remembered in that slot: the one playing is hung up
+# and this one connected once the Bluetooth stack has let the other go. One
+# plays at a time -- A2DP from this panel is a single stream.
+@automation.register_action(
+    "portall_bt.use_speaker",
+    UseSpeakerAction,
+    cv.Schema(
+        {
+            cv.GenerateID(): cv.use_id(PortallBT),
+            cv.Required(CONF_SLOT): cv.int_range(min=1, max=MAX_SPEAKER_SLOTS),
+        }
+    ),
+    synchronous=True,
+)
+async def portall_bt_use_speaker_to_code(config, action_id, template_arg, args):
+    var = cg.new_Pvariable(action_id, template_arg)
+    await cg.register_parented(var, config[CONF_ID])
+    cg.add(var.set_slot(config[CONF_SLOT]))
+    return var
+
+
+@automation.register_action(
+    "portall_bt.forget_input",
+    ForgetInputAction,
+    # maybe_simple_id, so `portall_bt.forget_input: dongle` still reads.
+    automation.maybe_simple_id(
+        {
+            cv.GenerateID(): cv.use_id(PortallBT),
+            cv.Optional(CONF_SLOT): cv.int_range(min=1, max=MAX_INPUT_SLOTS),
+        }
+    ),
+    synchronous=True,
+)
+async def portall_bt_forget_input_to_code(config, action_id, template_arg, args):
+    var = cg.new_Pvariable(action_id, template_arg)
+    await cg.register_parented(var, config[CONF_ID])
+    if CONF_SLOT in config:
+        cg.add(var.set_slot(config[CONF_SLOT]))
     return var
 
 
@@ -441,10 +503,45 @@ def _one_bluedroid_transport(config):
     )
 
 
+def _refuse_beside_usb_host(config):
+    """This component and ESPHome's usb_host cannot both be in one firmware.
+
+    The same rule, for the same reason, as `_reject_uvc_beside_usb_host` in
+    esphome/esphome#16944 (esp_video_camera): two owners of a USB host is a
+    boot that goes wrong, not a clear failure, so it is refused here.
+
+    Here the two are not even the same stack. This component drives the dongle
+    through CherryUSB, which takes the OTG peripheral's registers and interrupt
+    for itself; usb_host installs ESP-IDF's USB Host Library with an empty
+    `usb_host_config_t`, and a zero `peripheral_map` is the HIGH-SPEED
+    peripheral on a P4 (ESP-IDF v5.5.5 usb_host.h), with no option to move it.
+    So with `controller: high_speed`, the default, both drivers sit on one
+    register block and one interrupt line -- the interrupt watchdog timeout
+    portall already met when TinyUSB and CherryUSB shared that peripheral.
+    With `controller: full_speed` the two would be on different peripherals,
+    and that pairing has never been run; it is refused all the same until it
+    has been.
+
+    usb_uart AUTO_LOADs usb_host, so checking for the one domain catches both.
+    """
+    if USB_HOST_DOMAIN not in fv.full_config.get():
+        return config
+    raise cv.Invalid(
+        "portall_bt cannot be used in the same configuration as the usb_host "
+        "component (which usb_uart also pulls in): portall_bt runs its own "
+        "USB host stack for the dongle, and usb_host installs ESP-IDF's on the "
+        "high-speed controller, so the two would own the same USB hardware and "
+        "the result is a crash at boot rather than a clear failure. Use one or "
+        "the other for now.",
+        path=[CONF_CONTROLLER],
+    )
+
+
 def _final_validate(config):
-    """Both final checks, because a schema may only carry one."""
+    """Every final check, because a schema may only carry one."""
     _one_controller_each(config)
     _one_bluedroid_transport(config)
+    _refuse_beside_usb_host(config)
     return config
 
 

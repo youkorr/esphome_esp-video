@@ -22,8 +22,10 @@ it is wherever a device happened to land -- so an entity per slot would put
 three empty cards on a device page for every panel with one gamepad, which is
 the dark entity this component already had to take out once.
 
-The SPEAKER is one device and that is structural: A2DP source is a single
-stream with one encoder, and a second would mean mixing and lip-syncing two.
+ONE SPEAKER PLAYS and that is structural: A2DP source is a single stream with
+one encoder. Up to four are remembered; `speaker:` without `slot:` names the
+one playing, and with `slot:` names one remembered speaker, reading "not in
+use" when it is not the one playing.
 
 Each entry reports what the device calls itself, its address and whether it is
 connected -- or `none` when nothing of that kind is paired.
@@ -46,7 +48,7 @@ import esphome.codegen as cg
 from esphome.components import text_sensor
 import esphome.config_validation as cv
 
-from .. import PortallBT, portall_bt_ns
+from .. import MAX_INPUT_SLOTS, MAX_SPEAKER_SLOTS, PortallBT, portall_bt_ns
 
 DEPENDENCIES = ["portall_bt"]
 
@@ -57,6 +59,7 @@ PortallBTTextSensor = portall_bt_ns.class_(
 CONF_PORTALL_BT_ID = "portall_bt_id"
 CONF_SPEAKER = "speaker"
 CONF_INPUT = "input"
+CONF_SLOT = "slot"
 
 _SENSOR_SCHEMA = text_sensor.text_sensor_schema(
     PortallBTTextSensor
@@ -65,8 +68,18 @@ _SENSOR_SCHEMA = text_sensor.text_sensor_schema(
 CONFIG_SCHEMA = cv.Schema(
     {
         cv.GenerateID(CONF_PORTALL_BT_ID): cv.use_id(PortallBT),
-        cv.Optional(CONF_SPEAKER): _SENSOR_SCHEMA,
-        cv.Optional(CONF_INPUT): _SENSOR_SCHEMA,
+        # `slot:` reports ONE remembered speaker -- "not in use" unless it is
+        # the one playing -- for a row with its own Use and Forget buttons.
+        # Without it, the speaker playing.
+        cv.Optional(CONF_SPEAKER): _SENSOR_SCHEMA.extend(
+            {cv.Optional(CONF_SLOT): cv.int_range(min=1, max=MAX_SPEAKER_SLOTS)}
+        ),
+        # `slot:` reports ONE input slot rather than the list: what a screen
+        # needs to show one device per row, each with its own Forget
+        # (portall_bt.forget_input with the same slot). "none" when empty.
+        cv.Optional(CONF_INPUT): _SENSOR_SCHEMA.extend(
+            {cv.Optional(CONF_SLOT): cv.int_range(min=1, max=MAX_INPUT_SLOTS)}
+        ),
     }
 )
 
@@ -80,3 +93,5 @@ async def to_code(config):
         await cg.register_component(var, config[key])
         cg.add(var.set_parent(parent))
         cg.add(var.set_speaker(is_speaker))
+        if CONF_SLOT in config[key]:
+            cg.add(var.set_slot(config[key][CONF_SLOT]))

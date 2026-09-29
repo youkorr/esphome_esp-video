@@ -34,12 +34,16 @@ class PortallBTTextSensor : public text_sensor::TextSensor, public PollingCompon
   void set_parent(PortallBT *parent) { this->parent_ = parent; }
   /// true reports the speaker slot, false the input one.
   void set_speaker(bool speaker) { this->speaker_ = speaker; }
+  /// 1 .. MAX_INPUTS reports that one input slot (or, with set_speaker(true),
+  /// that one remembered speaker); 0, the list or the speaker playing.
+  void set_slot(uint8_t slot) { this->slot_ = slot; }
 
   void update() override;
 
  protected:
   PortallBT *parent_{nullptr};
   bool speaker_{true};
+  uint8_t slot_{0};
 };
 
 }  // namespace portall_bt

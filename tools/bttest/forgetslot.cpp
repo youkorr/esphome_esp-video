@@ -5,7 +5,7 @@
 #define private public
 #define protected public
 #define main component_main_unused
-#include "usb_bluetooth.cpp"
+#include "portall_bt.cpp"
 #include "esp_gap_bt_api.h"
 #include "esp_hidh_api.h"
 #undef main
@@ -13,7 +13,7 @@
 #include <string>
 #include "linkstubs.h"
 
-using esphome::usb_bluetooth::UsbBluetooth;
+using esphome::portall_bt::PortallBT;
 
 static int failures = 0;
 static void ok(const char *what, bool passed) {
@@ -28,7 +28,7 @@ static const uint8_t REMOTE[6] = {0xA4, 0xC1, 0x38, 0x9E, 0x22, 0x07};
 
 int main() {
   std::printf("  forget one input device by its slot\n");
-  auto *bt = new UsbBluetooth();
+  auto *bt = new PortallBT();
   bt->set_hid_host(true);
   bt->profiles_up_ = true;
   bt->on_hid_open(PAD, 3);
@@ -58,7 +58,7 @@ int main() {
   ok("nor does a slot that does not exist", g_calls.empty());
 
   // The action counts from 1, as the screen does.
-  esphome::usb_bluetooth::ForgetInputAction<> one;
+  esphome::portall_bt::ForgetInputAction<> one;
   one.set_parent(bt);
   one.set_slot(1);
   one.play();
@@ -66,7 +66,7 @@ int main() {
 
   bt->on_hid_open(PAD, 3);
   bt->on_hid_open(REMOTE, 7);
-  esphome::usb_bluetooth::ForgetInputAction<> all;
+  esphome::portall_bt::ForgetInputAction<> all;
   all.set_parent(bt);
   all.play();
   ok("with no slot, the action still forgets every input device",

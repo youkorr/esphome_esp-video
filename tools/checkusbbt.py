@@ -6,7 +6,9 @@ portall taken out and a binary_sensor platform added, so that somebody can use
 it with nothing but ESPHome and LVGL. A copy drifts the moment either side is
 edited and nothing compares them -- so this runs the SAME checks on it:
 tools/checkbt.py's syntax passes and its whole tools/bttest suite, renamed on
-the fly, plus tools/usbbttest/, which is what only the copy has.
+the fly, plus tools/usbbttest/, which is what only the copy has (the key
+binary_sensor; the speakers list and the per-slot Forget are in both now, so
+their tests live in tools/bttest).
 
 The rename is the one the copy was made with: PortallBT -> UsbBluetooth,
 portall_bt -> usb_bluetooth, and a single key sink -> listeners.

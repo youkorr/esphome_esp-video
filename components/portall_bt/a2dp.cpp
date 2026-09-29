@@ -632,6 +632,7 @@ void PortallBT::on_a2dp_audio(bool started) {
 
 void PortallBT::remember_sink_(const uint8_t *addr) {
 #if defined(CONFIG_BT_BLUEDROID_ENABLED)
+  this->add_sink_(addr);
   if (this->remembered_.has_sink && memcmp(this->remembered_.sink, addr, 6) == 0)
     return;
   memcpy(this->remembered_.sink, addr, 6);

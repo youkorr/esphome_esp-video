@@ -203,6 +203,18 @@ struct RememberedInputs {
   uint8_t count;
 } __attribute__((packed));
 
+/* SEVERAL SPEAKERS REMEMBERED, ONE PLAYING. A2DP source is one stream --
+ * Bluedroid's btc_av holds one peer -- so only one plays at a time; what this
+ * adds is not having to pair again to go from the car receiver to a headset.
+ * The one playing is `Remembered.sink`, as it always was, and the reconnection
+ * clock pages that one only. Its own record under its own key, for the reason
+ * RememberedInputs gives. */
+static constexpr uint8_t MAX_SINKS = 4;
+struct RememberedSinks {
+  uint8_t addr[MAX_SINKS][6];
+  uint8_t count;
+} __attribute__((packed));
+
 /* The four analog axes a gamepad is steered with, and the report SHAPES a
    device may name itself over -- both per device, which is why they are here
    rather than inside the component. */
@@ -491,11 +503,32 @@ class PortallBT : public Component {
   bool bt_enabled() const { return !this->bt_off_; }
 
   /// Forget by ROLE rather than every bond at once: the speaker, or every
-  /// input device. There is no per-device action and that is deliberate --
-  /// one would need an index a household has no way to read, which is the
-  /// mechanism-instead-of-a-name this component keeps being corrected into
-  /// not building.
+  /// input device. One device at a time is forget_input(slot), for a screen
+  /// that lists the slots one row each; Home Assistant has no such button,
+  /// because there a slot is an index nobody can read.
   void forget_one(bool speaker);
+
+  /// Forget ONE input device, by the slot it sits in (0 .. MAX_INPUTS - 1).
+  /// A slot means nothing in Home Assistant, which is why there is no such
+  /// button there; it means something on a screen that lists the slots one
+  /// row each (describe_input, below), with a Forget beside each row. That
+  /// row is how the slot becomes readable. Hangs the device up first, for
+  /// the reason forget_one records.
+  void forget_input(uint8_t slot);
+
+  /// One slot of the input side, in describe_role's words, or "none" when
+  /// nothing sits in it -- one row of a screen that lists them.
+  std::string describe_input(uint8_t slot) const;
+
+  /// Play through the speaker remembered in `slot` (0 .. MAX_SINKS - 1)
+  /// instead of the one playing now: the one playing is hung up, and this one
+  /// asked for once the stack has let it go.
+  void use_speaker(uint8_t slot);
+  /// Forget the speaker in `slot` -- hung up first if it is the one playing.
+  void forget_speaker_slot(uint8_t slot);
+  /// One remembered speaker, for a row on a screen: "in use" and connected or
+  /// away for the one playing, "not in use" for the others, "none" when empty.
+  std::string describe_speaker(uint8_t slot) const;
 
   /// One line for a text sensor: what the device calls itself, its address,
   /// and whether it is connected -- or "none".
@@ -539,6 +572,12 @@ class PortallBT : public Component {
    * open" leaves a live ACL whose key has just been removed -- which is the
    * "even Forget does not help" this component has already paid for once. */
   void drop_link_to_(const uint8_t *addr, bool speaker);
+  /// Hang up and forget the input device in slot `i`, keeping its report map
+  /// for the next one. False when nothing sits there. The caller saves.
+  bool forget_input_slot_(uint8_t i);
+  /// "Name (address) connected" -- one device, in the words both
+  /// describe_role and describe_input use.
+  std::string describe_device_(const uint8_t *addr, const char *name, bool open) const;
   /// How many devices a pair scan heard, so the end of one can say whether it
   /// heard anything at all. Counted in heard_device, which is the only thing
   /// an inquiry result reaches.
@@ -830,6 +869,12 @@ class PortallBT : public Component {
   Remembered remembered_{};
   ESPPreferenceObject remembered_pref_;
   RememberedInputs remembered_inputs_{};
+  RememberedSinks remembered_sinks_{};
+  ESPPreferenceObject sinks_pref_;
+  char sink_names_[MAX_SINKS][MAX_REMOTE_NAME + 1]{};
+  int8_t sink_slot_(const uint8_t *addr) const;
+  void add_sink_(const uint8_t *addr);
+  void drop_sink_(uint8_t slot);
   ESPPreferenceObject inputs_pref_;
   /* Which remembered input device gets asked for next. A page is 5.12 s of
      radio by default, and this component already had to learn that overlapping
@@ -915,12 +960,41 @@ template<typename... Ts> class ForgetAction final : public Action<Ts...>, public
  * knows what the button does without looking anything up. */
 template<typename... Ts> class ForgetSpeakerAction final : public Action<Ts...>, public Parented<PortallBT> {
  public:
-  void play(const Ts &...) override { this->parent_->forget_one(true); }
+  /// 0 forgets the speaker playing; 1 .. MAX_SINKS the one in that slot.
+  void set_slot(uint8_t slot) { this->slot_ = slot; }
+  void play(const Ts &...) override {
+    if (this->slot_ == 0)
+      this->parent_->forget_one(true);
+    else
+      this->parent_->forget_speaker_slot(this->slot_ - 1);
+  }
+
+ protected:
+  uint8_t slot_{0};
+};
+
+template<typename... Ts> class UseSpeakerAction final : public Action<Ts...>, public Parented<PortallBT> {
+ public:
+  void set_slot(uint8_t slot) { this->slot_ = slot; }
+  void play(const Ts &...) override { this->parent_->use_speaker(this->slot_ - 1); }
+
+ protected:
+  uint8_t slot_{1};
 };
 
 template<typename... Ts> class ForgetInputAction final : public Action<Ts...>, public Parented<PortallBT> {
  public:
-  void play(const Ts &...) override { this->parent_->forget_one(false); }
+  /// 0 forgets every input device; 1 .. MAX_INPUTS the one in that slot.
+  void set_slot(uint8_t slot) { this->slot_ = slot; }
+  void play(const Ts &...) override {
+    if (this->slot_ == 0)
+      this->parent_->forget_one(false);
+    else
+      this->parent_->forget_input(this->slot_ - 1);
+  }
+
+ protected:
+  uint8_t slot_{0};
 };
 
 }  // namespace portall_bt

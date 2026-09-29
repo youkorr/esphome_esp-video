@@ -4,7 +4,7 @@
 #define private public
 #define protected public
 #define main component_main_unused
-#include "usb_bluetooth.cpp"
+#include "portall_bt.cpp"
 #include "esp_gap_bt_api.h"
 #include "esp_hidh_api.h"
 #undef main
@@ -13,7 +13,7 @@
 #include <string>
 #include "linkstubs.h"
 
-using esphome::usb_bluetooth::UsbBluetooth;
+using esphome::portall_bt::PortallBT;
 
 static int failures = 0;
 static void ok(const char *what, bool passed) {
@@ -30,7 +30,7 @@ static const uint8_t EARBUDS[6] = {0x77, 0x88, 0x99, 0xAA, 0xBB, 0xCC};
 int main() {
   std::printf("  several speakers remembered, one playing\n");
   esphome::global_preferences->wipe();
-  auto *bt = new UsbBluetooth();
+  auto *bt = new PortallBT();
   bt->set_a2dp(true);
   bt->start_profiles_();
   bt->on_a2dp_ready();
@@ -79,7 +79,7 @@ int main() {
   std::printf("  an older board's single speaker is carried into the list\n");
   esphome::global_preferences->wipe();
   {
-    auto *old = new UsbBluetooth();
+    auto *old = new PortallBT();
     old->set_a2dp(true);
     old->start_profiles_();
     old->on_a2dp_ready();
@@ -87,9 +87,9 @@ int main() {
   }
   // Take the list away again, as a board flashed from before it existed has
   // only the single speaker's record.
-  esphome::global_preferences->store.erase(((uint64_t) esphome::fnv1_hash("usb_bluetooth_sinks") << 32) |
-                                           (uint64_t) sizeof(esphome::usb_bluetooth::RememberedSinks));
-  auto *next = new UsbBluetooth();
+  esphome::global_preferences->store.erase(((uint64_t) esphome::fnv1_hash("portall_bt_sinks") << 32) |
+                                           (uint64_t) sizeof(esphome::portall_bt::RememberedSinks));
+  auto *next = new PortallBT();
   next->set_a2dp(true);
   next->start_profiles_();
   ok("the speaker it had is slot 1", next->remembered_sinks_.count == 1 &&
