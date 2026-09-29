@@ -1,5 +1,19 @@
 # Changelog
 
+## 4.32.0
+
+- **Links that let the wallpaper show.** Three new settings in section 3,
+  and in each screen's own launcher in section 4:
+  - **Links' ground** (`tile_background`): `transparent` draws only the
+    icon, in its own colours, and the name. A press and the frame of a
+    remote still show.
+  - **Size of the links** (`tile_size`): `small` (80 %) or `tiny` (65 %).
+    The button, its icon and its name shrink together.
+  - **Colour of the links' text** (`tile_text_color`): the same list as the
+    clock's colour -- `black` on a pale wallpaper, for example.
+
+  Left at `solid`, `medium` and `theme`, nothing changes.
+
 ## 4.31.4
 
 - **Fixed: 4.31.3 stopped the add-on every time a panel came home** on a box

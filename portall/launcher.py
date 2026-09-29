@@ -2305,8 +2305,80 @@ def _one_focus(want):
     return [f" :root {{ --ring: {tint}; }}"] if tint else []
 
 
+# How much smaller the links are drawn, by name. Asked for from a 1280x800
+# panel with a picture behind the links -- "la reduction des buttons et text"
+# -- where the links covered what the picture was of. medium is the size they
+# have always had.
+TILE_SIZES = {"tiny": 0.65, "small": 0.8, "medium": 1.0}
+TILE_BACKGROUNDS = ("solid", "transparent")
+
+
+def _halo(tint):
+    """The shadow that lifts a name off a picture: dark under light text,
+    light under dark -- a dark shadow under black text is no help at all.
+    With no colour chosen the text is the theme's ink, and the theme's own
+    ground is the colour that stands out from it on either theme."""
+    if not tint:
+        return "color-mix(in srgb, var(--ground) 75%, transparent)"
+    if tint:
+        h = tint.lstrip("#")
+        r, g, b = (int(h[i:i + 2], 16) for i in (0, 2, 4))
+        if 0.2126 * r + 0.7152 * g + 0.0722 * b < 128:
+            return "rgba(255, 255, 255, .7)"
+    return "rgba(0, 0, 0, .6)"
+
+
+def _tile_look(background="solid", size=DEFAULT_SIZE, text_color=FOLLOW_THEME):
+    """The rules for the links' own look, or nothing when all are default.
+
+    Asked for together, from a panel whose wallpaper the links hid: "une vraie
+    transparence du bouton, tout en laissant l'icone avec sa propre couleur",
+    and "la reduction des boutons et du texte, et la couleur du texte".
+
+    SMALLER is a zoom on the grid rather than a second set of sizes. The
+    icon, the name, the padding, the gap and the rounding all come down
+    together, so a small button is the same button drawn smaller rather than
+    a new layout to measure; and the browser's hit test follows a zoom, so a
+    finger lands on the link it is on. A card keeps its column's width and
+    only what is inside it shrinks.
+
+    TRANSPARENT is transparent: no ground, no frame, no gradient, no blur and
+    no shadow -- which on a transparent box would draw a dark halo round
+    nothing. What is left is the icon in its own colours and the name, which
+    gets a soft shadow so a white name still reads over a pale sky. The press
+    and the ring a remote is on stay, because on a tile with nothing else to
+    it they are the only way to see that it was touched or chosen.
+    """
+    out = []
+    tint = PALETTES.get(str(text_color or "").lower())
+    zoom = TILE_SIZES.get(str(size or DEFAULT_SIZE).lower(), 1.0)
+    if zoom != 1.0:
+        out.append(f" .group {{ zoom: {zoom:g}; }}")
+    if str(background or "").lower() == "transparent":
+        out.append(
+            " main a.tile, main.buttons a.tile { background: transparent;"
+            " background-image: none; border-color: transparent;"
+            " box-shadow: none; backdrop-filter: none;"
+            " -webkit-backdrop-filter: none; }\n"
+            " main a.tile .icon { background: none; }\n"
+            " main a.tile .name, main a.tile .desc {"
+            f" text-shadow: 0 1px 3px {_halo(tint)}; }}\n"
+            " main a.tile:active, main a.tile.press {"
+            " background: color-mix(in srgb, var(--card) 55%, transparent); }\n"
+            " main a.tile:focus-visible, main a.tile.chosen,"
+            " main.buttons a.tile:focus-visible, main.buttons a.tile.chosen {"
+            " border-color: var(--ring); box-shadow: 0 0 0 .5vmin var(--ring); }")
+    if tint:
+        # The description is faint by default and a colour given for the
+        # text has to beat that too, so both are named and this comes later.
+        out.append(f" main a.tile .name, main a.tile .desc {{ color: {tint}; }}")
+    return out
+
+
 def _bar(clock_size, clock_color, date_size, date_color, weather_size, align,
-         focus_color=FOLLOW_THEME, weather_color=FOLLOW_THEME):
+         focus_color=FOLLOW_THEME, weather_color=FOLLOW_THEME,
+         tile_background="solid", tile_size=DEFAULT_SIZE,
+         tile_text_color=FOLLOW_THEME):
     """The rules the named settings come to, or nothing when all are default.
 
     Every one of them is a list in the add-on's form, so what arrives here is
@@ -2328,6 +2400,7 @@ def _bar(clock_size, clock_color, date_size, date_color, weather_size, align,
     # .wx .out is (0,2,0) and this comes later in the sheet.
     out += _one_colour(".wx .out", weather_color)
     out += _one_focus(focus_color)
+    out += _tile_look(tile_background, tile_size, tile_text_color)
     where = str(align or "left").lower()
     if where in ("center", "centre", "right"):
         # The weather is pushed right by a margin, which would fight any
@@ -2347,7 +2420,9 @@ def render(links, title="", subtitle="", theme="dark",
            motion=False, slideshow=False, every=30, fade=1, rescan=60,
            urls=(), mirrored=False, shape="cards", focus_color=FOLLOW_THEME,
            avatar=False, avatar_at=None, voice=False,
-           avatar_shape=DEFAULT_AVATAR, weather_color=FOLLOW_THEME):
+           avatar_shape=DEFAULT_AVATAR, weather_color=FOLLOW_THEME,
+           tile_background="solid", tile_size=DEFAULT_SIZE,
+           tile_text_color=FOLLOW_THEME):
     """The page, as one string.
 
     Every value is escaped. These come from a configuration file a person
@@ -2486,7 +2561,8 @@ def render(links, title="", subtitle="", theme="dark",
     # size of each widget on a fixed scale and has no CSS field at all, which
     # is the shape this follows now.
     sheet = _bar(clock_size, clock_color, date_size, date_color,
-                 weather_size, align, focus_color, weather_color)
+                 weather_size, align, focus_color, weather_color,
+                 tile_background, tile_size, tile_text_color)
 
     try:
         every, fade, rescan = float(every), float(fade), float(rescan)
@@ -2583,7 +2659,9 @@ def start(links, title="", subtitle="", theme="dark",
           motion=False, slideshow=False, every=30, fade=1, rescan=60,
           urls=(), port=PORT, tiles="cards", focus_color=FOLLOW_THEME,
           avatar=False, avatar_file=None, voice=None,
-          avatar_shape=DEFAULT_AVATAR, weather_color=FOLLOW_THEME):
+          avatar_shape=DEFAULT_AVATAR, weather_color=FOLLOW_THEME,
+          tile_background="solid", tile_size=DEFAULT_SIZE,
+          tile_text_color=FOLLOW_THEME):
     """Serve the page for as long as the add-on runs. Returns its address.
 
     One call is one launcher: its links, its look, its weather, its
@@ -2672,7 +2750,9 @@ def start(links, title="", subtitle="", theme="dark",
                 mirrored, shape=tiles, focus_color=focus_color,
                 avatar=avatar, avatar_at=spot["at"],
                 voice=voice is not None, avatar_shape=avatar_shape,
-                weather_color=weather_color).encode()
+                weather_color=weather_color,
+                tile_background=tile_background, tile_size=tile_size,
+                tile_text_color=tile_text_color).encode()
             held = cache["page"] = (key, body)
         return held[1]
 

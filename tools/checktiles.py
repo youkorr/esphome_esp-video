@@ -115,20 +115,23 @@ servers = {}
 with sync_playwright() as pw:
     b = pw.chromium.launch(executable_path=BROWSER) if BROWSER \
         else pw.chromium.launch()
-    for tiles in ("cards", "buttons"):
+    # Every size of link as well: a smaller link is the same layout drawn
+    # smaller, and it is exactly where a word would start to break.
+    for size, tiles in [(s, t) for s in launcher.TILE_SIZES
+                        for t in ("cards", "buttons")]:
         for (w, h), columns in CASES:
-            if (tiles, columns) not in servers:
-                servers[tiles, columns] = launcher.start(
-                    LINKS, columns=columns, tiles=tiles,
+            if (tiles, columns, size) not in servers:
+                servers[tiles, columns, size] = launcher.start(
+                    LINKS, columns=columns, tiles=tiles, tile_size=size,
                     port=launcher.ANY_PORT)
             page = b.new_page(viewport={"width": w, "height": h})
-            page.goto(servers[tiles, columns])
+            page.goto(servers[tiles, columns, size])
             page.wait_for_selector("a.tile")
             page.evaluate("document.fonts.ready")
             across = page.evaluate(ACROSS)
             cut = page.evaluate(CUT_WORDS)
             off = page.evaluate(OVERFLOW)
-            label = (f"{tiles} {w}x{h}, columns {columns or 'auto'} "
+            label = (f"{size} {tiles} {w}x{h}, columns {columns or 'auto'} "
                      f"({across} across)")
             ok(f"{label}: no word is cut", not cut, ", ".join(cut))
             ok(f"{label}: no tile runs off the panel", not off, ", ".join(off))
