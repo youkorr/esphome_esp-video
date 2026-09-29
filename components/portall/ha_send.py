@@ -360,7 +360,11 @@ BROWSER_ARGS = [
 # gets brushed by accident and a whole second of stillness does not. Short of
 # that second the tap is delivered normally, so the corner stays usable.
 HOME_CORNER_FRACTION = 0.14
-HOME_HOLD_S = 1.0
+# 0.6 s since 4.31.4, asked for by a household that found coming home slow:
+# the hold was a full second of the whole trip. It stays above HOME_TAP_MAX_S
+# with room to spare, so a quick tap still reaches the page and a press
+# between the two still reaches nothing.
+HOME_HOLD_S = 0.6
 # A press in the corner longer than this was not a tap: it was somebody
 # attempting the HOLD and letting go early, and that press must never reach the
 # page -- the corner covers Home Assistant's sidebar button, so every failed
@@ -2508,6 +2512,9 @@ class Screencast:
         # of them arrives a whole interval late -- see request().
         self.lead = 0.030
         self._asked_at = None
+        # Whether this browser refuses a start on a running screencast, which
+        # is only learnt by asking -- see restart().
+        self._stop_first = False
         self._session.on("Page.screencastFrame", self._on_frame)
         self._running = True
         self._start()
@@ -2619,12 +2626,26 @@ class Screencast:
             return
         self._latest = None
         self._unacked.clear()
-        # Started again WITHOUT being stopped first. Starting a screencast
-        # that is already running resets its frames in flight and hands over
-        # the page as it is, which is all this is for -- and the stop was a
-        # round trip of its own that, sent while a navigation is under way,
-        # took 9 ms of the 40-60 between a tapped link and its first picture
-        # (tools/checklinkspeed.py --trace).
+        # Started again WITHOUT being stopped first where the browser allows
+        # it: a start on a running screencast resets its frames in flight and
+        # hands over the page as it is, which is all this is for, and the stop
+        # is a round trip of its own. Playwright's Chromium allows it. Google
+        # Chrome does NOT -- "Screencast is already active" -- and 4.31.3
+        # shipped on the strength of the first alone, so every panel on
+        # Chrome crashed the moment it came home. So: try it, and on the
+        # refusal stop first, then and every time after.
+        if not self._stop_first:
+            try:
+                self._start()
+                return
+            except Exception as err:  # noqa: BLE001 - decided just below
+                if "already active" not in str(err):
+                    raise
+                self._stop_first = True
+        try:
+            self._session.send("Page.stopScreencast")
+        except Exception:  # noqa: BLE001 - a closed page needs no stopping
+            pass
         self._start()
 
     def freeze_animations(self):
@@ -5868,6 +5889,16 @@ def main():
                             # Like a press: a new page is on its way, so
                             # the higher frame limit is worth having for it.
                             urgent_until = opened + args.urgent_window
+                        elif open_page.is_launcher:
+                            # The add-on's own launcher: a page of links on
+                            # this machine, with no Home Assistant staging to
+                            # wait for. Opened like a link -- at commit, no
+                            # settle -- so its first paint reaches the panel
+                            # as it happens instead of after 150 ms of a
+                            # blocked loop, and so the screencast is not
+                            # restarted (see below).
+                            if not go_to(page, args.url):
+                                print("Warning: home would not open")
                         else:
                             if not open_page(page, args):
                                 print("Warning: home would not open")
@@ -5919,7 +5950,7 @@ def main():
                         # held the real first picture back another ~20 ms.
                         # What is in hand predates the commit and is the old
                         # page, so it is dropped rather than sent.
-                        if link is not None:
+                        if link is not None or open_page.is_launcher:
                             capture.request(discard=True)
                         else:
                             capture.restart()

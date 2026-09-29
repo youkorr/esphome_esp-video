@@ -605,7 +605,7 @@ gesture is. Two ways home, both of which leave the corner alone.
 The startup line says where the corner is and what it passes through:
 
 ```
-Home: corner 14% (179x112 of the page), hold 1s, a tap under 0.35s reaches the page, settle 300ms
+Home: corner 14% (179x112 of the page), hold 0.6s, a tap under 0.35s reaches the page, settle 150ms
 ```
 
 The corner is 14% of each axis -- on a 1280x800 page, 179x112 -- and the mark
@@ -632,15 +632,17 @@ then cards, then their data -- and the first picture is the one every later
 difference is measured against. A page of links has no such staging, and since
 3.3.0 the add-on says so outright. And since 3.3.1 measured what that wait is
 actually for -- `first picture 0.0s after the page opened`, so the picture was
-ready the moment the wait ended -- the launcher's own settle is **300 ms**.
+ready the moment the wait ended -- the launcher's own settle is **150 ms**
+(300 until 4.31.3).
 
-Coming home is therefore the one-second hold plus about a third of a second,
-and the log says so in three pieces, so a slow return can be blamed on the
-right one:
+Coming home is therefore the hold -- **0.6 s** since 4.31.4, a full second
+before -- plus about a fifth of a second. The sideways swipe out of the corner
+needs no hold at all, so it is the quickest way home. The log says so in
+three pieces, so a slow return can be blamed on the right one:
 
 ```
-Home: corner 14% (179x112 of the page), hold 1s, a tap under 0.35s reaches the page, settle 300ms
-Home: back to http://127.0.0.1:8099/ -- held 1.0s, opened in 0.3s
+Home: corner 14% (179x112 of the page), hold 0.6s, a tap under 0.35s reaches the page, settle 150ms
+Home: back to http://127.0.0.1:8099/ -- held 0.6s, opened in 0.2s
 Home: first picture 0.0s after the page opened
 ```
 

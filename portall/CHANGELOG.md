@@ -1,5 +1,17 @@
 # Changelog
 
+## 4.31.4
+
+- **Fixed: 4.31.3 stopped the add-on every time a panel came home** on a box
+  running Google Chrome ("Screencast is already active"). It restarted by
+  itself five seconds later, which is what the panel showed. Sorry.
+- **Coming home by the corner is quicker**: hold it for **0.6 s** instead of
+  a full second, and the launcher's first picture now reaches the panel as
+  soon as it is drawn instead of after a 150 ms wait. Measured from the
+  finger landing on the corner to the launcher on the panel: about 0.65 s,
+  against 1.2 s in 4.31.3. The sideways swipe out of the corner needs no
+  hold at all and is quicker still.
+
 ## 4.31.3
 
 - **A tile opens as soon as it is touched.** A tapped tile used to wait for
