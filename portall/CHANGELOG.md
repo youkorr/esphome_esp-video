@@ -1,5 +1,11 @@
 # Changelog
 
+## 4.30.3
+
+- **The temperature takes a colour**, like the clock and the date: Launcher >
+  Weather > Temperature colour, or `weather_color` on one screen's own page.
+  `theme` keeps it as it was. The sky's picture keeps its own colours.
+
 ## 4.30.2
 
 - **`max_rate` is 3000 by default**, up from 2400: a busy video stays

@@ -194,6 +194,9 @@ configuration:
             description: Par exemple weather.forecast_maison. Vide = pas de météo.
           size:
             name: Taille
+          color:
+            name: Couleur de la température
+            description: theme = la couleur du thème. Le ciel est un emoji et garde ses couleurs.
       background:
         name: 🖼️ Fond d'écran
         fields:
@@ -319,6 +322,8 @@ configuration:
         description: Par exemple weather.forecast_maison.
       weather_size:
         name: ⛅ Taille de la météo
+      weather_color:
+        name: ⛅ Couleur de la température
       background:
         name: 🖼️ Fond d'écran
         description: Une adresse (http://…) ou un fichier / dossier dans /media.

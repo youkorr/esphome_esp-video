@@ -1802,7 +1802,7 @@ the dashboard, where it is invisible while the keys go on working.
 ahead of the `pip install` as well as the `ADD`s, so a bump refetched
 everything — at the cost of the browser download on each update.
 `present_browser()` prints the Chromium version at startup and warns below 114,
-so this is never diagnosed by guesswork again. Currently **4.29.5**.
+so this is never diagnosed by guesswork again. Currently **4.30.3**.
 
 **CORRECTED in 4.29.5: the cost was every update, and a pin removes it.**
 Asked as *"verifie addon ... si il ya pas des elements qui freine la
@@ -2853,6 +2853,17 @@ the form. The date gets its own pair because that is what was asked for twice
 (*"pour aggrandir la date et changer sa couleur comment ont fait"*), and the
 weather gets no colour because it is an emoji -- a browser draws those in
 their own colours whatever the page says.
+
+**CORRECTED in 4.30.3: the emoji is the SKY, and the number beside it is
+text.** Reported as *"la couleur de la temperature meteo est fixe il faudrait
+les meme couleur que date"*. The temperature sat in the theme's faint ink
+whatever the clock and the date were given -- the correct fact (an emoji keeps
+its colours) with the wrong conclusion attached (so the weather needs none).
+`weather_color` / `weather: color:` colours `.wx .out` only, a later rule of
+the same specificity, so it beats the faint default the way the date's does.
+`tools/checkweathercolor.py` reads the computed colour through regroup(),
+launcher_config() and start_launcher() with a stand-in reading; three of its
+six cases fail against 4.30.2.
 
 **The sizes keep `small/medium/large/huge` deliberately, and the reason is a
 migration rather than a preference.** Adopting `xs..4xl` would change the
