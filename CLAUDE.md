@@ -1802,7 +1802,7 @@ the dashboard, where it is invisible while the keys go on working.
 ahead of the `pip install` as well as the `ADD`s, so a bump refetched
 everything — at the cost of the browser download on each update.
 `present_browser()` prints the Chromium version at startup and warns below 114,
-so this is never diagnosed by guesswork again. Currently **4.31.3**.
+so this is never diagnosed by guesswork again. Currently **4.31.4**.
 
 **CORRECTED in 4.29.5: the cost was every update, and a pin removes it.**
 Asked as *"verifie addon ... si il ya pas des elements qui freine la
@@ -10567,6 +10567,31 @@ launcher's tile: **138-190 ms in 4.31.2, ~50 now**; the control path 42-79
 and the browser's first paint of the new page (~20 ms), neither ours. The
 launcher's settle is 150 ms; how much a launcher with a wallpaper or a
 slideshow needs is not measured. **Not measured on a panel.**
+
+### And 4.31.3 crashed every panel on Chrome the moment it came home -- 4.31.4
+
+**The "restart without stopping" above was measured on Playwright's Chromium
+only.** A household's box runs **Google Chrome 154**, which answers
+`Page.startScreencast` on a running screencast with *"Screencast is already
+active"* -- a Protocol error, uncaught, so the sender exited on every trip
+home and the supervisor restarted it five seconds later. There is no Chrome
+in this container, and `SYSTEM_BROWSERS` prefers it on every amd64 box, so
+**a CDP behaviour measured here is a Chromium behaviour, not the panel's.**
+`restart()` now tries the start and, on that one refusal, stops first -- then
+and every time after (`_stop_first`). `tools/checkrestart.py` stands in for
+both browsers with a session that refuses the way each does, and against
+4.31.3 it raises exactly the reported error.
+
+In the same round, asked as the corner return taking too long: the log's
+`held 1.0s, opened in 0.2s` says the hold is most of it. **`HOME_HOLD_S` is
+0.6** (still well above `HOME_TAP_MAX_S`, 0.35), and coming home to the
+add-on's own launcher now goes through `go_to()` -- commit, no settle, no
+screencast restart, `request(discard=True)` -- like a link: the launcher is a
+page of links on localhost with nothing to wait for. `open_page()` and its
+waits stay for start, wake and any home that is not the launcher.
+`checklinkspeed.py --home` holds the corner through the fake panel's return
+channel and times the landing to the home page's colour: **~1200 ms in
+4.31.3, ~655 now**. Not measured on a panel, and not on Chrome.
 
 ## Repository conventions
 

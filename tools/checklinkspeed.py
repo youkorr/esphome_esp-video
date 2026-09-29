@@ -38,6 +38,7 @@ sys.path.insert(0, str(SENDER_DIR))
 REF = None
 SENDER = None
 TAP = False
+BACK = False
 TRACE = False
 DELAY = 1.5
 PATH = "page"
@@ -50,6 +51,8 @@ while args:
         SENDER = pathlib.Path(args.pop(0))
     elif flag == "--trace":
         TRACE = True
+    elif flag == "--home":
+        BACK = True
     elif flag == "--tap":
         TAP = True
     elif flag == "--styled":
@@ -227,6 +230,24 @@ def run_once(site):
         page = next((t - asked for t, c in seen
                      if t > asked and near(c, PAGE)), None)
         opened = [line.strip() for line in out if "opened" in line]
+        if BACK:
+            # Then home by the corner: a finger held still in the top left,
+            # counted from the moment it lands, to the home page's colour.
+            time.sleep(0.5)
+            landed = time.monotonic()
+            panel[0].sendall(b"T\x01\x00\x05\x00\x05\x00")
+            end = landed + 5
+            while time.monotonic() < end and not any(
+                    t > landed and near(c, HOME) for t, c in seen):
+                time.sleep(0.01)
+            panel[0].sendall(b"T\x00")
+            back = next((t - landed for t, c in seen
+                         if t > landed and near(c, HOME)), None)
+            crashed = [l.strip() for l in out if "Traceback" in l
+                       or "Error" in l]
+            print(f"  home after holding the corner: "
+                  f"{'never' if back is None else f'{back * 1000:.0f} ms'}"
+                  f"{'  CRASHED: ' + crashed[-1] if crashed else ''}")
         if TRACE:
             marks = []
             for line in out:
