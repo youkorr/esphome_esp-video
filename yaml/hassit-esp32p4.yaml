@@ -472,7 +472,6 @@ number:
     on_value:
       - lambda: 'id(screen_off_delay) = (int) x;'
       - script.execute: screen_timeout
-      - portall.sleep:        
 
 script:
   - id: screen_timeout
