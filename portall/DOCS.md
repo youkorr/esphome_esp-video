@@ -261,6 +261,9 @@ launcher:
   align: left                 # left, center, right
   tiles: cards                # cards, or buttons (icon on top, name below)
   focus_color: theme          # the frame around the link a remote is on
+  tile_background: solid      # solid, or transparent: the icon and the name only
+  tile_size: medium           # medium, small or tiny
+  tile_text_color: theme      # the colour of the links' names
   avatar: false               # a small face in the corner, moved with a finger
   avatar_shape: mochi         # mochi, robot, cat, bear, ghost, pixel or orb
   avatar_voice: ""            # the voice assistant it follows; empty: the only one
@@ -320,6 +323,22 @@ around the chosen link, in the theme's own colour by default. On a light
 theme or a pale wallpaper that colour barely stands out, so pick one that
 does from the same list as the clock's colour -- `black` or `yellow` for
 example. Each panel's own launcher can choose its own.
+
+**Links over a wallpaper: `tile_background:`, `tile_size:` and
+`tile_text_color:`.** With a picture behind the links, the links can let it
+show:
+
+- `tile_background: transparent` draws only the icon, in its own colours,
+  and the name -- no ground, no frame, no shadow. The name gets a soft
+  shadow so it still reads over a pale sky. A press and the frame of a
+  remote still show.
+- `tile_size: small` draws the links at 80 %, `tiny` at 65 %: the button,
+  its icon and its name shrink together, and a finger still lands on the
+  link it is on.
+- `tile_text_color:` colours the names, from the same list as the clock's
+  colour. On a pale wallpaper `black` reads better than the theme's white.
+
+Each panel's own launcher can choose its own.
 
 **A face on the launcher, `avatar:`.** A small animated face the size of a
 button, in the bottom right corner. Put a finger on it and slide to move it
@@ -548,7 +567,7 @@ launcher's:
 
 | in an entry | the house's setting it replaces |
 |---|---|
-| `theme`, `columns`, `align`, `tiles`, `focus_color`, `avatar`, `avatar_shape`, `avatar_voice` | `launcher: theme`, `columns`, `align`, `tiles`, `focus_color`, `avatar`, `avatar_shape`, `avatar_voice` |
+| `theme`, `columns`, `align`, `tiles`, `focus_color`, `tile_background`, `tile_size`, `tile_text_color`, `avatar`, `avatar_shape`, `avatar_voice` | `launcher: theme`, `columns`, `align`, `tiles`, `focus_color`, `tile_background`, `tile_size`, `tile_text_color`, `avatar`, `avatar_shape`, `avatar_voice` |
 | `clock`, `clock_size`, `clock_color` | `launcher: clock: show`, `size`, `color` |
 | `date_size`, `date_color` | `launcher: date: size`, `color` |
 | `weather`, `weather_size`, `weather_color` | `launcher: weather: entity`, `size`, `color` |

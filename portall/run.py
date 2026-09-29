@@ -382,7 +382,8 @@ def truthy(value):
 # launcher_clock_size -- so an entry is the house launcher with that panel's
 # own values laid over it, and there is no second table to keep in step.
 LAUNCHER_OWN = (
-    "theme", "columns", "align", "tiles", "focus_color", "avatar",
+    "theme", "columns", "align", "tiles", "focus_color", "tile_background",
+    "tile_size", "tile_text_color", "avatar",
     "avatar_shape", "avatar_voice", "clock", "clock_size", "clock_color", "date_size", "date_color",
     "weather", "weather_size", "weather_color",
     "background", "background_motion", "background_blur", "background_dim",
@@ -522,6 +523,12 @@ def start_launcher(config, port=None, house_links=(), label=""):
         tiles=str(config.get("launcher_tiles") or "cards"),
         focus_color=str(config.get("launcher_focus_color")
                         or launcher.FOLLOW_THEME),
+        tile_background=str(config.get("launcher_tile_background")
+                            or "solid"),
+        tile_size=str(config.get("launcher_tile_size")
+                      or launcher.DEFAULT_SIZE),
+        tile_text_color=str(config.get("launcher_tile_text_color")
+                            or launcher.FOLLOW_THEME),
         avatar=truthy(config.get("launcher_avatar", False)),
         avatar_shape=str(config.get("launcher_avatar_shape")
                          or launcher.DEFAULT_AVATAR),
@@ -631,6 +638,9 @@ _GROUPED = {
         "align": "launcher_align",
         "tiles": "launcher_tiles",
         "focus_color": "launcher_focus_color",
+        "tile_background": "launcher_tile_background",
+        "tile_size": "launcher_tile_size",
+        "tile_text_color": "launcher_tile_text_color",
         "avatar": "launcher_avatar",
         "avatar_shape": "launcher_avatar_shape",
         "avatar_voice": "launcher_avatar_voice",

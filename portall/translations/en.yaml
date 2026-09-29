@@ -151,6 +151,17 @@ configuration:
         name: 🎯 Selection colour
         description: The ring around the link chosen with a remote or a gamepad. On a light background,
           pick black or yellow.
+      tile_background:
+        name: 🪟 The links' ground
+        description: 'solid: the usual ground. transparent: only the icon, in its own colours, and the
+          name -- the wallpaper shows behind.'
+      tile_size:
+        name: 🔍 Size of the links
+        description: 'medium: the usual size. small: smaller. tiny: much smaller. The buttons and their
+          text shrink together.'
+      tile_text_color:
+        name: ✏️ Colour of the links' text
+        description: theme = the theme's own colour. On a light wallpaper, pick black for example.
       avatar:
         name: 😊 Avatar
         description: A small face the size of a button, in the bottom right corner. Drag it with a finger
@@ -291,6 +302,17 @@ configuration:
         name: 🎯 Selection colour
         description: The ring around the link chosen with a remote or a gamepad. On a light background,
           pick black or yellow.
+      tile_background:
+        name: 🪟 The links' ground
+        description: 'solid: the usual ground. transparent: only the icon, in its own colours, and the
+          name -- the wallpaper shows behind.'
+      tile_size:
+        name: 🔍 Size of the links
+        description: 'medium: the usual size. small: smaller. tiny: much smaller. The buttons and their
+          text shrink together.'
+      tile_text_color:
+        name: ✏️ Colour of the links' text
+        description: theme = the theme's own colour. On a light wallpaper, pick black for example.
       avatar:
         name: 😊 Avatar
         description: A small face the size of a button, in the bottom right corner. Drag it with a finger

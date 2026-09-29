@@ -1802,7 +1802,7 @@ the dashboard, where it is invisible while the keys go on working.
 ahead of the `pip install` as well as the `ADD`s, so a bump refetched
 everything — at the cost of the browser download on each update.
 `present_browser()` prints the Chromium version at startup and warns below 114,
-so this is never diagnosed by guesswork again. Currently **4.31.4**.
+so this is never diagnosed by guesswork again. Currently **4.32.0**.
 
 **CORRECTED in 4.29.5: the cost was every update, and a pin removes it.**
 Asked as *"verifie addon ... si il ya pas des elements qui freine la
@@ -9240,6 +9240,44 @@ navigation: a dashboard changing view inside one page keeps its mark and
 should not flash it again. `tools/checkhint.py` drives the shipped class and
 script in a real browser -- follow a link, come back, change view -- and
 three of its six cases fail against 4.22.1.
+
+## Links over a wallpaper: transparent, smaller, their own text colour -- 4.32.0
+
+**Asked with a photograph of a 1280x800 panel** -- a Snoopy sky, five dark
+buttons in a block at the left covering it. Four layouts were rendered first
+(the real launcher, a stand-in sky; centre, top row, bottom dock, glass
+buttons), and the answer was none of them: *"une vraie transparence du
+button tous en laissant icone avec sa propre couleur ... et toujours en
+option la reduction des buttons et text et couleur du text"*. Glass was not
+transparent enough; moving the block was not what was wanted. So three
+settings on `launcher:` and on each `launchers:` entry, flat names in both,
+defaults added to the launcher DICT so the form shows them to existing
+installs (dicts are merged under what is stored; list items are not):
+
+- **`tile_background: solid|transparent`.** Transparent means no ground, no
+  gradient, no frame, no blur and **no shadow** -- a box-shadow on a
+  transparent box draws a dark halo round nothing. The letters' tinted square
+  goes too. The press and the remote's ring stay, as the only way to see a
+  tile was touched or chosen. The name gets a halo: the theme's own ground
+  when the text follows the theme (so it contrasts on either theme), white
+  under a dark `tile_text_color`, black under a light one.
+- **`tile_size: tiny|small|medium`** is `zoom` on `.group` (0.65, 0.8, 1),
+  not a second set of sizes. Measured before it was built: a button's width,
+  height, icon and name come down together, a card keeps its column's width
+  and shrinks inside, and `elementFromPoint` at a tile's centre still finds
+  that tile -- the sender's taps go through the same hit test.
+  `getComputedStyle` reports font sizes BEFORE the zoom, so a check reading
+  them would say nothing changed; read `getBoundingClientRect`.
+- **`tile_text_color`**, the clock's palette, on `.name` and `.desc`.
+
+`tools/checktilelook.py` (28 cases) goes through `regroup()` /
+`launcher_config()` / `start_launcher()` and reads the pixels as well as the
+styles: inside a transparent tile is the page next to it, YouTube's mark is
+still red. Its first failure was the ruler: the middle of YouTube's mark is
+the play triangle, cut out of it, so the sample showed the page. Against the
+previous release it cannot run -- the settings did not exist. `checktiles.py`
+now runs every size, both shapes, fourteen panel shapes: no cut word, no tile
+off the panel, everything inside its button. **Not seen on a panel.**
 
 ## An avatar on the launcher -- 4.23.0
 

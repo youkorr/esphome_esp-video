@@ -1,5 +1,5 @@
 name: Portall
-version: "4.31.4"
+version: "4.32.0"
 # Home Assistant identifies an add-on by its slug, so this one moving from
 # usb_display_panel to portall makes the Supervisor see a NEW add-on: options
 # are not carried over and /data starts empty, which means the browser
@@ -125,6 +125,14 @@ options:
     # theme's own colour; on a light theme or a pale wallpaper pick one that
     # stands out, black or yellow for example.
     focus_color: theme
+    # The links' own look. solid is the ground they have always had;
+    # transparent draws only the icon, in its own colours, and the name, so a
+    # wallpaper shows through.
+    tile_background: solid
+    # tiny, small or medium: how big the links and their names are drawn.
+    tile_size: medium
+    # The colour of the links' names. "theme" follows the theme.
+    tile_text_color: theme
     # A small face in the bottom right corner, the size of a button. Drag it
     # with a finger to put it anywhere; it stays where it is put.
     avatar: false
@@ -388,6 +396,9 @@ schema:
     align: list(left|center|right)?
     tiles: list(cards|buttons)?
     focus_color: list(theme|slate|gray|zinc|neutral|stone|red|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose|white|black)?
+    tile_background: list(solid|transparent)?
+    tile_size: list(tiny|small|medium)?
+    tile_text_color: list(theme|slate|gray|zinc|neutral|stone|red|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose|white|black)?
     avatar: bool?
     avatar_shape: list(mochi|robot|cat|bear|ghost|pixel|orb)?
     avatar_voice: str?
@@ -434,6 +445,9 @@ schema:
       align: list(left|center|right)?
       tiles: list(cards|buttons)?
       focus_color: list(theme|slate|gray|zinc|neutral|stone|red|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose|white|black)?
+      tile_background: list(solid|transparent)?
+      tile_size: list(tiny|small|medium)?
+      tile_text_color: list(theme|slate|gray|zinc|neutral|stone|red|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose|white|black)?
       avatar: bool?
       avatar_shape: list(mochi|robot|cat|bear|ghost|pixel|orb)?
       avatar_voice: str?

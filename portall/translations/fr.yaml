@@ -154,6 +154,17 @@ configuration:
         name: 🎯 Couleur de la sélection
         description: Le cadre autour du lien choisi à la télécommande ou à la manette. Sur un fond clair,
           prenez black ou yellow.
+      tile_background:
+        name: 🪟 Fond des liens
+        description: 'solid : le fond habituel. transparent : seulement l''icône, dans ses propres couleurs,
+          et le nom -- le fond d''écran se voit derrière.'
+      tile_size:
+        name: 🔍 Taille des liens
+        description: 'medium : la taille habituelle. small : plus petits. tiny : bien plus petits. Les
+          boutons et leur texte rétrécissent ensemble.'
+      tile_text_color:
+        name: ✏️ Couleur du texte des liens
+        description: theme = la couleur du thème. Sur un fond clair, prenez black par exemple.
       avatar:
         name: 😊 Avatar
         description: Un petit visage de la taille d'un bouton, en bas à droite. Glissez-le du doigt pour
@@ -297,6 +308,17 @@ configuration:
         name: 🎯 Couleur de la sélection
         description: Le cadre autour du lien choisi à la télécommande ou à la manette. Sur un fond clair,
           prenez black ou yellow.
+      tile_background:
+        name: 🪟 Fond des liens
+        description: 'solid : le fond habituel. transparent : seulement l''icône, dans ses propres couleurs,
+          et le nom -- le fond d''écran se voit derrière.'
+      tile_size:
+        name: 🔍 Taille des liens
+        description: 'medium : la taille habituelle. small : plus petits. tiny : bien plus petits. Les
+          boutons et leur texte rétrécissent ensemble.'
+      tile_text_color:
+        name: ✏️ Couleur du texte des liens
+        description: theme = la couleur du thème. Sur un fond clair, prenez black par exemple.
       avatar:
         name: 😊 Avatar
         description: Un petit visage de la taille d'un bouton, en bas à droite. Glissez-le du doigt pour
