@@ -58,6 +58,13 @@ try:
 except ImportError:  # the image was built without it
     voicelinks = None
 
+# And again: a panel that cannot be signed in from a telephone still shows
+# everything it could before.
+try:
+    import signin
+except ImportError:  # the image was built without it
+    signin = None
+
 # Its own folder under the add-on's persistent volume, so a pairing survives
 # a restart and an update.
 HOMEKIT_DIR = "/data/homekit"
@@ -75,6 +82,12 @@ _running = []
 _running_lock = threading.Lock()
 # Several panels write to one log. Without this their lines interleave.
 _print_lock = threading.Lock()
+# Each panel's sender now, and whether it is HELD: stopped on purpose and not
+# to be started again until released. A sign-in from a telephone holds the
+# panel whose profile it opens, because Chromium locks a profile and two
+# browsers cannot share one.
+_current = {}
+_held = {}
 
 # Long enough not to hammer a Home Assistant that is still starting, short
 # enough that a panel is back before anyone walks over to it.
@@ -1192,11 +1205,39 @@ def show_enabled_switch():
     return True
 
 
+def hold_panel(name):
+    """Stop this panel's sender and keep it stopped. Returns once it is gone."""
+    event = _held.setdefault(str(name), threading.Event())
+    event.set()
+    with _running_lock:
+        process = _current.get(str(name))
+    if process is None:
+        return
+    try:
+        process.terminate()
+        process.wait(15)
+    except subprocess.TimeoutExpired:
+        process.kill()
+    except OSError:
+        pass
+
+
+def release_panel(name):
+    """Let a held panel's sender start again, at once and without a backoff."""
+    event = _held.get(str(name))
+    if event is not None:
+        event.clear()
+
+
 def serve(panel, name, stop, remote=None):
     """Run one panel's sender, restarting it until asked to stop."""
     seed_profile(panel, name)
     delay = RESTART_DELAY_S
+    held = _held.setdefault(str(name), threading.Event())
     while not stop.is_set():
+        if held.is_set():
+            stop.wait(0.5)
+            continue
         started = time.monotonic()
         say(f"[{name}] starting")
         try:
@@ -1215,6 +1256,11 @@ def serve(panel, name, stop, remote=None):
 
         with _running_lock:
             _running.append(process)
+            _current[str(name)] = process
+        # Held between the check above and now: hold_panel found nothing to
+        # stop, so this one has to go by itself.
+        if held.is_set():
+            process.terminate()
         if remote is not None:
             remote.set_process(process)
         # Prefix every line, so one log can carry several panels and still be
@@ -1227,9 +1273,15 @@ def serve(panel, name, stop, remote=None):
         with _running_lock:
             if process in _running:
                 _running.remove(process)
+            if _current.get(str(name)) is process:
+                del _current[str(name)]
 
         if stop.is_set():
             return
+        if held.is_set():
+            say(f"[{name}] stopped while its profile is in use for signing in")
+            delay = RESTART_DELAY_S
+            continue
         ran_for = time.monotonic() - started
         if ran_for >= SHORT_RUN_S:
             delay = RESTART_DELAY_S  # it worked for a while; this was a blip
@@ -1240,6 +1292,60 @@ def serve(panel, name, stop, remote=None):
         # is a repeated failure that earns the longer pause.
         if ran_for < SHORT_RUN_S:
             delay = min(delay * 2, MAX_RESTART_DELAY_S)
+
+
+def ingress_port():
+    """The port Home Assistant's ingress reaches this add-on on, or None.
+
+    `ingress_port: 0` in config.yaml, because the add-on is on the host network
+    and a fixed number could be taken on somebody's machine: the Supervisor
+    picks one and says which in /addons/self/info. $PORTALL_SIGNIN_PORT names
+    one directly, for a run outside Home Assistant.
+    """
+    fixed = os.environ.get("PORTALL_SIGNIN_PORT")
+    if fixed:
+        return int(fixed)
+    import urllib.request
+
+    token = os.environ.get("SUPERVISOR_TOKEN")
+    if not token:
+        return None
+    try:
+        with urllib.request.urlopen(urllib.request.Request(
+                f"{SUPERVISOR_API}/addons/self/info",
+                headers={"Authorization": f"Bearer {token}"}),
+                timeout=10) as answer:
+            data = json.loads(answer.read().decode())["data"]
+        return int(data.get("ingress_port") or 0) or None
+    except Exception as err:  # noqa: BLE001 - an accessory, never the panels
+        say(f"Sign-in page: could not ask the Supervisor for its port ({err})")
+        return None
+
+
+def start_signin(panels):
+    """The add-on's Open Web UI page: sign a screen in from a telephone."""
+    if signin is None:
+        return None
+    port = ingress_port()
+    if not port:
+        return None
+    screens = {}
+    for index, panel in enumerate(panels, start=1):
+        name = str(panel.get("name") or panel.get("host") or f"panel {index}")
+        screens[name] = {"profile": profile_for(panel),
+                         "browser": panel.get("browser"),
+                         "locale": panel.get("locale")}
+    page = signin.SignIn(screens, hold_panel, release_panel, say)
+    try:
+        page.serve(port)
+    except OSError as err:
+        say(f"Sign-in page: could not listen on {port} ({err})")
+        return None
+    missing = signin.tools_missing()
+    say("Sign-in page ready: Open Web UI on the add-on, from a telephone too"
+        + (f" -- but this build is missing {', '.join(missing)}"
+           if missing else ""))
+    return page
 
 
 def route_to_launcher(panels, where, own=None):
@@ -1530,6 +1636,7 @@ def main():
 
     # After the senders, for the same reason as the accessory below.
     start_voice_links(panels, every_remote)
+    sign_in = start_signin(panels)
 
     # After the senders, so a press cannot arrive before there is anything to
     # hand it to -- and because the accessory is the accessory here: the
@@ -1547,6 +1654,8 @@ def main():
     # The container lives as long as the panels do.
     while not stop.is_set():
         stop.wait(1)
+    if sign_in is not None:
+        sign_in.finish("the add-on is stopping")
     for television in televisions:
         television.stop()
     for thread in threads:

@@ -1,5 +1,17 @@
 # Changelog
 
+## 4.33.0
+
+- **Sign a screen into Google, or any site, from your telephone.** Open the
+  add-on's **Open web UI** (it works in the Home Assistant app on a
+  telephone), press the screen's name, and a real Chrome opens on that
+  screen's profile **with an address bar**. Sign in with the telephone's
+  keyboard and press **Done**: the screen comes back signed in. Google refuses
+  to sign in the panel's own browser because a program drives it; this Chrome
+  has nobody driving it, and the panel then uses its session. The screen's
+  picture stops while you sign in. Not yet tried against Google itself -- the
+  first try on your panel says.
+
 ## 4.32.0
 
 - **Links that let the wallpaper show.** Three new settings in section 3,

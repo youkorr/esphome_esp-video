@@ -1802,7 +1802,7 @@ the dashboard, where it is invisible while the keys go on working.
 ahead of the `pip install` as well as the `ADD`s, so a bump refetched
 everything — at the cost of the browser download on each update.
 `present_browser()` prints the Chromium version at startup and warns below 114,
-so this is never diagnosed by guesswork again. Currently **4.32.0**.
+so this is never diagnosed by guesswork again. Currently **4.33.0**.
 
 **CORRECTED in 4.29.5: the cost was every update, and a pin removes it.**
 Asked as *"verifie addon ... si il ya pas des elements qui freine la
@@ -10630,6 +10630,65 @@ waits stay for start, wake and any home that is not the launcher.
 `checklinkspeed.py --home` holds the corner through the fake panel's return
 channel and times the landing to the home page's colour: **~1200 ms in
 4.31.3, ~655 now**. Not measured on a panel, and not on Chrome.
+
+## Signing a screen in from a telephone -- 4.33.0
+
+**Asked as *"pas de barre d'adresse, connexion a un compte Google, c'est
+notre point faible"*, with *"nous sommes sur Chrome pas sur Chromium"*.**
+Chrome does not change it: Google refuses the browser because a program
+drives it, and the panel's browser is always driven -- that is how the picture
+is taken out. What Google checks is the SIGNING IN; afterwards the session is
+a cookie (import_profile's measurement, above). Proposed as an add-on tab
+showing a plain Chrome, answered *"l'idee est bonne pour la connexion par
+telephone"*.
+
+`portall/signin.py`, served on the add-on's ingress (`ingress: true`,
+`ingress_port: 0` -- the Supervisor's own validator allows 0 when nothing in
+`ports:` sits in the dynamic range, read in `apps/validate.py`; run.py asks
+`/addons/self/info` for the port). Pressing a screen: run.py HOLDS that
+panel (`hold_panel`: its sender is stopped and not restarted until
+`release_panel`), `/proc` is asked until no process names the profile in
+`--user-data-dir=`, then Xvfb, a plain Chrome on the profile with an address
+bar, x11vnc, and websockify serving noVNC. The page answers 172.30.32.2 only:
+the add-on is on the host network, so the port is on the LAN too.
+
+- **The relay forces `Connection: close` on every file request.** A browser
+  keeps a connection open and sent its NEXT request down it, which reached
+  websockify still carrying `/vnc` -- half of noVNC's files 404 and nothing
+  drawn. A websocket (an `Upgrade:`) is piped untouched.
+- **noVNC builds its websocket URL from `path=`** as `/` + path, so the path
+  carries the ingress prefix, from `X-Ingress-Path` or from
+  `location.pathname` when that header is absent.
+- **Done quits Chrome through its own Ctrl+Shift+Q (xdotool), not SIGTERM.**
+  Chrome writes cookies on a 30 s timer. With a telephone connected through
+  noVNC and text typed, SIGTERM ended it in 0.07 s with code 0 and the cookie
+  never reached the disk -- the panel came back signed out. Every piece of
+  that tried alone (typing, a click in the frame, a long or short session)
+  kept the cookie; only the whole scenario lost it, and the cause inside
+  Chrome is NOT known. The quit is what works: `checksignin.py --signal`
+  reproduces the loss, without it three runs in three pass.
+- `--password-store=basic` on the plain Chrome, because Playwright passes it
+  to the driven one and the cookie key depends on it; `--no-sandbox` because
+  the container is root, which Playwright passes too.
+
+`tools/checksignin.py`: a stand-in sender (Playwright, persistent context,
+the sender's own `BROWSER_ARGS`) on a profile, run.py's real `serve()`; a
+telephone-sized page presses the screen; the sender is stopped, only the
+plain browser holds the profile, it carries no debugging or automation flag
+and the page reads `navigator.webdriver` false; noVNC draws it through the
+relay (a share of pixels in the page's colour, not one pixel -- Chrome's own
+bubbles move); keys typed on the telephone reach a field; Done, and the
+restarted DRIVEN browser presents the cookie. **Not tried against Google** --
+no route to it here -- and not built into an image: the Debian packages
+(xvfb, x11vnc, novnc, websockify, xdotool) were read by name, the ones
+exercised are Ubuntu 24.04's.
+
+Asked in the same message and NOT built: a way back to the previous page.
+The reply *"le retour qui est deja present sur la page web ? il suffit un
+appui a ce retour deja present"* has two readings -- the page's own back
+arrow does not answer a press (it may sit under the home corner, where a
+press between HOME_TAP_MAX_S and HOME_HOLD_S reaches nothing), or no new
+gesture is wanted at all. Asked rather than guessed.
 
 ## Repository conventions
 

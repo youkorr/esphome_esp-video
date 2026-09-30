@@ -1911,12 +1911,49 @@ That is the shape that works for a screen across a room, and it is worth
 preferring wherever a service offers it -- Plex, Emby and YouTube all have
 their own version of the same idea.
 
+### Signing in from a telephone: Google, or any site that refuses the panel
+
+Google refuses to sign in the panel's browser ("Ce navigateur ou cette
+application ne sont peut-être pas sécurisés"), because it can tell that
+browser is being driven, and it always is: that is how the picture is taken
+out of it. Using Chrome rather than Chromium does not change that. What Google
+checks is the **signing in**; afterwards the session is a cookie, and the
+panel's browser uses it like any other.
+
+So since 4.33.0 the add-on opens a **real, undriven Chrome** on the panel's
+own profile, and shows it to you:
+
+1. In Home Assistant, open the add-on and press **Open web UI** -- from the
+   Home Assistant app on your telephone too. (Show in sidebar puts it in the
+   menu as **Portall**.)
+2. Press the screen's name. That screen's picture stops while you sign in.
+3. A Chrome appears, **with its address bar**, on `accounts.google.com`. Sign
+   in with the telephone's keyboard: in the noVNC menu on the left, the ⌨
+   button brings it up. Go to any other address the same way.
+4. Press **Done**. Chrome closes, and the screen comes back already signed in.
+
+If you forget Done, it ends by itself after 20 minutes, or when you close the
+Chrome window.
+
+Nothing drives that Chrome: no debugging port, no automation flag, and the
+page sees `navigator.webdriver` as false. It needs `keep_profile` on (the
+default) -- a screen without a profile has nowhere to keep a sign-in, and the
+page says so.
+
+**Measured** here end to end, against a local site: the panel's own browser
+stopped and its profile freed, the plain Chrome drawn on a telephone-sized
+page through noVNC, text typed on the telephone arriving in a field, and after
+Done the panel's own browser presenting the cookie the plain one was given.
+**Not tested against Google itself**: there is no route to Google from where
+this was written, and Google may tie a session to a machine more tightly than
+a plain cookie. The first try on your panel says.
+
 ### Signing in somewhere else, and handing the session over
 
-**Use the television interface above instead.** This route works and is kept
-for anybody who wants it, but it is three steps with an obscure flag in the
-middle, and it is not what to hand to somebody who just wants YouTube on a
-panel.
+**Signing in from a telephone, above, does the same without copying
+anything, and the television interface is the other easy route.** This one
+works and is kept for anybody who wants it, but it is three steps with an
+obscure flag in the middle.
 
 It comes from an observation worth repeating: **on a Raspberry Pi with
 Chromium you can sign in perfectly well.** That is true, and it says exactly
