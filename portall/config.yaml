@@ -1,5 +1,5 @@
 name: Portall
-version: "4.32.0"
+version: "4.33.0"
 # Home Assistant identifies an add-on by its slug, so this one moving from
 # usb_display_panel to portall makes the Supervisor see a NEW add-on: options
 # are not carried over and /data starts empty, which means the browser
@@ -45,6 +45,15 @@ init: false
 # on the LAN can reach it either way. The one thing to know is that port 8099
 # must be free on the Home Assistant machine.
 host_network: true
+# The "Open web UI" page: signing a screen into Google, or any site, from a
+# telephone (signin.py). Port 0 because the add-on is on the host network and
+# a fixed number could be taken on somebody's machine: the Supervisor picks
+# one and run.py asks it which. The page answers the Supervisor and nothing
+# else, and Home Assistant's own sign-in is in front of it.
+ingress: true
+ingress_port: 0
+panel_icon: mdi:account-key
+panel_title: Portall
 options:
   # The panels first, because they are the one thing that must be filled in
   # for anything at all to appear. Everything under them has a working

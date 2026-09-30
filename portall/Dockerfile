@@ -104,10 +104,27 @@ RUN (apt-get update \
     ; rm -rf /var/lib/apt/lists/* \
     ; true
 
+# A screen the telephone can see, for signing a panel in (signin.py).
+#
+# Google refuses to sign in a browser that is being driven, and a panel's
+# browser always is. So a PLAIN browser is opened on the panel's profile, on a
+# virtual screen (Xvfb), shared by x11vnc and shown in the add-on's own page
+# by noVNC through websockify; xdotool is what quits it the way a person does,
+# which is what writes its cookies out. Allowed to fail like everything above:
+# without these the sign-in page says what is missing and the panels do not
+# notice.
+RUN (apt-get update \
+     && apt-get install -y --no-install-recommends xvfb x11vnc novnc \
+        websockify xdotool \
+     || echo "no virtual screen here; signing in from a telephone is off") \
+    ; apt-get clean \
+    ; rm -rf /var/lib/apt/lists/* \
+    ; true
+
 # Bump this with the version in config.yaml. It sits AFTER the browsers and
 # BEFORE the senders: an update refetches the two senders below and copies the
 # add-on's own files, and reuses everything above -- see the note on the pin.
-ARG BUNDLE=4.32.0
+ARG BUNDLE=4.33.0
 RUN echo "${BUNDLE}" > /app/BUNDLE
 
 # Fetched rather than copied: a Home Assistant add-on builds with its own folder
@@ -133,6 +150,7 @@ COPY logos.py /app/logos.py
 COPY homekit.py /app/homekit.py
 COPY voice.py /app/voice.py
 COPY voicelinks.py /app/voicelinks.py
+COPY signin.py /app/signin.py
 
 WORKDIR /app
 # Unbuffered, or the add-on log stays empty until something goes wrong.
