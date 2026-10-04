@@ -10937,6 +10937,25 @@ never "recovered". `tools/checkresume.py`: killed -> back on the link,
 SIGTERM -> home, a 10-minute-old file -> home. `checkdownload.py` gained a
 cookie-only file, a blob and a data: address. **Not verified on Chrome.**
 
+## No strip above Home Assistant, even opened from a tile -- 4.36.4
+
+Reported as the Home Assistant link carrying ← ⟳ ⌂ "alors que pour home
+assistant il ne faut pas". The strip's rule asked `is_home_assistant is not
+True`, which is about the PANEL's own page: on a launcher panel it is False
+by design, so Home Assistant opened from a tile was just another site. The
+rule is per ORIGIN now: `ha_origins` is every address a token was installed
+for (the panel's own and every link's -- since 3.0.0 the dashboard's link is
+what carries one), minus the launcher's own origin on a launcher panel; and a
+Home Assistant with no token is recognised by its page,
+`document.querySelector('home-assistant')`, asked only while the origin is
+unknown and remembered as "not it" only once `readyState` is complete. A
+tile's pre-toggle skips those origins too, so the page is laid out once.
+
+`checknavbar.py` serves one Home Assistant-shaped page on a token's origin
+and one with the element on 127.0.0.2: both fail against 4.36.3, both pass.
+It used to run the sender with `--no-token`, which discards every link token
+-- the shape no launcher panel is started with; it does not any more.
+
 ## Repository conventions
 
 - Work on branch `claude/esphome-pr-outdated-mdq36w`, then merge into `main`

@@ -53,6 +53,7 @@ HOME = (0x80, 0x20, 0x20)
 A = (0x20, 0x60, 0xA0)
 B = (0x30, 0x90, 0x40)
 C = (0xB0, 0xA0, 0x20)
+HA = (0x10, 0x90, 0x90)
 D = (0x70, 0x30, 0x90)
 counts = {"a": 0, "b": 0, "c": 0, "clicked": 0}
 fails = 0
@@ -80,7 +81,8 @@ class Site(http.server.BaseHTTPRequestHandler):
             counts["clicked"] += 1
             body = b"ok"
         else:
-            colour = {"home": HOME, "a": A, "b": B, "c": C}.get(name, HOME)
+            colour = {"home": HOME, "a": A, "b": B, "c": C, "ha": HA,
+                      "ha2": HA}.get(name, HOME)
             if name in counts:
                 counts[name] += 1
             pushed = D if name == "c" else colour
@@ -98,7 +100,9 @@ class Site(http.server.BaseHTTPRequestHandler):
                     "+location.search+'#2');paint();}"
                     "else if(next&&e.clientX<innerWidth/4)"
                     "location.href=next;});"
-                    "</script>").encode()
+                    "</script>"
+                    + ("<home-assistant></home-assistant>" if name == "ha"
+                       else "")).encode()
         self.send_response(200)
         self.send_header("Content-Type", "text/html")
         self.send_header("Content-Length", str(len(body)))
@@ -117,7 +121,7 @@ def main():
     from udisp_send import _HEADER, UDISP_TYPE_JPG
     import ha_send
 
-    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Site)
+    server = http.server.ThreadingHTTPServer(("0.0.0.0", 0), Site)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     site = f"http://127.0.0.1:{server.server_address[1]}"
 
@@ -198,13 +202,16 @@ def main():
     command = [sys.executable, "-u", str(SENDER_DIR / "ha_send.py"),
                "--host", "127.0.0.1", "--port",
                str(listener.getsockname()[1]), "--url", f"{site}/home",
-               "--no-token", "--not-home-assistant", "--width", str(W),
+               "--not-home-assistant", "--width", str(W),
                "--height", str(H), "--audio", "off", "--keyboard", "off",
-               "--control"]
+               "--control", "--page-token",
+               f"http://localhost:{server.server_address[1]}="
+               "aaaa.bbbb." + "c" * 43]
     if BROWSER:
         command += ["--browser", BROWSER]
     if WITHOUT:
         command.append("--no-nav-bar")
+    os.environ.pop("HA_TOKEN", None)
     process = subprocess.Popen(command, stdin=subprocess.PIPE,
                                stdout=subprocess.PIPE,
                                stderr=subprocess.STDOUT, text=True)
@@ -326,6 +333,23 @@ def main():
               wait(HOME), str(colour(middle)))
         check("and the bar goes with it", not bar_drawn(seconds=1.5),
               str(colour(ground)))
+        print("Home Assistant opened as a link:")
+        port = server.server_address[1]
+        ask(f"open http://localhost:{port}/ha2")
+        check("the one its link carries a token for arrives", wait(HA))
+        time.sleep(1.5)
+        check("with no bar, and the whole screen its own",
+              near(colour(ground), HA) and near(colour((W // 2, 3)), HA),
+              f"{colour(ground)} {colour((W // 2, 3))}")
+        ask(f"open http://127.0.0.2:{port}/ha")
+        check("one known only by its page arrives", wait(HA))
+        time.sleep(2.0)
+        check("with no bar either",
+              near(colour(ground), HA) and near(colour((W // 2, 3)), HA),
+              f"{colour(ground)} {colour((W // 2, 3))}")
+        ask(f"open {site}/b")
+        check("and an ordinary link afterwards has its bar again",
+              wait(B) and bar_drawn())
         time.sleep(0.5)
         check("no button press ever reached the page under the bar",
               counts["clicked"] == taps,

@@ -1,5 +1,13 @@
 # Changelog
 
+## 4.36.4
+
+- **No bar above Home Assistant.** Opened from a launcher's tile, Home
+  Assistant had the ← ⟳ ⌂ strip above it like any other site, taking room
+  from a dashboard that has its own arrows. It is never shown there now:
+  Home Assistant is recognised by the token its link carries, or by its own
+  page when it has none.
+
 ## 4.36.3
 
 - **Downloading no longer sends the screen back to its launcher.** With Google
