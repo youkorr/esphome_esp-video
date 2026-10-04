@@ -1104,6 +1104,9 @@ already has, and each one was checked against U+FFFF in the browser this add-on
 ships -- a glyph the font cannot draw measures exactly as wide as one that has
 no drawing at all, and none of these do.
 
+Accents do not matter: `téléchargement` is the same name as `telechargement`,
+and `caméra` as `camera`.
+
 <!-- generated: python3 tools/iconlist.py -->
 
 | icône | les noms qui y mènent | icône | les noms qui y mènent |
@@ -1121,54 +1124,54 @@ no drawing at all, and none of these do.
 | 🪴 | `plante` `terrasse` `plant` `patio` `balcony` | 🗃 | `base-de-donnees` `database` `sql` `archives` |
 | 🍷 | `cave` `wine` `cellar` | ☁️ | `nuage-fichiers` `nextcloud` `owncloud` `cloud` `drive` |
 | 📦 | `grenier` `colis` `attic` `parcel` `package` `delivery` | ⬇️ | `telechargement` `torrent` `download` `downloads` |
-| 🚪 | `porte` `entree` `door` `entrance` `hall` | 📈 | `grafana` `supervision` `uptime` `monitoring` `graph` `metrics` `courbes` |
-| 🪟 | `fenetre` `window` `volet` `shutter` `blind` | 📨 | `mqtt` `message-broker` `courrier-entrant` |
-| 🪜 | `escalier` `stairs` `ladder` `etage` `floor` | 🐝 | `zigbee` `ruche` `z2m` `hive` |
-| 🛤 | `couloir` `corridor` `hallway` `route` | 📟 | `esphome` `appareils` `devices` `esp` |
-| 🏢 | `immeuble` `building` `appartement` `apartment` | 📄 | `paperless` `document` `documents` `papier` `paper` `scan` |
-| 💡 | `lumiere` `ampoule` `light` `bulb` `lamp` `lighting` | 🗝 | `vaultwarden` `bitwarden` `mots-de-passe` `passwords` `vault` |
-| 🪔 | `lampe` `lampadaire` `desk-lamp` | 🖨 | `imprimante` `printer` `impression` `printing` |
-| 🔌 | `prise` `plug` `socket` `outlet` | 📇 | `scanner` `numerisation` `contacts` |
-| ⚡️ | `energie` `electricite` `power` `electricity` `energy` | 📱 | `tablette` `telephone-mobile` `phone` `mobile` `tablet` |
-| 🔋 | `batterie` `battery` | 📞 | `telephone` `landline` `call` |
-| ☀️ | `soleil` `solaire` `sun` `solar` `sunny` | 📅 | `agenda` `calendrier` `calendar` `schedule` `dates` |
-| 📊 | `compteur` `statistiques` `meter` `statistics` `stats` `chart` | 🕑 | `horloge` `heure` `clock` `time` |
-| 💨 | `vent` `eolienne` `wind` `air` | ⏱️ | `minuteur` `chronometre` `timer` `stopwatch` |
-| 🔥 | `chauffage` `feu` `heating` `fire` `heat` `flame` | 🛒 | `courses` `caddie` `shopping` `groceries` `cart` |
-| 🌡 | `temperature` `radiateur` `thermostat` `thermometer` | 📋 | `liste` `listes` `list` `notes` `checklist` |
-| ❄️ | `climatisation` `neige` `cold` `snow` `air-conditioning` `freezer` | ✅️ | `taches` `todo` `tasks` `done` |
-| 🌬 | `ventilateur` `fan` `breeze` | 🗑 | `poubelle` `dechets` `bin` `trash` `waste` `rubbish` |
-| 💧 | `humidite` `eau` `humidity` `water` `moisture` | 🧺 | `lessive` `linge` `laundry` `washing` |
-| ⛅️ | `meteo` `weather` `forecast` | 🧹 | `aspirateur` `menage` `vacuum` `cleaning` `broom` |
-| 🌧 | `pluie` `rain` | 🤖 | `robot` `aspirateur-robot` `bot` `automation` |
-| ☁️ | `nuage` `cloud` | 🚲 | `velo` `bike` `bicycle` `cycling` |
-| 🚨 | `alarme` `fumee` `alarm` `siren` `smoke` `emergency` | 🚆 | `train` `rail` `metro` |
-| 🔒 | `serrure` `verrou` `lock` `locked` `security` | ✈️ | `avion` `plane` `flight` `airport` `vol` |
-| 🔑 | `cle` `key` `keys` | 🚌 | `bus` `autobus` `transport` |
-| 📷 | `camera` `photo` `picture` | ✉️ | `courrier` `mail` `email` `lettre` `inbox` |
-| 📹 | `camescope` `frigate` `cctv` `video-camera` `videosurveillance` `hikvision` `dahua` `tapo` `annke` `amcrest` `foscam` | 💬 | `message` `messages` `chat` `discussion` |
-| 🔔 | `sonnette` `notification` `doorbell` `bell` `alert` | 💶 | `argent` `depenses` `money` `budget` `expenses` `cash` |
-| 🚶 | `mouvement` `presence` `motion` `presence-detection` | 🏦 | `banque` `bank` `comptes` `accounts` |
-| 🧯 | `gaz` `extincteur` `gas` `extinguisher` | ⚕️ | `sante` `health` `medical` `medecin` `doctor` |
-| 👁 | `surveillance` `oeil` `eye` | 🏃 | `sport` `fitness` `course` `running` `exercise` |
-| 🛡 | `bouclier` `adguard` `pihole` `shield` `protection` `filtrage` | 🐕 | `chien` `dog` `animaux` `pets` |
-| 🎬 | `jellyfin` `plex` `kodi` `film` `cinema` `movies` `movie` `media` | 🐈 | `chat-animal` `cat` `chaton` `kitten` |
-| ▶️ | `youtube` `video` `lecture` `play` `watch` | 🏊 | `piscine` `pool` `swimming` `spa` |
-| 🎥 | `netflix` `streaming` `projector` | 🍖 | `barbecue` `viande` `bbq` `grill` `meat` |
-| 📺 | `television` `tv` `televiseur` `screen` `prime-video` `primevideo` `prime` `disneyplus` `disney` `canalplus` `molotov` | 🔧 | `outils` `bricolage` `tools` `maintenance` `repair` |
-| 🎵 | `musique` `spotify` `music` `song` `audio` | ⚙️ | `reglages` `parametres` `settings` `configuration` `setup` |
-| 📻 | `radio` `tuner` | ☕️ | `cafe` `coffee` `machine-a-cafe` `kettle` |
-| 🎙 | `podcast` `micro-studio` `recording` | 🍽 | `repas` `cuisine-table` `meal` `dinner` `restaurant` |
-| 🖼 | `photos` `immich` `gallery` `pictures` `album` | 🧸 | `enfants` `jouets` `kids` `children` `toys` |
-| 📖 | `livre` `book` `reading` `library` `calibre` | 🎓 | `ecole` `school` `study` `college` |
-| 🎮 | `jeu` `jeux` `game` `games` `gaming` `console` | 💼 | `travail` `bureau-pro` `work` `job` `briefcase` |
-| 🎧 | `casque` `headphones` | 🌴 | `vacances` `holiday` `vacation` `beach` `plage` |
-| 🔊 | `haut-parleur` `enceinte` `speaker` `volume` `sound` | ⭐️ | `etoile` `favori` `star` `favourite` `favorite` `bookmark` |
-| 🎤 | `micro` `microphone` `assistant` `voice` | ❤️ | `coeur` `heart` `favoris` `loved` |
-| 🐳 | `docker` `portainer` `container` `containers` `whale` | ℹ️ | `info` `information` `aide` `help` `about` |
-| 🖧 | `serveur` `server` `cluster` `machines` `noeuds` `nodes` |  |  |
+| 🚪 | `porte` `entree` `door` `entrance` `hall` | 📁 | `dossier` `dossiers` `fichiers` `fichier` `folder` `folders` `files` `file` `explorateur` `explorer` |
+| 🪟 | `fenetre` `window` `volet` `shutter` `blind` | 📈 | `grafana` `supervision` `uptime` `monitoring` `graph` `metrics` `courbes` |
+| 🪜 | `escalier` `stairs` `ladder` `etage` `floor` | 📨 | `mqtt` `message-broker` `courrier-entrant` |
+| 🛤 | `couloir` `corridor` `hallway` `route` | 🐝 | `zigbee` `ruche` `z2m` `hive` |
+| 🏢 | `immeuble` `building` `appartement` `apartment` | 📟 | `esphome` `appareils` `devices` `esp` |
+| 💡 | `lumiere` `ampoule` `light` `bulb` `lamp` `lighting` | 📄 | `paperless` `document` `documents` `papier` `paper` `scan` |
+| 🪔 | `lampe` `lampadaire` `desk-lamp` | 🗝 | `vaultwarden` `bitwarden` `mots-de-passe` `passwords` `vault` |
+| 🔌 | `prise` `plug` `socket` `outlet` | 🖨 | `imprimante` `printer` `impression` `printing` |
+| ⚡️ | `energie` `electricite` `power` `electricity` `energy` | 📇 | `scanner` `numerisation` `contacts` |
+| 🔋 | `batterie` `battery` | 📱 | `tablette` `telephone-mobile` `phone` `mobile` `tablet` |
+| ☀️ | `soleil` `solaire` `sun` `solar` `sunny` | 📞 | `telephone` `landline` `call` |
+| 📊 | `compteur` `statistiques` `meter` `statistics` `stats` `chart` | 📅 | `agenda` `calendrier` `calendar` `schedule` `dates` |
+| 💨 | `vent` `eolienne` `wind` `air` | 🕑 | `horloge` `heure` `clock` `time` |
+| 🔥 | `chauffage` `feu` `heating` `fire` `heat` `flame` | ⏱️ | `minuteur` `chronometre` `timer` `stopwatch` |
+| 🌡 | `temperature` `radiateur` `thermostat` `thermometer` | 🛒 | `courses` `caddie` `shopping` `groceries` `cart` |
+| ❄️ | `climatisation` `neige` `cold` `snow` `air-conditioning` `freezer` | 📋 | `liste` `listes` `list` `notes` `checklist` |
+| 🌬 | `ventilateur` `fan` `breeze` | ✅️ | `taches` `todo` `tasks` `done` |
+| 💧 | `humidite` `eau` `humidity` `water` `moisture` | 🗑 | `poubelle` `dechets` `bin` `trash` `waste` `rubbish` |
+| ⛅️ | `meteo` `weather` `forecast` | 🧺 | `lessive` `linge` `laundry` `washing` |
+| 🌧 | `pluie` `rain` | 🧹 | `aspirateur` `menage` `vacuum` `cleaning` `broom` |
+| ☁️ | `nuage` `cloud` | 🤖 | `robot` `aspirateur-robot` `bot` `automation` |
+| 🚨 | `alarme` `fumee` `alarm` `siren` `smoke` `emergency` | 🚲 | `velo` `bike` `bicycle` `cycling` |
+| 🔒 | `serrure` `verrou` `lock` `locked` `security` | 🚆 | `train` `rail` `metro` |
+| 🔑 | `cle` `key` `keys` | ✈️ | `avion` `plane` `flight` `airport` `vol` |
+| 📷 | `camera` `photo` `picture` | 🚌 | `bus` `autobus` `transport` |
+| 📹 | `camescope` `frigate` `cctv` `video-camera` `videosurveillance` `hikvision` `dahua` `tapo` `annke` `amcrest` `foscam` | ✉️ | `courrier` `mail` `email` `lettre` `inbox` |
+| 🔔 | `sonnette` `notification` `doorbell` `bell` `alert` | 💬 | `message` `messages` `chat` `discussion` |
+| 🚶 | `mouvement` `presence` `motion` `presence-detection` | 💶 | `argent` `depenses` `money` `budget` `expenses` `cash` |
+| 🧯 | `gaz` `extincteur` `gas` `extinguisher` | 🏦 | `banque` `bank` `comptes` `accounts` |
+| 👁 | `surveillance` `oeil` `eye` | ⚕️ | `sante` `health` `medical` `medecin` `doctor` |
+| 🛡 | `bouclier` `adguard` `pihole` `shield` `protection` `filtrage` | 🏃 | `sport` `fitness` `course` `running` `exercise` |
+| 🎬 | `jellyfin` `plex` `kodi` `film` `cinema` `movies` `movie` `media` | 🐕 | `chien` `dog` `animaux` `pets` |
+| ▶️ | `youtube` `video` `lecture` `play` `watch` | 🐈 | `chat-animal` `cat` `chaton` `kitten` |
+| 🎥 | `netflix` `streaming` `projector` | 🏊 | `piscine` `pool` `swimming` `spa` |
+| 📺 | `television` `tv` `televiseur` `screen` `prime-video` `primevideo` `prime` `disneyplus` `disney` `canalplus` `molotov` | 🍖 | `barbecue` `viande` `bbq` `grill` `meat` |
+| 🎵 | `musique` `spotify` `music` `song` `audio` | 🔧 | `outils` `bricolage` `tools` `maintenance` `repair` |
+| 📻 | `radio` `tuner` | ⚙️ | `reglages` `parametres` `settings` `configuration` `setup` |
+| 🎙 | `podcast` `micro-studio` `recording` | ☕️ | `cafe` `coffee` `machine-a-cafe` `kettle` |
+| 🖼 | `photos` `immich` `gallery` `pictures` `album` | 🍽 | `repas` `cuisine-table` `meal` `dinner` `restaurant` |
+| 📖 | `livre` `book` `reading` `library` `calibre` | 🧸 | `enfants` `jouets` `kids` `children` `toys` |
+| 🎮 | `jeu` `jeux` `game` `games` `gaming` `console` | 🎓 | `ecole` `school` `study` `college` |
+| 🎧 | `casque` `headphones` | 💼 | `travail` `bureau-pro` `work` `job` `briefcase` |
+| 🔊 | `haut-parleur` `enceinte` `speaker` `volume` `sound` | 🌴 | `vacances` `holiday` `vacation` `beach` `plage` |
+| 🎤 | `micro` `microphone` `assistant` `voice` | ⭐️ | `etoile` `favori` `star` `favourite` `favorite` `bookmark` |
+| 🐳 | `docker` `portainer` `container` `containers` `whale` | ❤️ | `coeur` `heart` `favoris` `loved` |
+| 🖧 | `serveur` `server` `cluster` `machines` `noeuds` `nodes` | ℹ️ | `info` `information` `aide` `help` `about` |
 
-533 names onto 116 icons.
+543 names onto 117 icons.
 
 ### Les logos de services
 

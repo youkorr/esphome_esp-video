@@ -10867,6 +10867,15 @@ blind (`.part` and dot-files are not in it).
   are never written. A chosen film plays (it was chosen to be seen), and a
   chosen file is served from disk with ranges rather than read into memory.
 
+**And the example shipped an icon that did not exist.** `icon: dossier` was
+in the changelog, DOCS.md and the test, and no line of `ICON_NAMES` had it --
+the tile drew the word. Reported in one line, *"il n'existe pas d'icone
+dossier verifie"*. 📁 carries `dossier fichiers folder files ...` now (checked
+against U+FFFF in the shipped browser), `icon_for` drops accents before the
+lookup, and the README table was regenerated with `tools/iconlist.py`. The
+check that would have caught it is one line: `launcher.icon_for(name) !=
+name` for every icon name a document offers.
+
 `tools/checkfiles.py` drives it in the shipped browser with the sender's own
 arguments (VP8 WebM made by the browser's MediaRecorder, a WAV, a PDF, a
 text): shown, played, moved through, made the wallpaper and back, deleted,
