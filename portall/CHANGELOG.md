@@ -1,5 +1,17 @@
 # Changelog
 
+## 4.33.1
+
+- **Back, Reload and Home buttons above the sign-in Chrome.** Chrome's own
+  arrows are drawn for a computer and come out a few pixels wide on a
+  telephone. **←** goes back a page, **⟳** reloads it, **⌂** goes back to
+  Google's sign-in page.
+- **Done really closes Chrome now.** The command that was meant to close it
+  never reached it, so Done waited ten seconds and then stopped it by force,
+  which can lose what was just signed into. It now closes Chrome the way a
+  person does, in about a second, and the sign-in is written out as it
+  closes.
+
 ## 4.33.0
 
 - **Sign a screen into Google, or any site, from your telephone.** Open the

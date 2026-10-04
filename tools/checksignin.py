@@ -54,7 +54,8 @@ def check(what, ok, detail=""):
 
 
 COLOUR = (200, 40, 120)
-heard = {"typed": "", "webdriver": None, "cookies": [], "visits": 0}
+heard = {"typed": "", "webdriver": None, "cookies": [], "visits": 0,
+         "shown": []}
 
 
 class Site(http.server.BaseHTTPRequestHandler):
@@ -70,10 +71,23 @@ class Site(http.server.BaseHTTPRequestHandler):
                     "<input id=q autofocus style='font-size:40px;width:90%%;"
                     "margin:40px'><script>"
                     "fetch('/probe?w='+navigator.webdriver);"
+                    "addEventListener('pageshow',()=>fetch('/shown?p=set'));"
                     "q.addEventListener('input',()=>fetch('/typed?v='+"
                     "encodeURIComponent(q.value)));</script>" % COLOUR)
+            # A new value on every visit, so the last one is what has to
+            # come back: proof that the browser wrote its cookies out when it
+            # was closed, rather than on its thirty-second timer.
+            heard["sets"] = heard.get("sets", 0) + 1
             extra = [("Set-Cookie", "kept=yes; Max-Age=86400; Path=/"),
+                     ("Set-Cookie", "last=%d; Max-Age=86400; Path=/"
+                      % heard["sets"]),
                      ("Set-Cookie", "session=yes; Path=/")]
+        elif path == "/other":
+            body = ("<!doctype html><body><script>addEventListener('pageshow',"
+                    "()=>fetch('/shown?p=other'));</script>")
+        elif path == "/shown":
+            heard["shown"].append(q.get("p", [""])[0])
+            body = "ok"
         elif path == "/probe":
             heard["webdriver"] = q.get("w", [""])[0]
             body = "ok"
@@ -122,9 +136,18 @@ def main():
         return 0
     import run
     import signin
+    quits = []
     if "--signal" in sys.argv:
         # The first version: SIGTERM alone, which lost the cookie.
-        signin.Session.quit_browser = lambda self: False
+        signin.Session.quit_browser = lambda self: quits.append(False) or False
+    else:
+        real_quit = signin.Session.quit_browser
+
+        def recorded(self):
+            began = time.monotonic()
+            quits.append((real_quit(self), time.monotonic() - began))
+            return quits[-1][0]
+        signin.Session.quit_browser = recorded
     missing = signin.tools_missing()
     if missing:
         print("skipped: needs " + ", ".join(missing))
@@ -242,8 +265,41 @@ def main():
         check("keys typed on the telephone reach the field",
               heard["typed"] == "bonjour", repr(heard["typed"]))
 
+        print("Back, reload and home, from the telephone's own buttons:")
+
+        def after(action, want):
+            """Run it, then the page the plain browser showed next."""
+            before = len(heard["shown"])
+            action()
+            end = time.monotonic() + 15
+            while time.monotonic() < end and len(heard["shown"]) == before:
+                time.sleep(0.2)
+            got = heard["shown"][before:]
+            return got[-1] if got else None, got
+
+        seen, got = after(lambda: session.go(site + "/other"), "other")
+        check("the session can open another address", seen == "other",
+              str(got))
+        seen, got = after(lambda: tab.click("button[data-nav='back']"), "set")
+        check("the back button returns to the page before", seen == "set",
+              str(got))
+        seen, got = after(lambda: tab.click("button[data-nav='reload']"),
+                          "set")
+        check("the reload button loads the page again", seen == "set",
+              str(got))
+        after(lambda: session.go(site + "/other"), "other")
+        seen, got = after(lambda: tab.click("button[data-nav='home']"), "set")
+        check("the home button opens the page it started on", seen == "set",
+              str(got))
+        check("each has a label a screen reader and a long press can read",
+              tab.locator("button[data-nav][aria-label='Page pr\u00e9c\u00e9dente']"
+                          ).count() + tab.locator(
+                  "button[data-nav][aria-label='Back']").count() == 1)
+
         print("Done:")
         visits = heard["visits"]
+        written = heard.get("sets", 0)
+        set_at = time.monotonic()
         tab.click("#done")
         end = time.monotonic() + 45
         while time.monotonic() < end and heard["visits"] == visits:
@@ -254,6 +310,13 @@ def main():
         last = heard["cookies"][-1] if heard["cookies"] else ""
         check("and the DRIVEN browser presents what the plain one was given",
               "kept=yes" in last, repr(last))
+        check("Done closed the browser itself, not a signal after a wait",
+              bool(quits) and quits[0] is not False and quits[0][0]
+              and quits[0][1] < 5, str(quits))
+        written = heard.get("sets", 0)
+        check(f"even the cookie written last (visit {written}) -- so it was "
+              f"written out when the browser closed",
+              f"last={written}" in last, repr(last))
         print(f"    (a session cookie across it: "
               f"{'kept' if 'session=yes' in last else 'not kept'} -- Google's "
               f"sign-in cookies have an expiry, so this one is only noted)")
