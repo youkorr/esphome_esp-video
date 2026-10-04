@@ -206,7 +206,7 @@ def main():
     # to the launcher's.
     site = f"http://localhost:{site_server.server_address[1]}"
     links = [{"name": "Unraid", "url": f"{site}/tile", "icon": "unraid"}]
-    launch = launcher.start(links, avatar=True, avatar_shape="pixel",
+    launch = launcher.start(links, avatar=True,
                             port=launcher.ANY_PORT)
     in_a_browser(site, launch)
     end_to_end(site, launch)

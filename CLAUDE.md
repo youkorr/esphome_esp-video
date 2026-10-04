@@ -1802,7 +1802,7 @@ the dashboard, where it is invisible while the keys go on working.
 ahead of the `pip install` as well as the `ADD`s, so a bump refetched
 everything — at the cost of the browser download on each update.
 `present_browser()` prints the Chromium version at startup and warns below 114,
-so this is never diagnosed by guesswork again. Currently **4.34.0**.
+so this is never diagnosed by guesswork again. Currently **4.38.0**.
 
 **CORRECTED in 4.29.5: the cost was every update, and a pin removes it.**
 Asked as *"verifie addon ... si il ya pas des elements qui freine la
@@ -10018,6 +10018,54 @@ contact sheet showed a ball of colour. The household's player ignores the
 blend mode and draws the disc, and that is the picture they mean. Reading the
 layers' `bm` beside the render would have caught it; a render tells you what
 ONE player does.
+
+## One face, after EMO -- 4.38.0
+
+**Asked as *"supprime les avatars sauf pixel qu'il faudrait moderniser car
+je pense qu'il doit ressembler a emo"*.** Mochi, robot, cat, bear, ghost and
+orb are gone, with FACE_SVG, AVATAR_SHAPES, PIXEL_* and ORB_*: the sections
+above that describe them are history. `avatar: true` is the face.
+
+**`avatar_shape` was REMOVED, not narrowed.** Cutting its `list()` to one
+member would make every stored `mochi` -- the default, so most installs -- a
+validation failure that stops the add-on (the size-scale rule). A removed
+key only warns, inside the launcher dict and inside a `launchers:` entry
+alike, so the key is out of config.yaml, run.py's tables and the
+translations. `checkavatar.py` feeds `regroup()` a stored `avatar_shape:
+mochi` and requires it to vanish.
+
+**What makes it read as EMO was searched, not remembered**, and the images
+could not be seen: every image host is refused from here. What sources say:
+a black-and-blue head whose face is a screen, headphones (a magnet senses
+them being taken off), "pixelated eyes that blink and emote", eyes that
+"squint, widen and dart". So: a dark head that is all screen, headphones
+over it whose cups light while it listens, two big gradient-blue eyes with a
+glow and a faint pixel grid over the screen (one static rect, so it costs
+nothing), and the near eye growing when it looks sideways (Cozmo's and
+EMO's head turn, `--sl`/`--sr`, snapped with the glance).
+
+**The eyes are SHAPES, not lids drawn over boxes.** Pixel's old lids were
+black rectangles laid over the eyes, which only worked on a black screen.
+Now each expression is one line of numbers (`EXPRESSIONS`: size, roundness,
+place, how far the top edge comes down at the nose and at the outer corner,
+how far the bottom bows up) -- Cozmo's idea, as RoboEyes and Espressif's own
+`espp/expressive_eyes` write it down; `esp32-eyes` was read and is (A)GPL,
+so none of its numbers are used. `eye_path()` turns them into a path IN
+PYTHON and the page only swaps strings (`FACE_JS`'s table), so there is one
+geometry rather than a Python one and a JS one. **Every path is M L Q L Q Q
+Q L Q Z**, because CSS `d` eases only between paths with the same commands;
+`checkavatar.py` checks it over every expression and both eyes.
+
+A trap on the way: an eye named per side in an expression is keyed `"l"` /
+`"r"`, and the corner was `"r"` too, so `_eye_numbers` merged a number as a
+side. The corner is `"round"`.
+
+`checkavatar.py` was rewritten for one face (60 cases): each expression read
+off the path the browser is drawing (the top edge's two ends tell cross from
+sad), the colours, the headphones, the glance, taps, drag, voice, weather,
+night, the greeting. Idle cost: **5 changed pictures in 15 s** of a still
+launcher. `checkvoice.py`'s tap now accepts the face's random happy, wink or
+love. **Not seen on a panel.**
 
 ## A session cookie died with every restart of the browser -- 4.29.2
 

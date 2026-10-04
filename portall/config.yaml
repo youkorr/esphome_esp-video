@@ -1,5 +1,5 @@
 name: Portall
-version: "4.37.4"
+version: "4.38.0"
 # Home Assistant identifies an add-on by its slug, so this one moving from
 # usb_display_panel to portall makes the Supervisor see a NEW add-on: options
 # are not carried over and /data starts empty, which means the browser
@@ -148,11 +148,10 @@ options:
     tile_size: medium
     # The colour of the links' names. "theme" follows the theme.
     tile_text_color: theme
-    # A small face in the bottom right corner, the size of a button. Drag it
-    # with a finger to put it anywhere; it stays where it is put.
+    # A small robot with a screen for a face, in the bottom right corner, the
+    # size of a button. Drag it with a finger to put it anywhere; it stays
+    # where it is put.
     avatar: false
-    # What the face is the face of: mochi, robot, cat, bear or ghost.
-    avatar_shape: mochi
     # The voice assistant the face follows: it listens, thinks and answers
     # with it. Empty follows the only one Home Assistant has; with several,
     # name this panel's -- assist_satellite.guition, say. "off" for none.
@@ -416,7 +415,6 @@ schema:
     tile_size: list(tiny|small|medium)?
     tile_text_color: list(theme|slate|gray|zinc|neutral|stone|red|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose|white|black)?
     avatar: bool?
-    avatar_shape: list(mochi|robot|cat|bear|ghost|pixel|orb)?
     avatar_voice: str?
     voice_links: bool?
     clock:
@@ -465,7 +463,6 @@ schema:
       tile_size: list(tiny|small|medium)?
       tile_text_color: list(theme|slate|gray|zinc|neutral|stone|red|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose|white|black)?
       avatar: bool?
-      avatar_shape: list(mochi|robot|cat|bear|ghost|pixel|orb)?
       avatar_voice: str?
       clock: bool?
       clock_size: list(small|medium|large|huge)?

@@ -666,7 +666,7 @@ def truthy(value):
 LAUNCHER_OWN = (
     "theme", "columns", "align", "tiles", "focus_color", "tile_background",
     "tile_size", "tile_text_color", "avatar",
-    "avatar_shape", "avatar_voice", "clock", "clock_size", "clock_color", "date_size", "date_color",
+    "avatar_voice", "clock", "clock_size", "clock_color", "date_size", "date_color",
     "weather", "weather_size", "weather_color",
     "background", "background_motion", "background_blur", "background_dim",
     "slideshow", "slideshow_urls", "slideshow_seconds", "slideshow_fade",
@@ -814,8 +814,6 @@ def start_launcher(config, port=None, house_links=(), label=""):
         tile_text_color=str(config.get("launcher_tile_text_color")
                             or launcher.FOLLOW_THEME),
         avatar=truthy(config.get("launcher_avatar", False)),
-        avatar_shape=str(config.get("launcher_avatar_shape")
-                         or launcher.DEFAULT_AVATAR),
         avatar_file=avatar_file(label),
         # Every screen's downloads, opened on the glass from a link whose url
         # is "files", and the picture chosen there as this launcher's
@@ -932,7 +930,6 @@ _GROUPED = {
         "tile_size": "launcher_tile_size",
         "tile_text_color": "launcher_tile_text_color",
         "avatar": "launcher_avatar",
-        "avatar_shape": "launcher_avatar_shape",
         "avatar_voice": "launcher_avatar_voice",
         "voice_links": "launcher_voice_links",
         "clock": {"show": "launcher_clock", "size": "launcher_clock_size",
