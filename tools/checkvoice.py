@@ -404,8 +404,8 @@ def browser_half(SAT):
         settle(lambda: mood() == "surprised")
         box = page.locator("#av").bounding_box()
         page.mouse.click(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
-        check("a tap while it listens smiles for a moment",
-              settle(lambda: mood() == "happy", 1), mood())
+        check("a tap while it listens smiles, winks or loves for a moment",
+              settle(lambda: mood() in ("happy", "wink", "love"), 1), mood())
         check("then goes back to listening, not to neutral",
               settle(lambda: mood() == "surprised", 4), mood())
         ha.change(SAT, "idle")

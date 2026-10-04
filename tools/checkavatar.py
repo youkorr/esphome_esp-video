@@ -111,21 +111,25 @@ def pages():
 
 
 def character(browser):
-    """The five bodies, and what the face does besides being moved."""
+    """What the face does besides being moved."""
     weathers()
-    for shape in launcher.AVATAR_SHAPES:
-        body = launcher.render(LINKS, avatar=True, avatar_shape=shape)
-        check(f"{shape}: drawn in its own body",
-              f'data-shape="{shape}"' in body and "{" not in
-              launcher.avatar_html(shape))
-    check("a shape nobody knows is the mochi, never a failure",
-          'data-shape="mochi"' in launcher.render(LINKS, avatar=True,
-                                                  avatar_shape="dragon"))
-    config = run.regroup({"links": LINKS, "launcher": {"avatar": True}})
-    check("the form's own default is the mochi",
-          'data-shape="mochi"' in launcher.render(
-              LINKS, avatar=True, avatar_shape=config.get(
-                  "launcher_avatar_shape") or launcher.DEFAULT_AVATAR))
+    body = launcher.render(LINKS, avatar=True)
+    check("one face, drawn whole", 'id="av"' in body and "{" not in
+          launcher.avatar_html() and 'class="pear"' in body)
+    # A shape saved by an older add-on is a key the form no longer has: the
+    # Supervisor drops it with a warning, and nothing here may ask for it.
+    config = run.regroup({"links": LINKS, "launcher": {
+        "avatar": True, "avatar_shape": "mochi"}})
+    check("a shape saved by an older add-on is ignored, never a failure",
+          "launcher_avatar_shape" not in config
+          and "avatar_shape" not in run.LAUNCHER_OWN)
+    # Every expression is the same commands in the same order, or the
+    # browser cannot ease from one to the next and snaps instead.
+    import re
+    shapes = {re.sub(r"[-0-9.]+", "#", launcher.eye_path(side, name))
+              for name in launcher.EXPRESSIONS for side in "lr"}
+    check("every eye in every expression can ease into every other",
+          len(shapes) == 1, str(len(shapes)))
 
     site = pages()
     links = [{"name": "Rouge", "url": site + "/a/", "icon": "tv"},
@@ -140,11 +144,11 @@ def character(browser):
             threading.Event().wait(60)
             return since, "neutral"
 
-    def launch(shape, hour, reading_now=None, locale=None):
+    def launch(hour, reading_now=None, locale=None):
         if reading_now is not None:
             reading.clear()
             reading.update(reading_now)
-        address = launcher.start(links, avatar=True, avatar_shape=shape,
+        address = launcher.start(links, avatar=True,
                                  port=launcher.ANY_PORT, weather=weather,
                                  voice=Silent())
         extra = {"locale": locale} if locale else {}
@@ -163,7 +167,7 @@ def character(browser):
     def data(page, key):
         return page.evaluate(f"document.getElementById('av').dataset.{key}")
 
-    page, address = launch("mochi", 12)
+    page, address = launch(12)
     check("served on a rainy day it starts with its cloud",
           data(page, "wx") == "rain" and shown(page, ".acc.rain")
           and not shown(page, ".acc.hot"))
@@ -171,7 +175,7 @@ def character(browser):
     page.clock.fast_forward("02:05")
     page.wait_for_timeout(300)
     check("and dresses again when the reading changes, without a reload",
-          data(page, "wx") == "hot" and shown(page, ".acc.hot")
+          data(page, "wx") == "hot" and shown(page, ".acc.sweat")
           and not shown(page, ".acc.rain"), str(data(page, "wx")))
 
     # Only what is painted takes a touch: the box's corner is the page's.
@@ -182,15 +186,12 @@ def character(browser):
     check("a touch in the empty corner of its box is not a touch on it",
           not corner)
 
-    page.evaluate("window.portallAvatar.stand('surprised')")
-    check("it listens: the waves are out",
-          shown(page, ".acc.waves") and data(page, "voice") == "surprised")
     page.evaluate("window.portallAvatar.stand('thinking')")
-    check("it thinks: a bubble", shown(page, ".acc.bubble")
-          and not shown(page, ".acc.waves"))
+    check("it thinks: dots", shown(page, ".acc.dots")
+          and data(page, "voice") == "thinking")
     page.evaluate("window.portallAvatar.stand('neutral')")
-    check("and when the voice assistant is idle, all of it goes",
-          not shown(page, ".acc.bubble") and data(page, "mood") == "neutral")
+    check("and when the voice assistant is idle, they go",
+          not shown(page, ".acc.dots") and data(page, "mood") == "neutral")
 
     # It looks at the tile a remote chooses, and where a finger lands.
     page.evaluate("document.querySelector('a.tile').focus()")
@@ -207,29 +208,27 @@ def character(browser):
         .getPropertyValue('--ly')""")
     check("a finger landing above it: it looks up",
           float(look.strip()[:-2]) < 0, look)
-    curious = lambda: page.evaluate(  # noqa: E731
-        "getComputedStyle(document.getElementById('av'))"
-        ".getPropertyValue('--ls').trim()")
-    check("looking up is only looking: its pupils stay their size",
-          curious() == "1", curious())
-    pupil = lambda: page.evaluate(  # noqa: E731
-        "document.querySelector('#av .look').getBoundingClientRect().width")
+    width = lambda side: page.evaluate(  # noqa: E731
+        f"document.querySelector('#av .pb.{side}').getBoundingClientRect()"
+        ".width")
+    check("looking up is only looking: both eyes stay their size",
+          abs(width("l") - width("r")) < 0.5)
     page.clock.fast_forward(1600)
     page.wait_for_timeout(100)
-    size = pupil()
+    size = width("l")
     middle = page.evaluate("""() => { const r = document.getElementById('av')
         .getBoundingClientRect(); return r.top + r.height / 2; }""")
     page.mouse.move(10, middle)
     page.mouse.down()
     page.mouse.up()
     page.wait_for_timeout(100)
-    check("a finger landing beside it: curious, its pupils grow by a quarter",
-          curious() == "1.25" and pupil() > size * 1.2,
-          f"{curious()} {size:.1f} -> {pupil():.1f}")
+    check("a finger landing to its left: the left eye grows, the right shrinks",
+          width("l") > size * 1.1 and width("r") < size * 0.9,
+          f"{size:.1f} -> {width('l'):.1f} / {width('r'):.1f}")
     page.clock.fast_forward(1600)
     page.wait_for_timeout(100)
     check("and a second and a half later they are their size again",
-          curious() == "1" and abs(pupil() - size) < 0.5)
+          abs(width("l") - size) < 0.5 and abs(width("r") - size) < 0.5)
 
     # The panel woke: a smile and a word, in the corner the cloud uses.
     page.evaluate("window.portallAvatar.weather('rain')")
@@ -262,27 +261,25 @@ def character(browser):
           ha_send.open_link(page, links[0]["url"]) and page.url == links[0]["url"])
     page.close()
 
-    page, _ = launch("robot", 23, {"condition": "cloudy", "temperature": 15,
-                                   "unit": "°C", "text": "15°C"})
+    page, _ = launch(23, {"condition": "cloudy", "temperature": 15,
+                          "unit": "°C", "text": "15°C"})
     check("at night it dozes, with its z's", data(page, "mood") == "sleepy"
           and shown(page, ".acc.zzz") and data(page, "wx") == "")
     page.evaluate("window.portallAvatar.stand('surprised')")
-    lit = page.evaluate("""() => getComputedStyle(
-        document.querySelector('#av .bulb')).fill""")
-    check("the robot listens with its antenna, not with waves",
-          not shown(page, ".acc.waves") and lit == "rgb(56, 189, 248)", lit)
     page.evaluate("window.portallAvatar.stand('neutral')")
+    page.clock.fast_forward(2100)
+    page.wait_for_timeout(50)
     check("and goes back to dozing, since it is still night",
           data(page, "mood") == "sleepy")
     page.close()
 
-    page, _ = launch("cat", 20, locale="fr-FR")
+    page, _ = launch(20, locale="fr-FR")
     check("a French panel woken in the evening says Bonsoir",
           ha_send.greet_avatar(page) and page.evaluate(
               "document.querySelector('#av .acc.hello text').textContent")
           == "Bonsoir")
     page.close()
-    page, _ = launch("bear", 9, locale="fr-FR")
+    page, _ = launch(9, locale="fr-FR")
     check("and Bonjour in the morning", ha_send.greet_avatar(page)
           and page.evaluate("document.querySelector('#av .acc.hello text')"
                             ".textContent") == "Bonjour")
@@ -292,12 +289,11 @@ def character(browser):
     page.close()
 
 
-def pixel(browser):
-    """The face on a screen: its expressions, and what sets each one off."""
-    print("Pixel:")
+def face(browser):
+    """The face: its expressions, and what sets each one off."""
+    print("The face:")
     links = [{"name": "Rouge", "url": "http://127.0.0.1:9/a/", "icon": "tv"}]
-    address = launcher.start(links, avatar=True, avatar_shape="pixel",
-                             port=launcher.ANY_PORT)
+    address = launcher.start(links, avatar=True, port=launcher.ANY_PORT)
     page = browser.new_page(viewport={"width": 1280, "height": 800},
                             locale="fr-FR")
     page.clock.install(time=datetime.datetime(2026, 9, 27, 12, 0))
@@ -313,47 +309,56 @@ def pixel(browser):
             return !!e && getComputedStyle(e).display !== 'none'; }}""")
 
     def eye(side):
+        """The eye's box, and the height of its top edge at the outer and
+        the inner corner -- read off the path the browser is drawing."""
         return page.evaluate(f"""() => {{
-            const g = document.querySelector('#av .pe.{side}');
-            const e = g.querySelector('.pr').getBBox();
-            const t = g.querySelector('.ptop'), b = g.querySelector('.pbot');
-            return {{w: e.width, h: e.height, x: e.x, y: e.y,
-                     top: getComputedStyle(t).display !== 'none',
-                     tilt: getComputedStyle(t).transform,
-                     bot: getComputedStyle(b).display !== 'none'}}; }}""")
+            const e = document.querySelector('#av .pb.{side} .pr');
+            const b = e.getBBox();
+            const n = getComputedStyle(e).d.match(/-?[0-9.]+/g).map(Number);
+            // M is the top edge's left end and L its right end.
+            const left = n[1], right = n[3];
+            return {{w: b.width, h: b.height, y: b.y,
+                     outer: '{side}' === 'l' ? left : right,
+                     inner: '{side}' === 'l' ? right : left,
+                     d: getComputedStyle(e).d,
+                     fill: getComputedStyle(e).fill}}; }}""")
 
     def mood(m, voice="neutral"):
         page.evaluate(f"""() => {{ const b = document.getElementById('av');
             b.dataset.voice = '{voice}'; b.dataset.mood = '{m}'; }}""")
         page.clock.fast_forward(200)
-        page.wait_for_timeout(50)
+        page.wait_for_timeout(250)
 
-    check("its own face, not the others' eyes",
-          page.evaluate("!!document.querySelector('#av .pe') && "
-                        "!document.querySelector('#av .eye')"))
     rest = eye("l")
-    check("at rest: two rounded rectangles, no lids", px() == "neutral"
-          and not rest["top"] and not rest["bot"], str(rest))
+    check("at rest: two glowing boxes with a flat top",
+          px() == "neutral" and abs(rest["outer"] - rest["inner"]) < 0.5
+          and "pxeye" in rest["fill"], str(rest))
+    check("its head wears headphones", page.evaluate(
+        "document.querySelectorAll('#av .pear').length") == 2)
     mood("happy")
-    check("content: the bottom lids push up into a smile",
-          px() == "happy" and eye("l")["bot"] and eye("r")["bot"])
+    check("content: its eyes become two arcs",
+          px() == "happy" and eye("l")["h"] < rest["h"] * 0.8)
     mood("surprised")
     check("surprised: bigger eyes", eye("l")["h"] > rest["h"] + 4)
     mood("angry")
     left, right = eye("l"), eye("r")
-    check("cross: both lids down and tilted the opposite way",
-          left["top"] and right["top"] and left["tilt"] != right["tilt"],
-          f"{left['tilt']} / {right['tilt']}")
+    check("cross: each eye comes down at the nose, and turns red",
+          left["inner"] > left["outer"] + 3 and right["inner"] > right["outer"] + 3
+          and "pxred" in left["fill"], f"{left['inner']} {left['outer']}")
+    mood("sad")
+    left = eye("l")
+    check("sad: down at the outer corners, and a tear",
+          left["outer"] > left["inner"] + 3 and shown(".px-tear"))
+    mood("tired")
+    check("tired: half shut", eye("l")["h"] < rest["h"] * 0.6)
     for name, extra in (("laugh", ".px-laugh"), ("love", ".px-love"),
                         ("dizzy", ".px-dizzy")):
         mood(name)
         check(f"{name}: drawn instead of its eyes",
-              px() == name and shown(extra) and not shown(".pe.l"))
+              px() == name and shown(extra) and not shown(".look"))
     mood("wink")
-    check("wink: one eye open, the other a line",
-          shown(".pe.l") and not shown(".pe.r") and shown(".px-wink"))
-    mood("sad")
-    check("sad: a tear", shown(".px-tear") and eye("l")["top"])
+    check("wink: one eye open, the other an arc",
+          shown(".look") and eye("r")["h"] < eye("l")["h"] * 0.8)
     mood("neutral")
 
     # The voice assistant, through the attribute the page already follows.
@@ -361,18 +366,18 @@ def pixel(browser):
     page.wait_for_timeout(50)
     ear = lambda: page.evaluate(  # noqa: E731
         "getComputedStyle(document.querySelector('#av .pear')).fill")
-    check("the voice assistant listens: its ears light up, and no mouth",
+    check("the voice assistant listens: its headphones light up, no mouth",
           px() == "listen" and ear() == "rgb(53, 227, 255)"
-          and not shown(".px-talk") and not shown(".acc.waves"))
+          and not shown(".px-talk"))
     page.evaluate("window.portallAvatar.stand('thinking')")
     page.wait_for_timeout(50)
     check("it thinks: eyes up and to the side, and dots",
-          px() == "think" and shown(".acc.dots") and not shown(".acc.bubble"))
+          px() == "think" and shown(".acc.dots"))
     page.evaluate("window.portallAvatar.stand('happy')")
     page.wait_for_timeout(50)
     heights = lambda: page.evaluate(  # noqa: E731
         "document.querySelector('#av .px-talk').getAttribute('ry')")
-    check("its ears go back when it stops listening",
+    check("its headphones go dark when it stops listening",
           ear() != "rgb(53, 227, 255)")
     first = heights()
     page.clock.fast_forward(260)
@@ -396,7 +401,7 @@ def pixel(browser):
     check("for two seconds", px() == "neutral")
 
     # A finger on it.
-    r = page.evaluate("""() => { const r = document.querySelector('#av .pe.l')
+    r = page.evaluate("""() => { const r = document.querySelector('#av .pb.l')
         .getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2]; }""")
     seen = set()
     for _ in range(12):
@@ -426,7 +431,7 @@ def pixel(browser):
     check("dragged slowly it is not dizzy",
           page.evaluate("document.getElementById('av').dataset.mood") != "dizzy")
     page.clock.fast_forward(3000)
-    r = page.evaluate("""() => { const r = document.querySelector('#av .pe.l')
+    r = page.evaluate("""() => { const r = document.querySelector('#av .pb.l')
         .getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2]; }""")
     page.mouse.move(*r)
     for _ in range(6):
@@ -438,13 +443,13 @@ def pixel(browser):
 
     # Weather, night, and the greeting.
     page.evaluate("window.portallAvatar.weather('hot')")
-    page.wait_for_timeout(50)
-    check("hot: a drop of sweat and heavy lids, not sunglasses",
-          shown(".acc.sweat") and not shown(".acc.hot") and px() == "hot")
+    page.wait_for_timeout(250)
+    check("hot: a drop of sweat and heavy lids",
+          shown(".acc.sweat") and px() == "hot")
     page.evaluate("window.portallAvatar.weather('cold')")
-    page.wait_for_timeout(50)
-    fill = page.evaluate("getComputedStyle(document.querySelector('#av .pr')).fill")
-    check("cold: its eyes turn pale blue", fill == "rgb(169, 220, 255)", fill)
+    page.wait_for_timeout(250)
+    check("cold: its eyes turn pale, and a snowflake",
+          "pxcold" in eye("l")["fill"] and shown(".acc.flake"))
     page.evaluate("window.portallAvatar.weather('')")
     check("woken, it says Bonjour", __import__("ha_send").greet_avatar(page)
           and shown(".acc.hello") and page.evaluate(
@@ -460,178 +465,6 @@ def pixel(browser):
           page.evaluate("document.getElementById('av').dataset.px") == "tired"
           and page.evaluate("getComputedStyle(document.querySelector('#av .acc.zzz')).display")
           != "none")
-    page.close()
-
-    # What it costs a launcher nobody touches, at noon.
-    page = browser.new_page(viewport={"width": 1280, "height": 800})
-    page.clock.install(time=datetime.datetime(2026, 9, 27, 12, 0))
-    page.goto(address)
-    page.wait_for_selector("#av")
-    page.wait_for_timeout(1000)
-    cdp = page.context.new_cdp_session(page)
-    frames = []
-
-    def got(event):
-        frames.append(event["data"])
-        cdp.send("Page.screencastFrameAck", {"sessionId": event["sessionId"]})
-    cdp.on("Page.screencastFrame", got)
-    cdp.send("Page.startScreencast", {"format": "jpeg", "quality": 80})
-    page.wait_for_timeout(15000)
-    cdp.send("Page.stopScreencast")
-    changed, before = 0, None
-    for data in frames:
-        picture = Image.open(io.BytesIO(base64.b64decode(data))).convert("L")
-        if before is not None and ImageChops.difference(picture, before).getbbox():
-            changed += 1
-        before = picture
-    check("still, it costs what the other faces cost",
-          changed <= 14, f"{changed} changed pictures in 15 s")
-    page.close()
-
-
-def orb(browser):
-    """The ball from the Lottie: its colours say the state."""
-    print("Orb:")
-    links = [{"name": "Rouge", "url": "http://127.0.0.1:9/a/", "icon": "tv"}]
-    address = launcher.start(links, avatar=True, avatar_shape="orb",
-                             port=launcher.ANY_PORT)
-    page = browser.new_page(viewport={"width": 1280, "height": 800},
-                            locale="fr-FR")
-    page.clock.install(time=datetime.datetime(2026, 9, 27, 12, 0))
-    page.goto(address)
-    page.wait_for_selector("#av")
-
-    def state():
-        return page.evaluate("document.getElementById('av').dataset.orb")
-
-    def skin():
-        return page.evaluate(
-            "getComputedStyle(document.querySelector('#av .ob-skin')).fill")
-
-    def shown(selector):
-        return page.evaluate(f"""() => {{
-            const e = document.querySelector('#av {selector}');
-            return !!e && getComputedStyle(e).display !== 'none'; }}""")
-
-    def eye():
-        return page.evaluate("""() => { const e = document.querySelector(
-            '#av .ob-e.l .oe'); return [parseFloat(getComputedStyle(e).y),
-            parseFloat(getComputedStyle(e).height)]; }""")
-
-    def mood(m, voice="neutral", wait=200):
-        page.evaluate(f"""() => {{ const b = document.getElementById('av');
-            b.dataset.voice = '{voice}'; b.dataset.mood = '{m}'; }}""")
-        page.clock.fast_forward(wait)
-        page.wait_for_timeout(50)
-
-    check("its own face: a ball and two pills, not the others' eyes",
-          page.evaluate("!!document.querySelector('#av .ob-skin') && "
-                        "!document.querySelector('#av .eye')"))
-    rest = eye()
-    face = page.evaluate("getComputedStyle(document.querySelector("
-                         "'#av .ob-face')).fill")
-    check("a black face inside the ring, as the household's player draws it",
-          face == "rgb(0, 0, 0)", face)
-    check("at rest: violet-blue, eyes open", state() == "calm"
-          and "ob-calm" in skin() and shown(".look"), skin())
-    mood("surprised", "surprised")
-    check("listening: green, and it looks up",
-          state() == "listen" and "ob-listen" in skin() and eye()[0] < rest[0])
-    mood("thinking", "thinking")
-    turned = page.evaluate(
-        "getComputedStyle(document.querySelector('#av .ob-ring')).transform")
-    page.clock.fast_forward(125)
-    page.wait_for_timeout(50)
-    check("thinking: the eyes give way to a ring that turns",
-          state() == "think" and shown(".ob-ring") and not shown(".look")
-          and page.evaluate("getComputedStyle(document.querySelector("
-                            "'#av .ob-ring')).transform") != turned)
-    check("and not the others' bubble", not shown(".acc.bubble"))
-    mood("happy", "happy")
-    sizes = set()
-    for _ in range(8):
-        page.clock.fast_forward(250)
-        page.wait_for_timeout(20)
-        sizes.add(page.evaluate("getComputedStyle(document.getElementById("
-                                "'av')).getPropertyValue('--th').trim()"))
-    check("answering: mint and magenta, the eyes squeeze with the words",
-          state() == "speak" and "ob-joy" in skin() and len(sizes) >= 3,
-          str(sizes))
-    mood("neutral", "neutral")
-    check("and when it is done the eyes are whole again",
-          page.evaluate("getComputedStyle(document.getElementById('av'))"
-                        ".getPropertyValue('--th').trim()") == "1")
-    page.evaluate("window.portallAvatar.set('happy', 2500)")
-    page.clock.fast_forward(120)
-    page.wait_for_timeout(30)
-    air = page.evaluate("getComputedStyle(document.querySelector('#av .ob'))"
-                        ".transform")
-    page.clock.fast_forward(600)
-    page.wait_for_timeout(30)
-    check("happy: it jumps once, then stands where it was",
-          state() == "happy" and air != "none" and page.evaluate(
-              "getComputedStyle(document.querySelector('#av .ob')).transform")
-          == "none", air)
-    page.clock.fast_forward(2500)
-    mood("surprised")
-    check("startled: yellow with a ! where its eyes were",
-          state() == "alert" and "ob-alert" in skin() and shown(".ob-bang")
-          and not shown(".look"))
-    mood("neutral")
-    r = page.evaluate("""() => { const r = document.querySelector(
-        '#av .ob-skin').getBoundingClientRect();
-        return [r.x + r.width / 2, r.y + r.height / 2]; }""")
-    for _ in range(5):
-        page.mouse.click(r[0], r[1])
-        page.clock.fast_forward(200)
-    page.wait_for_timeout(50)
-    check("five taps in three seconds: red", state() == "angry"
-          and "ob-angry" in skin())
-    page.clock.fast_forward(3000)
-    page.evaluate("window.portallAvatar.weather('hot')")
-    page.wait_for_timeout(50)
-    check("hot: a drop of sweat, not sunglasses",
-          shown(".acc.sweat") and not shown(".acc.hot"))
-    page.evaluate("window.portallAvatar.weather('')")
-    check("woken, it says Bonjour", __import__("ha_send").greet_avatar(page)
-          and shown(".acc.hello") and page.evaluate(
-              "document.querySelector('#av .acc.hello text').textContent")
-          == "Bonjour")
-    page.close()
-
-    page = browser.new_page(viewport={"width": 1280, "height": 800})
-    page.clock.install(time=datetime.datetime(2026, 9, 27, 23, 0))
-    page.goto(address)
-    page.wait_for_selector("#av")
-    check("at night: dim, eyes nearly shut, and its z's",
-          state() == "sleepy" and "ob-night" in skin()
-          and eye()[1] < rest[1] / 3 and shown(".acc.zzz"))
-    page.close()
-
-    # What it costs a launcher nobody touches, at noon.
-    page = browser.new_page(viewport={"width": 1280, "height": 800})
-    page.clock.install(time=datetime.datetime(2026, 9, 27, 12, 0))
-    page.goto(address)
-    page.wait_for_selector("#av")
-    page.wait_for_timeout(1000)
-    cdp = page.context.new_cdp_session(page)
-    frames = []
-
-    def got(event):
-        frames.append(event["data"])
-        cdp.send("Page.screencastFrameAck", {"sessionId": event["sessionId"]})
-    cdp.on("Page.screencastFrame", got)
-    cdp.send("Page.startScreencast", {"format": "jpeg", "quality": 80})
-    page.wait_for_timeout(15000)
-    cdp.send("Page.stopScreencast")
-    changed, before = 0, None
-    for data in frames:
-        picture = Image.open(io.BytesIO(base64.b64decode(data))).convert("L")
-        if before is not None and ImageChops.difference(picture, before).getbbox():
-            changed += 1
-        before = picture
-    check("still, it costs what the other faces cost",
-          changed <= 14, f"{changed} changed pictures in 15 s")
     page.close()
 
 
@@ -666,8 +499,9 @@ def main():
         page.wait_for_timeout(80)
         page.mouse.up()
         page.wait_for_timeout(200)
-        check("a tap makes it smile, and opens nothing",
-              box(page)[4] == "happy" and page.url == address)
+        check("a tap makes it smile, wink or love, and opens nothing",
+              box(page)[4] in ("happy", "wink", "love")
+              and page.url == address, str(box(page)[4]))
 
         # A finger landing on it and travelling 600 left and 300 up, sent the
         # way the sender sends it: the pointer at the landing, then wheels.
@@ -746,8 +580,7 @@ def main():
         check("still, it costs a few pictures of its eyes, not a stream",
               changed <= 14, f"{changed} changed pictures in 15 s")
         character(browser)
-        pixel(browser)
-        orb(browser)
+        face(browser)
         browser.close()
 
     if faults:

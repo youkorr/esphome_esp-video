@@ -1128,15 +1128,8 @@ FOLLOW_JS = """<script>
 # The avatar: a small face that lives on the launcher, the size of one of its
 # buttons, in the bottom right corner until somebody moves it.
 #
-# The drawing is Eric Nam's lvgl_kawaii_face (MIT), the face its ESPHome
-# integration in youkorr/esphome-lvgl-kawaii puts on an LVGL panel, redrawn
-# for a browser. It cannot be used as it stands: that is C drawing into LVGL
-# canvases, and a panel here runs no LVGL -- it shows JPEG rectangles of a
-# page. Its shapes are rounded rectangles and lines, so they carry straight
-# across into SVG.
-#
 # Three rules decide how it behaves, and each is this project's rather than
-# the original's:
+# EMO's:
 #
 # - IT IS STILL MOST OF THE TIME. Anything that moves is a rectangle on the
 #   wire for as long as the panel is awake, and a still launcher costs nothing
@@ -1158,10 +1151,10 @@ AVATAR_PATH = "/avatar"
 VOICE_PATH = "/voice"
 
 AVATAR_CSS = """
- /* No card behind it: the face has a body of its own now, drawn in the SVG,
-    and the corners of the box around it are left to the page. The box does
-    not take a touch -- only what is painted does -- so a tile peeking out
-    from under a corner of it can still be pressed. */
+ /* No card behind it: the face has a head of its own, drawn in the SVG, and
+    the corners of the box around it are left to the page. The box does not
+    take a touch -- only what is painted does -- so a tile peeking out from
+    under a corner of it can still be pressed. */
  #av {
    position: fixed; z-index: 50; width: 26vmin; height: %(height)s;
    right: 3vmin; bottom: 3vmin; %(place)s
@@ -1174,195 +1167,244 @@ AVATAR_CSS = """
    filter: drop-shadow(0 .6vmin 1vmin rgba(0,0,0,.45));
  }
  #av svg > * { pointer-events: visiblePainted; }
- #av .skin { fill: #1b2130; stroke: #3b4660; stroke-width: 2;
-             stroke-linejoin: round; }
- #av .inner { fill: #ff7a9a; opacity: .45; }
- #av .whisker { stroke: #3b4660; stroke-width: 1.5; stroke-linecap: round; }
- /* What it carries, each shown by one attribute on the box and nothing else:
-    the weather (data-wx), what the voice assistant is doing (data-voice),
-    and the night (the sleepy mood). A change is a snap, like a blink. */
- #av .acc { display: none; }
- #av[data-wx="hot"] .acc.hot, #av[data-wx="rain"] .acc.rain,
- #av[data-wx="snow"] .acc.flake, #av[data-wx="cold"] .acc.flake,
- #av[data-voice="surprised"] .acc.waves,
- #av[data-voice="thinking"] .acc.bubble,
- #av[data-mood="sleepy"] .acc.zzz { display: inline; }
- #av[data-wx="cold"] .cheek { opacity: .8; }
- /* The robot says it with its antenna instead: the waves and the bubble
-    would crowd a head that already has something on top to light. */
- #av[data-shape="robot"] .acc.waves, #av[data-shape="robot"] .acc.bubble {
-   display: none;
+ #av .grid { pointer-events: none; }
+ /* An expression is the shape of two eyes, eased over 120 ms because
+    somebody caused it. A blink and a glance happen by themselves every few
+    seconds, and eased they cost about fourteen pictures each where a snap
+    costs two -- measured, 87 pictures in twenty seconds of a still launcher
+    against one without the face. So .pb, which carries both, has no
+    transition at all. */
+ #av .pr { transition: d .12s ease, fill .12s ease; }
+ #av .look {
+   transform: translate(calc(var(--lx, 0px) * 1.6),
+                        calc(var(--ly, 0px) * 1.4));
  }
- #av .bulb { fill: #334155; }
+ /* --sl and --sr: the eye nearer to where it looks grows and the other one
+    shrinks, the way EMO's and Cozmo's do -- a head turning, drawn on a flat
+    screen. A blink squashes each eye about its own middle. */
+ #av .pb { transform-box: fill-box; transform-origin: center; }
+ #av .pb.l { transform: scale(var(--sl, 1)); }
+ #av .pb.r { transform: scale(var(--sr, 1)); }
+ #av.blink .pb.l { transform: scale(var(--sl, 1)) scaleY(.08); }
+ #av.blink .pb.r { transform: scale(var(--sr, 1)) scaleY(.08); }
+ #av[data-px="angry"] .pr { fill: url(#pxred); }
+ #av[data-wx="cold"] .pr { fill: url(#pxcold); }
+ /* What is drawn instead of the eyes, or beside them. */
+ #av .px-x { display: none; }
+ #av[data-px="laugh"] .px-laugh, #av[data-px="love"] .px-love,
+ #av[data-px="dizzy"] .px-dizzy, #av[data-px="speak"] .px-talk,
+ #av[data-px="sad"] .px-tear { display: inline; }
+ #av[data-px="laugh"] .look, #av[data-px="love"] .look,
+ #av[data-px="dizzy"] .look { display: none; }
+ /* Its headphones light up while it listens. */
+ #av .pear { fill: #141a26; }
+ #av[data-px="listen"] .pear { fill: #35e3ff; filter: url(#pxglow); }
+ /* What it carries, each shown by one attribute on the box and nothing else:
+    the weather (data-wx), what the voice assistant is doing (data-px) and
+    the night (the sleepy mood). A change is a snap, like a blink. */
+ #av .acc { display: none; }
+ #av[data-wx="rain"] .acc.rain, #av[data-wx="snow"] .acc.flake,
+ #av[data-wx="cold"] .acc.flake, #av[data-wx="hot"] .acc.sweat,
+ #av[data-px="think"] .acc.dots,
+ #av[data-mood="sleepy"] .acc.zzz { display: inline; }
  /* The greeting takes the corner the weather and the voice use, for the
     three seconds it lasts. */
  #av.hello .acc.hello { display: inline; }
- #av.hello .acc.rain, #av.hello .acc.flake, #av.hello .acc.bubble,
- #av.hello .acc.zzz { display: none; }
- #av[data-voice="surprised"] .bulb { fill: #38bdf8; }
- #av[data-voice="thinking"] .bulb { fill: #f59e0b; }
- #av[data-voice="happy"] .bulb { fill: #22c55e; }
- #av .eye, #av .brow, #av .lift, #av .mouth, #av .look, #av .shut, #av .o {
-   transform-box: fill-box; transform-origin: center;
- }
- /* Only a change of mood is eased, because somebody caused it. A blink and a
-    glance happen by themselves every few seconds, and eased they cost about
-    fourteen pictures each where a snap costs two -- measured, 87 pictures in
-    twenty seconds of a still launcher against one without the face. */
- #av .brow, #av .mouth, #av .shut, #av .o {
-   transition: transform .12s ease, opacity .12s ease, d .12s ease;
- }
- /* --ls is curiosity: a pupil that grows when it looks to one side, which is
-    RoboEyes' "curious" mode. Snapped with the glance that carries it, so it
-    costs nothing the glance did not already. */
- #av .look {
-   transform: translate(var(--lx, 0px), var(--ly, 0px)) scale(var(--ls, 1));
- }
- #av .shut, #av .o { opacity: 0; }
- #av.blink .eye { transform: scaleY(.08); }
- /* A resting face lifts its brows now and then, as the original does every
-    8.4 s for 1.5 s. Snapped, like a blink: the group that carries it has no
-    transition, so it costs two small pictures rather than a run of them. */
- #av.lift .lift.l { transform: translateY(-3px) rotate(4deg); }
- #av.lift .lift.r { transform: translateY(-3px) rotate(1deg); }
- #av[data-mood="happy"] .eye { opacity: 0; }
- #av[data-mood="happy"] .shut { opacity: 1; }
- #av[data-mood="happy"] .mouth { d: path("M58 72 Q75 90 92 72"); }
- /* The brows are the original's own numbers, per mood. There an angle A
-    lifts a brow's ends by a quarter of its width times sin(A), so the tilt
-    actually drawn is atan(sin(A) / 2); and the height is in pixels of its
-    135 px reference face, which is 0.74 of a unit on this 100-unit one. Its
-    left brow at +A tilts clockwise and its right brow at +A the other way,
-    so the pair is written rotate(L) and rotate(-R). Their colour is the
-    original's for a dark panel, rgb(122,137,160).
-
-    Their SHAPE is the household's own LVGL face
-    (youkorr/esphome-lvgl-kawaii, lvgl_kawaii_face.c), which they preferred:
-    nine tenths of the eye's width, a stroke a tenth of it, and a gap above
-    the eye of fs(6) on its 135 px reference. And POINTED at the outer end,
-    which the C never asks for: it draws a plain round-capped line, but
-    inside each eye's own canvas and only a few pixels below its top, so a
-    brow that tilts has its outer end cut off by the canvas edge -- a wedge,
-    full and round at the nose, running to a point. That is the face on the
-    household's panel, so that is the shape drawn here, 0.12 of the eye at
-    its widest -- measured off a video of that panel, where the round cap's
-    fs(4) reads that full once the rest of the brow runs to nothing.
-    Thinking keeps its tilt and not its drop: that face also narrows its eye
-    to two thirds, which leaves the room, and this one's eye stays open -- lowered,
-    the brow would rest on it. */
- #av[data-mood="happy"] .brow.l { transform: translateY(-3.7px) rotate(-2deg); }
- #av[data-mood="happy"] .brow.r { transform: translateY(-3.7px) rotate(2deg); }
- #av[data-mood="surprised"] .brow { transform: translateY(-7.4px); }
- #av[data-mood="surprised"] .mouth { opacity: 0; }
- #av[data-mood="surprised"] .o { opacity: 1; }
- #av[data-mood="thinking"] .look { transform: translate(4px, -5px); }
- #av[data-mood="thinking"] .brow {
-   transform: rotate(10.6deg);
- }
- #av[data-mood="thinking"] .mouth { d: path("M66 78 Q75 78 86 75"); }
- #av[data-mood="sleepy"] .eye { transform: scaleY(.25); }
- #av[data-mood="sleepy"] .mouth { d: path("M68 78 Q75 79 82 78"); }
- #av[data-mood="sad"] .brow.l { transform: rotate(-12deg); }
- #av[data-mood="sad"] .brow.r { transform: rotate(12deg); }
- #av[data-mood="sad"] .mouth { d: path("M62 82 Q75 72 88 82"); }
+ #av.hello .acc.rain, #av.hello .acc.flake, #av.hello .acc.dots,
+ #av.hello .acc.zzz, #av.hello .acc.sweat { display: none; }
 """
 
-# The face, drawn on the button's own 3:2 -- 150 x 100 -- with room left
-# around it for a body and what the body carries: the viewBox runs from -12 to
-# 162 across and -24 to 118 down, so ears, an antenna, a cloud or a bubble sit
-# outside the face without moving any of it. Everything that moves is its own
-# group, so an expression is a class on the box and nothing more.
+# The face: a little robot whose face is a screen, drawn after EMO
+# (LivingAI's desk robot), which the household asked for by name -- "il doit
+# ressembler a EMO". Not EMO: its look and its name are LivingAI's, and its
+# animations are not published. What is borrowed is what every screen robot
+# shares and what makes EMO read as EMO from across a room: a dark head that
+# is all screen, headphones over it, and two big glowing eyes that ARE the
+# expression -- they change shape rather than having lids drawn over them,
+# and the one nearer to where it looks grows while the other shrinks.
 #
-# The eyes and brows are the household's LVGL face (draw_eye() in
-# lvgl_kawaii_face.c) at the size that keeps the eye centres 60 apart: a
-# ROUND eye 0.306 of the face wide, an iris 0.55 of it with a darker ring,
-# an oval pupil half the iris wide and 0.6 of it tall, two highlights, and
-# the shut eye an arc from 200 to 340 degrees over 0.3 of the eye's height.
+# The idea of an eye as numbers is Cozmo's, as RoboEyes and Espressif's own
+# expressive_eyes component (espp) write it down: each eye is a rounded box
+# with a width, a height, a roundness and a place, whose top edge can come
+# down at either corner (cross, sad, sleepy) and whose bottom edge can bow up
+# until the eye is a ^ (happy). Every expression below is one line of those
+# numbers, turned into a path HERE, so the page only swaps strings and a new
+# expression costs a line rather than a drawing. Every path has the same
+# commands in the same order, which is what lets the browser ease from one to
+# the next.
+#
+# Drawn on the button's own 3:2 -- 150 x 100 -- with room left round it: the
+# viewBox runs from -12 to 162 across and -24 to 118 down, so the headphones
+# and what it carries (a cloud, a bubble, the z's) sit outside the head.
 AVATAR_VIEW = "-12 -24 174 142"
 # The box's height for a 26vmin width, from the viewBox above.
 AVATAR_HEIGHT = "21.22vmin"
 
-FACE_SVG = """
- <g class="lift l"><path class="brow l" d="M30.3 29 L57.7 25 A2 2 0 0 1 57.7 29 Z"
-  fill="#7a89a0"/></g>
- <g class="lift r"><path class="brow r" d="M119.7 29 L92.3 25 A2 2 0 0 0 92.3 29 Z"
-  fill="#7a89a0"/></g>
- <g class="eye">
-  <circle cx="45" cy="48" r="16.35" fill="#fff"/>
-  <g class="look"><circle cx="45" cy="48" r="8.2" fill="#32b4ff"
-    stroke="#1e8ce6" stroke-width="1.6"/>
-   <ellipse cx="45" cy="48" rx="4.5" ry="5.4" fill="#000"/>
-   <ellipse cx="42" cy="44.4" rx="1.8" ry="2.15" fill="#fff"/>
-   <ellipse cx="47.25" cy="45.3" rx=".9" ry="1.1" fill="#fff"/></g>
- </g>
- <g class="eye">
-  <circle cx="105" cy="48" r="16.35" fill="#fff"/>
-  <g class="look"><circle cx="105" cy="48" r="8.2" fill="#32b4ff"
-    stroke="#1e8ce6" stroke-width="1.6"/>
-   <ellipse cx="105" cy="48" rx="4.5" ry="5.4" fill="#000"/>
-   <ellipse cx="102" cy="44.4" rx="1.8" ry="2.15" fill="#fff"/>
-   <ellipse cx="107.25" cy="45.3" rx=".9" ry="1.1" fill="#fff"/></g>
- </g>
- <path class="shut" d="M29.6 44.6 Q45 31.8 60.4 44.6" stroke="#fff" stroke-width="4.7"
-       stroke-linecap="round" fill="none"/>
- <path class="shut" d="M89.6 44.6 Q105 31.8 120.4 44.6" stroke="#fff" stroke-width="4.7"
-       stroke-linecap="round" fill="none"/>
- <ellipse class="cheek" cx="26" cy="72" rx="8" ry="4.5" fill="#ff7a9a" opacity=".35"/>
- <ellipse class="cheek" cx="124" cy="72" rx="8" ry="4.5" fill="#ff7a9a" opacity=".35"/>
- <path class="mouth" d="M62 76 Q75 84 88 76" stroke="#ff5d73" stroke-width="4"
-       stroke-linecap="round" fill="none"/>
- <ellipse class="o" cx="75" cy="79" rx="6" ry="7" fill="#ff5d73"/>
-"""
+FACE_EYES = ((51, 54), (99, 54))
+FACE_BLUE = ("#a5f3ff", "#2bc4ff")
+FACE_RED = ("#ffb4a8", "#ff4d5e")
+FACE_COLD = ("#e0f5ff", "#9fd3ff")
 
-# What the face is the face OF. Asked for as "une meilleur forme que le
-# rectangulaire et amical", and offered as five so a household can pick; each
-# one is drawn around the same face, so nothing about the eyes, the moods or
-# the cost changes with the choice. The body goes first and the face over it.
-AVATAR_SHAPES = {
-    "mochi": """
- <path class="skin" d="M75 2 C122 2 146 28 146 60 C146 92 120 106 75 106
-   C30 106 4 92 4 60 C4 28 28 2 75 2 Z"/>""",
-    "robot": """
- <path d="M75 4 V-8" stroke="#3b4660" stroke-width="3"/>
- <circle class="bulb" cx="75" cy="-13" r="5.5"/>
- <rect class="skin" x="-8" y="42" width="12" height="28" rx="6"/>
- <rect class="skin" x="146" y="42" width="12" height="28" rx="6"/>
- <rect class="skin" x="2" y="4" width="146" height="102" rx="32"/>""",
-    "cat": """
- <path class="skin" d="M14 40 L18 -4 L52 18 Z"/>
- <path class="skin" d="M136 40 L132 -4 L98 18 Z"/>
- <path class="inner" d="M22 30 L24 8 L42 20 Z"/>
- <path class="inner" d="M128 30 L126 8 L108 20 Z"/>
- <ellipse class="skin" cx="75" cy="60" rx="72" ry="48"/>
- <path class="whisker" d="M14 80 L-6 76 M14 86 L-4 88 M136 80 L156 76
-   M136 86 L154 88"/>""",
-    "bear": """
- <circle class="skin" cx="20" cy="18" r="17"/>
- <circle class="skin" cx="130" cy="18" r="17"/>
- <circle class="inner" cx="20" cy="18" r="8.5"/>
- <circle class="inner" cx="130" cy="18" r="8.5"/>
- <ellipse class="skin" cx="75" cy="60" rx="70" ry="48"/>""",
-    "ghost": """
- <path class="skin" d="M6 56 C6 20 34 0 75 0 C116 0 144 20 144 56 L144 104
-   Q134 94 124 104 Q114 114 104 104 Q94 94 84 104 Q74 114 64 104
-   Q54 94 44 104 Q34 114 24 104 Q15 95 6 104 Z"/>""",
+# Each eye: w, h and round (its corners) in units of the drawing; dx, dy where it
+# moved to; ti / to how far the top edge comes down at the corner nearer the
+# nose and at the outer one, and arc how far the bottom edge bows up in the
+# middle -- all three as fractions of the eye's height. An eye named in "l"
+# or "r" takes those numbers on top.
+EYE = {"w": 32, "h": 38, "round": 11, "dx": 0, "dy": 0, "ti": 0, "to": 0, "arc": 0}
+_HAPPY = {"w": 34, "h": 26, "round": 13, "arc": .72, "dy": -2}
+EXPRESSIONS = {
+    "neutral": {},
+    "happy": _HAPPY,
+    "speak": {"w": 34, "h": 30, "round": 13, "arc": .42, "dy": -5},
+    "wink": {"r": dict(_HAPPY)},
+    "surprised": {"w": 37, "h": 44, "round": 17},
+    "listen": {"w": 34, "h": 41, "round": 13, "dy": -3},
+    "think": {"w": 30, "h": 30, "dx": 6, "dy": -7, "ti": .18},
+    "angry": {"h": 34, "ti": .5, "dy": 2},
+    "sad": {"h": 34, "to": .45, "dy": 4},
+    "tired": {"h": 36, "ti": .58, "to": .58, "dy": 4},
+    "suspicious": {"dx": 7, "l": {"ti": .55, "to": .5},
+                   "r": {"ti": .2, "to": .2}},
+    "hot": {"ti": .32, "to": .32, "dy": 2},
+    # Drawn instead of eyes (the sheet hides the eyes for them), so the shape
+    # they leave behind is only where the next expression eases from.
+    "laugh": _HAPPY, "love": {}, "dizzy": {},
 }
-DEFAULT_AVATAR = "mochi"
 
-# What the face carries, drawn once and shown by an attribute. Placed where
-# none of the five bodies reaches: the cat's right ear ends at x 136, so the
-# cloud, the flake, the bubble and the z's all start to the right of it.
-AVATAR_EXTRAS = """
- <g class="acc hot">
-  <rect x="28" y="37" width="34" height="22" rx="10" fill="#111827"
-        stroke="#e5e7eb" stroke-width="1.2"/>
-  <rect x="88" y="37" width="34" height="22" rx="10" fill="#111827"
-        stroke="#e5e7eb" stroke-width="1.2"/>
-  <path d="M62 45 Q75 40 88 45" stroke="#e5e7eb" stroke-width="1.6"
-        fill="none"/>
-  <path d="M33 41 L41 41 M93 41 L101 41" stroke="#fff" stroke-width="2"
-        stroke-linecap="round" opacity=".6"/>
+
+def _eye_numbers(name, side):
+    want = EXPRESSIONS[name]
+    numbers = dict(EYE)
+    numbers.update({k: v for k, v in want.items() if k not in ("l", "r")})
+    numbers.update(want.get(side, {}))
+    return numbers
+
+
+def eye_path(side, name):
+    """The outline of one eye in one expression, as an SVG path.
+
+    Always M L Q L Q Q Q L Q Z, whatever the numbers: a path the browser can
+    ease into another must have the same commands in the same order."""
+    n = _eye_numbers(name, side)
+    cx, cy = FACE_EYES[0 if side == "l" else 1]
+    x, y, w, h = cx + n["dx"], cy + n["dy"], n["w"], n["h"]
+    left, right, top, bottom = x - w / 2, x + w / 2, y - h / 2, y + h / 2
+    # The nose is to the right of the left eye and to the left of the right.
+    down_l = n["ti"] if side == "r" else n["to"]
+    down_r = n["to"] if side == "r" else n["ti"]
+    tl, tr = (left, top + h * down_l), (right, top + h * down_r)
+    br, bl = (right, bottom), (left, bottom)
+    r = min(n["round"], w / 2.2, (bottom - max(tl[1], tr[1])) / 2.2)
+
+    def toward(a, b, d):
+        length = math.hypot(b[0] - a[0], b[1] - a[1]) or 1
+        return (a[0] + (b[0] - a[0]) * d / length,
+                a[1] + (b[1] - a[1]) * d / length)
+
+    # The bottom edge bows up through a control point twice as high as the
+    # bow wanted, which is where a quadratic puts its middle.
+    lift = n["arc"] * h * 2
+    ctrl = (x, bottom - lift)
+    points = [
+        ("M", toward(tl, tr, r)), ("L", toward(tr, tl, r)),
+        ("Q", tr, toward(tr, br, r)), ("L", toward(br, tr, r)),
+        ("Q", br, toward(br, ctrl, r)), ("Q", ctrl, toward(bl, ctrl, r)),
+        ("Q", bl, toward(bl, tl, r)), ("L", toward(tl, bl, r)),
+        ("Q", tl, toward(tl, tr, r)),
+    ]
+    out = []
+    for step in points:
+        out.append(step[0] + " ".join(f"{p[0]:.1f} {p[1]:.1f}"
+                                      for p in step[1:]))
+    return " ".join(out) + " Z"
+
+
+def _face_spiral(cx, cy):
+    points = []
+    turn = 0.0
+    while turn < 4 * math.pi:
+        r = 1.15 * turn
+        points.append(f"{cx + r * math.cos(turn):.1f} {cy + r * math.sin(turn):.1f}")
+        turn += 0.3
+    return "M" + " L".join(points)
+
+
+def _face_heart(cx, cy):
+    return (f"M{cx} {cy + 13} C{cx - 22} {cy - 1} {cx - 11} {cy - 19} {cx} {cy - 7} "
+            f"C{cx + 11} {cy - 19} {cx + 22} {cy - 1} {cx} {cy + 13} Z")
+
+
+def _face_eye(side):
+    return (f'<g class="pb {side}"><path class="pr" d="{eye_path(side, "neutral")}" '
+            f'fill="url(#pxeye)" filter="url(#pxglow)"/></g>')
+
+
+def _face_gradient(name, colours):
+    top, bottom = colours
+    return (f'<linearGradient id="{name}" x1="0" y1="0" x2="0" y2="1">'
+            f'<stop offset="0" stop-color="{top}"/>'
+            f'<stop offset="1" stop-color="{bottom}"/></linearGradient>')
+
+
+(_lx, _ly), (_rx, _ry) = FACE_EYES
+AVATAR_FACE = (
+    """
+ <defs>
+  <filter id="pxglow" x="-50%" y="-50%" width="200%" height="200%">
+   <feGaussianBlur stdDeviation="2.2" result="b"/>
+   <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+  </filter>
+  <clipPath id="pxscr"><rect x="13" y="13" width="124" height="82" rx="24"/></clipPath>
+  <pattern id="pxgrid" width="2.6" height="2.6" patternUnits="userSpaceOnUse">
+   <path d="M0 0 H2.6 M0 0 V2.6" stroke="#03060a" stroke-width=".55"/>
+  </pattern>
+  <linearGradient id="pxhead" x1="0" y1="0" x2="0" y2="1">
+   <stop offset="0" stop-color="#2a3243"/><stop offset="1" stop-color="#0c1018"/>
+  </linearGradient>
+  <linearGradient id="pxcup" x1="0" y1="0" x2="1" y2="0">
+   <stop offset="0" stop-color="#4a5570"/><stop offset="1" stop-color="#262e40"/>
+  </linearGradient>"""
+    + _face_gradient("pxeye", FACE_BLUE) + _face_gradient("pxred", FACE_RED)
+    + _face_gradient("pxcold", FACE_COLD)
+    + """
+ </defs>
+ <path d="M-2 44 C-4 -22 154 -22 152 44" stroke="#2e3648" stroke-width="8"
+  stroke-linecap="round" fill="none"/>
+ <path d="M3 30 C6 -10 144 -10 147 30" stroke="#5b6782" stroke-width="1.6"
+  stroke-linecap="round" fill="none" opacity=".7"/>
+ <rect x="4" y="4" width="142" height="100" rx="32" fill="url(#pxhead)"
+  stroke="#3d4760" stroke-width="1.5"/>
+ <rect x="13" y="13" width="124" height="82" rx="24" fill="#03060a"/>
+ <rect x="-12" y="30" width="19" height="48" rx="9" fill="url(#pxcup)"/>
+ <rect x="143" y="30" width="19" height="48" rx="9" fill="url(#pxcup)"/>
+ <rect class="pear" x="-6" y="40" width="7" height="28" rx="3.5"/>
+ <rect class="pear" x="149" y="40" width="7" height="28" rx="3.5"/>
+ <g clip-path="url(#pxscr)">
+  <g class="look">"""
+    + _face_eye("l") + _face_eye("r")
+    + f"""</g>
+  <path class="px-x px-laugh" d="M{_lx - 10} {_ly - 11} L{_lx + 9} {_ly} L{_lx - 10} {_ly + 11}
+   M{_rx + 10} {_ry - 11} L{_rx - 9} {_ry} L{_rx + 10} {_ry + 11}" stroke="url(#pxeye)"
+   stroke-width="7" stroke-linecap="round" stroke-linejoin="round" fill="none"
+   filter="url(#pxglow)"/>
+  <g class="px-x px-love" fill="#ff5c9a" filter="url(#pxglow)">
+   <path d="{_face_heart(_lx, _ly)}"/><path d="{_face_heart(_rx, _ry)}"/></g>
+  <g class="px-x px-dizzy" stroke="#5fdcff" stroke-width="3" fill="none"
+   stroke-linecap="round" filter="url(#pxglow)">
+   <path d="{_face_spiral(_lx, _ly)}"/><path d="{_face_spiral(_rx, _ry)}"/></g>
+  <ellipse class="px-x px-talk" cx="75" cy="84" rx="9" ry="2" fill="url(#pxeye)"
+   filter="url(#pxglow)"/>
+  <path class="px-x px-tear" d="M{_lx - 12} {_ly + 18} q4 8 0 11.5 q-4 -3.5 0 -11.5z"
+   fill="#7cc8ff"/>
+  <rect class="grid" x="13" y="13" width="124" height="82" fill="url(#pxgrid)"
+   opacity=".55"/>
  </g>
+ <path d="M24 20 Q50 15 74 18" stroke="#fff" stroke-opacity=".07" stroke-width="5"
+  stroke-linecap="round" fill="none"/>""")
+
+# What it carries, drawn once and shown by an attribute, in the top right
+# corner outside the head.
+AVATAR_EXTRAS = """
  <g class="acc rain">
   <g fill="#94a3b8"><circle cx="138" cy="-14" r="6"/>
    <circle cx="146" cy="-16" r="7"/><circle cx="154" cy="-12" r="5"/>
@@ -1373,16 +1415,10 @@ AVATAR_EXTRAS = """
  <path class="acc flake" d="M148 -21 V-3 M140.2 -16.5 L155.8 -7.5
    M140.2 -7.5 L155.8 -16.5" stroke="#bfdbfe" stroke-width="1.6"
    stroke-linecap="round"/>
- <path class="acc waves" d="M-1 44 Q-6 60 -1 76 M-7 38 Q-13 60 -7 82
-   M151 44 Q156 60 151 76 M157 38 Q163 60 157 82" stroke="#38bdf8"
-   stroke-width="2.2" stroke-linecap="round" fill="none"/>
- <g class="acc bubble" fill="#cbd5e1">
-  <circle cx="141" cy="-4" r="2"/><circle cx="147" cy="-10" r="2.8"/>
-  <rect x="134" y="-23" width="27" height="11" rx="5.5" fill="#1f2937"
-        stroke="#cbd5e1" stroke-width="1"/>
-  <circle cx="141" cy="-17.5" r="1.5"/><circle cx="147.5" cy="-17.5" r="1.5"/>
-  <circle cx="154" cy="-17.5" r="1.5"/>
- </g>
+ <path class="acc sweat" d="M148 -20 q5 8 0 13 q-5 -5 0 -13z" fill="#7cc8ff"/>
+ <g class="acc dots" fill="#35e3ff">
+  <circle cx="134" cy="-2" r="2.4"/><circle cx="142" cy="-9" r="3.2"/>
+  <circle cx="152" cy="-17" r="4"/></g>
  <g class="acc hello">
   <path d="M104 -24 H156 A6 6 0 0 1 162 -18 V-12 A6 6 0 0 1 156 -6 H116
    L110 -1 L111 -6 H104 A6 6 0 0 1 98 -12 V-18 A6 6 0 0 1 104 -24 Z"
@@ -1396,164 +1432,15 @@ AVATAR_EXTRAS = """
   <text x="155" y="-17" font-size="8">z</text>
  </g>"""
 
-
-# "Pixel" -- a face on a screen, the sixth body, asked for after the
-# household saw what EMO does with one ("les 1000+ visages et mouvements de
-# EMO sont super"). Not EMO: its look and its name are LivingAI's, and its
-# animations are not published. What is borrowed is the IDEA every screen
-# robot shares (EMO, Cozmo, Vector, RoboEyes): the expressions are not
-# drawings but settings. Each eye is a rounded rectangle with a height, a
-# width, a roundness and a position, a top lid that lowers and tilts, and a
-# bottom lid that pushes up into a smile; a few extras -- hearts, spirals,
-# a tear, a mouth -- sit on top. Every expression below is a line of
-# numbers, so a new one costs a line and not a drawing.
-#
-# Its own face rather than FACE_SVG, and its own script (PIXEL_JS) that
-# listens to the same three attributes the other faces are driven by --
-# data-mood, data-voice, data-wx -- so the five bodies before it are not
-# touched. The rules those live under hold here too: a change of expression
-# is somebody's doing and eases in 120 ms, a blink snaps, and nothing runs
-# by itself except the blink and the glance.
-PIXEL_EYES = ((52, 52), (98, 52))
-
-
-def _pixel_spiral(cx, cy):
-    points = []
-    turn = 0.0
-    while turn < 4 * math.pi:
-        r = 1.05 * turn
-        points.append(f"{cx + r * math.cos(turn):.1f} {cy + r * math.sin(turn):.1f}")
-        turn += 0.3
-    return "M" + " L".join(points)
-
-
-def _pixel_heart(cx, cy):
-    return (f"M{cx} {cy + 11} C{cx - 19} {cy - 1} {cx - 9} {cy - 16} {cx} {cy - 6} "
-            f"C{cx + 9} {cy - 16} {cx + 19} {cy - 1} {cx} {cy + 11} Z")
-
-
-def _pixel_eye(side, cx, cy):
-    # The eye inside .pb (what blinks and grows), the two lids beside it;
-    # PIXEL_JS gives all three their geometry, so these numbers are only
-    # where they start.
-    return (f'<g class="pe {side}"><g class="pb"><rect class="pr" x="{cx - 11}" '
-            f'y="{cy - 15}" width="22" height="30" rx="8" fill="#35e3ff" '
-            f'filter="url(#pxglow)"/></g>'
-            f'<rect class="ptop" fill="#05080c" style="display:none"/>'
-            f'<ellipse class="pbot" fill="#05080c" style="display:none"/></g>')
-
-
-AVATAR_SHAPES["pixel"] = """
- <rect class="pear" x="-5" y="38" width="10" height="30" rx="5" fill="#aab3c2"/>
- <rect class="pear" x="145" y="38" width="10" height="30" rx="5" fill="#aab3c2"/>
- <rect x="0" y="2" width="150" height="104" rx="34" fill="url(#pxshell)"/>
- <rect x="10" y="12" width="130" height="84" rx="24" fill="#1b2230"/>
- <rect x="13" y="15" width="124" height="78" rx="21" fill="#05080c"/>"""
-
-(lx, ly), (rx_, ry_) = PIXEL_EYES
-PIXEL_FACE = (
-    """
- <defs>
-  <filter id="pxglow" x="-50%" y="-50%" width="200%" height="200%">
-   <feGaussianBlur stdDeviation="1.6" result="b"/>
-   <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
-  </filter>
-  <clipPath id="pxscr"><rect x="13" y="15" width="124" height="78" rx="21"/></clipPath>
-  <linearGradient id="pxshell" x1="0" y1="0" x2="0" y2="1">
-   <stop offset="0" stop-color="#f4f6fa"/><stop offset="1" stop-color="#c9d0dc"/>
-  </linearGradient>
- </defs>
- <g clip-path="url(#pxscr)">
-  <g class="look">"""
-    + _pixel_eye("l", lx, ly) + _pixel_eye("r", rx_, ry_)
-    + f"""</g>
-  <g class="px-x px-laugh" filter="url(#pxglow)">
-   <path d="M{lx - 11} {ly + 4} Q{lx} {ly - 11} {lx + 11} {ly + 4}
-    M{rx_ - 11} {ry_ + 4} Q{rx_} {ry_ - 11} {rx_ + 11} {ry_ + 4}" stroke="#35e3ff"
-    stroke-width="5" stroke-linecap="round" fill="none"/>
-   <path d="M64 70 Q75 84 86 70 Z" fill="#35e3ff"/></g>
-  <path class="px-x px-wink" d="M{rx_ - 11} {ry_ - 2} Q{rx_} {ry_ + 9} {rx_ + 11} {ry_ - 2}"
-   stroke="#35e3ff" stroke-width="5" stroke-linecap="round" fill="none"
-   filter="url(#pxglow)"/>
-  <g class="px-x px-love" fill="#ff4f8b" filter="url(#pxglow)">
-   <path d="{_pixel_heart(lx, ly)}"/><path d="{_pixel_heart(rx_, ry_)}"/></g>
-  <g class="px-x px-dizzy" stroke="#35e3ff" stroke-width="2.6" fill="none"
-   stroke-linecap="round" filter="url(#pxglow)">
-   <path d="{_pixel_spiral(lx, ly)}"/><path d="{_pixel_spiral(rx_, ry_)}"/></g>
-  <ellipse class="px-x px-talk" cx="75" cy="79" rx="11" ry="2" fill="#35e3ff"
-   filter="url(#pxglow)"/>
-  <path class="px-x px-tear" d="M62 66 q3.5 7 0 10 q-3.5 -3 0 -10z" fill="#7cc8ff"/>
- </g>
- <path d="M24 22 Q50 17 70 20" stroke="#fff" stroke-opacity=".08" stroke-width="5"
-  stroke-linecap="round" fill="none"/>
- <path class="acc sweat" d="M146 -18 q5 8 0 13 q-5 -5 0 -13z" fill="#7cc8ff"/>
- <g class="acc dots" fill="#35e3ff">
-  <circle cx="132" cy="-2" r="2.4"/><circle cx="140" cy="-9" r="3.2"/>
-  <circle cx="150" cy="-17" r="4"/></g>""")
-
-# Only in a page whose face is Pixel. Not %-formatted, unlike AVATAR_CSS.
-PIXEL_CSS = """
- #av[data-shape="pixel"] .pr, #av[data-shape="pixel"] .ptop,
- #av[data-shape="pixel"] .pbot {
-   transition: x .12s ease, y .12s ease, width .12s ease, height .12s ease,
-               rx .12s ease, cx .12s ease, cy .12s ease, ry .12s ease,
-               transform .12s ease;
- }
- /* The glance moves the eyes across the screen, a little further than the
-    other faces' pupils; curiosity (--ls) and a blink scale each eye about
-    its own centre, which is why they sit on .pb and not on the pair. */
- #av[data-shape="pixel"] .look {
-   transform: translate(calc(var(--lx, 0px) * 1.6), calc(var(--ly, 0px) * 1.4));
- }
- #av[data-shape="pixel"] .pb {
-   transform-box: fill-box; transform-origin: center;
-   transform: scale(var(--ls, 1));
- }
- #av[data-shape="pixel"].blink .pb { transform: scale(var(--ls, 1)) scaleY(.1); }
- #av[data-shape="pixel"][data-wx="cold"] .pr { fill: #a9dcff; }
- #av .px-x { display: none; }
- #av[data-px="laugh"] .px-laugh, #av[data-px="wink"] .px-wink,
- #av[data-px="love"] .px-love, #av[data-px="dizzy"] .px-dizzy,
- #av[data-px="speak"] .px-talk,
- #av[data-px="sad"] .px-tear { display: inline; }
- #av[data-px="laugh"] .pe, #av[data-px="love"] .pe, #av[data-px="dizzy"] .pe,
- #av[data-px="wink"] .pe.r { display: none; }
- /* Its own ways of saying what the others say with accessories: its ears
-    light up while it listens, a mouth opens while it speaks, dots for
-    thinking, a drop for the heat. */
- #av[data-px="listen"] .pear { fill: #35e3ff; filter: url(#pxglow); }
- #av[data-shape="pixel"] .acc.hot, #av[data-shape="pixel"] .acc.waves,
- #av[data-shape="pixel"] .acc.bubble { display: none; }
- #av[data-shape="pixel"][data-wx="hot"] .acc.sweat,
- #av[data-px="think"] .acc.dots { display: inline; }
- #av[data-shape="pixel"].hello .acc.dots { display: none; }
-"""
-
-PIXEL_JS = """<script>
+# Which expression the face shows, and what a finger does to it. Listens to
+# the attributes the shared script sets -- data-mood, data-voice, data-wx --
+# and writes data-px, which the sheet above draws from.
+FACE_JS = """<script>
 (function () {
   var box = document.getElementById('av');
-  if (!box || box.dataset.shape !== 'pixel' || !window.portallAvatar) return;
+  if (!box || !window.portallAvatar) return;
   var api = window.portallAvatar;
-  var EYES = {l: {cx: %(lx)s, cy: %(ly)s}, r: {cx: %(rx)s, cy: %(ry)s}};
-  var BASE = {w: 22, h: 30, r: 8, dx: 0, dy: 0, top: 0, tilt: 0, bot: 0};
-  /* Every expression, as the numbers of its two eyes. `tilt` is the left
-     lid's; the right one mirrors it. An eye named in `l` or `r` takes those
-     numbers on top. Laugh, love and dizzy draw other shapes instead of eyes
-     (PIXEL_CSS hides the eyes for them), so they need no numbers here. */
-  var EXPR = {
-    neutral: {}, laugh: {}, love: {}, dizzy: {},
-    happy: {bot: .45},
-    wink: {l: {bot: .35}},
-    surprised: {w: 27, h: 36, r: 13},
-    listen: {dy: -5},
-    think: {dx: 6, dy: -8, h: 24},
-    speak: {bot: .3, dy: -4},
-    angry: {top: .42, tilt: 22},
-    sad: {top: .4, tilt: -20, dy: 3},
-    tired: {top: .62, dy: 4},
-    suspicious: {dx: 7, top: .55},
-    hot: {top: .3}
-  };
+  var SHAPES = %(shapes)s;
   function pick() {
     var mood = box.dataset.mood, voice = box.dataset.voice;
     if (mood === 'surprised' && voice === 'surprised') return 'listen';
@@ -1561,50 +1448,13 @@ PIXEL_JS = """<script>
     if (mood === 'happy' && voice === 'happy') return 'speak';
     if (mood === 'sleepy') return 'tired';
     if (mood === 'neutral' && box.dataset.wx === 'hot') return 'hot';
-    return EXPR[mood] ? mood : 'neutral';
+    return SHAPES[mood] ? mood : 'neutral';
   }
-  function shape(side, def) {
-    var o = {}, k;
-    for (k in BASE) o[k] = BASE[k];
-    for (k in def) if (k !== 'l' && k !== 'r') o[k] = def[k];
-    if (def[side]) for (k in def[side]) o[k] = def[side][k];
-    if (side === 'r') o.tilt = -o.tilt;
-    var c = EYES[side], x = c.cx + o.dx, y = c.cy + o.dy;
-    var g = box.querySelector('.pe.' + side);
-    var eye = g.querySelector('.pr'), top = g.querySelector('.ptop'),
-        bot = g.querySelector('.pbot');
-    eye.style.x = (x - o.w / 2) + 'px';
-    eye.style.y = (y - o.h / 2) + 'px';
-    eye.style.width = o.w + 'px';
-    eye.style.height = o.h + 'px';
-    eye.style.rx = Math.min(o.r, o.w / 2, o.h / 2) + 'px';
-    if (o.top) {
-      var edge = y - o.h / 2 + o.h * o.top;
-      top.style.display = '';
-      top.style.x = (x - o.w) + 'px';
-      top.style.y = (edge - 40) + 'px';
-      top.style.width = (o.w * 2) + 'px';
-      top.style.height = '40px';
-      top.style.transformOrigin = x + 'px ' + edge + 'px';
-      top.style.transform = 'rotate(' + o.tilt + 'deg)';
-    } else {
-      top.style.display = 'none';
-    }
-    if (o.bot) {
-      bot.style.display = '';
-      bot.style.cx = x + 'px';
-      bot.style.cy = (y + o.h / 2 + o.h * (.55 - o.bot)) + 'px';
-      bot.style.rx = (o.w * .95) + 'px';
-      bot.style.ry = (o.h * .6) + 'px';
-    } else {
-      bot.style.display = 'none';
-    }
-  }
-  /* Speaking opens and closes its mouth, four times a second and only while
-     the voice assistant is answering -- the one animation that runs by
-     itself, and it runs for as long as the answer does. A snap rather than
-     an ease, like a blink: an eased mouth would be a run of pictures for
-     every syllable. Wider as it closes, the way a mouth is. */
+  /* Speaking opens and closes a small mouth under its eyes, four times a
+     second and only while the voice assistant is answering -- the one
+     animation that runs by itself, and it runs for as long as the answer
+     does. A snap rather than an ease, like a blink: an eased mouth would be
+     a run of pictures for every syllable. Wider as it closes. */
   var talking = 0, said = 0;
   var OPEN = [2, 4.5, 7, 3, 6, 2.5];
   function mouth(moving) {
@@ -1616,7 +1466,7 @@ PIXEL_JS = """<script>
       while (next === said) next = Math.floor(Math.random() * OPEN.length);
       said = next;
       m.setAttribute('ry', OPEN[said]);
-      m.setAttribute('rx', 13 - OPEN[said] * .6);
+      m.setAttribute('rx', 11 - OPEN[said] * .6);
     }
     step();
     talking = setInterval(step, 250);
@@ -1627,9 +1477,10 @@ PIXEL_JS = """<script>
     if (now === shown) return;
     shown = now;
     box.dataset.px = now;
-    var def = EXPR[now];
-    shape('l', def);
-    shape('r', def);
+    ['l', 'r'].forEach(function (side) {
+      box.querySelector('.pb.' + side + ' .pr').style.d =
+        'path("' + SHAPES[now][side] + '")';
+    });
     mouth(now === 'speak');
   }
   new MutationObserver(draw).observe(box, {attributes: true,
@@ -1677,255 +1528,17 @@ PIXEL_JS = """<script>
     voiceWas = now;
   }).observe(box, {attributes: true, attributeFilter: ['data-voice']});
 })();
-</script>""" % {"lx": lx, "ly": ly, "rx": rx_, "ry": ry_}
+</script>""" % {"shapes": json.dumps(
+    {name: {side: eye_path(side, name) for side in ("l", "r")}
+     for name in EXPRESSIONS}, separators=(",", ":"))}
 
 
-# "Orb" -- the seventh body, reproduced from a Lottie animation the household
-# sent ("AI_robo": a glossy ball with two pill eyes, 700x700, 480 frames at
-# 60 fps). The animation was rendered frame by frame with lottie-web to read
-# what it does, and what it does is the whole design: the ball's COLOUR says
-# the state -- violet-blue at rest, green, red, yellow with a "!" in place of
-# the eyes, a white ring spinning where the eyes were while it loads, and a
-# squash-and-stretch jump in mint and magenta. Its numbers are the file's:
-# the eyes are strokes of 20 on a ball of 300, 76 apart and 12 above the
-# middle; the ring is 99 across with a stroke of 15 and a quarter of it drawn;
-# the glint is a 3% arc of a circle 250 across. Scaled to a ball of radius 51.
-#
-# The black face in the middle is the file's too -- a disc 250 across, filled
-# black -- and lottie-web does not draw it: the fill's blend mode is "screen",
-# and black screened over anything is the thing underneath. The household's
-# own player ignores the blend mode and draws the disc, and theirs is the
-# picture this copies, so the face is drawn plainly, and the glint runs round
-# its rim, which is where the file puts it.
-#
-# What is NOT copied is the motion between states. The Lottie turns its
-# gradient round and eases every change over dozens of frames, which on a
-# panel is a stream of whole pictures for as long as it is showing. Here a
-# change of state snaps, like every other face's blink, and only two things
-# run by themselves, each only while it lasts: the ring while the voice
-# assistant thinks, and the eyes while it answers.
-ORB_C = (75, 55)
-ORB_R = 51
-
-
-def _orb_arc(r, start, end):
-    """An arc of the circle of radius r round the ball's middle, in degrees
-    clockwise from three o'clock, as SVG draws them."""
-    cx, cy = ORB_C
-    a, b = math.radians(start), math.radians(end)
-    large = 1 if (end - start) % 360 > 180 else 0
-    return (f"M{cx + r * math.cos(a):.2f} {cy + r * math.sin(a):.2f} "
-            f"A{r} {r} 0 {large} 1 {cx + r * math.cos(b):.2f} "
-            f"{cy + r * math.sin(b):.2f}")
-
-
-# The Lottie's own gradients, three stops each, from the lit side to the
-# shadowed one. Rest, listening, cross, a warning and the jump are its; the
-# night's is this page's, the rest's with the light turned down.
-ORB_PALETTES = {
-    "calm": ("#0036ff", "#631bff", "#c600ff"),
-    "listen": ("#00ff42", "#008021", "#000000"),
-    "angry": ("#ff0000", "#800000", "#000000"),
-    "alert": ("#fff600", "#807b00", "#000000"),
-    "joy": ("#8bffb1", "#9d80a2", "#ae0093"),
-    "night": ("#0a1a73", "#2e0f73", "#5a0073"),
-}
-
-AVATAR_SHAPES["orb"] = ""
-
-_k = 2 * ORB_R / 300.0  # the Lottie's units in this drawing's
-_ecy = ORB_C[1] - 12.5 * _k
-_edx = 38 * _k
-_ew, _eh = 20 * _k, 57 * _k
-
-
-def _orb_eye(side, cx):
-    return (f'<g class="ob-e {side}"><rect class="oe" x="{cx - _ew / 2:.2f}" '
-            f'y="{_ecy - _eh / 2:.2f}" width="{_ew:.2f}" height="{_eh:.2f}" '
-            f'rx="{_ew / 2:.2f}" fill="#fff"/></g>')
-
-
-ORB_FACE = (
-    "\n <defs>"
-    + "".join(
-        f'\n  <linearGradient id="ob-{name}" x1=".12" y1=".08" x2=".9" y2=".95">'
-        f'<stop offset="0" stop-color="{a}"/><stop offset=".5" stop-color="{b}"/>'
-        f'<stop offset="1" stop-color="{c}"/></linearGradient>'
-        for name, (a, b, c) in ORB_PALETTES.items())
-    + "\n </defs>"
-    + f"""
- <g class="ob">
-  <circle class="ob-skin" cx="{ORB_C[0]}" cy="{ORB_C[1]}" r="{ORB_R}"/>
-  <circle class="ob-face" cx="{ORB_C[0]}" cy="{ORB_C[1]}" r="{250 / 300 * ORB_R:.2f}"
-   fill="#000"/>
-  <path d="{_orb_arc(250 / 300 * ORB_R, -76, -65)}" stroke="#fff"
-   stroke-width="{5 * _k:.2f}" stroke-linecap="round" fill="none"/>
-  <g class="look">{_orb_eye("l", ORB_C[0] - _edx)}{_orb_eye("r", ORB_C[0] + _edx)}</g>
-  <g class="ob-x ob-ring"><path d="{_orb_arc(99 / 300 * ORB_R, 0, 90)}"
-   stroke="#fff" stroke-width="{15 * _k:.2f}" stroke-linecap="round"
-   fill="none"/></g>
-  <g class="ob-x ob-bang" stroke="#fff000" stroke-width="{20 * _k:.2f}"
-   stroke-linecap="round"><path d="M{ORB_C[0]} {ORB_C[1] - 17:.1f} V{ORB_C[1] + 3:.1f}
-   M{ORB_C[0]} {ORB_C[1] + 13:.1f} V{ORB_C[1] + 13.2:.1f}"/></g>
- </g>
- <path class="acc sweat" d="M146 -18 q5 8 0 13 q-5 -5 0 -13z" fill="#7cc8ff"/>""")
-
-# Only in a page whose face is the orb. Not %-formatted, unlike AVATAR_CSS.
-ORB_CSS = """
- #av .ob-skin { fill: url(#ob-calm); }
- #av[data-orb="listen"] .ob-skin { fill: url(#ob-listen); }
- #av[data-orb="angry"] .ob-skin { fill: url(#ob-angry); }
- #av[data-orb="alert"] .ob-skin { fill: url(#ob-alert); }
- #av[data-orb="happy"] .ob-skin, #av[data-orb="speak"] .ob-skin {
-   fill: url(#ob-joy); }
- #av[data-orb="sleepy"] .ob-skin, #av[data-orb="sad"] .ob-skin {
-   fill: url(#ob-night); }
- /* The glance carries the pair across the ball, a little further than the
-    other faces' pupils, as the Lottie's eyes wander; curiosity (--ls), a
-    blink and the answering eyes (--th) scale each eye about its own middle.
-    No transition on any of it: each is a snap. */
- #av[data-shape="orb"] .look {
-   transform: translate(calc(var(--lx, 0px) * 1.6), calc(var(--ly, 0px) * 1.4));
- }
- #av .ob-e {
-   transform-box: fill-box; transform-origin: center;
-   transform: scale(var(--ls, 1)) scaleY(var(--th, 1));
- }
- #av[data-shape="orb"].blink .ob-e { transform: scale(var(--ls, 1)) scaleY(.12); }
- /* A change of mood is somebody's doing and eases, as it does on every other
-    face; only the eyes move, and only by the numbers ORB_JS gives them. */
- #av .oe {
-   transition: x .12s ease, y .12s ease, width .12s ease, height .12s ease,
-               rx .12s ease;
- }
- #av .ob, #av .ob-ring { transform-box: view-box; }
- #av .ob { transform-origin: 75px 106px; }
- #av .ob-ring { transform-origin: 75px 55px; }
- #av .ob-x { display: none; }
- #av[data-orb="think"] .ob-ring, #av[data-orb="alert"] .ob-bang {
-   display: inline; }
- #av[data-orb="think"] .look, #av[data-orb="alert"] .look { display: none; }
- /* It says with its colour what the others say with accessories. */
- #av[data-shape="orb"] .acc.hot, #av[data-shape="orb"] .acc.waves,
- #av[data-shape="orb"] .acc.bubble { display: none; }
- #av[data-shape="orb"][data-wx="hot"] .acc.sweat { display: inline; }
-"""
-
-ORB_JS = """<script>
-(function () {
-  var box = document.getElementById('av');
-  if (!box || box.dataset.shape !== 'orb' || !window.portallAvatar) return;
-  var api = window.portallAvatar;
-  var ball = box.querySelector('.ob'), ring = box.querySelector('.ob-ring');
-  var EYES = {l: %(lx)s, r: %(rx)s}, CY = %(cy)s, W = %(w)s, H = %(h)s;
-  /* The eyes of each state, as a move and a size against the eyes at rest.
-     The Lottie's green looks up and its red looks aside; the night's and the
-     sad ones are this page's. */
-  var EXPR = {
-    calm: {}, happy: {}, alert: {}, think: {},
-    speak: {dy: -2},
-    listen: {dy: -5, h: 1.12},
-    angry: {dx: 4, h: .6},
-    sleepy: {dy: 4, h: .18},
-    sad: {dy: 5, h: .7}
-  };
-  function pick() {
-    var mood = box.dataset.mood, voice = box.dataset.voice;
-    if (mood === 'surprised' && voice === 'surprised') return 'listen';
-    if (mood === 'thinking') return 'think';
-    if (mood === 'happy' && voice === 'happy') return 'speak';
-    if (mood === 'surprised') return 'alert';
-    return EXPR[mood] ? mood : 'calm';
-  }
-  function eyes(def) {
-    ['l', 'r'].forEach(function (side) {
-      var e = box.querySelector('.ob-e.' + side + ' .oe');
-      var h = H * (def.h || 1), x = EYES[side] + (def.dx || 0),
-          y = CY + (def.dy || 0);
-      e.style.x = (x - W / 2) + 'px';
-      e.style.y = (y - h / 2) + 'px';
-      e.style.height = h + 'px';
-      e.style.rx = Math.min(W, h) / 2 + 'px';
-    });
-  }
-  /* The loader: a quarter ring turning an eighth at a time, eight times a
-     second, and only while the voice assistant is thinking. */
-  var turning = 0, turn = 0;
-  function spin(on) {
-    clearInterval(turning);
-    if (!on) return;
-    turning = setInterval(function () {
-      turn = (turn + 45) %% 360;
-      ring.style.transform = 'rotate(' + turn + 'deg)';
-    }, 125);
-  }
-  /* Answering, the eyes squeeze and open with the words, four times a second
-     -- the Lottie's eyes going to dots and back. Never the same twice. */
-  var talking = 0, said = 0, OPEN = [1, .55, .85, .35, .7, .45];
-  function talk(on) {
-    clearInterval(talking);
-    box.style.setProperty('--th', '1');
-    if (!on) return;
-    talking = setInterval(function () {
-      var next = said;
-      while (next === said) next = Math.floor(Math.random() * OPEN.length);
-      said = next;
-      box.style.setProperty('--th', OPEN[said]);
-    }, 250);
-  }
-  /* The jump, as the Lottie's last forty frames: squashed, stretched in the
-     air, down, a small squash on landing. Four snaps, once, when something
-     makes it happy. */
-  var JUMP = ['scale(1.18, .82)', 'translateY(-14px) scale(.86, 1.14)',
-              'translateY(-6px) scale(.96, 1.04)', 'scale(1.06, .94)', ''];
-  var jumping = [];
-  function jump() {
-    jumping.forEach(clearTimeout);
-    jumping = JUMP.map(function (t, i) {
-      return setTimeout(function () { ball.style.transform = t; }, i * 110);
-    });
-  }
-  var shown = '';
-  function draw() {
-    var now = pick();
-    if (now === shown) return;
-    var was = shown;
-    shown = now;
-    box.dataset.orb = now;
-    eyes(EXPR[now]);
-    spin(now === 'think');
-    talk(now === 'speak');
-    if (now === 'happy' && was !== 'speak') jump();
-  }
-  new MutationObserver(draw).observe(box, {attributes: true,
-    attributeFilter: ['data-mood', 'data-voice']});
-  draw();
-
-  /* Five taps in three seconds and it goes red, as the Lottie's cross face.
-     Registered after the shared handler, so this mood is the one that
-     stands. */
-  var taps = [];
-  box.addEventListener('click', function () {
-    var t = Date.now();
-    taps.push(t);
-    taps = taps.filter(function (x) { return t - x < 3000; });
-    if (taps.length >= 5) api.set('angry', 2500);
-  });
-})();
-</script>""" % {"lx": f"{ORB_C[0] - _edx:.2f}", "rx": f"{ORB_C[0] + _edx:.2f}",
-                "cy": f"{_ecy:.2f}", "w": f"{_ew:.2f}", "h": f"{_eh:.2f}"}
-
-
-def avatar_html(shape=DEFAULT_AVATAR, wx=""):
-    """The face in its body, starting with the weather it was served with."""
-    body = AVATAR_SHAPES.get(str(shape).lower(), AVATAR_SHAPES[DEFAULT_AVATAR])
-    shape = str(shape).lower() if str(shape).lower() in AVATAR_SHAPES \
-        else DEFAULT_AVATAR
+def avatar_html(wx=""):
+    """The face, starting with the weather it was served with."""
     return (f'<div id="av" data-mood="neutral" data-voice="neutral" '
-            f'data-shape="{shape}" data-wx="{html.escape(wx)}" '
+            f'data-px="neutral" data-wx="{html.escape(wx)}" '
             f'aria-hidden="true">\n<svg viewBox="{AVATAR_VIEW}">'
-            + body + {"pixel": PIXEL_FACE, "orb": ORB_FACE}.get(shape, FACE_SVG)
-            + AVATAR_EXTRAS + "\n</svg></div>")
+            + AVATAR_FACE + AVATAR_EXTRAS + "\n</svg></div>")
 
 
 # What the weather puts on the face: a cloud when it rains, a snowflake when
@@ -1996,14 +1609,16 @@ AVATAR_JS = """<script>
   night();
 
   /* It looks at what somebody is doing: where a finger lands, and the tile a
-     remote or a gamepad has just chosen. A turn of the pupils toward it for a
+     remote or a gamepad has just chosen. A turn of the eyes toward it for a
      second and a half, which repaints the eyes twice and nothing else. */
   var looking = 0;
-  /* Curious when it looks to one side: the pupils grow by a quarter, the way
-     RoboEyes' curious eyes do. Only sideways -- up and down is just looking. */
+  /* Looking to one side, the eye on that side grows and the other shrinks,
+     the way EMO's and Cozmo's do -- a head turning, on a flat screen. Only
+     sideways: up and down is just looking. */
   function curious(dx, dy) {
-    box.style.setProperty('--ls',
-      Math.abs(dx) > 2 * Math.abs(dy) ? '1.25' : '1');
+    var side = Math.abs(dx) > 2 * Math.abs(dy) ? (dx < 0 ? -1 : 1) : 0;
+    box.style.setProperty('--sl', side < 0 ? '1.18' : side > 0 ? '.84' : '1');
+    box.style.setProperty('--sr', side > 0 ? '1.18' : side < 0 ? '.84' : '1');
   }
   function lookAt(x, y) {
     var r = box.getBoundingClientRect();
@@ -2016,7 +1631,7 @@ AVATAR_JS = """<script>
     looking = setTimeout(function () {
       box.style.setProperty('--lx', '0px');
       box.style.setProperty('--ly', '0px');
-      box.style.setProperty('--ls', '1');
+      curious(0, 0);
     }, 1500);
   }
   function lookAtTile(tile) {
@@ -2088,20 +1703,12 @@ AVATAR_JS = """<script>
       curious(x, 0);
       setTimeout(function () {
         box.style.setProperty('--lx', '0px');
-        box.style.setProperty('--ls', '1');
+        curious(0, 0);
       }, 1500);
     }
     setTimeout(glance, 10000 + Math.random() * 8000);
   }
   setTimeout(glance, 9000);
-  function lift() {
-    if (box.dataset.mood === 'neutral') {
-      box.classList.add('lift');
-      setTimeout(function () { box.classList.remove('lift'); }, 1500);
-    }
-    setTimeout(lift, 8000 + Math.random() * 4000);
-  }
-  setTimeout(lift, 6000);
 
   /* A tap on the face is somebody saying hello; it is never a link. */
   box.addEventListener('click', function (e) {
@@ -2490,7 +2097,7 @@ def render(links, title="", subtitle="", theme="dark",
            motion=False, slideshow=False, every=30, fade=1, rescan=60,
            urls=(), mirrored=False, shape="cards", focus_color=FOLLOW_THEME,
            avatar=False, avatar_at=None, voice=False,
-           avatar_shape=DEFAULT_AVATAR, weather_color=FOLLOW_THEME,
+           weather_color=FOLLOW_THEME,
            tile_background="solid", tile_size=DEFAULT_SIZE,
            tile_text_color=FOLLOW_THEME, status=False):
     """The page, as one string.
@@ -2668,14 +2275,8 @@ def render(links, title="", subtitle="", theme="dark",
     if avatar:
         sheet += AVATAR_CSS % {"place": _avatar_place(avatar_at),
                                "height": AVATAR_HEIGHT}
-        moving.append(avatar_html(avatar_shape, avatar_weather(weather))
-                      + AVATAR_JS % {"path": AVATAR_PATH})
-        if str(avatar_shape).lower() == "pixel":
-            sheet += PIXEL_CSS
-            moving.append(PIXEL_JS)
-        if str(avatar_shape).lower() == "orb":
-            sheet += ORB_CSS
-            moving.append(ORB_JS)
+        moving.append(avatar_html(avatar_weather(weather))
+                      + AVATAR_JS % {"path": AVATAR_PATH} + FACE_JS)
         if voice:
             moving.append(AVATAR_VOICE_JS % {"path": VOICE_PATH})
 
@@ -2737,7 +2338,7 @@ def start(links, title="", subtitle="", theme="dark",
           motion=False, slideshow=False, every=30, fade=1, rescan=60,
           urls=(), port=PORT, tiles="cards", focus_color=FOLLOW_THEME,
           avatar=False, avatar_file=None, voice=None,
-          avatar_shape=DEFAULT_AVATAR, weather_color=FOLLOW_THEME,
+          weather_color=FOLLOW_THEME,
           tile_background="solid", tile_size=DEFAULT_SIZE,
           tile_text_color=FOLLOW_THEME, files_root=None, choice_file=None,
           status=None):
@@ -2888,7 +2489,7 @@ def start(links, title="", subtitle="", theme="dark",
                 motion, slideshow, every, fade, rescan, addresses,
                 mirrored, shape=tiles, focus_color=focus_color,
                 avatar=avatar, avatar_at=spot["at"],
-                voice=voice is not None, avatar_shape=avatar_shape,
+                voice=voice is not None,
                 weather_color=weather_color,
                 tile_background=tile_background, tile_size=tile_size,
                 tile_text_color=tile_text_color,

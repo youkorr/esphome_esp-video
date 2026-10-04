@@ -264,8 +264,7 @@ launcher:
   tile_background: solid      # solid, or transparent: the icon and the name only
   tile_size: medium           # medium, small or tiny
   tile_text_color: theme      # the colour of the links' names
-  avatar: false               # a small face in the corner, moved with a finger
-  avatar_shape: mochi         # mochi, robot, cat, bear, ghost, pixel or orb
+  avatar: false               # a small robot face in the corner, moved with a finger
   avatar_voice: ""            # the voice assistant it follows; empty: the only one
   voice_links: false          # "ouvre Jellyfin" to the voice assistant opens it
   clock:
@@ -340,76 +339,51 @@ show:
 
 Each panel's own launcher can choose its own.
 
-**A face on the launcher, `avatar:`.** A small animated face the size of a
-button, in the bottom right corner. Put a finger on it and slide to move it
+**A face on the launcher, `avatar:`.** A little robot the size of a button,
+in the bottom right corner: a dark head that is all screen, headphones on,
+and two big glowing blue eyes that change shape with what it feels, in the
+manner of the EMO desk robot. Put a finger on it and slide to move it
 anywhere on the screen; it stays where it is left, across restarts, and each
-panel's own launcher keeps its own spot. A tap makes it smile. It blinks and
-glances now and then, and is otherwise still, so a launcher nobody touches
-costs a few small pictures of its eyes rather than a stream.
+panel's own launcher keeps its own spot. It blinks and glances now and then,
+and is otherwise still, so a launcher nobody touches costs a few small
+pictures of its eyes rather than a stream.
 
-**Its shape, `avatar_shape:`.** `mochi` (a soft ball, the default), `robot`
-(its antenna lights up with the voice assistant), `cat`, `bear`, `ghost`,
-`pixel` or `orb`. The face is the same in the first five; only the body around it
-changes. Each panel's own launcher can have its own.
-
-**`pixel` has a face of its own**: a little white robot whose face is a
-screen, with two glowing eyes that change shape. It has the most
-expressions, and each has a reason:
+Its expressions, and what sets each one off:
 
 | it looks | when |
 |---|---|
-| content, winks, or has hearts for eyes (at random) | you tap it |
-| laughs | three taps in a row |
-| cross | five taps in a row |
-| dizzy | you drag it fast |
-| surprised | you start moving it |
-| its ears light up | the voice assistant is listening |
+| eyes like two arcs, a wink, or hearts for eyes (at random) | you tap it |
+| `> <`, laughing | three taps in a row |
+| cross, with red eyes | five taps in a row |
+| spirals for eyes, dizzy | you drag it fast |
+| big round eyes, surprised | you start moving it |
+| its headphones light up | the voice assistant is listening |
 | looks up, with little dots | the voice assistant is thinking |
-| a mouth that opens and closes | the voice assistant is answering |
-| suspicious | the voice assistant listened and heard nothing it could use |
-| a drop of sweat | it is 25 °C or more and clear |
-| pale blue eyes | it is 5 °C or less |
-| tired, with z's | from 22 h to 7 h |
-| curious (bigger eyes) | it looks to one side |
+| a small mouth that opens and closes | the voice assistant is answering |
+| one eye narrowed, suspicious | the voice assistant listened and heard nothing it could use |
+| heavy eyes and a drop of sweat | it is 25 °C or more and clear |
+| pale eyes and a snowflake | it is 5 °C or less |
+| a small cloud | it rains |
+| half-shut eyes, with z's | from 22 h to 7 h |
+| the eye on that side grows | it looks to one side |
 
 Every expression lasts two or three seconds and then goes back to what it
-was, so a launcher nobody touches costs no more than with the other faces.
-The mouth that moves while the voice assistant answers is the one animation
-that runs by itself, and only for as long as the answer.
-
-**`orb` is a black face in a glossy coloured ring**, and its colour says what it is
-doing:
-
-| it looks | when |
-|---|---|
-| violet-blue, eyes open | at rest |
-| green, looking up | the voice assistant is listening |
-| a white ring turning where its eyes were | the voice assistant is thinking |
-| mint and pink, eyes squeezing with the words | the voice assistant is answering |
-| mint and pink, and it jumps | you tap it, it says hello, or it opens a link |
-| yellow, with a ! | you start moving it |
-| red | five taps in a row |
-| dark blue, eyes nearly shut, with z's | from 22 h to 7 h |
-| a drop of sweat | it is 25 °C or more and clear |
-
-The ring and the eyes that squeeze are the only things that move by
-themselves, and only while the voice assistant thinks or answers.
+was. The mouth that moves while the voice assistant answers is the one
+animation that runs by itself, and only for as long as the answer.
 
 **It lives with the house.** Nothing to set for any of this:
 
 - **It looks at what you do**: at the tile a remote or a gamepad has just
-  chosen, and towards where a finger lands. When it looks to one side its
-  pupils grow, which is its curious look.
+  chosen, and towards where a finger lands. When it looks to one side the
+  eye on that side grows and the other shrinks, as a head turning would.
 - **It says hello when the screen comes back on**: a smile and a word in a
   little bubble, "Bonjour" or "Bonsoir" on a panel set to French
   (`locale: fr-FR`), "Hello" otherwise. The add-on learns the screen went
   dark from the panel's YAML: `- portall.sleep:` where the backlight goes
   off, and `- portall.wake:` where it comes back on (a touch, a presence
   sensor), as `yaml/guition-voice-bluetooth.yaml` does. No id is needed.
-- **It dresses for the weather** of the launcher's own weather entity:
-  sunglasses when it is clear and 25 °C or more, a small cloud when it rains,
-  a snowflake when it snows or it is 5 °C or less, with rosy cheeks for the
-  cold. No weather entity, no clothes.
+- **It feels the weather** of the launcher's own weather entity, as the
+  table above says. No weather entity, no weather on its face.
 - **At night, from 22 h to 7 h, it dozes**, eyes half shut, with a few z's.
   A tap still makes it smile, and the voice assistant still wakes it.
 - **It opens the link you ask for.** Said to the voice assistant while the
@@ -567,7 +541,7 @@ launcher's:
 
 | in an entry | the house's setting it replaces |
 |---|---|
-| `theme`, `columns`, `align`, `tiles`, `focus_color`, `tile_background`, `tile_size`, `tile_text_color`, `avatar`, `avatar_shape`, `avatar_voice` | `launcher: theme`, `columns`, `align`, `tiles`, `focus_color`, `tile_background`, `tile_size`, `tile_text_color`, `avatar`, `avatar_shape`, `avatar_voice` |
+| `theme`, `columns`, `align`, `tiles`, `focus_color`, `tile_background`, `tile_size`, `tile_text_color`, `avatar`, `avatar_voice` | `launcher: theme`, `columns`, `align`, `tiles`, `focus_color`, `tile_background`, `tile_size`, `tile_text_color`, `avatar`, `avatar_voice` |
 | `clock`, `clock_size`, `clock_color` | `launcher: clock: show`, `size`, `color` |
 | `date_size`, `date_color` | `launcher: date: size`, `color` |
 | `weather`, `weather_size`, `weather_color` | `launcher: weather: entity`, `size`, `color` |

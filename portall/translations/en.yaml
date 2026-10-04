@@ -168,13 +168,9 @@ configuration:
         description: theme = the theme's own colour. On a light wallpaper, pick black for example.
       avatar:
         name: 😊 Avatar
-        description: A small face the size of a button, in the bottom right corner. Drag it with a finger
-          to put it anywhere; it stays there.
-      avatar_shape:
-        name: 🐻 The avatar's shape
-        description: mochi (a soft ball), robot (its antenna lights with the voice assistant), cat, bear,
-          ghost, pixel (a little robot with a screen for a face, and many expressions) or orb (a glossy
-          ball whose colour says what it is doing).
+        description: A small robot with a screen for a face and headphones on, the size of a button, in
+          the bottom right corner. Its eyes change shape for each expression. Drag it with a finger to
+          put it anywhere; it stays there.
       avatar_voice:
         name: 🎙️ The avatar's voice assistant
         description: 'The face listens, thinks and answers with it. Empty: Home Assistant''s only voice
@@ -319,13 +315,9 @@ configuration:
         description: theme = the theme's own colour. On a light wallpaper, pick black for example.
       avatar:
         name: 😊 Avatar
-        description: A small face the size of a button, in the bottom right corner. Drag it with a finger
-          to put it anywhere; it stays there.
-      avatar_shape:
-        name: 🐻 The avatar's shape
-        description: mochi (a soft ball), robot (its antenna lights with the voice assistant), cat, bear,
-          ghost, pixel (a little robot with a screen for a face, and many expressions) or orb (a glossy
-          ball whose colour says what it is doing).
+        description: A small robot with a screen for a face and headphones on, the size of a button, in
+          the bottom right corner. Its eyes change shape for each expression. Drag it with a finger to
+          put it anywhere; it stays there.
       avatar_voice:
         name: 🎙️ The avatar's voice assistant
         description: 'The face listens, thinks and answers with it. Empty: Home Assistant''s only voice

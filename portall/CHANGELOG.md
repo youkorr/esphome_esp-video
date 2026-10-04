@@ -1,5 +1,19 @@
 # Changelog
 
+## 4.38.0
+
+- **One face for the launcher's avatar, and it looks like EMO now.** A
+  little robot whose head is a dark screen, with headphones on and two big
+  glowing blue eyes. The eyes change shape for each expression: two arcs
+  when it is content, `> <` when it laughs, red and slanted when it is cross,
+  drooping when it is sad, half shut at night, hearts, spirals. When it
+  looks to one side, the eye on that side grows. Its headphones light up
+  while the voice assistant listens.
+- **The other faces are gone**: mochi, robot, cat, bear, ghost and orb.
+  `avatar_shape` is no longer a setting; a value you had saved is ignored,
+  and Home Assistant may mention it once in the log as an unknown option.
+  `avatar: true` gives this face.
+
 ## 4.37.4
 
 - **About 410 MB less on an amd64 machine.** The add-on installed two
