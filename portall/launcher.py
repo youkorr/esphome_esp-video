@@ -31,6 +31,7 @@ import math
 import mimetypes
 import os
 import threading
+import unicodedata
 import urllib.request
 from urllib.parse import parse_qs, urlsplit
 
@@ -220,6 +221,8 @@ ICON_NAMES = (
     ("\U0001F5C3", "base-de-donnees database sql archives"),
     ("☁", "nuage-fichiers nextcloud owncloud cloud drive"),
     ("⬇", "telechargement torrent download downloads"),
+    ("\U0001F4C1", "dossier dossiers fichiers fichier folder folders files "
+                   "file explorateur explorer"),
     ("\U0001F4C8", "grafana supervision uptime monitoring graph metrics courbes"),
     ("\U0001F4E8", "mqtt message-broker courrier-entrant"),
     ("\U0001F41D", "zigbee ruche z2m hive"),
@@ -391,7 +394,11 @@ def icon_for(value):
         # bullet on purpose -- asking for its emoji form gives a different,
         # heavier mark than the quiet placeholder this is meant to be.
         return "\N{BULLET}"
-    glyph = ICONS.get(text.lower(), text)
+    # Accents are not required: "téléchargement" and "telechargement" are
+    # the same word to whoever types it, and the list spells them without.
+    plain = "".join(c for c in unicodedata.normalize("NFD", text.lower())
+                    if unicodedata.category(c) != "Mn")
+    glyph = ICONS.get(text.lower(), ICONS.get(plain, text))
     if len(glyph) == 1 and ord(glyph) < 0x1F000:
         glyph += "\uFE0F"
     return glyph

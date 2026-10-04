@@ -1,5 +1,13 @@
 # Changelog
 
+## 4.36.1
+
+- **A folder icon.** `icon: dossier` -- or `fichiers`, `folder`, `files` --
+  is 📁 now. 4.36.0's own example used `dossier` and there was no such name,
+  so the tile showed the word instead.
+- **Accents do not matter in an icon's name**: `téléchargement` works as
+  well as `telechargement`.
+
 ## 4.36.0
 
 - **A Files page on the screen.** A link whose url is `files` opens a page

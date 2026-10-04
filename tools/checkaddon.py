@@ -522,6 +522,42 @@ def check_translations(folder):
     return bad
 
 
+def check_icons(folder):
+    """Every `icon:` a document offers is an icon the launcher has.
+
+    A name that is not in the list is drawn as the word itself, which on a
+    tile is a typo nobody can explain. 4.36.0's own example offered `icon:
+    dossier`, which did not exist -- reported from a panel within the hour.
+    """
+    import importlib.util
+    import re
+    spec = importlib.util.spec_from_file_location(
+        "launcher_for_icons", folder / "launcher.py")
+    sys.path.insert(0, str(folder))
+    try:
+        launcher = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(launcher)
+    finally:
+        sys.path.remove(str(folder))
+    bad = []
+    for name in ("DOCS.md", "README.md", "CHANGELOG.md"):
+        path = folder / name
+        if not path.exists():
+            continue
+        for match in re.finditer(r"^\s*(?:-\s*)?icon:\s*([^\s#]+)\s*$",
+                                 path.read_text(), re.M):
+            word = match.group(1).strip("'\"")
+            if len(word) > 2 and launcher.icon_for(word) == word \
+                    and not launcher.logo_markup(word, True):
+                bad.append(f"{name}: icon: {word}")
+    if bad:
+        print(f"  ECHEC  icons offered that the launcher does not have: "
+              + ", ".join(bad))
+        return 1
+    print("  ok     every icon a document offers is one the launcher has")
+    return 0
+
+
 if __name__ == "__main__":
     files = sys.argv[1:] or ["portall/config.yaml"]
     bad = sum(check(f) for f in files)
@@ -529,4 +565,5 @@ if __name__ == "__main__":
     bad += sum(check_reaches_sender(pathlib.Path(f).parent) for f in files)
     bad += sum(check_translations(pathlib.Path(f).parent) for f in files)
     bad += sum(check_version_moved(pathlib.Path(f).parent) for f in files)
+    bad += sum(check_icons(pathlib.Path(f).parent) for f in files)
     sys.exit(bad)
