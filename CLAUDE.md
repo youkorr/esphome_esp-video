@@ -10787,6 +10787,15 @@ free, deletes the rows whose host is Google's or YouTube's, and releases it.
 **Not tried against Google**: if Chrome itself is signed into the account
 (DICE), it may mint the cookies again; the next report says.
 
+**Google's second step is on ANOTHER app**, pointed out as *"il demande un
+code ... avec l'application Google je dois autoriser et il donne un code"*.
+That means leaving Home Assistant's app mid-sign-in. Nothing ends a session
+but Done, a closed browser or 20 minutes: x11vnc runs `-forever`, and a page
+opened while a session runs (`data-active`) connects straight back to it.
+checksignin.py now closes the telephone's tab, waits, opens a new one, and
+types a code into the same field -- which only works if the page was never
+reloaded.
+
 **Downloads came off this page**, asked as *"les retirer de cette page"*:
 they are used from the Files tile on the screen. `/file` and `/delete` are
 gone, and checkdownload.py asserts the page neither lists nor serves one.

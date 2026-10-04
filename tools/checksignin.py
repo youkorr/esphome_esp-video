@@ -305,6 +305,33 @@ def main():
         check("keys typed on the telephone reach the field",
               heard["typed"] == "bonjour", repr(heard["typed"]))
 
+        # Google asks for a second step on another app: "check your phone",
+        # tap the number shown, or a code from the Google app. That means
+        # leaving Home Assistant's app for a minute and coming back, so the
+        # page the telephone held is gone and a new one is opened.
+        print("Leaving for the Google app and coming back:")
+        tab.close()
+        time.sleep(8)
+        check("the sign-in goes on while nobody watches",
+              sign.session is session and session.browser_running())
+        tab = phone.new_page(viewport={"width": 420, "height": 860},
+                             device_scale_factor=3)
+        tab.goto(page_url)
+        check("coming back shows the browser again, nothing to press",
+              tab.locator("#live:not([hidden])").count() == 1
+              and tab.locator("#pick[hidden]").count() == 1)
+        frame = tab.frame_locator("#screen")
+        canvas = frame.locator("canvas").first
+        canvas.wait_for(timeout=30000)
+        time.sleep(2)
+        canvas.click(position={"x": 5, "y": 5})
+        tab.keyboard.type("123456", delay=60)
+        end = time.monotonic() + 10
+        while time.monotonic() < end and heard["typed"] != "bonjour123456":
+            time.sleep(0.2)
+        check("the page is where it was left, and a code can be typed",
+              heard["typed"] == "bonjour123456", repr(heard["typed"]))
+
         print("Back, reload and home, from the telephone's own buttons:")
 
         def after(action, want):

@@ -2035,6 +2035,12 @@ own profile, and shows it to you:
    a page, **⟳** reloads it, **⌂** returns to the page it opened on, and the
    **address field** opens any other site (`192.168.1.3:8096` for a Jellyfin
    on the house's network works as typed).
+
+   **When Google asks you to confirm on your telephone** (tap a number in
+   the Google app, or type a code it gives you), go to the Google app and
+   do it. The sign-in waits for you: when you come back to Home Assistant
+   and open the Portall page again, Chrome is still there, on the same
+   page, and a code can be typed into it. You have 20 minutes in all.
 4. Press **Terminé** (Done). Chrome closes, and the screen comes back already
    signed in.
 
