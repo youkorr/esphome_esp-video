@@ -10967,6 +10967,34 @@ and one with the element on 127.0.0.2: both fail against 4.36.3, both pass.
 It used to run the sender with `--no-token`, which discards every link token
 -- the shape no launcher panel is started with; it does not any more.
 
+## The screen's Wi-Fi and Bluetooth on its launcher -- 4.37.0
+
+Asked as the Wi-Fi and Bluetooth icons on the launcher "quand ils sont
+connectes". The launcher is drawn by the add-on, which sees neither; Home
+Assistant sees both already, through ESPHome. `esphome_device:` (panel,
+advanced) names the device; `run.PanelStatus` polls `/api/states` every 10 s
+through the Supervisor's credential (the Weather route) and judges by entity
+id PREFIX -- HA makes `<domain>.<slug(device)>_<entity>`, `slug()` copying
+its slugify (accents dropped). On the network: any entity of the device not
+"unavailable". Bars: an entity with unit dBm / device_class signal_strength
+(`wifi_signal`, which the household's Guition YAML has commented out, so the
+icon is drawn full there). Bluetooth: a `sensor.` whose state matches
+`(?<!dis)connected` -- portall_bt's text sensors read "<name> (<addr>)
+connected", "paired, away", "none". The launcher serves `/status.json` and
+polls it every 10 s; the page learns WHICH panel from `?panel=<name>`, which
+`route_to_launcher` appends only for a panel naming a device (a house
+launcher is one address for every panel), and the voice `files` keyword
+strips the query before adding its path. Sender-side, a home address with a
+query was checked with `checknavbar.py` re-run on `/home?panel=salon`.
+
+`tools/checkstatus.py`: the slug, the judgement over the states portall_bt
+really writes, then a stand-in Home Assistant checking the bearer token, the
+real PanelStatus, the real launcher and a browser: icons up with two bars,
+the Bluetooth going when "paired, away", every icon going when everything is
+"unavailable", nothing on a page naming no panel and no markup at all when
+no device is named. A prefix can collide (`salon` vs `salon_2`); not handled.
+**Not seen on a panel.**
+
 ## Repository conventions
 
 - Work on branch `claude/esphome-pr-outdated-mdq36w`, then merge into `main`

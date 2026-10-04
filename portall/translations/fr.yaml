@@ -53,6 +53,10 @@ configuration:
           home_assistant:
             name: Montre Home Assistant
             description: Éteint = cet écran ne reçoit aucun jeton (un site ordinaire, un horaire de train…).
+          esphome_device:
+            name: 📶 Nom ESPHome de l'écran (Wi-Fi, Bluetooth)
+            description: 'Le nom de son YAML (esphome: name:). Le launcher montre alors le Wi-Fi et le
+              Bluetooth de l''écran quand ils sont connectés.'
           fps:
             name: 🎬 Images par seconde
           quality:

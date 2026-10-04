@@ -1210,6 +1210,28 @@ and `caméra` as `camera`.
 
 52 drawn as shapes and 2 carried as a picture, all of them from the add-on itself and never fetched.
 
+### The screen's Wi-Fi and Bluetooth
+
+The launcher can show the screen's own Wi-Fi and Bluetooth beside the weather,
+the way a telephone's status bar does: the Wi-Fi while the screen is on the
+network, the Bluetooth while something is connected to it -- a speaker, a
+controller. Give the screen its ESPHome name, under its own **advanced**
+(the form does not show an empty one: use **⋮ → Edit in YAML**):
+
+```yaml
+panels:
+  - name: salon
+    advanced:
+      esphome_device: ha-guit-10-p4   # esphome: name: in its YAML
+```
+
+The add-on reads that device's entities from Home Assistant every ten
+seconds. The Wi-Fi has bars when the screen's YAML has a `wifi_signal`
+sensor, and is drawn full otherwise. The Bluetooth follows the
+`portall_bt` text sensors -- *"… connected"*. The startup log says
+`Status: Wi-Fi and Bluetooth of salon shown on the launcher`, or names the
+prefix it found no entity for.
+
 ### The clock, the date and the weather
 
 Above the links, as on Homepage:

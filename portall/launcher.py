@@ -716,6 +716,18 @@ PAGE = """<!doctype html>
  /* Nothing to show is nothing drawn, rather than an empty box where a
     temperature should be. */
  .wx:empty, .now:empty { display: none; }
+ .st { margin-left: auto; display: flex; align-items: center; gap: .55em;
+       font-size: clamp(16px, 3vw, 26px); }
+ .st + .wx { margin-left: .4em; }
+ .st span[hidden] { display: none; }
+ .st svg { width: 1.3em; height: 1.3em; fill: none; stroke: currentColor;
+           stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round;
+           display: block; }
+ .st .net .w1 { fill: currentColor; stroke: none; }
+ /* Fewer bars: the arcs beyond them faint, the way a telephone draws it. */
+ .st .net[data-bars="1"] .w2, .st .net[data-bars="1"] .w3,
+ .st .net[data-bars="1"] .w4, .st .net[data-bars="2"] .w3,
+ .st .net[data-bars="2"] .w4, .st .net[data-bars="3"] .w4 { opacity: .28; }
 %(css)s</style></head>
 <body>
 <div class="wall" id="wa">%(movie)s</div><div class="wall b" id="wb"></div>
@@ -2255,6 +2267,42 @@ def _wallpaper(background):
 
 
 WEATHER_PATH = "/weather.json"
+STATUS_PATH = "/status.json"
+
+# The screen's own Wi-Fi and Bluetooth, beside the weather: shown when they
+# are connected and not otherwise, the way a telephone's status bar does it.
+# Drawn rather than taken from a font, because no emoji is the Bluetooth rune
+# and a font's Wi-Fi glyph has no bars. Read by the add-on from Home
+# Assistant -- the page only asks /status.json, which never leaves this
+# machine -- every ten seconds; writing the same thing back paints nothing.
+WIFI_SVG = (
+    '<svg viewBox="0 0 24 24" aria-hidden="true">'
+    '<path class="w4" d="M2 9.5a15 15 0 0 1 20 0"/>'
+    '<path class="w3" d="M5 12.8a10.5 10.5 0 0 1 14 0"/>'
+    '<path class="w2" d="M8 16a6 6 0 0 1 8 0"/>'
+    '<circle class="w1" cx="12" cy="19" r="1.6"/></svg>')
+BLUETOOTH_SVG = (
+    '<svg viewBox="0 0 24 24" aria-hidden="true">'
+    '<path d="M7 7l10 10-5 5V2l5 5L7 17"/></svg>')
+STATUS_JS = """<script>
+(function () {
+  var who = new URLSearchParams(location.search).get('panel') || '';
+  var net = document.getElementById('net'), bt = document.getElementById('bt');
+  function show(s) {
+    var w = s && s.wifi;
+    net.hidden = !(w && w.on);
+    net.setAttribute('data-bars', w && w.bars ? w.bars : 4);
+    bt.hidden = !(s && s.bluetooth);
+  }
+  function ask() {
+    fetch('%(path)s?panel=' + encodeURIComponent(who))
+      .then(function (r) { return r.json(); }).then(show)
+      .catch(function () {});
+  }
+  ask();
+  setInterval(ask, 10000);
+})();
+</script>"""
 
 # Named rather than a number of pixels because "large" is a decision and "72px"
 # is an experiment. The words are the plain ones rather than Homepage's own
@@ -2437,7 +2485,7 @@ def render(links, title="", subtitle="", theme="dark",
            avatar=False, avatar_at=None, voice=False,
            avatar_shape=DEFAULT_AVATAR, weather_color=FOLLOW_THEME,
            tile_background="solid", tile_size=DEFAULT_SIZE,
-           tile_text_color=FOLLOW_THEME):
+           tile_text_color=FOLLOW_THEME, status=False):
     """The page, as one string.
 
     Every value is escaped. These come from a configuration file a person
@@ -2556,11 +2604,15 @@ def render(links, title="", subtitle="", theme="dark",
     # none of them draws none of them, and the header is what it always was.
     sky, temp = weather_block(weather)
     now = ""
-    if clock or weather is not None:
+    if clock or weather is not None or status:
         now = '<div class="now">'
         if clock:
             now += ('<div class="when"><span class="time" id="t"></span>'
                     '<span class="date" id="d"></span></div>')
+        if status:
+            now += (f'<span class="st"><span class="net" id="net" hidden>'
+                    f'{WIFI_SVG}</span><span class="bt" id="bt" hidden>'
+                    f'{BLUETOOTH_SVG}</span></span>')
         if weather is not None:
             now += (f'<span class="wx"><span class="sky" id="sky">{sky}</span>'
                     f'<span class="out" id="temp">{temp}</span></span>')
@@ -2570,7 +2622,8 @@ def render(links, title="", subtitle="", theme="dark",
     # be one more thing to read past -- which this add-on has already had to
     # take five settings off the form for.
     scripts = KEYS_JS + PRESS_JS + FOLLOW_JS + (CLOCK_JS if clock else "") + (
-        WEATHER_JS % {"path": WEATHER_PATH} if weather is not None else "")
+        WEATHER_JS % {"path": WEATHER_PATH} if weather is not None else "") + (
+        STATUS_JS % {"path": STATUS_PATH} if status else "")
 
     # The bar's own rules, after the sheet above and before nothing: there is
     # no stylesheet field any more. It was offered first, on the argument that
@@ -2679,7 +2732,8 @@ def start(links, title="", subtitle="", theme="dark",
           avatar=False, avatar_file=None, voice=None,
           avatar_shape=DEFAULT_AVATAR, weather_color=FOLLOW_THEME,
           tile_background="solid", tile_size=DEFAULT_SIZE,
-          tile_text_color=FOLLOW_THEME, files_root=None, choice_file=None):
+          tile_text_color=FOLLOW_THEME, files_root=None, choice_file=None,
+          status=None):
     """Serve the page for as long as the add-on runs. Returns its address.
 
     One call is one launcher: its links, its look, its weather, its
@@ -2830,7 +2884,8 @@ def start(links, title="", subtitle="", theme="dark",
                 voice=voice is not None, avatar_shape=avatar_shape,
                 weather_color=weather_color,
                 tile_background=tile_background, tile_size=tile_size,
-                tile_text_color=tile_text_color).encode()
+                tile_text_color=tile_text_color,
+                status=status is not None).encode()
             held = cache["page"] = (key, body)
         return held[1]
 
@@ -2898,6 +2953,14 @@ def start(links, title="", subtitle="", theme="dark",
                                 "avatar": avatar_weather(state)}).encode(),
                     "application/json",
                 )
+                return
+            if self.path.split("?")[0] == STATUS_PATH:
+                # What the add-on last read for this screen, or nothing.
+                who = (parse_qs(urlsplit(self.path).query).get("panel")
+                       or [""])[0]
+                state = status(who) if status is not None else None
+                self._reply(json.dumps(state or {}).encode(),
+                            "application/json")
                 return
             if self.path.split("?")[0] == REPORT_PATH:
                 # Said once per distinct complaint. A wallpaper that will not

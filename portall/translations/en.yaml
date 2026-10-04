@@ -52,6 +52,10 @@ configuration:
           home_assistant:
             name: Shows Home Assistant
             description: Off = this screen gets no token (an ordinary site, a train board…).
+          esphome_device:
+            name: 📶 The screen's ESPHome name (Wi-Fi, Bluetooth)
+            description: 'The name in its YAML (esphome: name:). The launcher then shows the screen''s
+              Wi-Fi and Bluetooth while they are connected.'
           fps:
             name: 🎬 Pictures per second
           quality:

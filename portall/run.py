@@ -20,6 +20,7 @@ without turning the others off.
 """
 
 import json
+import re
 import os
 import shlex
 import shutil
@@ -380,6 +381,113 @@ class Weather:
         return lambda: self.state
 
 
+class PanelStatus:
+    """Each screen's own Wi-Fi and Bluetooth, read from Home Assistant.
+
+    Asked for as the Wi-Fi and Bluetooth icons on the launcher "quand ils
+    sont connectes". The screen already tells Home Assistant both through
+    ESPHome: while it is on the network its entities have states, and when
+    it drops off every one of them is "unavailable"; portall_bt's text
+    sensors read "<device> (<address>) connected" while something is. So a
+    panel names its ESPHome device once -- esphome_device, the name in its
+    YAML -- and every entity Home Assistant gave that device is read:
+    entity ids are <domain>.<device name>_<entity name>, so the device is a
+    prefix. Read through the Supervisor's own credential, like the weather,
+    every EVERY_S seconds; an accessory, so a failure costs the icons and
+    says so once.
+    """
+
+    EVERY_S = 10
+
+    def __init__(self, panels, url, token):
+        self.devices = {}
+        for index, panel in enumerate(panels, start=1):
+            device = str(panel.get("esphome_device") or "").strip()
+            if device:
+                name = str(panel.get("name") or panel.get("host")
+                           or f"panel {index}")
+                self.devices[name] = self.slug(device)
+        self.url, self.token = url, token
+        self.state = {}
+        self._said = set()
+
+    @staticmethod
+    def slug(device):
+        """The entity-id prefix Home Assistant makes of a device's name.
+
+        Its own slugify: accents dropped, everything else not a letter or a
+        digit an underscore -- so "Écran salon" is ecran_salon and
+        ha-guit-10-p4 is ha_guit_10_p4.
+        """
+        import unicodedata
+        plain = "".join(c for c in unicodedata.normalize("NFKD", device)
+                        if not unicodedata.combining(c))
+        return re.sub(r"[^a-z0-9]+", "_", plain.lower()).strip("_")
+
+    @staticmethod
+    def judge(states, slug):
+        """{"wifi": {"on", "bars"}, "bluetooth": bool}, or None if unknown."""
+        mine = [e for e in states
+                if str(e.get("entity_id", "")).partition(".")[2]
+                .startswith(slug + "_")]
+        if not mine:
+            return None
+        on = any(e.get("state") not in ("unavailable", None) for e in mine)
+        bars = None
+        for entity in mine:
+            attributes = entity.get("attributes") or {}
+            if attributes.get("unit_of_measurement") == "dBm" \
+                    or attributes.get("device_class") == "signal_strength":
+                try:
+                    rssi = float(entity.get("state"))
+                except (TypeError, ValueError):
+                    continue
+                bars = 4 if rssi >= -55 else 3 if rssi >= -65 else \
+                    2 if rssi >= -75 else 1
+        bluetooth = on and any(
+            re.search(r"(?<!dis)connected\b", str(e.get("state") or ""))
+            for e in mine if str(e.get("entity_id", "")).startswith("sensor."))
+        return {"wifi": {"on": on, "bars": bars}, "bluetooth": bluetooth}
+
+    def read(self):
+        import urllib.request
+        request = urllib.request.Request(
+            f"{self.url}/api/states",
+            headers={"Authorization": f"Bearer {self.token}"})
+        try:
+            with urllib.request.urlopen(request, timeout=10) as answer:
+                states = json.loads(answer.read().decode())
+        except Exception as err:  # noqa: BLE001 - keeps the last reading
+            if "read" not in self._said:
+                self._said.add("read")
+                say(f"[status] could not read Home Assistant's states "
+                    f"({err}) -- the launcher shows no Wi-Fi or Bluetooth")
+            return
+        self._said.discard("read")
+        for name, slug in self.devices.items():
+            found = self.judge(states, slug)
+            if found is None and name not in self._said:
+                self._said.add(name)
+                say(f"[{name}] esphome_device: no entity in Home Assistant "
+                    f"begins with \"{slug}_\" -- check the device's name "
+                    f"in its YAML (esphome: name:)")
+            self.state[name] = found
+
+    def run(self):
+        while True:
+            self.read()
+            time.sleep(self.EVERY_S)
+
+    def start(self):
+        if not self.devices or not (self.url and self.token):
+            return None
+        self.read()
+        threading.Thread(target=self.run, name="status", daemon=True).start()
+        say("Status: Wi-Fi and Bluetooth of " + ", ".join(self.devices)
+            + " shown on the launcher")
+        return self.state.get
+
+
 def truthy(value):
     """What a switch in the add-on's form means.
 
@@ -552,6 +660,7 @@ def start_launcher(config, port=None, house_links=(), label=""):
         # is "files", and the picture chosen there as this launcher's
         # wallpaper -- kept beside the avatar's spot, for the same reason.
         files_root=DOWNLOADS,
+        status=STATUS,
         choice_file=avatar_file(label).replace(AVATAR_DIR, WALLPAPER_DIR),
         voice=follow_voice(config, list(links) + list(house_links), label),
         motion=truthy(config.get("launcher_background_motion", False)),
@@ -818,6 +927,9 @@ PROFILES = "/data/profiles"
 # PC. Left out of the add-on's backups (backup_exclude in config.yaml): a
 # backup is not where a downloaded film should go.
 DOWNLOADS = "/data/downloads"
+# Each panel's Wi-Fi and Bluetooth for its launcher, once main() has started
+# the reading: None until then, and when no panel names its ESPHome device.
+STATUS = None
 RESUME = "/data/resume"
 
 
@@ -1439,6 +1551,13 @@ def route_to_launcher(panels, where, own=None):
         # staging it will never see -- every time the corner brings the panel
         # home.
         panel["on_launcher"] = True
+        if given(panel.get("esphome_device")) and panel["url"]:
+            # The page has to know whose Wi-Fi and Bluetooth to show, and a
+            # house launcher is one address for every panel.
+            from urllib.parse import quote
+            panel["url"] = (panel["url"] + ("&" if "?" in panel["url"]
+                                            else "?")
+                            + "panel=" + quote(name, safe=""))
 
 
 def give_page_settings(panels, config):
@@ -1550,7 +1669,7 @@ def start_voice_links(panels, remotes):
         if url.lower() == getattr(launcher, "FILES_KEYWORD", "files") \
                 and str(panel.get("url") or "").startswith("http"):
             # The Files page belongs to the launcher this panel comes home to.
-            url = (str(panel["url"]).rstrip("/")
+            url = (str(panel["url"]).split("?")[0].rstrip("/")
                    + getattr(launcher, "FILES_HREF", "/files"))
         if remote.send("open", url):
             say(f"[{who}] voice: opening {link.get('name')}")
@@ -1597,6 +1716,9 @@ def main():
 
     # Before the check below, because a panel asking for the launcher has no
     # url of its own until this has given it one.
+    global STATUS
+    route = Weather(*home_assistant_link(_config), None)
+    STATUS = PanelStatus(panels, route.url, route.token).start()
     where, own = start_launchers(_config, panels)
     route_to_launcher(panels, where, own)
 
