@@ -607,6 +607,13 @@ the sender, before the page sees anything: **hold the top-left corner**, or
 and fills while a finger is held, so the gesture can be found by somebody who
 was never told about it.
 
+**Inside a link there is also a bar** at the top of the screen: **←** back a
+page, **⟳** reload, **⌂** home. It appears for five seconds when a page opens
+and again at every touch, and never on the screen's own page. A press on it is
+decided by the add-on and never reaches the site, so it works on a page that
+swallows everything else. Back from the first page a link opened returns to
+the launcher.
+
 Two settings, on the panel:
 
 ```yaml

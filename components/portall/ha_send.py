@@ -1248,6 +1248,7 @@ def present_browser(session, page, keyboard_wanted, wanted_agent):
 HOW = {
     "swipe": "swiped, ",
     "board": "asked by the board, ",
+    "bar": "the home button of the bar, ",
 }
 
 
@@ -3322,6 +3323,206 @@ class HomeHint:
         self._at = None
 
 
+# How long the bar of buttons stays up inside a link after a page arrives or
+# a finger lands, and the three buttons it carries, in the order drawn.
+NAV_BAR_SECONDS = 5.0
+NAV_BUTTONS = (("back", "←"), ("reload", "⟳"), ("home", "⌂"))
+
+# Back, reload and home on the glass, for the pages a link opens.
+#
+# WHY THIS EXISTS. A panel has no browser bar. Asked three times, the last
+# with a Google link on screen: in a browser there is a way back, a reload
+# and a home, and on the panel there was none -- only the corner gesture,
+# which nobody finds without being told and which only ever goes home.
+#
+# The same rules as the keyboard and the corner mark, for the same reasons:
+# the bar is DECORATION. pointer-events: none, no listeners, no focus,
+# built out of the DOM, its sheet through the CSSOM, in the top layer through
+# the popover API. A contact on it is decided by arithmetic in the sender and
+# the page is never told -- so it works on a site that swallows every event,
+# and a field being typed into keeps its focus.
+#
+# Shown only inside a link, never on the panel's own page, and only for a
+# few seconds after a page arrives or a finger lands: always there, it would
+# sit over the top of every site. Hidden, it takes nothing -- the place where
+# it was belongs to the page.
+NAV_BAR_JS = r"""
+(() => {
+  const ID = '__portall_nav';
+  window.__portallNav = {
+    dress(css) {
+      try {
+        if (!this.sheet) {
+          this.sheet = new CSSStyleSheet();
+          document.adoptedStyleSheets = [...document.adoptedStyleSheets, this.sheet];
+        }
+        this.sheet.replaceSync(css);
+        return;
+      } catch (err) { /* the element below */ }
+      let s = document.getElementById(ID + '_css');
+      if (!s) {
+        s = document.createElement('style');
+        s.id = ID + '_css';
+        document.documentElement.appendChild(s);
+      }
+      s.textContent = css;
+    },
+    show(css, labels, lit) {
+      let d = document.getElementById(ID);
+      if (!d) {
+        d = document.createElement('div');
+        d.id = ID;
+        d.setAttribute('popover', 'manual');
+        for (const label of labels) {
+          const b = document.createElement('span');
+          b.textContent = label;
+          d.appendChild(b);
+        }
+        document.documentElement.appendChild(d);
+      }
+      this.dress(css);
+      d.style.removeProperty('display');
+      [...d.children].forEach((b, i) => b.classList.toggle('lit', i === lit));
+      let layered = false;
+      try {
+        if (d.matches(':popover-open')) d.hidePopover();
+        d.showPopover();
+        layered = true;
+      } catch (err) { /* the stylesheet carries a z-index for this case */ }
+      return layered;
+    },
+    hide() {
+      const d = document.getElementById(ID);
+      if (d) {
+        try { if (d.matches(':popover-open')) d.hidePopover(); } catch (err) {}
+        d.style.setProperty('display', 'none');
+      }
+    },
+  };
+})();
+"""
+
+
+class NavBar:
+    """Back, reload and home, drawn at the top of a page a link opened.
+
+    The sender owns the geometry: the same numbers place each button and
+    decide which one a contact hit, so what is drawn and what is pressed
+    cannot drift -- the keyboard's rule. Buttons are drawn inset and hit
+    whole, so a finger on a seam still presses something.
+    """
+
+    def __init__(self, page, page_w, page_h, corner_w=0.0):
+        self._page = page
+        side = max(44.0, min(72.0, 0.075 * min(page_w, page_h)))
+        gap = round(side * 0.25)
+        width = 3 * side + 2 * gap + 2 * gap
+        # Centred, and never over the corner that goes home: the two are
+        # tested by different arithmetic and must not overlap.
+        left = max((page_w - width) / 2.0, corner_w + gap)
+        self.box = (left, gap * 0.5, width, side + 2 * gap)
+        self.buttons = []
+        for i, (name, label) in enumerate(NAV_BUTTONS):
+            self.buttons.append({
+                "name": name, "label": label,
+                "x": left + gap + i * (side + gap) - gap / 2.0,
+                "y": self.box[1], "w": side + gap, "h": self.box[3],
+            })
+        self._side, self._gap = side, gap
+        self.visible = False
+        self._at = None
+        self.broken = False
+        self._warned = False
+        self._arrived = False
+        try:
+            page.on("domcontentloaded", self._on_arrival)
+        except Exception:  # noqa: BLE001 - an accessory, never the picture
+            pass
+
+    def _on_arrival(self, _page=None):
+        self._arrived = True
+
+    def take_arrival(self):
+        """Whether a new document arrived since last asked; forgets it if so."""
+        if not self._arrived:
+            return False
+        self._arrived = False
+        self.forget()
+        return True
+
+    def contains(self, x, y):
+        bx, by, bw, bh = self.box
+        return self.visible and bx <= x < bx + bw and by <= y < by + bh
+
+    def hit(self, x, y):
+        if not self.contains(x, y):
+            return None
+        for button in self.buttons:
+            if button["x"] <= x < button["x"] + button["w"]:
+                return button["name"]
+        return None
+
+    def _css(self):
+        bx, by, bw, bh = self.box
+        side, gap = self._side, self._gap
+        return f"""
+        #__portall_nav {{
+          position: fixed; left: {bx:.0f}px; top: {by:.0f}px; margin: 0;
+          width: {bw:.0f}px; height: {bh:.0f}px; box-sizing: border-box;
+          padding: {gap:.0f}px; border: 0; border-radius: {bh / 2:.0f}px;
+          display: flex; gap: {gap:.0f}px; align-items: center;
+          justify-content: center; pointer-events: none;
+          background: rgba(20, 24, 32, .78);
+          box-shadow: 0 2px 10px rgba(0, 0, 0, .45);
+          z-index: 2147483646; overflow: hidden;
+          font: 600 {side * 0.5:.0f}px/1 system-ui, sans-serif;
+        }}
+        #__portall_nav span {{
+          width: {side:.0f}px; height: {side:.0f}px; border-radius: 50%;
+          display: flex; align-items: center; justify-content: center;
+          color: #fff; background: rgba(255, 255, 255, .14);
+        }}
+        #__portall_nav span.lit {{ background: rgba(255, 255, 255, .55);
+          color: #111; }}
+        #__portall_nav::backdrop {{ background: transparent; }}
+        """
+
+    def set(self, shown, lit=None):
+        """Draw the bar, with one button pressed, or take it away."""
+        if self.broken:
+            self.visible = False
+            return
+        state = (shown, lit if shown else None)
+        if state == self._at:
+            return
+        self._at = state
+        self.visible = shown
+        try:
+            if not shown:
+                self._page.evaluate("window.__portallNav.hide()")
+                return
+            names = [b["name"] for b in self.buttons]
+            index = names.index(lit) if lit in names else -1
+            layered = self._page.evaluate(
+                "a => window.__portallNav.show(a[0], a[1], a[2])",
+                [self._css(), [b["label"] for b in self.buttons], index])
+        except Exception as err:  # noqa: BLE001 - an accessory, never the picture
+            self.broken = True
+            self.visible = False
+            print(f"Bar: this page will not have the back/reload/home bar "
+                  f"drawn ({err}). The corner still goes home.")
+            return
+        if not layered and not self._warned:
+            self._warned = True
+            print("Bar: drawn in the page rather than in the top layer, so a "
+                  "modal dialog can cover it.")
+
+    def forget(self):
+        """After a navigation there is a new document and nothing is drawn."""
+        self._at = None
+        self.visible = False
+
+
 KEYBOARD_INIT_JS = r"""
 (() => {
   const ID = '__udisp_kb';
@@ -3955,8 +4156,17 @@ class Injector:
 
     def __init__(self, page, touch_map, keyboard=None, page_w=0, page_h=0,
                  corner=HOME_CORNER_FRACTION, hold=HOME_HOLD_S,
-                 press_hold=PRESS_HOLD_S):
+                 press_hold=PRESS_HOLD_S, bar=None):
         self._page = page
+        # The back/reload/home bar, when one is drawn. A contact on it is a
+        # button and never reaches the page, exactly like the keyboard.
+        self._bar = bar
+        self._on_bar = False
+        self._bar_key = None
+        # Set when a bar button was released on: "back" or "reload" for the
+        # loop to collect with take_nav(). Home goes through the corner's own
+        # path instead, so there is one way home to keep right.
+        self._nav = None
         self._corner = (page_w * corner, page_h * corner)
         # How long a finger must stay in the corner. A panel mounted where it
         # gets brushed wants longer; one somebody has been told about wants
@@ -4043,6 +4253,19 @@ class Injector:
                 # reaches the page.
                 self._last = (x, y)
                 continue
+            if self._start is None and self._bar is not None and \
+                    self._bar.contains(x, y):
+                # The bar's, not the page's -- the pointer is not even moved.
+                self._on_bar = True
+                self._bar_key = self._bar.hit(x, y)
+                self._bar.set(True, self._bar_key)
+                self._start = self._last = (x, y)
+                self._down_at = time.monotonic()
+                self._scrolling = False
+                self._corner_at = None
+                self._from_corner = False
+                self._went_home = False
+                continue
             if self._start is None:
                 if self._keyboard is not None and self._keyboard.contains(x, y):
                     # Not the page's. The pointer is not even moved there, so
@@ -4084,6 +4307,14 @@ class Injector:
                              if in_corner else
                              f"outside {self._corner[0]:.0f}x{self._corner[1]:.0f} "
                              f"-- not a hold"), flush=True)
+                continue
+            if self._on_bar:
+                # Sliding off a button abandons it, as on the keyboard.
+                if self._bar_key is not None and \
+                        self._bar.hit(x, y) != self._bar_key:
+                    self._bar_key = None
+                    self._bar.set(True, None)
+                self._last = (x, y)
                 continue
             if self._on_keyboard:
                 # Sliding off a key abandons it, the way it does on a phone.
@@ -4150,6 +4381,16 @@ class Injector:
         if not (self._from_corner and not self._went_home and self._undecided()):
             self._flush_wheel()
         return clicked
+
+    @property
+    def on_bar(self):
+        """A finger is on the back/reload/home bar right now."""
+        return self._on_bar
+
+    def take_nav(self):
+        """"back" or "reload" once, when a bar button was let go on; else None."""
+        nav, self._nav = self._nav, None
+        return nav
 
     def corner_progress(self, now):
         """How far a hold in the corner has got, 0..1, or None if none is.
@@ -4273,7 +4514,14 @@ class Injector:
         # Whatever is left of the scroll goes now: the finger has gone and
         # there will be no later turn to carry it.
         self._flush_wheel(force=True)
-        if self._on_keyboard:
+        if self._on_bar:
+            if self._bar_key == "home":
+                self._home = True
+                self._home_by = "bar"
+            elif self._bar_key is not None:
+                self._nav = self._bar_key
+            self._bar.set(True, None)
+        elif self._on_keyboard:
             if self._key is not None:
                 # Enter usually closes what was being typed into, so the key
                 # says whether focus is worth looking at again.
@@ -4366,6 +4614,8 @@ class Injector:
         # window goes with it, for the same reason.
         if self._on_keyboard and self._keyboard is not None:
             self._keyboard.highlight(None)
+        if self._on_bar and self._bar is not None:
+            self._bar.set(self._bar.visible, None)
         self._reset()
 
     def _undecided(self):
@@ -4396,6 +4646,8 @@ class Injector:
         self._scrolling = False
         self._on_keyboard = False
         self._key = None
+        self._on_bar = False
+        self._bar_key = None
 
 
 def main():
@@ -4452,6 +4704,13 @@ def main():
         help="how big the top-left corner that brings the panel home is, as a "
         "percentage of each axis. The mark drawn there follows it, so what is "
         "pressed and what is seen cannot drift apart",
+    )
+    parser.add_argument(
+        "--no-nav-bar",
+        action="store_true",
+        help="do not draw the back / reload / home bar at the top of a page "
+        "a link opened. It shows for a few seconds after a page arrives and "
+        "after each touch, and never on the panel's own page",
     )
     parser.add_argument(
         "--home-hold",
@@ -5098,6 +5357,7 @@ def main():
         # On the context, so it survives every navigation the panel makes --
         # including the one the corner itself performs.
         context.add_init_script(HOME_HINT_JS)
+        context.add_init_script(NAV_BAR_JS)
         # One arrow, one move, on a page that navigates nothing by itself --
         # and a line saying what became of the arrows on each site.
         context.expose_function("__udispNavNote", NavNotes())
@@ -5228,11 +5488,15 @@ def main():
             # A page can arrive with a field already focused.
             keyboard.request_sync(0.5)
         corner_fraction = min(0.40, max(0.02, args.home_corner / 100.0))
+        # Back, reload and home on the glass, inside a link. See NavBar.
+        bar = (None if args.no_touch or args.no_nav_bar
+               else NavBar(page, page_w, page_h, corner_fraction * page_w))
+        bar_until = 0.0
         injector = (
             None if args.no_touch
             else Injector(page, touch_map, keyboard, page_w, page_h,
                           corner_fraction, args.home_hold,
-                          max(0.0, args.press_hold) / 1000.0)
+                          max(0.0, args.press_hold) / 1000.0, bar)
         )
         if injector is not None:
             injector.verbose = args.show_touches
@@ -5746,6 +6010,11 @@ def main():
                                 print(f"[{marked}] touch released")
                     if injector is not None and reports:
                         clicked_page = injector.handle(reports)
+                        if bar is not None and injector.began and \
+                                not injector.on_bar:
+                            # Any landing brings the bar back for a while,
+                            # the way a telephone's browser shows its own.
+                            bar_until = time.monotonic() + NAV_BAR_SECONDS
                         if injector.missed_home:
                             # Somebody reached for the corner and let go too
                             # soon. Showing the mark again is the only answer
@@ -5856,10 +6125,67 @@ def main():
                             hint.set(0.0)
                         else:
                             hint.set(None)
+                    # The bar: up for a few seconds after a page arrives or a
+                    # finger lands, held up while a finger is on it, and never
+                    # on the panel's own page -- which has the launcher, or is
+                    # the dashboard, and has nothing to go back to.
+                    if bar is not None and bar.take_arrival():
+                        bar_until = time.monotonic() + NAV_BAR_SECONDS
+                    if bar is not None:
+                        at_home = (page.url.rstrip("/")
+                                   == (args.url or "").rstrip("/"))
+                        if injector is not None and injector.on_bar:
+                            bar_until = now + NAV_BAR_SECONDS
+                        else:
+                            bar.set(awake and not parked and not at_home
+                                    and now < bar_until)
                     # tick() first and always, so a swipe already decided in
                     # handle() is collected rather than left to fire on a later
                     # turn behind the board's own request.
                     gestured = injector is not None and injector.tick(now)
+                    nav = injector.take_nav() if injector is not None else None
+                    if nav is not None and not (gestured or asked_home):
+                        # Back and reload, from the bar. At commit like a
+                        # link, for the same reason: the loop is blocked while
+                        # it waits, and the panel would show nothing of the
+                        # page coming in.
+                        nav_at = time.monotonic()
+                        try:
+                            if nav == "reload":
+                                page.reload(wait_until="commit",
+                                            timeout=LOAD_TIMEOUT_S * 1000)
+                            elif page.go_back(wait_until="commit",
+                                              timeout=LOAD_TIMEOUT_S * 1000) \
+                                    is None:
+                                # Nothing to go back to: the first page a
+                                # panel opened. Home is the only way back.
+                                print("Bar: nothing to go back to -- home")
+                                gestured = True
+                                injector.fired_by = "bar"
+                                injector.held_for = None
+                        except Exception as err:  # noqa: BLE001
+                            print(f"Bar: {nav} did not finish ({err})")
+                        if not gestured:
+                            print(f"Bar: {nav} -> {page.url} in "
+                                  f"{time.monotonic() - nav_at:.1f}s")
+                            home_pending = time.monotonic()
+                            urgent_until = home_pending + args.urgent_window
+                            if keyboard is not None:
+                                keyboard.forget()
+                                keyboard.request_sync(0.5)
+                            if hint is not None:
+                                hint.forget()
+                                hint_until = time.monotonic() + HOME_HINT_SECONDS
+                            if args.freeze_animations:
+                                capture.freeze_animations()
+                            previous = None
+                            pending = None
+                            image = None
+                            # A page given back from the back/forward cache
+                            # has been painted already and may not paint
+                            # again on its own, so the picture is asked for
+                            # rather than waited for -- the corner's rule.
+                            capture.restart()
                     if gestured or asked_home or asked_open:
                         # Timed in three pieces, because "coming home is slow"
                         # has three separate causes and they need separate
