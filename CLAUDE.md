@@ -1802,7 +1802,7 @@ the dashboard, where it is invisible while the keys go on working.
 ahead of the `pip install` as well as the `ADD`s, so a bump refetched
 everything — at the cost of the browser download on each update.
 `present_browser()` prints the Chromium version at startup and warns below 114,
-so this is never diagnosed by guesswork again. Currently **4.33.0**.
+so this is never diagnosed by guesswork again. Currently **4.33.1**.
 
 **CORRECTED in 4.29.5: the cost was every update, and a pin removes it.**
 Asked as *"verifie addon ... si il ya pas des elements qui freine la
@@ -10659,14 +10659,37 @@ the add-on is on the host network, so the port is on the LAN too.
 - **noVNC builds its websocket URL from `path=`** as `/` + path, so the path
   carries the ingress prefix, from `X-Ingress-Path` or from
   `location.pathname` when that header is absent.
-- **Done quits Chrome through its own Ctrl+Shift+Q (xdotool), not SIGTERM.**
-  Chrome writes cookies on a 30 s timer. With a telephone connected through
-  noVNC and text typed, SIGTERM ended it in 0.07 s with code 0 and the cookie
-  never reached the disk -- the panel came back signed out. Every piece of
-  that tried alone (typing, a click in the frame, a long or short session)
-  kept the cookie; only the whole scenario lost it, and the cause inside
-  Chrome is NOT known. The quit is what works: `checksignin.py --signal`
-  reproduces the loss, without it three runs in three pass.
+- **CORRECTED in 4.33.1: the Ctrl+Shift+Q quit that 4.33.0 shipped never
+  ran, and what made the check pass was a ten-second wait.** It stood here as
+  "Done quits Chrome through its own Ctrl+Shift+Q (xdotool), not SIGTERM ...
+  the quit is what works". Three faults, none visible, found only when the
+  same xdotool call was reused for the navigation buttons and did nothing:
+  `search --pid N` with no pattern takes the NEXT word (`windowactivate`) as
+  its pattern, so `--sync` became an unknown command and the chain stopped;
+  `windowactivate` needs a window manager and Xvfb has none (`windowfocus`
+  does not); and Ctrl+Shift+Q on Linux only shows "hold to quit". So
+  quit_browser's call failed at once, it then waited 10 s for an exit that
+  was never coming, and SIGTERM followed -- and the cookie was usually on disk
+  by then because Chrome's 30 s commit timer had run during the wait. The
+  "fix" was a delay. Now: one xdotool call per step, an explicit pattern
+  (`.`), `--onlyvisible`, `windowfocus`, and Ctrl+Shift+W per window until
+  the process exits. `checksignin.py` asserts the close took under 5 s and
+  that the LAST cookie set (a new value per visit) comes back; four runs in
+  four pass. SIGTERM alone (`--signal`) kept everything twice and lost
+  everything once in three runs, so it is unreliable rather than always
+  losing -- which is also why the old reproduction looked solid. The lesson
+  is this file's oldest: a check that passes for a reason nobody looked at
+  proved nothing; assert the MECHANISM (the close happened, and fast), not
+  only the outcome.
+- **Back, Reload and Home buttons above the frame (4.33.1)**, asked as
+  *"il y a accueil, actualiser, cliquer pour revenir en arriere qui ne sont
+  pas present"*, once signing into Google from a panel had worked on real
+  hardware. Chrome's own toolbar is drawn at desktop size and scaled to a
+  telephone, a few pixels a button. `POST /nav` with `what=back|reload|home`
+  types Alt+Left, F5, or Ctrl+L + the start address + Return into the plain
+  Chrome through xdotool -- a keyboard, so nothing drives it. A back that is
+  served from the back/forward cache fetches nothing, so the check listens
+  for `pageshow` rather than for requests.
 - `--password-store=basic` on the plain Chrome, because Playwright passes it
   to the driven one and the cookie key depends on it; `--no-sandbox` because
   the container is root, which Playwright passes too.
@@ -10683,8 +10706,12 @@ no route to it here -- and not built into an image: the Debian packages
 (xvfb, x11vnc, novnc, websockify, xdotool) were read by name, the ones
 exercised are Ubuntu 24.04's.
 
-Asked in the same message and NOT built: a way back to the previous page.
-The reply *"le retour qui est deja present sur la page web ? il suffit un
+**Signing into Google this way WORKS on a real panel and account**, reported
+as *"ok j'ai reussi a me connecter"* -- the first route to a Google session
+on a panel since Google refused the driven browser.
+
+Asked in the same message and NOT built: a way back to the previous page
+ON THE PANEL. The reply *"le retour qui est deja present sur la page web ? il suffit un
 appui a ce retour deja present"* has two readings -- the page's own back
 arrow does not answer a press (it may sit under the home corner, where a
 press between HOME_TAP_MAX_S and HOME_HOLD_S reaches nothing), or no new

@@ -1929,7 +1929,10 @@ own profile, and shows it to you:
 2. Press the screen's name. That screen's picture stops while you sign in.
 3. A Chrome appears, **with its address bar**, on `accounts.google.com`. Sign
    in with the telephone's keyboard: in the noVNC menu on the left, the ⌨
-   button brings it up. Go to any other address the same way.
+   button brings it up. Go to any other address the same way. Above the
+   picture, **←** goes back a page, **⟳** reloads it and **⌂** returns to
+   Google's sign-in page -- Chrome's own arrows are too small to hit on a
+   telephone.
 4. Press **Done**. Chrome closes, and the screen comes back already signed in.
 
 If you forget Done, it ends by itself after 20 minutes, or when you close the

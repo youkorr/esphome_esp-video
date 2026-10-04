@@ -251,30 +251,81 @@ class Session:
     def browser_running(self):
         return self._browser is not None and self._browser.poll() is None
 
-    def quit_browser(self):
-        """Quit the browser the way a person does, and say whether it went.
+    def keys(self, *steps):
+        """Type into the browser's own window, the way a person does.
 
-        NOT a signal first, and a check measured why. Chrome writes its
-        cookies to disk on a thirty-second timer, and a sign-in is often
-        shorter than that. Asked to stop by SIGTERM right after signing in,
-        with a telephone connected through noVNC, it exited in 0.07 s with
-        code 0 -- and the cookie it had been given never reached the disk, so
-        the panel came back signed out. Its own Quit (Ctrl+Shift+Q, typed into
-        its window) runs the full shutdown, which writes them.
+        xdotool through the X server rather than an event sent to the window:
+        Chrome ignores synthetic events, and a key reaching the focused window
+        is exactly what a keyboard does. Each step is ("key", "alt+Left") or
+        ("type", "some text"), and each is its own xdotool call: `type` takes
+        every word after it as text, so nothing can be chained behind it.
+
+        Three things a first version got wrong, and none of them showed:
+        `search --pid` with no pattern takes the NEXT word as the pattern, so
+        the chain never ran; `windowactivate` needs a window manager and this
+        screen has none, where `windowfocus` does not; and Chrome has windows
+        nobody sees, so only a visible one is focused.
+        """
+        if not self.browser_running():
+            return False
+        env = dict(os.environ, DISPLAY=f":{self.display}")
+        head = ["xdotool", "search", "--sync", "--onlyvisible", "--limit", "1",
+                "--pid", str(self._browser.pid), ".", "windowfocus", "--sync"]
+        for kind, value in steps:
+            tail = (["key", "--clearmodifiers", value] if kind == "key"
+                    else ["type", "--delay", "15", value])
+            try:
+                done = subprocess.run(head + tail, env=env, timeout=10,
+                                      stdout=subprocess.DEVNULL,
+                                      stderr=subprocess.DEVNULL)
+            except (OSError, subprocess.SubprocessError):
+                return False
+            if done.returncode != 0:
+                return False
+        return True
+
+    def navigate(self, what):
+        """Back, reload, or the page it was opened on.
+
+        Chrome's own bar has the first two, drawn for a desktop and scaled
+        down to a telephone, where they are a few pixels wide -- so the
+        page carries them as buttons of its own. Home is the start page
+        rather than Chrome's homepage, which is a new tab and not set.
+        """
+        if what == "back":
+            return self.keys(("key", "alt+Left"))
+        if what == "reload":
+            return self.keys(("key", "F5"))
+        if what == "home":
+            return self.go(self.url)
+        return False
+
+    def go(self, url):
+        """The address bar, typed into: focus it, the address, Enter."""
+        return self.keys(("key", "ctrl+l"), ("type", url), ("key", "Return"))
+
+    def quit_browser(self):
+        """Close the browser the way a person does, and say whether it went.
+
+        Each window closed with its own Ctrl+Shift+W, which runs the full
+        shutdown when the last one goes -- including writing the cookies,
+        which Chrome otherwise does on a thirty-second timer. NOT its Quit:
+        on Linux Ctrl+Shift+Q only shows "hold to quit" and quits nothing.
+        A sign-in can leave a second window (a pop-up), hence the loop.
         """
         if self._browser is None or self._browser.poll() is not None:
             return True
-        env = dict(os.environ, DISPLAY=f":{self.display}")
+        end = time.monotonic() + 10
+        while time.monotonic() < end:
+            if not self.keys(("key", "ctrl+shift+w")):
+                break
+            try:
+                self._browser.wait(2)
+                return True
+            except subprocess.TimeoutExpired:
+                continue
         try:
-            subprocess.run(["xdotool", "search", "--sync", "--limit", "1",
-                            "--pid", str(self._browser.pid), "windowactivate",
-                            "--sync", "key", "--clearmodifiers", "ctrl+shift+q"],
-                           env=env, timeout=5, stdout=subprocess.DEVNULL,
-                           stderr=subprocess.DEVNULL)
-        except (OSError, subprocess.SubprocessError):
-            return False
-        try:
-            self._browser.wait(10)
+            self._browser.wait(1)
             return True
         except subprocess.TimeoutExpired:
             return False
@@ -450,6 +501,12 @@ class SignIn:
                                     number("w", 1024), number("h", 800))
                 self._reply(conn, 200, "application/json",
                             json.dumps({"answer": answer}))
+            elif method == "POST" and path == "/nav":
+                session = self.session
+                ok = session is not None and session.navigate(
+                    form.get("what", [""])[0])
+                self._reply(conn, 200, "application/json",
+                            json.dumps({"answer": "ok" if ok else "no"}))
             elif method == "POST" and path == "/stop":
                 threading.Thread(target=self.finish, daemon=True).start()
                 self._reply(conn, 200, "application/json", '{"answer": "ok"}')
@@ -577,11 +634,14 @@ PAGE = """<!doctype html>
  button[data-panel]::after { content: " \\2192"; color: var(--accent); }
  button:disabled { opacity: .55; }
  small { display: block; color: var(--faint); margin: .2rem .2rem 0; }
- .bar { display: flex; gap: .6rem; align-items: center; margin-bottom: .6rem; }
- .bar p { margin: 0; flex: 1; }
- .bar button { width: auto; background: var(--accent); color: #fff;
-               border: 0; font-weight: 600; }
- iframe { width: 100%%; height: calc(100vh - 110px); border: 1px solid var(--edge);
+ .bar { display: flex; gap: .5rem; align-items: center; margin-bottom: .6rem; }
+ .bar button { width: auto; padding: .7rem .9rem; }
+ .bar .nav { font-size: 1.15rem; line-height: 1; min-width: 3rem;
+             text-align: center; }
+ .bar .gap { flex: 1; }
+ #done { background: var(--accent); color: #fff; border: 0; font-weight: 600; }
+ #live > p { margin: 0 0 .5rem; font-size: .9rem; }
+ iframe { width: 100%%; height: calc(100vh - 150px); border: 1px solid var(--edge);
           border-radius: 12px; background: #000; }
  .warn { color: #c2410c; }
 </style></head>
@@ -595,7 +655,14 @@ PAGE = """<!doctype html>
   <ul>%(rows)s</ul>
  </div>
  <div id="live" hidden>
-  <div class="bar"><p data-k="live"></p><button id="done" data-k="done"></button></div>
+  <div class="bar">
+   <button class="nav" data-nav="back" data-t="back">&#8592;</button>
+   <button class="nav" data-nav="reload" data-t="reload">&#10227;</button>
+   <button class="nav" data-nav="home" data-t="home">&#8962;</button>
+   <span class="gap"></span>
+   <button id="done" data-k="done"></button>
+  </div>
+  <p data-k="live"></p>
   <iframe id="screen" allow="clipboard-read; clipboard-write"></iframe>
  </div>
 </main>
@@ -607,6 +674,9 @@ PAGE = """<!doctype html>
     intro: "Choisissez l'\\u00e9cran. Un vrai Chrome s'ouvre ici sur son profil, avec une barre d'adresse : connectez-vous \\u00e0 Google ou \\u00e0 n'importe quel site avec le clavier de ce t\\u00e9l\\u00e9phone, puis appuyez sur Termin\\u00e9. L'\\u00e9cran s'arr\\u00eate pendant ce temps et revient connect\\u00e9.",
     live: "Connect\\u00e9 au profil de l'\\u00e9cran. Le clavier : bouton \\u2328 dans le menu \\u00e0 gauche.",
     done: "Termin\\u00e9",
+    back: "Page pr\\u00e9c\\u00e9dente",
+    reload: "Actualiser",
+    home: "Accueil (page de connexion Google)",
     noprofile: "keep_profile est d\\u00e9sactiv\\u00e9 pour cet \\u00e9cran : il n'a pas de profil o\\u00f9 garder une connexion.",
     missing: "Il manque \\u00e0 l'add-on : ",
     busy: "Une connexion est d\\u00e9j\\u00e0 en cours.",
@@ -616,6 +686,9 @@ PAGE = """<!doctype html>
     intro: "Pick the screen. A real Chrome opens here on its profile, with an address bar: sign into Google or any site with this phone's keyboard, then press Done. The screen stops meanwhile and comes back signed in.",
     live: "On the screen's profile. The keyboard: the \\u2328 button in the menu on the left.",
     done: "Done",
+    back: "Back",
+    reload: "Reload",
+    home: "Home (Google's sign-in page)",
     noprofile: "keep_profile is off for this screen: it has no profile to keep a sign-in in.",
     missing: "The add-on is missing: ",
     busy: "A sign-in is already running.",
@@ -624,6 +697,10 @@ PAGE = """<!doctype html>
   var m = document.getElementById('m');
   document.querySelectorAll('[data-k]').forEach(function (e) {
     e.textContent = T[e.getAttribute('data-k')] || '';
+  });
+  document.querySelectorAll('[data-t]').forEach(function (e) {
+    e.title = T[e.getAttribute('data-t')] || '';
+    e.setAttribute('aria-label', e.title);
   });
   var warn = document.getElementById('warn');
   if (m.dataset.missing) warn.textContent = T.missing + m.dataset.missing;
@@ -651,7 +728,7 @@ PAGE = """<!doctype html>
   document.querySelectorAll('button[data-panel]').forEach(function (b) {
     b.addEventListener('click', function () {
       var w = Math.round(window.innerWidth * Math.min(window.devicePixelRatio || 1, 1.5));
-      var h = Math.round((window.innerHeight - 110) * Math.min(window.devicePixelRatio || 1, 1.5));
+      var h = Math.round((window.innerHeight - 150) * Math.min(window.devicePixelRatio || 1, 1.5));
       b.disabled = true;
       post('start', 'panel=' + encodeURIComponent(b.dataset.panel)
            + '&w=' + w + '&h=' + h).then(function (r) {
@@ -660,6 +737,11 @@ PAGE = """<!doctype html>
         warn.textContent = r.answer === 'busy' ? T.busy
           : r.answer === 'keep_profile' ? T.noprofile : T.failed + r.answer;
       });
+    });
+  });
+  document.querySelectorAll('button[data-nav]').forEach(function (b) {
+    b.addEventListener('click', function () {
+      post('nav', 'what=' + b.dataset.nav);
     });
   });
   document.getElementById('done').addEventListener('click', function () {
