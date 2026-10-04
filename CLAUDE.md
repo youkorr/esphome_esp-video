@@ -10995,6 +10995,47 @@ the Bluetooth going when "paired, away", every icon going when everything is
 no device is named. A prefix can collide (`salon` vs `salon_2`); not handled.
 **Not seen on a panel.**
 
+### Found by its address, because the setting could not be seen -- 4.37.1
+
+**Reported as *"rien ne s'affiche, icone du wifi et du bluetooth qu'il
+devrait etre en haut a gauche"*.** The same fault as 4.18.0's panel `links:`,
+recorded above and repeated anyway: `esphome_device` is an OPTIONAL field
+inside a panel's advanced group, and the form does not draw an optional field
+nobody has set -- so the feature needed a line nobody could find, and with no
+line PanelStatus looked for nothing and the page carried no icons. A setting
+the reader has to discover before it can work has not been delivered.
+
+So the device is found by the panel's `host`, with nothing to set. Home
+Assistant's ESPHome integration keeps each device's host and node name in its
+config entry's data, and the one door that hands the data out is the
+integration's own diagnostics: `GET /api/config/config_entries/entry?domain=
+esphome`, then `GET /api/diagnostics/config_entry/<id>` -> `data.config.data.
+{host, device_name}` (read in HA's dev tree: `esphome/diagnostics.py` puts
+`config_entry.as_dict()` there; host and device_name are not redacted). Both
+require admin, which the Supervisor's own user is -- the same route the voice
+links' config API already relies on. Matched by host (same, with or without
+`.local`, or resolving to the same address), then the entities are THAT
+entry's, from `POST /api/template` with `config_entry_id()` -- so a friendly
+name that differs from the node name, or an entity renamed by hand, no longer
+hides anything from the prefix rule. `esphome_device` wins when given; the
+prefix rule is the fallback. Looked for again every minute until found (HA
+may still be loading at the add-on's start), every ten once found. The first
+reading moved into the thread: matching asks HA several questions and a
+panel's start should not wait for its icons.
+
+Every launcher panel gets `?panel=<name or host>` while the icons are on --
+the host when there is no name, which is PanelStatus's own key. The icons
+are a row of their own at the top left, above the clock and left whatever
+`launcher_align` says, as asked.
+
+`tools/checkstatus.py`: `match()` over six cases, then a stand-in HA serving
+the entries, their diagnostics (one answering 500, as an entry not loaded
+does) and the template API: a panel with nothing but its host is found and
+read, a renamed sensor counts, an unknown address shows nothing and says so,
+a panel not on the launcher is not looked for, and the icons' box is read in
+the browser at the top left above the clock. **Not run against a real Home
+Assistant**: the diagnostics' shape and the template are read in its source.
+
 ## Repository conventions
 
 - Work on branch `claude/esphome-pr-outdated-mdq36w`, then merge into `main`

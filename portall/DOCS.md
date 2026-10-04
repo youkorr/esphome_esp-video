@@ -1212,11 +1212,22 @@ and `caméra` as `camera`.
 
 ### The screen's Wi-Fi and Bluetooth
 
-The launcher can show the screen's own Wi-Fi and Bluetooth beside the weather,
-the way a telephone's status bar does: the Wi-Fi while the screen is on the
-network, the Bluetooth while something is connected to it -- a speaker, a
-controller. Give the screen its ESPHome name, under its own **advanced**
-(the form does not show an empty one: use **⋮ → Edit in YAML**):
+A screen on the launcher shows its own Wi-Fi and Bluetooth at the **top
+left**, the way a telephone's status bar does: the Wi-Fi while the screen is
+on the network, the Bluetooth while something is connected to it -- a
+speaker, a controller. **Nothing to set**: the add-on finds the screen's
+ESPHome device in Home Assistant by the screen's address (its `host`), and
+reads that device's entities every ten seconds.
+
+The Wi-Fi has bars when the screen's YAML has a `wifi_signal` sensor, and is
+drawn full otherwise. The Bluetooth follows the `portall_bt` text sensors --
+*"… connected"*. The startup log says which device was found:
+`[salon] Wi-Fi and Bluetooth icons: from the ESPHome device "HA-GUIT-10-P4"`.
+
+If Home Assistant reaches the screen by another address than the one given
+here (a name rather than an IP, say), the log says no device has that
+address. Then name the device, under the screen's own **advanced** (the form
+does not show an empty one: use **⋮ → Edit in YAML**):
 
 ```yaml
 panels:
@@ -1224,13 +1235,6 @@ panels:
     advanced:
       esphome_device: ha-guit-10-p4   # esphome: name: in its YAML
 ```
-
-The add-on reads that device's entities from Home Assistant every ten
-seconds. The Wi-Fi has bars when the screen's YAML has a `wifi_signal`
-sensor, and is drawn full otherwise. The Bluetooth follows the
-`portall_bt` text sensors -- *"… connected"*. The startup log says
-`Status: Wi-Fi and Bluetooth of salon shown on the launcher`, or names the
-prefix it found no entity for.
 
 ### The clock, the date and the weather
 
