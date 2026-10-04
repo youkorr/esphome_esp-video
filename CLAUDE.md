@@ -10951,6 +10951,17 @@ Home Assistant with no token is recognised by its page,
 unknown and remembered as "not it" only once `readyState` is complete. A
 tile's pre-toggle skips those origins too, so the page is laid out once.
 
+**4.36.5:** reported again with a photograph, two minutes after 4.36.4 was
+published -- almost certainly before the image was rebuilt, but reading the
+code found a real hole: right after a commit, `page.evaluate` can still land
+in the page being left (the launcher: complete, no element), and that marked
+Home Assistant "not it" for good. The look now returns `location.href` and
+counts only when its origin is the page's. The startup line `Bar: never shown
+on ...` says which origins are known by token, so a bar seen above Home
+Assistant can be told apart from an add-on not yet updated. Verified against
+the frontend's own `src/html/index.html.template` (dev): `<home-assistant>`
+is in the served HTML, so the element is there before any script runs.
+
 `checknavbar.py` serves one Home Assistant-shaped page on a token's origin
 and one with the element on 127.0.0.2: both fail against 4.36.3, both pass.
 It used to run the sender with `--no-token`, which discards every link token

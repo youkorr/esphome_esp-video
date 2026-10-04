@@ -1,5 +1,14 @@
 # Changelog
 
+## 4.36.5
+
+- **Home Assistant without a token is recognised reliably too.** Right after
+  a tile was tapped, the check could read the launcher still on its way out
+  and decide for good that Home Assistant was an ordinary site, so the bar
+  stayed above it. The answer now only counts if it comes from the new page.
+- The log says at startup where the bar is never shown: `Bar: never shown on
+  http://homeassistant:8123 ...`.
+
 ## 4.36.4
 
 - **No bar above Home Assistant.** Opened from a launcher's tile, Home
