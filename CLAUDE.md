@@ -10733,18 +10733,40 @@ the home corner (`left >= corner width + gap`). Shown for `NAV_BAR_SECONDS`
 it, and never when `page.url` is the panel's own `--url` -- hidden it takes no
 touch, so the place belongs to the page again.
 
-- **Home goes through the corner's own path** (`_home`, fired_by `bar`), so
-  there is one way home to keep right.
 - **Back and reload wait only for commit**, like a link: the loop is blocked
   while Playwright waits. Then `capture.restart()`, because a page given back
   from the back/forward cache is already painted and may not paint again.
-- **`go_back()` returning None** -- nothing behind -- goes home instead.
 
-`tools/checknavbar.py` runs the shipped sender against a fake panel that
-reassembles the rectangles, sends real contacts up the return channel, and
-counts clicks on the page: 14 cases, and `--without` (`--no-nav-bar`, the
-panel as it was) fails 8, the reported fault among them. **Not seen on a
-panel**, and not on Chrome.
+**CORRECTED in 4.34.1: ⌂ and ← both landed on the launcher, and a browser's
+never do.** Reported as *"retour a la page d'accueil de l'ecran (le launcher)
+ne doit pas etre ... comme tous navigateur a sa page debut google.com"* and
+*"page precedente fait aussi retour au launcher"*. 4.34.0 sent ⌂ through the
+corner's path to the panel's `--url`, and treated `go_back()` returning None
+as "nothing behind -- go home". Two faults in that: the corner already IS the
+way to the launcher, so ⌂ duplicated it; and Playwright answers None for a
+SAME-DOCUMENT back as well (`history.pushState`, which is how most sites move
+today), so on such a site ← went home every time.
+
+The bar works inside the LINK now, read from the browser's own history
+(`Page.getNavigationHistory`, `link_history()`): the link starts at the entry
+after the last visit to the panel's own page. ← does nothing on that first
+page and `go_back()` elsewhere, its None ignored; ⌂ loads the first page's
+address afresh (`go_to`), as a browser's home button does. A link asked for
+from INSIDE another one (a voice "ouvre X" while Google shows) has nothing in
+the history marking its start, so the loop records the id of the page being
+LEFT before navigating -- not the new entry's after it: at commit the history
+had not always moved on, and marking the entry it still pointed at marked the
+previous link, one run in three. On a panel whose own page is not a launcher
+(a dashboard) the start is the panel's own page, as before.
+
+`tools/checknavbar.py` (24 cases) now uses pages that move on inside a link
+(a tap on A goes to B), one that moves within itself by pushState, and a link
+opened from inside another. Against 4.34.0 eleven fail, the two reported among
+them (the panel's own colour after ← and after ⌂); four runs in four pass. Two
+faults were in its ruler first: a click's `fetch` cancelled by the navigation
+the click starts (`keepalive` now), and a navigation asked for before the
+finger's release swallowed the click. **Not seen on a panel**, and not on
+Chrome.
 
 ## Repository conventions
 

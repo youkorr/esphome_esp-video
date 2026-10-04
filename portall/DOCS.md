@@ -607,12 +607,14 @@ the sender, before the page sees anything: **hold the top-left corner**, or
 and fills while a finger is held, so the gesture can be found by somebody who
 was never told about it.
 
-**Inside a link there is also a bar** at the top of the screen: **←** back a
-page, **⟳** reload, **⌂** home. It appears for five seconds when a page opens
-and again at every touch, and never on the screen's own page. A press on it is
-decided by the add-on and never reaches the site, so it works on a page that
-swallows everything else. Back from the first page a link opened returns to
-the launcher.
+**Inside a link there is also a bar** at the top of the screen, which works
+like a browser's: **←** back a page, **⟳** reload, **⌂** the link's own first
+page (for a Google link, `https://www.google.com`). It stays inside the link:
+**←** stops on the link's first page and **⌂** never goes to the launcher --
+the corner does that. It appears for five seconds when a page opens and again
+at every touch, and never on the screen's own page. A press on it is decided
+by the add-on and never reaches the site, so it works on a page that swallows
+everything else.
 
 Two settings, on the panel:
 
