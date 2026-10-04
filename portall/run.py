@@ -1281,6 +1281,11 @@ def disk_report(root="/"):
     image = disk_use(root, skip={at(p) for p in NOT_THE_IMAGE})
     parts = {name: 0 for name, _ in IMAGE_PARTS}
     system = 0
+    # "The rest of the system" was 971 MB on a real box, one number nobody
+    # could act on. The folders that make it, two levels down (/usr/lib,
+    # /usr/share, ...), say whether it is libraries, fonts or something left
+    # behind.
+    system_by = {}
     for path, size in image.items():
         for name, places in IMAGE_PARTS:
             if any(path == at(p) or path.startswith(at(p).rstrip("/") + "/")
@@ -1289,9 +1294,18 @@ def disk_report(root="/"):
                 break
         else:
             system += size
+            steps = path[len(root.rstrip("/")):].lstrip("/").split("/")
+            deep = 3 if steps[:2] in (["usr", "lib"], ["usr", "share"]) else 2
+            where = "/" + "/".join(steps[:deep])
+            system_by[where] = system_by.get(where, 0) + size
     # /data by what it is: each screen's browser profile and downloads on
     # their own line, since those are what grow; the rest together.
     data = {}
+    # Inside each profile too, by folder: a profile was measured at 651 MB on
+    # a panel whose HTTP cache is capped at 150, so the rest is something the
+    # cap does not reach -- a site's own storage, a downloaded component --
+    # and which one decides what can be done about it.
+    inside = {}
     top = at("/data")
     labels = {at(PROFILES): "browser profile of ",
               at(DOWNLOADS): "downloads of "}
@@ -1302,6 +1316,18 @@ def disk_report(root="/"):
                 inner = path[len(folder) + 1:].split("/")
                 if len(inner) > 1:
                     label = words + inner[0]
+                    if folder == at(PROFILES):
+                        # Default/<folder>, and one deeper under the folders
+                        # that only hold others, so "Service Worker" says
+                        # CacheStorage or ScriptCache rather than itself.
+                        depth = 3 if inner[1] == "Default" else 2
+                        if inner[1] == "Default" and len(inner) > 3 and \
+                                inner[2] in ("Service Worker", "Storage"):
+                            depth = 4
+                        what = "/".join(inner[1:depth]) if len(inner) > \
+                            depth - 1 else inner[-1]
+                        mine = inside.setdefault(label, {})
+                        mine[what] = mine.get(what, 0) + size
                 break
         data[label] = data.get(label, 0) + size
 
@@ -1315,9 +1341,18 @@ def disk_report(root="/"):
         if size >= 1e6:
             lines.append(f"  {name}: {mb(size)}")
     lines.append(f"  the rest of the system: {mb(system)}")
+    lines += biggest(system_by, mb, 20e6)
     for name, size in sorted(data.items(), key=lambda kv: -kv[1]):
         lines.append(f"  data, {name}: {mb(size)}")
+        lines += biggest(inside.get(name, {}), mb, 10e6)
     return lines
+
+
+def biggest(sizes, mb, at_least, count=6):
+    """The largest few of `sizes` as indented lines, those worth naming."""
+    return [f"      {name}: {mb(size)}"
+            for name, size in sorted(sizes.items(), key=lambda kv: -kv[1])
+            if size >= at_least][:count]
 
 
 def report_disk():
