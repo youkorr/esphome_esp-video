@@ -624,6 +624,8 @@ page that swallows everything else.
 ### Downloads
 
 What a page downloads is kept, one folder per screen, and the bar says so --
+the add-on fetches the file itself, with the page's cookies, rather than
+letting the browser download it --
 *Téléchargement de …*, then *… enregistré*. To get a file: open **Portall**
 in Home Assistant's sidebar (the add-on's web page), from a telephone or a
 PC, and touch its name under **Téléchargements des écrans**; the cross deletes

@@ -38,6 +38,7 @@ BROWSER = os.environ.get("CHROMIUM", "")
 W, H = 800, 480
 BODY = bytes(range(256)) * 4096          # 1 MiB, every byte value
 SLOW_S = 3.0
+SECRET = b"\xff\xd8\xff\xe0 a picture for members only"
 fails = 0
 
 
@@ -55,6 +56,19 @@ PAGE = (b"<!doctype html><body style='margin:0;height:100vh;background:#246'>"
         b"<a href='/other.bin' target=_blank style='position:absolute;"
         b"left:300px;top:120px;width:200px;height:80px;background:#0cf;"
         b"display:block'>other</a>"
+        b"<a id=blob href='#' style='position:absolute;left:560px;top:120px;"
+        b"width:200px;height:80px;background:#f0c;display:block' onclick=\""
+        b"fetch('/secret.jpg').then(r=>r.blob()).then(b=>{const a="
+        b"document.createElement('a');a.href=window.URL.createObjectURL(b);"
+        b"a.download='made.jpg';document.body.appendChild(a);a.click();});"
+        b"return false;\">blob</a>"
+        b"<a download='tiny.txt' href='data:text/plain;base64,"
+        b"Ym9uam91cg==' style='position:absolute;left:560px;top:220px;"
+        b"width:200px;height:60px;background:#9f9;display:block'>data</a>"
+        b"<a download href='/secret.jpg' style='position:absolute;left:20px;"
+        b"top:220px;width:200px;height:60px;background:#ccc;display:block'>"
+        b"secret</a>"
+        b"<script>document.cookie='member=yes; path=/'</script>"
         b"<div id=m style='position:absolute;left:0;top:300px;width:100%;"
         b"height:100px'></div><script>let n=0;(function go(){n++;"
         b"document.getElementById('m').style.background="
@@ -67,6 +81,19 @@ class Site(http.server.BaseHTTPRequestHandler):
         pass
 
     def do_GET(self):
+        if self.path == "/secret.jpg":
+            # Served only to the visitor who has the page's cookie, the way
+            # a signed-in site serves its pictures.
+            if "member=yes" not in (self.headers.get("Cookie") or ""):
+                self.send_response(403)
+                self.end_headers()
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", "image/jpeg")
+            self.send_header("Content-Length", str(len(SECRET)))
+            self.end_headers()
+            self.wfile.write(SECRET)
+            return
         if self.path in ("/file.bin", "/other.bin"):
             self.send_response(200)
             self.send_header("Content-Type", "application/octet-stream")
@@ -198,8 +225,25 @@ def main():
               until(lambda: os.path.exists(
                   os.path.join(folder, "file (2).bin")), SLOW_S + 10),
               str(os.listdir(folder)))
+        tap(120, strip + 250)
+        check("a file served only with the page's cookie is kept",
+              until(lambda: os.path.exists(os.path.join(folder, "secret.jpg")),
+                    6) and open(os.path.join(folder, "secret.jpg"), "rb")
+              .read() == SECRET, str(os.listdir(folder)))
+        tap(660, strip + 160)
+        check("a file the page makes itself (blob:) is kept",
+              until(lambda: os.path.exists(os.path.join(folder, "made.jpg")),
+                    6) and open(os.path.join(folder, "made.jpg"), "rb")
+              .read() == SECRET, str(os.listdir(folder)))
+        tap(660, strip + 250)
+        check("so is a data: address",
+              until(lambda: os.path.exists(os.path.join(folder, "tiny.txt")),
+                    6) and open(os.path.join(folder, "tiny.txt"), "rb")
+              .read() == b"bonjour", str(os.listdir(folder)))
+        check("and the browser's own download machinery is never used",
+              not any("accept_downloads" in l for l in out))
         said = [l.strip() for l in out if l.startswith("Download:")]
-        print("    " + "\n    ".join(said[:6]))
+        print("    " + "\n    ".join(said[:12]))
         crashed = [l.strip() for l in out if "Traceback" in l]
         check("the sender did not crash", not crashed, str(crashed))
     finally:
