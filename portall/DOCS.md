@@ -1686,6 +1686,28 @@ What still cannot survive a restart is a site that keeps its login only for
 the lifetime of the tab (`sessionStorage`), or one whose server forgets the
 session -- Unraid's own server forgets every login when *it* reboots.
 
+### How much room the add-on takes
+
+A minute after it starts, and once a day after that, the add-on measures
+itself and writes it in its log:
+
+```
+Disk: this add-on takes 1.81 GB on the server -- 1.66 GB for the add-on itself, 150 MB for its data
+  Chromium (Playwright): 597 MB
+  Google Chrome: 380 MB
+  Python and its libraries: 190 MB
+  the rest of the system: 490 MB
+  data, browser profile of salon: 140 MB
+  data, downloads of salon: 8 MB
+  data, everything else: 2 MB
+```
+
+(the numbers above are an example.) The add-on itself is what was
+installed: it changes only with an update. Its data is what grows: each
+screen's browser profile (bounded, see below) and what was downloaded from
+it, which the Files page can delete. Home Assistant's own folders -- config,
+share, media -- are not counted.
+
 ### What a profile costs, and what is done about it
 
 A profile is a browser's whole home -- what it is signed into, and the cache it

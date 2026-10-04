@@ -1207,6 +1207,133 @@ def sweep_profiles(panels):
                 f"from the list once to have this sweep take it away.")
 
 
+# What the add-on's image is made of, by where each part is installed. Paths
+# are the Dockerfile's: Playwright puts its browsers under root's cache unless
+# PLAYWRIGHT_BROWSERS_PATH says otherwise, `playwright install chrome` is
+# Google's own package in /opt/google, and the distribution's chromium (the
+# fallback where there is no Chrome) lives in /usr/lib/chromium. First match
+# wins, so a part nested in another is listed before it.
+IMAGE_PARTS = (
+    ("Google Chrome", ("/opt/google",)),
+    ("Chromium (Playwright)", (os.environ.get("PLAYWRIGHT_BROWSERS_PATH")
+                               or "/root/.cache/ms-playwright",
+                               "/ms-playwright")),
+    ("Chromium (Debian)", ("/usr/lib/chromium",)),
+    ("Python and its libraries", ("/usr/local",)),
+    ("temporary files", ("/tmp", "/var/tmp")),
+)
+# Never walked as part of the image: kernel views, and Home Assistant's own
+# folders mounted in (config, share, media...) -- those are the household's,
+# not the add-on's. /data is walked on its own, as the add-on's data.
+NOT_THE_IMAGE = ("/proc", "/sys", "/dev", "/run", "/data", "/config",
+                 "/homeassistant", "/addon_configs", "/share", "/media",
+                 "/ssl", "/backup", "/addons")
+DISK_FIRST_S = 60
+DISK_EVERY_S = 24 * 3600
+
+
+def disk_use(top, skip=(), seen=None):
+    """Bytes really on disk under `top`: blocks, a hard link counted once,
+    never crossing into another filesystem or into `skip`."""
+    seen = set() if seen is None else seen
+    try:
+        device = os.lstat(top).st_dev
+    except OSError:
+        return {}
+    used = {}
+    for root, dirs, files in os.walk(top):
+        keep = []
+        for name in dirs:
+            path = os.path.join(root, name)
+            if path in skip:
+                continue
+            try:
+                if os.lstat(path).st_dev != device:
+                    continue
+            except OSError:
+                continue
+            keep.append(name)
+        dirs[:] = keep
+        for name in files:
+            path = os.path.join(root, name)
+            try:
+                info = os.lstat(path)
+            except OSError:
+                continue
+            if (info.st_dev, info.st_ino) in seen:
+                continue
+            seen.add((info.st_dev, info.st_ino))
+            used[path] = info.st_blocks * 512
+    return used
+
+
+def disk_report(root="/"):
+    """What the add-on takes on the server's disk, as lines for the log.
+
+    Asked as "mesure la capacite d'espace que prend portall sur mon server".
+    Nothing outside the container can say it -- Home Assistant shows a disk,
+    not an add-on -- so the add-on measures itself: the image as the
+    container sees it (which is what Docker keeps of it, uncompressed), and
+    its own /data, which is where it grows.
+    """
+    def at(path):
+        return os.path.join(root, path.lstrip("/"))
+    image = disk_use(root, skip={at(p) for p in NOT_THE_IMAGE})
+    parts = {name: 0 for name, _ in IMAGE_PARTS}
+    system = 0
+    for path, size in image.items():
+        for name, places in IMAGE_PARTS:
+            if any(path == at(p) or path.startswith(at(p).rstrip("/") + "/")
+                   for p in places):
+                parts[name] += size
+                break
+        else:
+            system += size
+    # /data by what it is: each screen's browser profile and downloads on
+    # their own line, since those are what grow; the rest together.
+    data = {}
+    top = at("/data")
+    labels = {at(PROFILES): "browser profile of ",
+              at(DOWNLOADS): "downloads of "}
+    for path, size in disk_use(top).items():
+        label = "everything else"
+        for folder, words in labels.items():
+            if path.startswith(folder + "/"):
+                inner = path[len(folder) + 1:].split("/")
+                if len(inner) > 1:
+                    label = words + inner[0]
+                break
+        data[label] = data.get(label, 0) + size
+
+    def mb(n):
+        return f"{n / 1e9:.2f} GB" if n >= 1e9 else f"{n / 1e6:.0f} MB"
+    whole = sum(image.values())
+    kept = sum(data.values())
+    lines = [f"Disk: this add-on takes {mb(whole + kept)} on the server -- "
+             f"{mb(whole)} for the add-on itself, {mb(kept)} for its data"]
+    for name, size in sorted(parts.items(), key=lambda kv: -kv[1]):
+        if size >= 1e6:
+            lines.append(f"  {name}: {mb(size)}")
+    lines.append(f"  the rest of the system: {mb(system)}")
+    for name, size in sorted(data.items(), key=lambda kv: -kv[1]):
+        lines.append(f"  data, {name}: {mb(size)}")
+    return lines
+
+
+def report_disk():
+    """disk_report() in the log, a minute after the start and once a day."""
+    def run():
+        time.sleep(DISK_FIRST_S)
+        while True:
+            try:
+                for line in disk_report():
+                    say(line)
+            except Exception as err:  # noqa: BLE001 - an accessory
+                say(f"Disk: could not be measured ({err})")
+            time.sleep(DISK_EVERY_S)
+    threading.Thread(target=run, name="disk", daemon=True).start()
+
+
 def downloads_for(panel):
     """This panel's downloads folder, named like its profile."""
     return os.path.join(DOWNLOADS, profile_name(panel))
@@ -1859,6 +1986,8 @@ def main():
     # EVERY panel, switched off or not: a screen away for maintenance keeps
     # its profile -- the sites signed into from it -- for when it comes back.
     sweep_profiles(panels)
+    # A minute later, in the background: what the add-on takes on disk.
+    report_disk()
 
     paused = [p for p in panels if not in_use(p)]
     panels = [p for p in panels if in_use(p)]

@@ -1,5 +1,12 @@
 # Changelog
 
+## 4.37.3
+
+- **The add-on says how much room it takes.** A minute after it starts, and
+  once a day, its log says what it takes on the server's disk: the add-on
+  itself (Chrome, Playwright's Chromium, Python, the rest) and its data (each
+  screen's browser profile and downloads).
+
 ## 4.37.2
 
 - **The Wi-Fi and Bluetooth icons are at the top right, and smaller.**
