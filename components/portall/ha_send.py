@@ -5684,6 +5684,11 @@ def main():
             # names the launcher -- which is not a Home Assistant, and whose
             # Files page wants its bar.
             ha_origins.discard(origin_of(args.url))
+        if ha_origins:
+            # Said once, so a bar seen above Home Assistant can be told apart
+            # from an add-on that simply has not been updated yet.
+            print("Bar: never shown on " + ", ".join(sorted(ha_origins))
+                  + " (Home Assistant: its link has a token)")
         if pairs:
             done = install_tokens(context, pairs)
             if len(done) > 1:
@@ -6542,18 +6547,26 @@ def main():
                             # page instead, once per address: asked only
                             # while unknown, and "not it" remembered only
                             # once the page has finished arriving.
+                            # The answer counts only if it came from THIS
+                            # page: just after a navigation commits, a look
+                            # can still land in the page being left -- the
+                            # launcher, complete and with no such element --
+                            # and that would mark Home Assistant "not it"
+                            # for good.
                             try:
                                 seen = page.evaluate(
                                     "() => [!!document.querySelector("
-                                    "'home-assistant'), document.readyState]")
+                                    "'home-assistant'), document.readyState,"
+                                    " location.href]")
                             except Exception:  # noqa: BLE001 - mid-navigation
-                                seen = [False, "loading"]
-                            if seen[0]:
+                                seen = [False, "loading", ""]
+                            ours = origin_of(seen[2]) == origin_of(here)
+                            if seen[0] and ours:
                                 ha_origins.add(origin_of(here))
                                 print(f"Bar: {origin_of(here)} is a Home "
                                       f"Assistant, so no bar above it")
                                 want = False
-                            elif seen[1] == "complete":
+                            elif seen[1] == "complete" and ours:
                                 not_ha_origins.add(origin_of(here))
                         set_strip(want)
                         if want:
