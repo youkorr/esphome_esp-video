@@ -14,8 +14,8 @@ page moving on inside a link -- B, and C, which moves within itself by
 history.pushState when tapped, the way most sites move today.
 
   - the bar is not drawn on the panel's own page;
-  - it is drawn when a link opens, and gone five seconds later;
-  - a touch anywhere brings it back;
+  - it is drawn when a link opens, in a strip of its own above the page,
+    and stays -- the page is never under it;
   - back, reload and home each do their job, and the page under the bar is
     never clicked by any of them;
   - and they stay INSIDE the link, as a browser's do: back from the link's
@@ -158,9 +158,12 @@ def main():
     threading.Thread(target=accept, daemon=True).start()
 
     # The same geometry the sender computes, from the same class.
-    bar = ha_send.NavBar(None, W, H, ha_send.HOME_CORNER_FRACTION * W)
-    spots = {b["name"]: (int(b["x"] + b["w"] / 2), int(b["y"] + b["h"] / 2))
+    bar = ha_send.NavBar(W, H)
+    strip = bar.height
+    spots = {b["name"]: (int(b["x"] + b["w"] / 2), strip // 2)
              for b in bar.buttons}
+    ground = (W - 3, 3)
+    STRIP = (24, 27, 34)
     middle = (W // 2, H * 2 // 3)
     left = (W // 8, H * 2 // 3)
 
@@ -176,21 +179,13 @@ def main():
             time.sleep(0.05)
         return False
 
-    def bar_drawn(page_colour, seconds=3):
-        """The bar's middle button is not the page's own colour."""
+    def bar_drawn(page_colour=None, seconds=3):
+        """The strip's own ground is drawn across the top of the panel."""
         end = time.monotonic() + seconds
         while time.monotonic() < end:
-            if not near(colour(spots["reload"]), page_colour, 30):
+            if near(colour(ground), STRIP):
                 return True
             time.sleep(0.05)
-        return False
-
-    def bar_gone(page_colour, seconds=8):
-        end = time.monotonic() + seconds
-        while time.monotonic() < end:
-            if all(near(colour(p), page_colour) for p in spots.values()):
-                return True
-            time.sleep(0.1)
         return False
 
     def tap(at):
@@ -226,21 +221,27 @@ def main():
         check("it arrives", wait(HOME, seconds=40))
         time.sleep(1.0)
         check("no bar is drawn on it",
-              all(near(colour(p), HOME) for p in spots.values()),
+              # Not where the back button would be: that is under the corner
+              # mark, drawn faint on the page for a few seconds on arrival.
+              all(near(colour(p), HOME)
+                  for p in (ground, spots["reload"], spots["home"])),
               str({k: colour(p) for k, p in spots.items()}))
 
         print("A link opens:")
         ask(f"open {site}/a")
         check("page A arrives", wait(A))
-        check("the bar is drawn over it", bar_drawn(A),
-              str(colour(spots["reload"])))
+        check("the bar is drawn above it", bar_drawn(A),
+              str(colour(ground)))
         if PICTURE:
             time.sleep(0.3)
             with lock:
                 canvas.save(PICTURE)
-        check("and is gone a few seconds later", bar_gone(A))
+        check("and the page starts below it, not under it",
+              near(colour((W // 2, strip + 3)), A),
+              str(colour((W // 2, strip + 3))))
+        time.sleep(6)
+        check("it is still there a while later", bar_drawn(A))
         tap(middle)
-        check("a touch anywhere brings it back", bar_drawn(A))
         # The click comes when the finger is let go, a moment after the bar
         # is drawn; a navigation asked for before it would swallow it.
         time.sleep(0.5)
@@ -313,6 +314,18 @@ def main():
             time.sleep(0.05)
         check("home on the link's first page loads it again",
               counts["c"] > before and wait(C), f"{before} -> {counts['c']}")
+        # Held, the top-left of the glass still goes home: it is where
+        # somebody holds to, and inside a link it is now the back button.
+        bar_drawn(C)
+        x, y = spots["back"]
+        panel[0].sendall(b"T\x01\x00" + x.to_bytes(2, "little")
+                         + y.to_bytes(2, "little"))
+        time.sleep(1.2)
+        panel[0].sendall(b"T\x00")
+        check("holding the back button goes to the panel's own page",
+              wait(HOME), str(colour(middle)))
+        check("and the bar goes with it", not bar_drawn(seconds=1.5),
+              str(colour(ground)))
         time.sleep(0.5)
         check("no button press ever reached the page under the bar",
               counts["clicked"] == taps,

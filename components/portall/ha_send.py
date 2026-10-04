@@ -65,6 +65,7 @@ import subprocess
 import sys
 import threading
 import time
+import urllib.parse
 
 # udisp_send.py is next to this file and owns the wire format. Importing it
 # rather than restating the header keeps one definition of the protocol.
@@ -1539,6 +1540,89 @@ class Follow:
         return taken
 
 
+class Downloads:
+    """What a page downloads, kept where the household can reach it.
+
+    Left alone, Playwright puts a download in a temporary folder deleted when
+    the browser closes, and a panel shows nothing at all: reported as the
+    download "qui ne fonctionne pas". Here every file a page downloads is
+    copied into this panel's own folder -- the add-on hands every panel one,
+    and lists them on its own page in Home Assistant -- and the panel says so
+    in the bar's strip.
+
+    save_as() waits for the download to finish, and it is called from
+    Playwright's own handler for the event: in the synchronous API a handler
+    runs in a greenlet of its own, so the wait does not hold the loop -- the
+    picture goes on while a file arrives. Measured with a file served slowly,
+    by tools/checkdownload.py. The file is written under a temporary name and
+    renamed once whole, so nothing reads half of one.
+    """
+
+    def __init__(self, folder):
+        self.folder = folder
+        self._news = collections.deque(maxlen=8)
+
+    def attach(self, page):
+        try:
+            page.on("download", self._on_download)
+        except Exception:  # noqa: BLE001 - an accessory, never the picture
+            pass
+
+    @staticmethod
+    def _safe(name):
+        name = os.path.basename(str(name or "").replace("\\", "/")).strip()
+        name = re.sub(r'[\x00-\x1f<>:"|?*]', "_", name).lstrip(".")
+        return name[:120] or "download"
+
+    def _free(self, name):
+        stem, dot, ext = name.rpartition(".")
+        if not dot:
+            stem, ext = name, ""
+        candidate, n = name, 1
+        while os.path.exists(os.path.join(self.folder, candidate)):
+            n += 1
+            candidate = f"{stem} ({n}){'.' + ext if ext else ''}"
+        return candidate
+
+    def _on_download(self, download):
+        try:
+            name = self._safe(download.suggested_filename)
+        except Exception:  # noqa: BLE001
+            name = "download"
+        if not self.folder:
+            print(f"Download: {name} -- not kept, since no --downloads folder "
+                  "was given")
+            self._news.append(("lost", name))
+            return
+        try:
+            os.makedirs(self.folder, exist_ok=True)
+            name = self._free(name)
+            final = os.path.join(self.folder, name)
+            part = final + ".part"
+            print(f"Download: {name} from {download.url[:80]} ...")
+            self._news.append(("start", name))
+            download.save_as(part)
+            os.replace(part, final)
+            size = os.path.getsize(final)
+        except Exception as err:  # noqa: BLE001 - one file, never the panel
+            print(f"Download: {name} did not finish ({err})")
+            self._news.append(("failed", name))
+            try:
+                os.remove(part)
+            except (OSError, UnboundLocalError):
+                pass
+            return
+        print(f"Download: {name} kept, {size / 1024:.0f} KiB, in "
+              f"{self.folder}")
+        self._news.append(("done", name))
+
+    def take(self):
+        """What happened since the loop last asked: (what, file name)."""
+        news = list(self._news)
+        self._news.clear()
+        return news
+
+
 def _origin_of(url):
     match = re.match(r"(https?://[^/?#]+)", url or "")
     return match.group(1).lower() if match else None
@@ -2830,6 +2914,13 @@ GAP = 3
 # enough to ride out a re-render that blurs a field for a frame, short enough
 # that putting the keyboard away still feels immediate.
 BLUR_GRACE_S = 0.4
+# How long after a tap on the page a field taking focus still counts as the
+# tap's doing. A telephone brings its keyboard up for a field somebody touched
+# or that a touch led to -- a dialog animating in, an editor loading -- and not
+# for one a page focused by itself on arrival. Without this the keys came up
+# on pages nobody had touched: "parfois il s'affiche quand je suis sur une
+# autre page web".
+FOCUS_AFTER_TAP_S = 3.0
 
 # Installed on the context rather than the page, so it survives every
 # navigation -- including the one that parks the page on about:blank while the
@@ -3357,10 +3448,8 @@ class HomeHint:
         self._at = None
 
 
-# How long the bar of buttons stays up inside a link after a page arrives or
-# a finger lands, and the three buttons it carries, in the order drawn.
-NAV_BAR_SECONDS = 5.0
-NAV_BUTTONS = (("back", "←"), ("reload", "⟳"), ("home", "⌂"))
+# The three buttons of the bar, in the order drawn.
+NAV_BUTTONS = ("back", "reload", "home")
 
 # Back, reload and home on the glass, for the pages a link opens.
 #
@@ -3369,192 +3458,132 @@ NAV_BUTTONS = (("back", "←"), ("reload", "⟳"), ("home", "⌂"))
 # and a home, and on the panel there was none -- only the corner gesture,
 # which nobody finds without being told and which only ever goes home.
 #
-# The same rules as the keyboard and the corner mark, for the same reasons:
-# the bar is DECORATION. pointer-events: none, no listeners, no focus,
-# built out of the DOM, its sheet through the CSSOM, in the top layer through
-# the popover API. A contact on it is decided by arithmetic in the sender and
-# the page is never told -- so it works on a site that swallows every event,
-# and a field being typed into keeps its focus.
-#
-# Shown only inside a link, never on the panel's own page, and only for a
-# few seconds after a page arrives or a finger lands: always there, it would
-# sit over the top of every site. Hidden, it takes nothing -- the place where
-# it was belongs to the page.
-NAV_BAR_JS = r"""
-(() => {
-  const ID = '__portall_nav';
-  window.__portallNav = {
-    dress(css) {
-      try {
-        if (!this.sheet) {
-          this.sheet = new CSSStyleSheet();
-          document.adoptedStyleSheets = [...document.adoptedStyleSheets, this.sheet];
-        }
-        this.sheet.replaceSync(css);
-        return;
-      } catch (err) { /* the element below */ }
-      let s = document.getElementById(ID + '_css');
-      if (!s) {
-        s = document.createElement('style');
-        s.id = ID + '_css';
-        document.documentElement.appendChild(s);
-      }
-      s.textContent = css;
-    },
-    show(css, labels, lit) {
-      let d = document.getElementById(ID);
-      if (!d) {
-        d = document.createElement('div');
-        d.id = ID;
-        d.setAttribute('popover', 'manual');
-        for (const label of labels) {
-          const b = document.createElement('span');
-          b.textContent = label;
-          d.appendChild(b);
-        }
-        document.documentElement.appendChild(d);
-      }
-      this.dress(css);
-      d.style.removeProperty('display');
-      [...d.children].forEach((b, i) => b.classList.toggle('lit', i === lit));
-      let layered = false;
-      try {
-        if (d.matches(':popover-open')) d.hidePopover();
-        d.showPopover();
-        layered = true;
-      } catch (err) { /* the stylesheet carries a z-index for this case */ }
-      return layered;
-    },
-    hide() {
-      const d = document.getElementById(ID);
-      if (d) {
-        try { if (d.matches(':popover-open')) d.hidePopover(); } catch (err) {}
-        d.style.setProperty('display', 'none');
-      }
-    },
-  };
-})();
-"""
+# It is a STRIP of its own, the way a browser's toolbar is, not something
+# drawn over the page. 4.34 drew it over the top of the page for a few
+# seconds after each page and each touch, and that is exactly where a search
+# box is: a tap on Google's field pressed Reload instead, so the keyboard
+# never came up -- reported as the keyboard and the bar "ont du mal a
+# cohabiter", and reproduced by tools/checkkeyboard.py. Inside a link the
+# browser's viewport is made shorter by the strip's height and the sender
+# draws the strip itself above the page's picture, so the two never overlap
+# and nothing about the bar is in the page at all: no script, no element, no
+# stylesheet for a site to refuse. A contact in the strip is decided by
+# arithmetic here and the page is never told.
 
 
 class NavBar:
-    """Back, reload and home, drawn at the top of a page a link opened.
+    """Back, reload and home, in a strip of their own above a link's page.
 
     The sender owns the geometry: the same numbers place each button and
     decide which one a contact hit, so what is drawn and what is pressed
-    cannot drift -- the keyboard's rule. Buttons are drawn inset and hit
-    whole, so a finger on a seam still presses something.
+    cannot drift -- the keyboard's rule. Buttons are hit whole, the strip's
+    full height, so a finger on a seam still presses something.
     """
 
-    def __init__(self, page, page_w, page_h, corner_w=0.0):
-        self._page = page
-        side = max(44.0, min(72.0, 0.075 * min(page_w, page_h)))
-        gap = round(side * 0.25)
-        width = 3 * side + 2 * gap + 2 * gap
-        # Centred, and never over the corner that goes home: the two are
-        # tested by different arithmetic and must not overlap.
-        left = max((page_w - width) / 2.0, corner_w + gap)
-        self.box = (left, gap * 0.5, width, side + 2 * gap)
+    def __init__(self, page_w, page_h):
+        self.width = page_w
+        # A browser's toolbar is about 7% of a telephone's height; this is
+        # in the same place, with a floor a finger can hit.
+        self.height = int(round(max(40.0, min(60.0, 0.08 * min(page_w,
+                                                                page_h)))))
+        side = self.height
         self.buttons = []
-        for i, (name, label) in enumerate(NAV_BUTTONS):
-            self.buttons.append({
-                "name": name, "label": label,
-                "x": left + gap + i * (side + gap) - gap / 2.0,
-                "y": self.box[1], "w": side + gap, "h": self.box[3],
-            })
-        self._side, self._gap = side, gap
-        self.visible = False
-        self._at = None
-        self.broken = False
-        self._warned = False
-        self._arrived = False
+        for i, name in enumerate(NAV_BUTTONS):
+            self.buttons.append({"name": name, "x": i * side * 1.25,
+                                 "y": 0, "w": side * 1.25, "h": side})
+        # Shown or not: the loop decides, and the viewport follows.
+        self.shown = False
+        self.lit = None
+        self.host = ""
+        # A few words shown in place of the address for a while -- a file
+        # that is downloading, or has been kept.
+        self.message = ""
+        self.message_until = 0.0
+        self._drawn = None
+        self._image = None
         try:
-            page.on("domcontentloaded", self._on_arrival)
-        except Exception:  # noqa: BLE001 - an accessory, never the picture
-            pass
-
-    def _on_arrival(self, _page=None):
-        self._arrived = True
-
-    def take_arrival(self):
-        """Whether a new document arrived since last asked; forgets it if so."""
-        if not self._arrived:
-            return False
-        self._arrived = False
-        self.forget()
-        return True
-
-    def contains(self, x, y):
-        bx, by, bw, bh = self.box
-        return self.visible and bx <= x < bx + bw and by <= y < by + bh
+            from PIL import ImageFont
+            self._font = ImageFont.load_default(size=int(side * 0.38))
+        except Exception:  # noqa: BLE001 - the address is a nicety
+            self._font = None
 
     def hit(self, x, y):
-        if not self.contains(x, y):
+        """The button under a point of the strip, or None."""
+        if not self.shown or y >= self.height:
             return None
         for button in self.buttons:
             if button["x"] <= x < button["x"] + button["w"]:
                 return button["name"]
         return None
 
-    def _css(self):
-        bx, by, bw, bh = self.box
-        side, gap = self._side, self._gap
-        return f"""
-        #__portall_nav {{
-          position: fixed; left: {bx:.0f}px; top: {by:.0f}px; margin: 0;
-          width: {bw:.0f}px; height: {bh:.0f}px; box-sizing: border-box;
-          padding: {gap:.0f}px; border: 0; border-radius: {bh / 2:.0f}px;
-          display: flex; gap: {gap:.0f}px; align-items: center;
-          justify-content: center; pointer-events: none;
-          background: rgba(20, 24, 32, .78);
-          box-shadow: 0 2px 10px rgba(0, 0, 0, .45);
-          z-index: 2147483646; overflow: hidden;
-          font: 600 {side * 0.5:.0f}px/1 system-ui, sans-serif;
-        }}
-        #__portall_nav span {{
-          width: {side:.0f}px; height: {side:.0f}px; border-radius: 50%;
-          display: flex; align-items: center; justify-content: center;
-          color: #fff; background: rgba(255, 255, 255, .14);
-        }}
-        #__portall_nav span.lit {{ background: rgba(255, 255, 255, .55);
-          color: #111; }}
-        #__portall_nav::backdrop {{ background: transparent; }}
-        """
+    def press(self, name):
+        """Draw one button as held down, or none."""
+        self.lit = name
 
-    def set(self, shown, lit=None):
-        """Draw the bar, with one button pressed, or take it away."""
-        if self.broken:
-            self.visible = False
-            return
-        state = (shown, lit if shown else None)
-        if state == self._at:
-            return
-        self._at = state
-        self.visible = shown
-        try:
-            if not shown:
-                self._page.evaluate("window.__portallNav.hide()")
-                return
-            names = [b["name"] for b in self.buttons]
-            index = names.index(lit) if lit in names else -1
-            layered = self._page.evaluate(
-                "a => window.__portallNav.show(a[0], a[1], a[2])",
-                [self._css(), [b["label"] for b in self.buttons], index])
-        except Exception as err:  # noqa: BLE001 - an accessory, never the picture
-            self.broken = True
-            self.visible = False
-            print(f"Bar: this page will not have the back/reload/home bar "
-                  f"drawn ({err}). The corner still goes home.")
-            return
-        if not layered and not self._warned:
-            self._warned = True
-            print("Bar: drawn in the page rather than in the top layer, so a "
-                  "modal dialog can cover it.")
+    def say(self, text, seconds):
+        """Show a few words in place of the address for a while."""
+        self.message = text
+        self.message_until = time.monotonic() + seconds
 
-    def forget(self):
-        """After a navigation there is a new document and nothing is drawn."""
-        self._at = None
-        self.visible = False
+    def look(self):
+        """What the strip shows: a change of it is a picture to send."""
+        if self.message and time.monotonic() < self.message_until:
+            return (self.lit, self.message, True)
+        return (self.lit, self.host, False)
+
+    def picture(self):
+        """The strip, as a picture the width of the page."""
+        if self._drawn == self.look() and self._image is not None:
+            return self._image
+        from PIL import Image, ImageDraw
+        side = self.height
+        image = Image.new("RGB", (self.width, side), (24, 27, 34))
+        draw = ImageDraw.Draw(image)
+        ink = (236, 238, 242)
+        for button in self.buttons:
+            cx = button["x"] + button["w"] / 2.0
+            cy = side / 2.0
+            r = side * 0.36
+            lit = button["name"] == self.lit
+            draw.ellipse((cx - r, cy - r, cx + r, cy + r),
+                         fill=(150, 156, 168) if lit else (44, 48, 58))
+            colour = (20, 22, 28) if lit else ink
+            # Drawn as shapes rather than as characters, so they look the
+            # same whatever fonts the machine running this has.
+            s = side * 0.17
+            w = max(2, int(round(side * 0.07)))
+            if button["name"] == "back":
+                draw.line((cx - s, cy, cx + s, cy), fill=colour, width=w)
+                draw.line((cx - s, cy, cx - s * 0.2, cy - s * 0.8),
+                          fill=colour, width=w)
+                draw.line((cx - s, cy, cx - s * 0.2, cy + s * 0.8),
+                          fill=colour, width=w)
+            elif button["name"] == "reload":
+                draw.arc((cx - s, cy - s, cx + s, cy + s), 40, 330,
+                         fill=colour, width=w)
+                tip = (cx + s * 0.77, cy - s * 0.64)
+                draw.polygon((tip, (tip[0] - s * 0.55, tip[1] - s * 0.15),
+                              (tip[0] + s * 0.05, tip[1] + s * 0.55)),
+                             fill=colour)
+            else:
+                draw.polygon(((cx, cy - s * 1.05), (cx - s * 1.05, cy),
+                              (cx + s * 1.05, cy)), fill=colour)
+                draw.rectangle((cx - s * 0.7, cy, cx + s * 0.7, cy + s),
+                               fill=colour)
+        _, text, said = self.look()
+        if self._font is not None and text:
+            left = self.buttons[-1]["x"] + self.buttons[-1]["w"] + side * 0.3
+            room = self.width - left - side * 0.3
+            try:
+                while text and self._font.getlength(text) > room:
+                    text = text[:-2] + "\u2026"
+                draw.text((left, side / 2.0), text,
+                          fill=(236, 238, 242) if said else (170, 176, 188),
+                          font=self._font, anchor="lm")
+            except Exception:  # noqa: BLE001 - the address is a nicety
+                pass
+        self._drawn, self._image = self.look(), image
+        return image
 
 
 KEYBOARD_INIT_JS = r"""
@@ -3809,6 +3838,17 @@ class Keyboard:
         # Hide was pressed while the field kept its focus, so the keys are to
         # stay down until they are asked for again.
         self.dismissed = False
+        # When the page was last tapped, and whether a new document arrived
+        # since the loop last looked: a page that navigates by itself takes
+        # the keys with it, and nothing else would tell this so.
+        self._tapped_at = None
+        self._arrived = False
+        self._unasked = False
+        if page is not None:
+            try:
+                page.on("domcontentloaded", self._on_arrival)
+            except Exception:  # noqa: BLE001 - an accessory, never the picture
+                pass
         # Set when a page refuses to have it drawn at all. Cleared by the next
         # page, since the refusal belongs to the document and not to the panel.
         self.broken = False
@@ -3820,6 +3860,11 @@ class Keyboard:
         self.height = self._key_h * len(self._letters)
         self.top = page_h - self.height
         self.width = page_w
+        self._lay()
+
+    def set_view(self, page_h):
+        """The page is now this tall -- the bar's strip took the rest."""
+        self.top = page_h - self.height
         self._lay()
 
     def _lay(self):
@@ -3996,11 +4041,30 @@ class Keyboard:
         away to reach what was underneath must not spring up the moment that
         thing is touched.
         """
+        self._tapped_at = time.monotonic()
         if self.dismissed and y < self.top:
             self.dismissed = False
 
+    def _on_arrival(self, _page=None):
+        self._arrived = True
+
     def forget(self):
-        """The page it was drawn on has gone; the overlay went with it."""
+        """The page has changed under the keys: take them away.
+
+        Not only the bookkeeping. A page that moved WITHIN itself -- the bar's
+        back over history.pushState, which is how most sites move -- keeps
+        its document and the keys drawn on it, and once this had forgotten
+        them nothing ever took them down: a dead keyboard over a page with
+        nothing to type into. So the page is told too; on a new document
+        there is nothing to take down and it costs one round trip.
+        """
+        try:
+            self._page.evaluate(
+                "() => window.__udispKb && window.__udispKb.hide()")
+        except Exception:  # noqa: BLE001 - a page mid-navigation needs none
+            pass
+        self._tapped_at = None
+        self._unasked = False
         self.visible = False
         self.dismissed = False
         self.broken = False
@@ -4023,6 +4087,14 @@ class Keyboard:
         self._pending.append(time.monotonic() + when)
 
     def tick(self, now):
+        if self._arrived:
+            # A new document, which the loop did not ask for: a search that
+            # loads its results, a redirect. The keys went with the old one,
+            # and believing them still up ate every tap along the bottom of
+            # the screen as a keystroke -- a keyboard nobody could see.
+            self._arrived = False
+            self.forget()
+            self.request_sync(0.5)
         if not self._pending or now < min(self._pending):
             return
         self._pending = [t for t in self._pending if t > now]
@@ -4060,6 +4132,16 @@ class Keyboard:
         if wanted and self.dismissed:
             # Asked to go away while this same field still holds focus. A tap
             # anywhere above the keys undoes it -- see note_tap.
+            return
+        if wanted and not self.visible and (
+                self._tapped_at is None
+                or time.monotonic() - self._tapped_at > FOCUS_AFTER_TAP_S):
+            # A field that took focus by itself. Tapping it is how the keys
+            # come up, as on a telephone.
+            if not self._unasked:
+                self._unasked = True
+                print("Keyboard: a field took focus by itself -- the keys "
+                      "come up when it is tapped")
             return
         if wanted:
             self._blur_at = None
@@ -4195,6 +4277,8 @@ class Injector:
         # The back/reload/home bar, when one is drawn. A contact on it is a
         # button and never reaches the page, exactly like the keyboard.
         self._bar = bar
+        # The strip's height while one is drawn above the page, else 0.
+        self._strip = 0
         self._on_bar = False
         self._bar_key = None
         # Set when a bar button was released on: "back", "reload" or "home",
@@ -4283,21 +4367,32 @@ class Injector:
                 clicked = self._finish() or clicked
                 continue
             x, y = self._map.to_page(*point)
+            # Above the page, inside a link, is the bar's strip, and the page
+            # itself starts below it: everything after this line is in the
+            # page's own coordinates, so the keyboard and the corner need not
+            # know the strip exists.
+            bar_y = y
+            y = max(0.0, y - self._strip)
             if self._went_home:
                 # The gesture already did its one job. Nothing else it does
                 # reaches the page.
                 self._last = (x, y)
                 continue
-            if self._start is None and self._bar is not None and \
-                    self._bar.contains(x, y):
+            if self._start is None and self._strip and bar_y < self._strip:
                 # The bar's, not the page's -- the pointer is not even moved.
                 self._on_bar = True
-                self._bar_key = self._bar.hit(x, y)
-                self._bar.set(True, self._bar_key)
+                self._bar_key = self._bar.hit(x, bar_y)
+                self._bar.press(self._bar_key)
                 self._start = self._last = (x, y)
                 self._down_at = time.monotonic()
                 self._scrolling = False
-                self._corner_at = None
+                # The very top-left of the glass is where somebody holds to
+                # go home, and inside a link that is now the back button. So
+                # held there long enough it still goes home -- a quick press
+                # is back, a long one is the launcher, and a habit learnt on
+                # the launcher keeps working on every page.
+                self._corner_at = (self._down_at if x <= self._corner[0]
+                                   else None)
                 self._from_corner = False
                 self._went_home = False
                 continue
@@ -4346,9 +4441,9 @@ class Injector:
             if self._on_bar:
                 # Sliding off a button abandons it, as on the keyboard.
                 if self._bar_key is not None and \
-                        self._bar.hit(x, y) != self._bar_key:
+                        self._bar.hit(x, bar_y) != self._bar_key:
                     self._bar_key = None
-                    self._bar.set(True, None)
+                    self._bar.press(None)
                 self._last = (x, y)
                 continue
             if self._on_keyboard:
@@ -4421,6 +4516,10 @@ class Injector:
     def on_bar(self):
         """A finger is on the back/reload/home bar right now."""
         return self._on_bar
+
+    def set_strip(self, height):
+        """The bar's strip is now this tall above the page (0: none)."""
+        self._strip = height if self._bar is not None else 0
 
     def take_nav(self):
         """"back", "reload" or "home" once, when a bar button was let go on."""
@@ -4550,9 +4649,9 @@ class Injector:
         # there will be no later turn to carry it.
         self._flush_wheel(force=True)
         if self._on_bar:
-            if self._bar_key is not None:
+            if self._bar_key is not None and not self._went_home:
                 self._nav = self._bar_key
-            self._bar.set(True, None)
+            self._bar.press(None)
         elif self._on_keyboard:
             if self._key is not None:
                 # Enter usually closes what was being typed into, so the key
@@ -4647,7 +4746,7 @@ class Injector:
         if self._on_keyboard and self._keyboard is not None:
             self._keyboard.highlight(None)
         if self._on_bar and self._bar is not None:
-            self._bar.set(self._bar.visible, None)
+            self._bar.press(None)
         self._reset()
 
     def _undecided(self):
@@ -4740,9 +4839,16 @@ def main():
     parser.add_argument(
         "--no-nav-bar",
         action="store_true",
-        help="do not draw the back / reload / home bar at the top of a page "
-        "a link opened. It shows for a few seconds after a page arrives and "
-        "after each touch, and never on the panel's own page",
+        help="do not draw the back / reload / home bar above a page a link "
+        "opened. It takes a strip of its own at the top, the way a browser's "
+        "toolbar does, and is never shown on the panel's own page",
+    )
+    parser.add_argument(
+        "--downloads",
+        metavar="DIR",
+        help="keep what a page downloads in this folder (the add-on gives "
+        "every panel one and lists them on its own page). Without it a "
+        "download is said in the log and not kept",
     )
     parser.add_argument(
         "--home-hold",
@@ -5389,7 +5495,6 @@ def main():
         # On the context, so it survives every navigation the panel makes --
         # including the one the corner itself performs.
         context.add_init_script(HOME_HINT_JS)
-        context.add_init_script(NAV_BAR_JS)
         # One arrow, one move, on a page that navigates nothing by itself --
         # and a line saying what became of the arrows on each site.
         context.expose_function("__udispNavNote", NavNotes())
@@ -5432,6 +5537,11 @@ def main():
             )
         # A persistent context opens a page itself; a fresh browser does not.
         page = context.pages[0] if context.pages else context.new_page()
+        # Every page, the panel's and any a link opens in a new window --
+        # a download link often does.
+        downloads = Downloads(args.downloads)
+        downloads.attach(page)
+        context.on("page", downloads.attach)
         user_agent = present_browser(
             context.new_cdp_session(page), page, args.keyboard != "off",
             args.user_agent,
@@ -5522,8 +5632,39 @@ def main():
         corner_fraction = min(0.40, max(0.02, args.home_corner / 100.0))
         # Back, reload and home on the glass, inside a link. See NavBar.
         bar = (None if args.no_touch or args.no_nav_bar
-               else NavBar(page, page_w, page_h, corner_fraction * page_w))
-        bar_until = 0.0
+               else NavBar(page_w, page_h))
+        # The page's last picture and what the strip looked like on it, so a
+        # button going down can be shown without waiting for the page.
+        last_shot = None
+        composed_look = None
+
+        def set_strip(want, restart=True):
+            """Give the bar its strip above the page, or take it away.
+
+            Before a navigation the loop knows is coming when it can, so the
+            new page is laid out at its size once rather than twice: done
+            after, it cost the first picture of a link about 25 ms.
+            """
+            nonlocal previous, pending, image, last_shot, composed_look
+            if bar is None or want == bar.shown:
+                return
+            bar.shown = want
+            strip = bar.height if want else 0
+            try:
+                page.set_viewport_size({"width": page_w,
+                                        "height": page_h - strip})
+            except Exception as err:  # noqa: BLE001
+                print(f"Bar: the page could not be made room for ({err})")
+            if injector is not None:
+                injector.set_strip(strip)
+            if keyboard is not None:
+                keyboard.set_view(page_h - strip)
+            # A page of another height: nothing of the last picture is worth
+            # diffing against or showing.
+            previous = pending = image = None
+            last_shot = composed_look = None
+            if restart:
+                capture.restart()
         # Asked for the page's history the first time the bar is pressed.
         nav_session = None
         # History entries a link was opened from, when that was another link.
@@ -5814,6 +5955,16 @@ def main():
                         last_send = (last_send + limit
                                      if started - last_send < 2 * limit
                                      else started)
+                    if shot is not None:
+                        last_shot = shot
+                    elif (bar is not None and bar.shown and free
+                            and last_shot is not None
+                            and bar.look() != composed_look):
+                        # A button went down or came up, or the address
+                        # changed, and the page painted nothing new: the
+                        # strip is ours, so the picture is made again from
+                        # the page's last one rather than waited for.
+                        shot = last_shot
 
                     # Ask for another picture only once there is somewhere to
                     # put it. Holding the acknowledgement back is what stops
@@ -5844,6 +5995,17 @@ def main():
                         # whole of it -- 1.8 ms a frame for nothing.
                         if image.mode != "RGB":
                             image = image.convert("RGB")
+                        if bar is not None and bar.shown:
+                            # The page is the strip's height shorter than the
+                            # panel, and the strip goes above it.
+                            body = (page_w, page_h - bar.height)
+                            if image.size != body:
+                                image = image.resize(body, Image.BILINEAR)
+                            whole = Image.new("RGB", (page_w, page_h))
+                            whole.paste(bar.picture(), (0, 0))
+                            whole.paste(image, (0, bar.height))
+                            image = whole
+                            composed_look = bar.look()
                         if transpose is not None:
                             image = image.transpose(transpose)
                         if image.size != (send_w, send_h):
@@ -6046,11 +6208,6 @@ def main():
                                 print(f"[{marked}] touch released")
                     if injector is not None and reports:
                         clicked_page = injector.handle(reports)
-                        if bar is not None and injector.began and \
-                                not injector.on_bar:
-                            # Any landing brings the bar back for a while,
-                            # the way a telephone's browser shows its own.
-                            bar_until = time.monotonic() + NAV_BAR_SECONDS
                         if injector.missed_home:
                             # Somebody reached for the corner and let go too
                             # soon. Showing the mark again is the only answer
@@ -6161,20 +6318,37 @@ def main():
                             hint.set(0.0)
                         else:
                             hint.set(None)
-                    # The bar: up for a few seconds after a page arrives or a
-                    # finger lands, held up while a finger is on it, and never
-                    # on the panel's own page -- which has the launcher, or is
-                    # the dashboard, and has nothing to go back to.
-                    if bar is not None and bar.take_arrival():
-                        bar_until = time.monotonic() + NAV_BAR_SECONDS
+                    # The bar's strip: above every page a link opened, the
+                    # way a browser's toolbar is, and never on the panel's own
+                    # page -- which has the launcher, and nothing to go back
+                    # to -- nor on a Home Assistant dashboard, which has its
+                    # own. Shown, the page is made shorter by its height, so
+                    # the two never overlap.
                     if bar is not None:
-                        at_home = (page.url.rstrip("/")
-                                   == (args.url or "").rstrip("/"))
-                        if injector is not None and injector.on_bar:
-                            bar_until = now + NAV_BAR_SECONDS
-                        else:
-                            bar.set(awake and not parked and not at_home
-                                    and now < bar_until)
+                        french = (args.locale or "").lower().startswith("fr")
+                        for what, name in downloads.take():
+                            words = {
+                                "start": ("Téléchargement de {}…",
+                                          "Downloading {}…"),
+                                "done": ("{} enregistré : page Portall dans "
+                                         "Home Assistant",
+                                         "{} kept: the Portall page in "
+                                         "Home Assistant"),
+                                "failed": ("Échec du téléchargement de {}",
+                                           "Download failed: {}"),
+                                "lost": ("{} non conservé", "{} not kept"),
+                            }[what][0 if french else 1]
+                            bar.say(words.format(name),
+                                    600.0 if what == "start" else 6.0)
+                        here = page.url
+                        want = (not parked
+                                and open_page.is_home_assistant is not True
+                                and here.startswith(("http:", "https:"))
+                                and not _same_page(here, args.url))
+                        set_strip(want)
+                        if want:
+                            bar.host = urllib.parse.urlsplit(here).hostname \
+                                or ""
                     # tick() first and always, so a swipe already decided in
                     # handle() is collected rather than left to fire on a later
                     # turn behind the board's own request.
@@ -6286,6 +6460,11 @@ def main():
                                         history["currentIndex"]]["id"])
                                 except Exception:  # noqa: BLE001
                                     pass
+                            # A link opened from the launcher: the strip goes
+                            # up first, so the page is laid out once.
+                            if was_tapped and open_page.is_home_assistant \
+                                    is not True:
+                                set_strip(True, restart=False)
                             done = (go_to(page, link) if was_tapped
                                     else open_link(page, link))
                             if not done:
@@ -6306,6 +6485,7 @@ def main():
                             # as it happens instead of after 150 ms of a
                             # blocked loop, and so the screencast is not
                             # restarted (see below).
+                            set_strip(False, restart=False)
                             if not go_to(page, args.url):
                                 print("Warning: home would not open")
                         else:

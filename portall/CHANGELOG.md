@@ -1,5 +1,25 @@
 # Changelog
 
+## 4.35.0
+
+- **The keyboard comes up when a field is touched, again.** The bar of 4.34
+  was drawn over the top of the page, exactly where a search box usually is:
+  touching Google's search field pressed **⟳** instead, so the keyboard never
+  came up. The bar now has a strip of its own above the site, like a browser's
+  toolbar, and shows the site's address beside its buttons. The two can no
+  longer overlap, and the bar no longer comes and goes. Holding **←** goes to
+  the launcher, as holding the top-left corner always has.
+- **The keyboard no longer stays behind on another page.** After **←** on a
+  site that changes page without reloading, the keys could stay drawn and
+  dead; after a page went somewhere else by itself, an invisible keyboard
+  could swallow touches along the bottom of the screen. Both are fixed.
+- **The keyboard no longer pops up by itself** on a page that focuses a
+  field when it opens. As on a telephone, touch the field and it comes up.
+- **Downloads are kept.** A file a page downloads is saved for that screen,
+  the bar says so, and it can be fetched or deleted from the add-on's page
+  (**Portall** in Home Assistant's sidebar) on a telephone or a PC. They are
+  not put into the add-on's backups.
+
 ## 4.34.1
 
 - **The bar stays inside the link, like a browser's.** **⌂** now goes to the

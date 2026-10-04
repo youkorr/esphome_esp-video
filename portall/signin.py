@@ -30,6 +30,7 @@ Two rules this file lives under, both the add-on's own:
 import glob
 import html
 import json
+import mimetypes
 import os
 import re
 import shutil
@@ -438,6 +439,49 @@ class SignIn:
                 return
             time.sleep(1)
 
+    # -- the downloads -------------------------------------------------------
+
+    def files(self, name):
+        """What a screen's pages downloaded, newest first: (name, bytes, when).
+
+        A file still arriving is under a .part name and is not listed.
+        """
+        folder = (self.panels.get(name) or {}).get("downloads")
+        if not folder or not os.path.isdir(folder):
+            return []
+        found = []
+        for entry in os.scandir(folder):
+            if entry.is_file() and not entry.name.endswith(".part") \
+                    and not entry.name.startswith("."):
+                info = entry.stat()
+                found.append((entry.name, info.st_size, info.st_mtime))
+        return sorted(found, key=lambda f: f[2], reverse=True)
+
+    def file_path(self, name, file):
+        """The file a request names, or None -- never anything outside."""
+        if not file or file != os.path.basename(file) or file.startswith("."):
+            return None
+        if file not in {f[0] for f in self.files(name)}:
+            return None
+        return os.path.join(self.panels[name]["downloads"], file)
+
+    @staticmethod
+    def _send_file(conn, path, file):
+        size = os.path.getsize(path)
+        kind = mimetypes.guess_type(file)[0] or "application/octet-stream"
+        quoted = urllib.parse.quote(file)
+        conn.sendall((f"HTTP/1.1 200 OK\r\nContent-Type: {kind}\r\n"
+                      f"Content-Length: {size}\r\n"
+                      f"Content-Disposition: attachment; filename*=UTF-8''"
+                      f"{quoted}\r\nCache-Control: no-store\r\n"
+                      "Connection: close\r\n\r\n").encode())
+        with open(path, "rb") as source:
+            while True:
+                chunk = source.read(1 << 16)
+                if not chunk:
+                    break
+                conn.sendall(chunk)
+
     # -- the server ----------------------------------------------------------
 
     def serve(self, port, host="0.0.0.0"):
@@ -515,6 +559,26 @@ class SignIn:
                 self._reply(conn, 200, "application/json", json.dumps({
                     "panel": session.name if session else None,
                     "message": self.message}))
+            elif method == "GET" and path == "/file":
+                asked = urllib.parse.parse_qs(query)
+                name = asked.get("panel", [""])[0]
+                file = asked.get("name", [""])[0]
+                where = self.file_path(name, file) \
+                    if name in self.panels else None
+                if where is None:
+                    self._reply(conn, 404, "text/plain", "not found")
+                else:
+                    self._send_file(conn, where, file)
+            elif method == "POST" and path == "/delete":
+                name = form.get("panel", [""])[0]
+                where = self.file_path(name, form.get("name", [""])[0]) \
+                    if name in self.panels else None
+                if where is not None:
+                    os.remove(where)
+                    self.say(f"[{name}] downloaded file "
+                             f"{os.path.basename(where)} deleted")
+                self._reply(conn, 200, "application/json", json.dumps(
+                    {"answer": "ok" if where else "no"}))
             elif method == "GET" and path in ("/", ""):
                 prefix = headers.get("x-ingress-path", "")
                 self._reply(conn, 200, "text/html; charset=utf-8",
@@ -601,13 +665,34 @@ class SignIn:
                 rows.append(f'<li><button data-panel="{label}">{label}'
                             f'</button></li>')
         missing = tools_missing()
+        kept = []
+        for name in self.panels:
+            for file, size, when in self.files(name):
+                link = ("file?panel=" + urllib.parse.quote(name)
+                        + "&name=" + urllib.parse.quote(file))
+                kept.append(
+                    f'<li class="file"><a href="{html.escape(link)}" '
+                    f'download="{html.escape(file)}">{html.escape(file)}</a>'
+                    f'<small>{html.escape(name)} &middot; {_size(size)} '
+                    f'&middot; {time.strftime("%Y-%m-%d %H:%M", time.localtime(when))}'
+                    f'</small><button class="del" data-del="{html.escape(file)}" '
+                    f'data-of="{html.escape(name)}" data-t="delete">&#10005;'
+                    f'</button></li>')
         return PAGE % {
+            "files": "".join(kept),
             "rows": "".join(rows),
             "missing": html.escape(", ".join(missing)),
             "active": html.escape(session.name) if session else "",
             "prefix": html.escape(prefix.strip("/")),
             "message": html.escape(self.message),
         }
+
+
+def _size(n):
+    for unit in ("B", "KB", "MB", "GB"):
+        if n < 1024 or unit == "GB":
+            return f"{n:.0f} {unit}" if unit == "B" else f"{n:.1f} {unit}"
+        n /= 1024.0
 
 
 PAGE = """<!doctype html>
@@ -644,6 +729,14 @@ PAGE = """<!doctype html>
  iframe { width: 100%%; height: calc(100vh - 150px); border: 1px solid var(--edge);
           border-radius: 12px; background: #000; }
  .warn { color: #c2410c; }
+ h2 { font-size: 1.1rem; margin: 1.6rem 0 .2rem; }
+ .file { display: grid; grid-template-columns: 1fr auto; gap: 0 .6rem;
+         align-items: center; padding: .7rem .9rem; border-radius: 12px;
+         border: 1px solid var(--edge); background: var(--card); }
+ .file a { color: var(--accent); overflow-wrap: anywhere; font-weight: 600; }
+ .file small { grid-column: 1; margin: .1rem 0 0; }
+ .file .del { grid-row: 1 / span 2; grid-column: 2; width: auto;
+              padding: .5rem .8rem; }
 </style></head>
 <body><main id="m"
  data-active="%(active)s" data-prefix="%(prefix)s"
@@ -653,6 +746,9 @@ PAGE = """<!doctype html>
   <p data-k="intro"></p>
   <p class="warn" id="warn"></p>
   <ul>%(rows)s</ul>
+  <h2 data-k="files"></h2>
+  <p data-k="filesintro"></p>
+  <ul id="files">%(files)s</ul>
  </div>
  <div id="live" hidden>
   <div class="bar">
@@ -680,6 +776,10 @@ PAGE = """<!doctype html>
     noprofile: "keep_profile est d\\u00e9sactiv\\u00e9 pour cet \\u00e9cran : il n'a pas de profil o\\u00f9 garder une connexion.",
     missing: "Il manque \\u00e0 l'add-on : ",
     busy: "Une connexion est d\\u00e9j\\u00e0 en cours.",
+    files: "T\\u00e9l\\u00e9chargements des \\u00e9crans",
+    filesintro: "Ce que les pages des \\u00e9crans ont t\\u00e9l\\u00e9charg\\u00e9. Touchez un nom pour l'enregistrer sur cet appareil.",
+    nofiles: "Rien pour l'instant.",
+    delete: "Supprimer",
     failed: "Impossible de d\\u00e9marrer : "
   } : {
     title: "Sign in from a screen",
@@ -692,6 +792,10 @@ PAGE = """<!doctype html>
     noprofile: "keep_profile is off for this screen: it has no profile to keep a sign-in in.",
     missing: "The add-on is missing: ",
     busy: "A sign-in is already running.",
+    files: "Screens' downloads",
+    filesintro: "What the screens' pages downloaded. Tap a name to save it on this device.",
+    nofiles: "Nothing yet.",
+    delete: "Delete",
     failed: "Could not start: "
   };
   var m = document.getElementById('m');
@@ -701,6 +805,21 @@ PAGE = """<!doctype html>
   document.querySelectorAll('[data-t]').forEach(function (e) {
     e.title = T[e.getAttribute('data-t')] || '';
     e.setAttribute('aria-label', e.title);
+  });
+  var list = document.getElementById('files');
+  if (!list.children.length) {
+    var none = document.createElement('li');
+    none.innerHTML = '<small></small>';
+    none.firstChild.textContent = T.nofiles;
+    list.appendChild(none);
+  }
+  document.querySelectorAll('button[data-del]').forEach(function (b) {
+    b.addEventListener('click', function () {
+      b.disabled = true;
+      post('delete', 'panel=' + encodeURIComponent(b.dataset.of)
+           + '&name=' + encodeURIComponent(b.dataset.del))
+        .then(function () { location.reload(); });
+    });
   });
   var warn = document.getElementById('warn');
   if (m.dataset.missing) warn.textContent = T.missing + m.dataset.missing;
