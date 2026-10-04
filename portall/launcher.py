@@ -716,13 +716,15 @@ PAGE = """<!doctype html>
  /* Nothing to show is nothing drawn, rather than an empty box where a
     temperature should be. */
  .wx:empty, .now:empty { display: none; }
- /* The screen's own Wi-Fi and Bluetooth, in a row of their own at the top
-    left of the page, where a telephone or a tablet puts them -- asked for in
-    those words. Left whatever launcher_align says: a status bar is not part
-    of the clock. Hidden until the add-on has something to say. */
- .st { display: flex; align-items: center; gap: .55em; margin: 0 0 .5em;
-       justify-content: flex-start; color: var(--ink);
-       font-size: clamp(18px, 3vw, 28px); }
+ /* The screen's own Wi-Fi and Bluetooth, small, in a row of their own at
+    the top RIGHT of the page, where a telephone or a tablet puts them --
+    asked for top left first, then corrected: "c'etait le mieux en haut a
+    droite et reduit sa taille". Right whatever launcher_align says: a
+    status bar is not part of the clock. Hidden until the add-on has
+    something to say. */
+ .st { display: flex; align-items: center; gap: .5em; margin: 0 0 .3em;
+       justify-content: flex-end; color: var(--ink);
+       font-size: clamp(12px, 1.8vw, 17px); }
  .st:not(:has(span:not([hidden]))) { display: none; }
  .st span[hidden] { display: none; }
  .st svg { width: 1.3em; height: 1.3em; fill: none; stroke: currentColor;

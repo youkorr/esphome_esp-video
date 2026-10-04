@@ -1,5 +1,9 @@
 # Changelog
 
+## 4.37.2
+
+- **The Wi-Fi and Bluetooth icons are at the top right, and smaller.**
+
 ## 4.37.1
 
 - **The Wi-Fi and Bluetooth icons appear with nothing to set.** 4.37.0

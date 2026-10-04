@@ -1212,8 +1212,8 @@ and `caméra` as `camera`.
 
 ### The screen's Wi-Fi and Bluetooth
 
-A screen on the launcher shows its own Wi-Fi and Bluetooth at the **top
-left**, the way a telephone's status bar does: the Wi-Fi while the screen is
+A screen on the launcher shows its own Wi-Fi and Bluetooth, small, at the
+**top right**, the way a telephone's status bar does: the Wi-Fi while the screen is
 on the network, the Bluetooth while something is connected to it -- a
 speaker, a controller. **Nothing to set**: the add-on finds the screen's
 ESPHome device in Home Assistant by the screen's address (its `host`), and
