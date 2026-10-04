@@ -2929,7 +2929,11 @@ FOCUS_AFTER_TAP_S = 3.0
 # invisible otherwise: it was asked for, so the person who asked knows it, and
 # nobody else in the house ever would. Long enough to be noticed while somebody
 # is walking up to the panel, short enough not to become furniture.
-HOME_HINT_SECONDS = 5.0
+# Five seconds was furniture: reported with a photograph of it still sitting
+# over a page's heading, "il faut qu'elle s'efface rapidement". A second and a
+# half is a glance -- and the corner is held, not tapped, so finding it was
+# never the mark's job alone.
+HOME_HINT_SECONDS = 1.5
 
 # One arrow, one move -- on the pages that move nothing by themselves.
 #

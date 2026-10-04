@@ -1,5 +1,11 @@
 # Changelog
 
+## 4.36.2
+
+- **The corner mark goes away quickly.** The faint quarter circle in the
+  top-left corner, which shows where to hold to go home, stayed five seconds
+  on every page; it now shows for a second and a half.
+
 ## 4.36.1
 
 - **A folder icon.** `icon: dossier` -- or `fichiers`, `folder`, `files` --
