@@ -91,6 +91,32 @@ def main():
     check("the total adds up",
           "takes 13 MB on the server -- 7 MB for the add-on itself, 6 MB for "
           "its data" in lines[0], lines[0])
+    print("And what is inside the big ones:")
+    second = tempfile.mkdtemp()
+    put(second, "/usr/share/fonts/truetype/noto.ttf", 21 * MB)
+    put(second, "/usr/lib/x86_64-linux-gnu/libbig.so", 22 * MB)
+    put(second, "/etc/small.conf", 10)
+    put(second, "/data/profiles/salon/Default/Service Worker/CacheStorage/x/y",
+        30 * MB)
+    put(second, "/data/profiles/salon/Default/Cache/Cache_Data/z", 12 * MB)
+    put(second, "/data/profiles/salon/WidevineCdm/4.10/libwidevinecdm.so",
+        11 * MB)
+    put(second, "/data/profiles/salon/Default/Preferences", 2 * MB)
+    more = run.disk_report(second)
+    print("    " + "\n    ".join(more))
+    tail = "\n".join(more)
+    check("the rest of the system is named by folder, fonts apart",
+          "      /usr/share/fonts: 21 MB" in tail
+          and "      /usr/lib/x86_64-linux-gnu: 22 MB" in tail, tail)
+    check("a folder under the threshold is not named",
+          "/etc" not in tail and "Preferences" not in tail)
+    check("a profile is named by what is inside it, a site's own storage "
+          "one level deeper",
+          "      Default/Service Worker/CacheStorage: 30 MB" in tail
+          and "      Default/Cache: 12 MB" in tail
+          and "      WidevineCdm: 11 MB" in tail, tail)
+    check("biggest first", tail.index("CacheStorage") < tail.index(
+        "Default/Cache:") < tail.index("WidevineCdm"))
     print("ok" if not fails else f"{fails} ECHEC")
     return 1 if fails else 0
 

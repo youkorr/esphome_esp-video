@@ -56,11 +56,10 @@ RUN pip install --no-cache-dir "HAP-python[QRCode]==5.0.0" ; true
 #
 # Written to degrade rather than fail: an older Playwright that has never heard
 # of --no-shell installs both, exactly as before.
+#
+# The browser itself is installed further down, AFTER Chrome: see why there.
 RUN pip install --no-cache-dir playwright==1.62.0 pillow numpy \
-    && (playwright install --with-deps chromium --no-shell \
-        || playwright install --with-deps chromium) \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/* /root/.cache/pip
+    && rm -rf /root/.cache/pip
 
 # A second browser, for one reason: the Chromium Playwright downloads is built
 # without the proprietary codecs. Measured on 141.0.7390.37 -- H.264 no, AAC
@@ -86,6 +85,33 @@ RUN (playwright install --with-deps chrome \
     ; apt-get clean \
     ; rm -rf /var/lib/apt/lists/* /root/.cache/pip \
     ; true
+
+# Playwright's own Chromium, only where Google Chrome is not here to run.
+#
+# Measured by the add-on itself on an amd64 box (4.37.3's "Disk:" lines):
+# Google Chrome 458 MB and Playwright's Chromium 413 MB, side by side. Where
+# Chrome installs -- every amd64 Home Assistant -- the sender prefers it and
+# Playwright's build was a spare nobody started, so it is not installed there.
+# Where Chrome cannot be had (arm64: Google publishes no build) it is
+# installed exactly as before, as the one browser the build guarantees.
+#
+# "Here to run" is asked of the binary (--version), not of the package
+# manager's opinion, the rule this project keeps relearning: ask the world,
+# not the step.
+#
+# Its system dependencies are installed either way (install-deps), because
+# they are more than Chromium's own libraries: Playwright's list carries the
+# fonts the launcher's icons are drawn with, the colour emoji among them, and
+# Chrome's own package does not pull those in.
+RUN (if /opt/google/chrome/chrome --version >/dev/null 2>&1; then \
+         echo "Google Chrome is here; Playwright's own Chromium is not needed" \
+         && playwright install-deps chromium; \
+     else \
+         playwright install --with-deps chromium --no-shell \
+         || playwright install --with-deps chromium; \
+     fi) \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/* /root/.cache/pip
 
 # A sound card that goes nowhere, so the browser has somewhere to play.
 #
@@ -124,7 +150,7 @@ RUN (apt-get update \
 # Bump this with the version in config.yaml. It sits AFTER the browsers and
 # BEFORE the senders: an update refetches the two senders below and copies the
 # add-on's own files, and reuses everything above -- see the note on the pin.
-ARG BUNDLE=4.37.3
+ARG BUNDLE=4.37.4
 RUN echo "${BUNDLE}" > /app/BUNDLE
 
 # Fetched rather than copied: a Home Assistant add-on builds with its own folder

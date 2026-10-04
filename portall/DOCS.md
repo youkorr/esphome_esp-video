@@ -1689,17 +1689,19 @@ session -- Unraid's own server forgets every login when *it* reboots.
 ### How much room the add-on takes
 
 A minute after it starts, and once a day after that, the add-on measures
-itself and writes it in its log:
+itself and writes it in its log, with the biggest folders under each line:
 
 ```
-Disk: this add-on takes 1.81 GB on the server -- 1.66 GB for the add-on itself, 150 MB for its data
-  Chromium (Playwright): 597 MB
-  Google Chrome: 380 MB
-  Python and its libraries: 190 MB
-  the rest of the system: 490 MB
-  data, browser profile of salon: 140 MB
-  data, downloads of salon: 8 MB
-  data, everything else: 2 MB
+Disk: this add-on takes 2.10 GB on the server -- 1.74 GB for the add-on itself, 360 MB for its data
+  Google Chrome: 458 MB
+  Python and its libraries: 311 MB
+  the rest of the system: 971 MB
+      /usr/lib/x86_64-linux-gnu: 410 MB
+      /usr/share/fonts: 120 MB
+  data, browser profile of salon: 330 MB
+      Default/Service Worker/CacheStorage: 160 MB
+      Default/Cache: 140 MB
+  data, downloads of salon: 27 MB
 ```
 
 (the numbers above are an example.) The add-on itself is what was
@@ -1707,6 +1709,12 @@ installed: it changes only with an update. Its data is what grows: each
 screen's browser profile (bounded, see below) and what was downloaded from
 it, which the Files page can delete. Home Assistant's own folders -- config,
 share, media -- are not counted.
+
+**One browser on an amd64 machine.** Where Google Chrome installs, which is
+every amd64 Home Assistant, Playwright's own Chromium (about 410 MB) is not
+installed any more: Chrome is the one that runs. On a Raspberry Pi or any
+arm64 box, where Google publishes no Chrome, Playwright's Chromium is
+installed as before.
 
 ### What a profile costs, and what is done about it
 

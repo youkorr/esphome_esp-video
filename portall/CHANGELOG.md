@@ -1,5 +1,16 @@
 # Changelog
 
+## 4.37.4
+
+- **About 410 MB less on an amd64 machine.** The add-on installed two
+  browsers, Google Chrome and Playwright's own Chromium, and used Chrome.
+  Playwright's Chromium is now installed only where Chrome cannot be (a
+  Raspberry Pi, any arm64 box). The fonts and libraries both need are still
+  installed. This update rebuilds the image once, so it takes a few minutes
+  longer than usual.
+- **The `Disk:` lines now say what is inside the big ones**: the folders of
+  the system, and of each screen's browser profile.
+
 ## 4.37.3
 
 - **The add-on says how much room it takes.** A minute after it starts, and

@@ -11062,6 +11062,35 @@ is the log's.** `tools/checkdisk.py` runs it on a made-up tree of known
 sizes. Here, on this 14 GB container, the walk took 89 s; the add-on's is a
 tenth of that.
 
+### The add-on's own figures, and the second browser goes -- 4.37.4
+
+The household's first `Disk:` lines, amd64: **2.86 GB** in all -- Google
+Chrome 458 MB, Playwright's Chromium 413 MB, Python 311 MB, the rest of the
+system 971 MB, and data 703 MB of which the salon profile is 651 MB.
+
+**CORRECTED: "Playwright's own stays as the one browser the build
+guarantees"**, written above under the image's two browsers, is now true only
+where Chrome is absent. On amd64 the sender starts Chrome (`SYSTEM_BROWSERS`
+first) and the 413 MB build was a spare nobody ran. The Dockerfile installs
+Chrome first, then asks the BINARY (`/opt/google/chrome/chrome --version`):
+it answers -> `playwright install-deps chromium` only; it does not ->
+`playwright install --with-deps chromium` as before. The deps go in either
+way because Playwright's list carries the fonts (colour emoji among them) the
+launcher's icons are drawn with, and Chrome's .deb does not pull those in --
+dropping `--with-deps` with the browser would have been tofu on every tile.
+The RUN's logic was run under dash with stand-in commands in all three
+states (Chrome runs, absent, present and broken). **Not built**: no Docker
+daemon here. Runtime fallback if Chrome later refuses to start: the sender's
+"no browser would start" line, which names what it looked for.
+
+**The salon profile is 651 MB against a 150 MB HTTP-cache cap**, so most of
+it is something the cap does not reach. `disk_report()` now names the biggest
+folders inside each profile (`Default/Service Worker/CacheStorage` one level
+deeper, since that folder only holds others) and inside "the rest of the
+system" (`/usr/lib/<x>`, `/usr/share/<x>`). Not acted on until a panel's
+lines say which folder it is: a site's CacheStorage, Widevine, a downloaded
+component and Chrome's on-device model each want a different answer.
+
 ## Repository conventions
 
 - Work on branch `claude/esphome-pr-outdated-mdq36w`, then merge into `main`
