@@ -630,6 +630,36 @@ PC, and touch its name under **Téléchargements des écrans**; the cross delete
 it. The files are kept in the add-on's own storage and are left out of its
 backups.
 
+### The Files page, on the screen itself
+
+Give a launcher a link whose url is the word `files`:
+
+```yaml
+links:
+  - name: Fichiers
+    url: files
+    icon: dossier
+```
+
+Its tile opens a page listing every screen's downloads, newest first. Touch
+one and it opens on the screen: a picture is shown, a film or a song plays, a
+PDF is shown in the browser's own viewer, a text file is shown as text.
+Anything else says to fetch it from the Portall page instead.
+
+A picture or a film has **Mettre en fond d'écran**: it becomes the launcher's
+wallpaper at once, with no restart, and stays it across restarts. A film
+chosen this way plays -- which costs a whole panel of picture for every frame
+it moves, see the wallpaper section. **Retirer ce fond d'écran** brings back
+the one set in the add-on's options, which are never changed by this.
+**Supprimer** asks for a second touch, then deletes the file.
+
+The browser the add-on downloads plays WebM, MP3, Opus, Ogg, WAV and FLAC, and
+not H.264 or AAC -- most `.mp4` films. On a box where the add-on runs Google
+Chrome those play too; the sender's `Browser: decodes H.264` line at startup
+says which.
+
+"Ouvre Fichiers" works by voice like any other link.
+
 Two settings, on the panel:
 
 ```yaml

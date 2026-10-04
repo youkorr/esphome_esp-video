@@ -1,5 +1,16 @@
 # Changelog
 
+## 4.36.0
+
+- **A Files page on the screen.** A link whose url is `files` opens a page
+  listing everything the screens downloaded. A picture is shown, a film or a
+  song plays, a PDF or a text is shown -- on the screen itself.
+- **Make a download the wallpaper.** A picture or a film from the Files page
+  becomes the launcher's wallpaper at once, and stays it across restarts;
+  removing it brings back the wallpaper set in the options, which are never
+  changed.
+- **Delete a download from the screen**, with a second touch to confirm.
+
 ## 4.35.0
 
 - **The keyboard comes up when a field is touched, again.** The bar of 4.34

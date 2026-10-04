@@ -124,7 +124,7 @@ RUN (apt-get update \
 # Bump this with the version in config.yaml. It sits AFTER the browsers and
 # BEFORE the senders: an update refetches the two senders below and copies the
 # add-on's own files, and reuses everything above -- see the note on the pin.
-ARG BUNDLE=4.35.0
+ARG BUNDLE=4.36.0
 RUN echo "${BUNDLE}" > /app/BUNDLE
 
 # Fetched rather than copied: a Home Assistant add-on builds with its own folder
@@ -144,6 +144,7 @@ ADD ${RAW}/ha_send.py /app/ha_send.py
 COPY run.py /app/run.py
 COPY launcher.py /app/launcher.py
 COPY logos.py /app/logos.py
+COPY files.py /app/files.py
 # The image has to be told about every file, which is not the same as the
 # repository having one -- launcher.py was written, imported and tested
 # and the add-on died on ModuleNotFoundError before serving a panel.

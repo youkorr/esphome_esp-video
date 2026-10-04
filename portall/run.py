@@ -466,6 +466,8 @@ def launcher_config(config, entry):
 # Where each launcher's avatar was last put. /data survives updates and
 # restarts, which is the point: a face moved out of the way stays out of it.
 AVATAR_DIR = "/data/avatar"
+# Which downloaded picture each launcher was given as its wallpaper.
+WALLPAPER_DIR = "/data/wallpaper"
 
 
 def avatar_file(label):
@@ -546,6 +548,11 @@ def start_launcher(config, port=None, house_links=(), label=""):
         avatar_shape=str(config.get("launcher_avatar_shape")
                          or launcher.DEFAULT_AVATAR),
         avatar_file=avatar_file(label),
+        # Every screen's downloads, opened on the glass from a link whose url
+        # is "files", and the picture chosen there as this launcher's
+        # wallpaper -- kept beside the avatar's spot, for the same reason.
+        files_root=DOWNLOADS,
+        choice_file=avatar_file(label).replace(AVATAR_DIR, WALLPAPER_DIR),
         voice=follow_voice(config, list(links) + list(house_links), label),
         motion=truthy(config.get("launcher_background_motion", False)),
         slideshow=truthy(config.get("launcher_slideshow", False)),
@@ -1535,7 +1542,13 @@ def start_voice_links(panels, remotes):
         if link is None:
             say(f"[{who}] voice: no link is called \"{name}\"")
             return
-        if remote.send("open", link.get("url")):
+        url = str(link.get("url") or "").strip()
+        if url.lower() == getattr(launcher, "FILES_KEYWORD", "files") \
+                and str(panel.get("url") or "").startswith("http"):
+            # The Files page belongs to the launcher this panel comes home to.
+            url = (str(panel["url"]).rstrip("/")
+                   + getattr(launcher, "FILES_HREF", "/files"))
+        if remote.send("open", url):
             say(f"[{who}] voice: opening {link.get('name')}")
 
     return voicelinks.VoiceLinks(route.url, route.token, every, act,

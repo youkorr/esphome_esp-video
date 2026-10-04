@@ -10841,6 +10841,41 @@ assumed: 37 pictures a second reached the fake panel during a 3 s download.
 `tools/checkdownload.py`. **Not tried through Home Assistant's ingress** --
 whether the companion app's web view saves an attachment is unverified.
 
+## The Files page: downloads used on the glass -- 4.36.0
+
+**Asked as every download "inscrit dans l'addon, que je puisse utiliser par
+exemple pour un wallpaper, lecture video ou musique et fichier comme un
+PC".** 4.35 kept them and listed them for a telephone; this is the panel's
+half. `portall/files.py` is served by the LAUNCHER under `/files` (it listens
+on 127.0.0.1, so nothing outside the container reaches it and it needs no
+sign-in) and a link whose url is the word `files` is its tile -- rewritten to
+`/files` in `render()`, and to the panel's own launcher address in run.py's
+voice routing, since "ouvre Fichiers" would otherwise hand the sender a bare
+word. It lists every screen's folder under `/data/downloads`, newest first,
+and every name a request carries is looked up in that listing, never joined
+blind (`.part` and dot-files are not in it).
+
+- **Byte ranges** in `files.send()`: a `<video>` seeks by asking for one, and
+  without them a film cannot be moved through.
+- **No `confirm()`**: the sender's browser answers a dialog itself before
+  anybody sees it, so Delete asks with a second touch.
+- **The wallpaper is changeable while the add-on runs.** `start()` used to
+  work the wallpaper out once; it is `settle(chosen)` now, with `nonlocal` on
+  everything the page and the handler read, and a revision in the page
+  cache's key. The choice is a ref in `/data/wallpaper/<launcher>.json` --
+  runtime state beside the avatar's spot, NOT the household's options, which
+  are never written. A chosen film plays (it was chosen to be seen), and a
+  chosen file is served from disk with ranges rather than read into memory.
+
+`tools/checkfiles.py` drives it in the shipped browser with the sender's own
+arguments (VP8 WebM made by the browser's MediaRecorder, a WAV, a PDF, a
+text): shown, played, moved through, made the wallpaper and back, deleted,
+traversal refused -- plus the configured file, folder slideshow and address
+wallpapers through the refactored `settle()`, and the whole way through the
+real sender: a tile and a touch on a fake panel, the film's two colours read
+off the reassembled picture. **Not seen on a panel**, and H.264 needs the
+box's Chrome.
+
 ## Repository conventions
 
 - Work on branch `claude/esphome-pr-outdated-mdq36w`, then merge into `main`

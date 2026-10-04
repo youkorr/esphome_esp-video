@@ -36,6 +36,11 @@ from urllib.parse import parse_qs, urlsplit
 
 import logos
 
+try:
+    import files as library
+except ImportError:  # an accessory: a build without it has no Files page
+    library = None
+
 # Inside the add-on's own container, which is where the senders run too, so
 # nothing of this is reachable from the network.
 PORT = 8099
@@ -45,6 +50,9 @@ KEYWORD = "launcher"
 # Where the wallpaper is served from when it is a file on disk rather than an
 # address. One path, so the page can name it before the file has been read.
 WALLPAPER_PATH = "/wallpaper"
+# A link whose url is this word opens the launcher's own Files page.
+FILES_KEYWORD = "files"
+FILES_HREF = "/files"
 # Where the page says a wallpaper would not play. A video that cannot be
 # decoded paints NOTHING -- the blank rectangle this project forbids -- and
 # the page has no other way to reach a log somebody reads.
@@ -2492,7 +2500,10 @@ def render(links, title="", subtitle="", theme="dark",
     for name, entries in groups.items():
         tiles = "".join(
             TILE % {
-                "url": html.escape(str(entry.get("url", "")), quote=True),
+                "url": html.escape(
+                    FILES_HREF if str(entry.get("url", "")).strip().lower()
+                    == FILES_KEYWORD else str(entry.get("url", "")),
+                    quote=True),
                 "icon": (logo_markup(entry.get("icon"), dark)
                          or html.escape(icon_for(entry.get("icon")))),
                 # Two characters still read at the full size -- "HA" is a
@@ -2661,7 +2672,7 @@ def start(links, title="", subtitle="", theme="dark",
           avatar=False, avatar_file=None, voice=None,
           avatar_shape=DEFAULT_AVATAR, weather_color=FOLLOW_THEME,
           tile_background="solid", tile_size=DEFAULT_SIZE,
-          tile_text_color=FOLLOW_THEME):
+          tile_text_color=FOLLOW_THEME, files_root=None, choice_file=None):
     """Serve the page for as long as the add-on runs. Returns its address.
 
     One call is one launcher: its links, its look, its weather, its
@@ -2671,40 +2682,99 @@ def start(links, title="", subtitle="", theme="dark",
     wallpaper and the weather included, which a page per panel on one shared
     server could not have kept apart.
     """
-    addresses = _addresses(urls)
-    if addresses:
-        print(f"Launcher: {len(addresses)} picture(s) by address"
-              + (f", one every {every}s with a {fade}s fade" if slideshow
-                 else ", showing the first")
-              + ". They are fetched by the panel's own browser, so the "
-                "machine serving them has to be reachable from here.",
-              flush=True)
-        kind, where, files = "urls", None, addresses
-    else:
-        kind, where, files = _wallpaper(background)
+    # The wallpaper, worked out from what is configured -- or from a
+    # picture or a video chosen on the panel's own Files page, which
+    # wins until it is taken away. A function, so a choice made while
+    # the add-on runs is shown without restarting it.
+    kind = where = files = picture = addresses = None
+    mime, mirrored = "application/octet-stream", False
+    configured = (background, urls, motion)
 
-    # A GIF at an address that is not allowed to move is the one case the
-    # page cannot handle by itself: freezing it means reading its pixels back
-    # out of a canvas, and a browser refuses that for a picture fetched from
-    # anywhere else. Copied here once, it is same-origin and the freeze works.
-    # Never fatal, and never for a video -- pausing one needs no canvas.
-    picture, mime = None, "application/octet-stream"
-    mirrored = False
-    if kind == "url" and not motion and _moves(where or background) \
-            and not _is_movie(where or background):
-        try:
-            with urllib.request.urlopen(background, timeout=10) as answer:
-                picture = answer.read()
-                mime = answer.headers.get("Content-Type") or "image/gif"
-            mirrored = True
-            print(f"Launcher: copied the wallpaper here "
-                  f"({len(picture) // 1024} KiB) so it can be held on its "
-                  f"first frame; launcher_background_motion lets it play.",
+    def settle(chosen):
+        nonlocal kind, where, files, picture, mime, mirrored, addresses
+        nonlocal background, urls, motion
+        background, urls, motion = configured
+        if chosen:
+            # Chosen to be seen, so a video or a GIF chosen moves.
+            background, urls, motion = chosen, (), True
+        picture, mime = None, "application/octet-stream"
+        mirrored = False
+        addresses = _addresses(urls)
+        if addresses:
+            print(f"Launcher: {len(addresses)} picture(s) by address"
+                  + (f", one every {every}s with a {fade}s fade" if slideshow
+                     else ", showing the first")
+                  + ". They are fetched by the panel's own browser, so the "
+                    "machine serving them has to be reachable from here.",
                   flush=True)
-        except Exception as err:  # noqa: BLE001 - an accessory, never a cost
-            print(f"Launcher: could not copy {background} ({err}) -- it will "
-                  f"keep moving, because a picture fetched from elsewhere "
-                  f"cannot be frozen by the page.", flush=True)
+            kind, where, files = "urls", None, addresses
+        else:
+            kind, where, files = _wallpaper(background)
+
+        # A GIF at an address that is not allowed to move is the one case the
+        # page cannot handle by itself: freezing it means reading its pixels back
+        # out of a canvas, and a browser refuses that for a picture fetched from
+        # anywhere else. Copied here once, it is same-origin and the freeze works.
+        # Never fatal, and never for a video -- pausing one needs no canvas.
+        picture, mime = None, "application/octet-stream"
+        mirrored = False
+        if kind == "url" and not motion and _moves(where or background) \
+                and not _is_movie(where or background):
+            try:
+                with urllib.request.urlopen(background, timeout=10) as answer:
+                    picture = answer.read()
+                    mime = answer.headers.get("Content-Type") or "image/gif"
+                mirrored = True
+                print(f"Launcher: copied the wallpaper here "
+                      f"({len(picture) // 1024} KiB) so it can be held on its "
+                      f"first frame; launcher_background_motion lets it play.",
+                      flush=True)
+            except Exception as err:  # noqa: BLE001 - an accessory, never a cost
+                print(f"Launcher: could not copy {background} ({err}) -- it will "
+                      f"keep moving, because a picture fetched from elsewhere "
+                      f"cannot be frozen by the page.", flush=True)
+
+        # One picture is read once and held; a folder is read per request. A
+        # holiday folder is gigabytes, and the add-on has no business holding it
+        # -- while re-reading one file for every panel that comes home would be a
+        # disk seek where there is no need for one.
+        if not mirrored:
+            picture, mime = None, "application/octet-stream"
+        if kind == "file" and not chosen:
+            try:
+                with open(where, "rb") as handle:
+                    picture = handle.read()
+                mime = mimetypes.guess_type(where)[0] or mime
+                print(f"Launcher: wallpaper {where} "
+                      f"({len(picture) // 1024} KiB)", flush=True)
+            except OSError as err:
+                # Read once at startup rather than per request: a panel coming
+                # home should not wait on a disk, and a file that has gone away
+                # should not turn into a broken page later on.
+                print(f"Launcher: could not read {where} ({err})", flush=True)
+        elif kind == "folder":
+            print(f"Launcher: {len(files)} picture(s) in {where}"
+                  + (f", one every {every}s with a {fade}s fade" if slideshow
+                     else ", showing the first")
+                  + ". A picture that changes is a whole panel on the wire, and "
+                    "each second of fade is one whole panel per frame.",
+                  flush=True)
+        elif kind == "file":
+            # Chosen: served from disk a piece at a time, since it can be a
+            # film and the add-on has no business holding it.
+            print(f"Launcher: wallpaper {where}, chosen on the Files page",
+                  flush=True)
+
+    def chosen_path():
+        """The file chosen on the Files page as the wallpaper, if any."""
+        if library is None or not choice_file:
+            return None, None
+        ref = library.read_choice(choice_file)
+        entry = library.find(files_root, ref) if ref else None
+        return (ref, entry["path"]) if entry else (None, None)
+
+    settle(chosen_path()[1])
+    wall_rev = {"n": 0}
 
     # `weather` is a callable returning the latest reading, or None -- the
     # add-on refreshes it in the background and this is asked for it at each
@@ -2735,7 +2805,8 @@ def start(links, title="", subtitle="", theme="dark",
         # The avatar's spot is part of the page: a panel coming home finds
         # the face where it was left, drawn there from the first frame rather
         # than jumping there after a script has run.
-        key = (weather_block(state) if state else None, spot["at"])
+        key = (weather_block(state) if state else None, spot["at"],
+               wall_rev["n"])
         held = cache.get("page")
         if held is None or held[0] != key:
             body = render(
@@ -2759,32 +2830,6 @@ def start(links, title="", subtitle="", theme="dark",
     # Once here, so a fault in the page is reported at startup rather than
     # the first time somebody comes home to it.
     page()
-    # One picture is read once and held; a folder is read per request. A
-    # holiday folder is gigabytes, and the add-on has no business holding it
-    # -- while re-reading one file for every panel that comes home would be a
-    # disk seek where there is no need for one.
-    if not mirrored:
-        picture, mime = None, "application/octet-stream"
-    if kind == "file":
-        try:
-            with open(where, "rb") as handle:
-                picture = handle.read()
-            mime = mimetypes.guess_type(where)[0] or mime
-            print(f"Launcher: wallpaper {where} "
-                  f"({len(picture) // 1024} KiB)", flush=True)
-        except OSError as err:
-            # Read once at startup rather than per request: a panel coming
-            # home should not wait on a disk, and a file that has gone away
-            # should not turn into a broken page later on.
-            print(f"Launcher: could not read {where} ({err})", flush=True)
-    elif kind == "folder":
-        print(f"Launcher: {len(files)} picture(s) in {where}"
-              + (f", one every {every}s with a {fade}s fade" if slideshow
-                 else ", showing the first")
-              + ". A picture that changes is a whole panel on the wire, and "
-                "each second of fade is one whole panel per frame.",
-              flush=True)
-
     def from_folder(index):
         """One picture out of the folder, re-read each time it is asked for.
 
@@ -2929,6 +2974,12 @@ def start(links, title="", subtitle="", theme="dark",
                         return
                     self._reply(blob, sort)
                     return
+                if picture is None and kind == "file" and library is not None:
+                    try:
+                        library.send(self, where)
+                    except OSError:
+                        self.send_error(404)
+                    return
                 if picture is None:
                     self.send_error(404)
                     return
@@ -2937,7 +2988,71 @@ def start(links, title="", subtitle="", theme="dark",
                 # megabyte again.
                 self._reply(picture, mime)
                 return
+            if self.path.split("?")[0].startswith(FILES_HREF) \
+                    and library is not None:
+                self._files_get()
+                return
             self._reply(page(), "text/html; charset=utf-8")
+
+        def _files_get(self):
+            route = self.path.split("?")[0]
+            ref = (parse_qs(urlsplit(self.path).query).get("f") or [""])[0]
+            chosen = chosen_path()[0]
+            if route in (FILES_HREF, FILES_HREF + "/"):
+                self._reply(library.list_page(files_root, chosen),
+                            "text/html; charset=utf-8")
+                return
+            entry = library.find(files_root, ref)
+            if entry is None:
+                self.send_error(404)
+                return
+            if route == FILES_HREF + "/view":
+                self._reply(library.view_page(entry, chosen),
+                            "text/html; charset=utf-8")
+            elif route == FILES_HREF + "/raw":
+                try:
+                    library.send(self, entry["path"])
+                except OSError:
+                    self.send_error(404)
+            else:
+                self.send_error(404)
+
+        def do_POST(self):
+            if library is None or not self.path.startswith(FILES_HREF + "/"):
+                self.send_error(404)
+                return
+            length = int(self.headers.get("Content-Length") or 0)
+            asked = parse_qs(self.rfile.read(length).decode(errors="replace"))
+            ref = (asked.get("ref") or [""])[0]
+            what = self.path.split("?")[0][len(FILES_HREF) + 1:]
+            entry = library.find(files_root, ref) if ref else None
+            if what == "wallpaper" and entry is not None \
+                    and entry["kind"] in library.WALLPAPER_KINDS \
+                    and choice_file:
+                library.write_choice(choice_file, entry["ref"])
+                settle(entry["path"])
+                wall_rev["n"] += 1
+            elif what == "unwallpaper" and choice_file:
+                library.write_choice(choice_file, None)
+                settle(None)
+                wall_rev["n"] += 1
+            elif what == "delete" and entry is not None:
+                if chosen_path()[0] == entry["ref"]:
+                    library.write_choice(choice_file, None)
+                    settle(None)
+                    wall_rev["n"] += 1
+                try:
+                    os.remove(entry["path"])
+                    print(f"Launcher: {entry['ref']} deleted from the Files "
+                          f"page", flush=True)
+                except OSError as err:
+                    print(f"Launcher: could not delete {entry['ref']} ({err})",
+                          flush=True)
+            else:
+                self.send_error(404)
+                return
+            self.send_response(204)
+            self.end_headers()
 
     try:
         server = http.server.ThreadingHTTPServer(("127.0.0.1", port), Handler)
