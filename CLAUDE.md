@@ -11037,6 +11037,31 @@ a panel not on the launcher is not looked for, and the icons' box is read in
 the browser at the top left above the clock. **Not run against a real Home
 Assistant**: the diagnostics' shape and the template are read in its source.
 
+## The add-on measures its own room on disk -- 4.37.3
+
+Asked as *"mesure la capacite d'espace que prend portall sur mon server"*.
+Nothing outside the container answers it: Home Assistant's storage page shows
+a disk, not an add-on, and there is no Docker in a household's reach. So
+`run.disk_report()` walks the container a minute after the start and once a
+day, in a thread: the image as the container sees it (overlay2 keeps layers
+uncompressed, so that is what Docker stores, give or take files a later layer
+deleted -- every RUN here cleans up inside itself), split by where the
+Dockerfile installs each part (`IMAGE_PARTS`), and `/data` split per screen
+into profile and downloads. Blocks rather than sizes, a hard link once, never
+across a mount -- and `NOT_THE_IMAGE` keeps out /config, /share, /media and
+the rest Home Assistant mounts in, which are the household's.
+
+Estimated from the parts before any panel reported it: Playwright's full
+Chromium 597 MB (measured, same build family), Google Chrome ~350-400 MB
+(its package's installed size), Python with Playwright's driver, numpy and
+Pillow ~190 MB, python:3.12-slim ~125 MB, and Playwright's `--with-deps`
+libraries and fonts, PulseAudio and the sign-in page's X11 packages the rest
+-- about 1.6-1.8 GB for the image, plus each profile (cache capped at 150 MB,
+the profile itself was measured at 1.2 GB before the cap). **The real figure
+is the log's.** `tools/checkdisk.py` runs it on a made-up tree of known
+sizes. Here, on this 14 GB container, the walk took 89 s; the add-on's is a
+tenth of that.
+
 ## Repository conventions
 
 - Work on branch `claude/esphome-pr-outdated-mdq36w`, then merge into `main`
