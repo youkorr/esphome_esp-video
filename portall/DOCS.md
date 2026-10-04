@@ -607,14 +607,28 @@ the sender, before the page sees anything: **hold the top-left corner**, or
 and fills while a finger is held, so the gesture can be found by somebody who
 was never told about it.
 
-**Inside a link there is also a bar** at the top of the screen, which works
-like a browser's: **←** back a page, **⟳** reload, **⌂** the link's own first
-page (for a Google link, `https://www.google.com`). It stays inside the link:
-**←** stops on the link's first page and **⌂** never goes to the launcher --
-the corner does that. It appears for five seconds when a page opens and again
-at every touch, and never on the screen's own page. A press on it is decided
-by the add-on and never reaches the site, so it works on a page that swallows
-everything else.
+**Inside a link there is also a bar** across the top of the screen, which
+works like a browser's: **←** back a page, **⟳** reload, **⌂** the link's own
+first page (for a Google link, `https://www.google.com`), and beside them the
+address of the site. It stays inside the link: **←** stops on the link's first
+page and **⌂** never goes to the launcher -- the corner does that, and so
+does **holding ←** for a moment, since that is where the corner is.
+
+It has a strip of its own, the way a browser's toolbar does: the site is shown
+below it, never under it, so a search box at the top of a page is always the
+search box and never a button of the bar. It is never shown on the screen's
+own page, nor on a Home Assistant dashboard, which has its own arrows. A press
+on it is decided by the add-on and never reaches the site, so it works on a
+page that swallows everything else.
+
+### Downloads
+
+What a page downloads is kept, one folder per screen, and the bar says so --
+*Téléchargement de …*, then *… enregistré*. To get a file: open **Portall**
+in Home Assistant's sidebar (the add-on's web page), from a telephone or a
+PC, and touch its name under **Téléchargements des écrans**; the cross deletes
+it. The files are kept in the add-on's own storage and are left out of its
+backups.
 
 Two settings, on the panel:
 
@@ -1365,7 +1379,12 @@ number takes the colour.
 A panel has no keys, so a page whose point is to type -- the dashboard's
 search, Assist, the search box of an ordinary site -- would otherwise be a dead
 end. Whenever a text field takes focus the browser draws a keyboard across the
-bottom of the page, and it goes away again when nothing is waiting for text.
+bottom of the page when a field is touched, and it goes away again when
+nothing is waiting for text.
+
+As on a telephone, it comes up for a field you touched, or that a touch led
+to -- a search that opens in a dialog, an editor that loads -- and not for one
+a page focuses by itself when it opens: touch that field and it comes up.
 
 A contact that lands on it is never replayed as a click: it is turned into a
 keystroke and the page is told nothing about it, which is how the field being

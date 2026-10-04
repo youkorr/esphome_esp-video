@@ -806,6 +806,11 @@ def load_panels():
 # Where a panel's browser profile lives. /data is the add-on's own persistent
 # volume, so what somebody signs into survives a restart and an update.
 PROFILES = "/data/profiles"
+# Where what a panel's pages download is kept, one folder per panel, and
+# listed on the add-on's own page so it can be fetched from a telephone or a
+# PC. Left out of the add-on's backups (backup_exclude in config.yaml): a
+# backup is not where a downloaded film should go.
+DOWNLOADS = "/data/downloads"
 
 
 def profile_name(panel):
@@ -921,12 +926,18 @@ def sweep_profiles(panels):
                 f"from the list once to have this sweep take it away.")
 
 
+def downloads_for(panel):
+    """This panel's downloads folder, named like its profile."""
+    return os.path.join(DOWNLOADS, profile_name(panel))
+
+
 def command_for(panel):
     """One panel's options, as the command line ha_send.py expects."""
     argv = [sys.executable, "-u", SENDER]
     profile = profile_for(panel)
     if profile:
         argv += ["--profile", profile]
+    argv += ["--downloads", downloads_for(panel)]
     for key in (
         "host",
         "port",
@@ -1333,6 +1344,7 @@ def start_signin(panels):
     for index, panel in enumerate(panels, start=1):
         name = str(panel.get("name") or panel.get("host") or f"panel {index}")
         screens[name] = {"profile": profile_for(panel),
+                         "downloads": downloads_for(panel),
                          "browser": panel.get("browser"),
                          "locale": panel.get("locale")}
     page = signin.SignIn(screens, hold_panel, release_panel, say)

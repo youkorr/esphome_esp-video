@@ -10768,6 +10768,79 @@ the click starts (`keepalive` now), and a navigation asked for before the
 finger's release swallowed the click. **Not seen on a panel**, and not on
 Chrome.
 
+## The bar was over the search box, and the keyboard paid -- 4.35.0
+
+**Reported as the keyboard "ne s'affiche pas, ou parfois il s'affiche quand
+je suis sur une autre page web", the keyboard and the bar "ont du mal a
+cohabiter", and downloads that do not work.** `tools/checkkeyboard.py` was
+written before any fix, against the shipped sender, and its first run said
+what no reading had: **a tap on a field at the top of the page pressed
+Reload.** 4.34's bar sat over the top centre of the page for five seconds
+after every page and every touch -- exactly where Google's search box is.
+The keyboard never came up because the tap never reached the field.
+
+**CORRECTED: the bar is a STRIP now, not a decoration over the page.**
+Inside a link the browser's viewport is made `NavBar.height` shorter
+(`page.set_viewport_size`) and the sender pastes the strip -- drawn with PIL,
+icons as shapes so no font is needed, the host beside them -- above the
+page's picture before anything else sees it. `Injector.set_strip()` turns a
+contact above the line into a button and moves everything below it into the
+page's own coordinates, so the keyboard and the corner need know nothing of
+it (`Keyboard.set_view` moves the keys' band). No script, element or sheet
+of the bar is in the page any more. Shown on every page that is not the
+panel's own and not a Home Assistant dashboard (`is_home_assistant is not
+True` -- HA has its own arrows, and a strip coming and going between views
+would reflow it each time). A button going down re-composes from
+`last_shot` rather than waiting for the page. `set_strip()` toggles BEFORE
+a tile's navigation and before coming home, so a page is laid out once: done
+after, it cost the first picture of a link ~25 ms (`checklinkspeed.py --tap`
+read 73-84 ms against ~50).
+
+The very top-left of the glass is now the back button inside a link, and it
+is where a hand goes to hold for home: a contact landing in the strip within
+the corner's width arms the same hold, so a quick press is back and a long one
+is the launcher (`checknavbar.py`; `checklinkspeed.py --home` hung on exactly
+this before, holding the old corner and getting back).
+
+The lesson is the overlay's own rule turned round: decoration that takes no
+touch can sit over a page; a thing you press cannot, because it takes the
+page's touches for as long as it is drawn. A browser gives its toolbar room
+for the same reason.
+
+**Three keyboard faults, each reproduced against 4.34.1 with `--low` (the
+field below where the old bar was, so the bar does not hide them):**
+
+- **Back over `pushState` left the keys drawn and dead.** `forget()` cleared
+  the bookkeeping on the assumption that a navigation takes the document --
+  and a same-document one does not. It tells the page to take them down now.
+- **A page that navigated by itself left the sender believing them up**, so
+  every tap along the bottom was eaten as a keystroke: a keyboard nobody could
+  see. `Keyboard` listens for `domcontentloaded` and forgets on arrival, the
+  corner mark's pattern.
+- **A field a page focused by itself on arrival brought the keys up.** Now
+  only focus within `FOCUS_AFTER_TAP_S` (3 s) of a tap on the page does, as on
+  a telephone; an arrival clears it. HA's search dialog and an editor that
+  loads are inside the window.
+
+Two faults in the ruler first, as usual: a key's CENTRE is its letter, so the
+keyboard's colour is read off a key's ground; and `<button id=open>` is
+`window.open`, so the fixture's button had no handler -- `id=opener` was
+`window.opener` too.
+
+**Downloads were never handled at all.** Playwright saved them into a
+temporary folder deleted with the browser. `Downloads` attaches to every page
+(and `context.on("page")`, since a download link often opens a new window),
+`save_as()` to `<name>.part`, renamed when whole, under `--downloads`;
+run.py gives each panel `/data/downloads/<panel>`, `backup_exclude` keeps
+them out of backups (Supervisor matches with `PurePath.match`, right-anchored,
+so `downloads/*` and `downloads/*/*`), and signin.py lists them on the
+add-on's page with `GET /file` (name checked against the listing, never
+joined blind) and `POST /delete`. **save_as() blocks and does not block the
+loop**: a sync-API event handler runs in its own greenlet. Measured, not
+assumed: 37 pictures a second reached the fake panel during a 3 s download.
+`tools/checkdownload.py`. **Not tried through Home Assistant's ingress** --
+whether the companion app's web view saves an attachment is unverified.
+
 ## Repository conventions
 
 - Work on branch `claude/esphome-pr-outdated-mdq36w`, then merge into `main`
