@@ -11025,8 +11025,9 @@ panel's start should not wait for its icons.
 
 Every launcher panel gets `?panel=<name or host>` while the icons are on --
 the host when there is no name, which is PanelStatus's own key. The icons
-are a row of their own at the top left, above the clock and left whatever
-`launcher_align` says, as asked.
+are a row of their own above the clock -- top left as first asked, then
+**top right and smaller in 4.37.2** (*"c'etait le mieux en haut a droite et
+reduit sa taille"*), 12-17 px, whatever `launcher_align` says.
 
 `tools/checkstatus.py`: `match()` over six cases, then a stand-in HA serving
 the entries, their diagnostics (one answering 500, as an entry not loaded

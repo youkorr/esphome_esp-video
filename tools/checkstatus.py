@@ -21,7 +21,8 @@ Home Assistant, and the launcher shows two icons. Checked here:
     so an entity renamed away from the device's prefix still counts. 4.37.0
     needed esphome_device, which the form never shows, and looked for no
     screen that had not set it -- so it showed nothing;
-  - the icons sit in a row of their own at the top left, above the clock;
+  - the icons sit in a row of their own at the top right, above the clock,
+    and small;
   - run.route_to_launcher gives every launcher panel ?panel=<name> while the
     icons are on, and none when they are off.
 
@@ -230,18 +231,20 @@ def main():
         check("both icons are shown, the Wi-Fi with two bars",
               shown() == [True, "2", True], str(shown()))
         place = page.evaluate(
-            "() => { const n = document.getElementById('net')"
+            "() => { const n = document.getElementById('bt')"
             ".getBoundingClientRect(), t = document.getElementById('t')"
-            ".getBoundingClientRect(); return [n.left, n.top, n.bottom, "
-            "t.top]; }")
-        check("at the top left, in a row above the clock",
-              place[0] < 1024 * 0.12 and place[1] < 600 * 0.12
+            ".getBoundingClientRect(); return [n.right, n.top, n.bottom, "
+            "t.top, n.height]; }")
+        check("at the top right, in a row above the clock",
+              place[0] > 1024 * 0.88 and place[1] < 600 * 0.12
               and place[2] <= place[3] + 1, str(place))
+        check("and small: no taller than a line of the date",
+              place[4] <= 24, str(place))
         box = page.evaluate(
             "() => { const r = document.getElementById('bt')"
             ".getBoundingClientRect(); return [r.width, r.height]; }")
-        check("and drawn at a size that can be seen", box[0] >= 14
-              and box[1] >= 14, str(box))
+        check("and drawn at a size that can be seen", box[0] >= 12
+              and box[1] >= 12, str(box))
         if "--picture" in sys.argv:
             page.screenshot(path=sys.argv[sys.argv.index("--picture") + 1],
                             clip={"x": 0, "y": 0, "width": 1024, "height": 140})
