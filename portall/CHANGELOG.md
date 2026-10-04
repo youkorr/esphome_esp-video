@@ -1,5 +1,15 @@
 # Changelog
 
+## 4.37.1
+
+- **The Wi-Fi and Bluetooth icons appear with nothing to set.** 4.37.0
+  needed `esphome_device:`, a setting the form never shows, so nothing
+  appeared. The add-on now finds the screen's ESPHome device in Home
+  Assistant by the screen's address. `esphome_device:` is still there for a
+  screen Home Assistant reaches by another address.
+- **They are at the top left**, in a row of their own above the clock, and a
+  little larger.
+
 ## 4.37.0
 
 - **The screen's Wi-Fi and Bluetooth on its launcher.** Give a screen its

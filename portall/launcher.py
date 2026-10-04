@@ -716,9 +716,14 @@ PAGE = """<!doctype html>
  /* Nothing to show is nothing drawn, rather than an empty box where a
     temperature should be. */
  .wx:empty, .now:empty { display: none; }
- .st { margin-left: auto; display: flex; align-items: center; gap: .55em;
-       font-size: clamp(16px, 3vw, 26px); }
- .st + .wx { margin-left: .4em; }
+ /* The screen's own Wi-Fi and Bluetooth, in a row of their own at the top
+    left of the page, where a telephone or a tablet puts them -- asked for in
+    those words. Left whatever launcher_align says: a status bar is not part
+    of the clock. Hidden until the add-on has something to say. */
+ .st { display: flex; align-items: center; gap: .55em; margin: 0 0 .5em;
+       justify-content: flex-start; color: var(--ink);
+       font-size: clamp(18px, 3vw, 28px); }
+ .st:not(:has(span:not([hidden]))) { display: none; }
  .st span[hidden] { display: none; }
  .st svg { width: 1.3em; height: 1.3em; fill: none; stroke: currentColor;
            stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round;
@@ -2604,19 +2609,19 @@ def render(links, title="", subtitle="", theme="dark",
     # none of them draws none of them, and the header is what it always was.
     sky, temp = weather_block(weather)
     now = ""
-    if clock or weather is not None or status:
+    if clock or weather is not None:
         now = '<div class="now">'
         if clock:
             now += ('<div class="when"><span class="time" id="t"></span>'
                     '<span class="date" id="d"></span></div>')
-        if status:
-            now += (f'<span class="st"><span class="net" id="net" hidden>'
-                    f'{WIFI_SVG}</span><span class="bt" id="bt" hidden>'
-                    f'{BLUETOOTH_SVG}</span></span>')
         if weather is not None:
             now += (f'<span class="wx"><span class="sky" id="sky">{sky}</span>'
                     f'<span class="out" id="temp">{temp}</span></span>')
         now += "</div>"
+    if status:
+        now = (f'<div class="st"><span class="net" id="net" hidden>'
+               f'{WIFI_SVG}</span><span class="bt" id="bt" hidden>'
+               f'{BLUETOOTH_SVG}</span></div>') + now
     # Always, and not behind an option. It costs one listener that fires on a
     # key nobody presses unless there is a remote, and an option for it would
     # be one more thing to read past -- which this add-on has already had to

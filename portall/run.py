@@ -388,27 +388,51 @@ class PanelStatus:
     sont connectes". The screen already tells Home Assistant both through
     ESPHome: while it is on the network its entities have states, and when
     it drops off every one of them is "unavailable"; portall_bt's text
-    sensors read "<device> (<address>) connected" while something is. So a
-    panel names its ESPHome device once -- esphome_device, the name in its
-    YAML -- and every entity Home Assistant gave that device is read:
-    entity ids are <domain>.<device name>_<entity name>, so the device is a
-    prefix. Read through the Supervisor's own credential, like the weather,
-    every EVERY_S seconds; an accessory, so a failure costs the icons and
-    says so once.
+    sensors read "<device> (<address>) connected" while something is.
+
+    WHICH device is a screen is found by its ADDRESS, with nothing to set.
+    4.37.0 asked for it by name (esphome_device) and nothing appeared on a
+    panel: an optional field inside a panel's advanced group is not drawn in
+    the form until somebody has set it, so nobody could. Home Assistant's
+    ESPHome integration keeps, for every device, the host it connects to and
+    the device's name (its config entry's data, read through the
+    integration's own diagnostics, which is the one door that hands the data
+    out); the panel's host is the same board. Matched there, the entities are
+    those of that config entry, asked of the template API -- so a device
+    whose friendly name differs from its node name, or whose entities were
+    renamed, is still found. esphome_device still wins when given, and a
+    name that matches nothing falls back to the entity-id prefix 4.37.0 used.
+
+    Read through the Supervisor's own credential, like the weather, every
+    EVERY_S seconds; an accessory, so a failure costs the icons and says so
+    once.
     """
 
     EVERY_S = 10
+    # A screen not matched yet is looked for again this often: at the
+    # add-on's start Home Assistant may still be loading its integrations.
+    # One matched is looked at again rarely, for entities added since.
+    RETRY_S = 60
+    REFRESH_S = 600
 
     def __init__(self, panels, url, token):
-        self.devices = {}
+        self.wanted = {}
         for index, panel in enumerate(panels, start=1):
             device = str(panel.get("esphome_device") or "").strip()
-            if device:
+            on_launcher = str(panel.get("url") or "").strip() \
+                == LAUNCHER_KEYWORD
+            if device or on_launcher:
                 name = str(panel.get("name") or panel.get("host")
                            or f"panel {index}")
-                self.devices[name] = self.slug(device)
+                self.wanted[name] = {
+                    "device": device,
+                    "host": str(panel.get("host") or "").strip()}
+        # Kept for the old name and for checks: the panels asked about.
+        self.devices = dict.fromkeys(self.wanted)
         self.url, self.token = url, token
         self.state = {}
+        self.entities = {}      # name -> set of entity ids, or a prefix str
+        self._looked = {}       # name -> when it was last looked for
         self._said = set()
 
     @staticmethod
@@ -425,11 +449,17 @@ class PanelStatus:
         return re.sub(r"[^a-z0-9]+", "_", plain.lower()).strip("_")
 
     @staticmethod
-    def judge(states, slug):
-        """{"wifi": {"on", "bars"}, "bluetooth": bool}, or None if unknown."""
-        mine = [e for e in states
-                if str(e.get("entity_id", "")).partition(".")[2]
-                .startswith(slug + "_")]
+    def judge(states, which):
+        """{"wifi": {"on", "bars"}, "bluetooth": bool}, or None if unknown.
+
+        `which` is the device's entity ids, or an entity-id prefix.
+        """
+        if isinstance(which, str):
+            mine = [e for e in states
+                    if str(e.get("entity_id", "")).partition(".")[2]
+                    .startswith(which + "_")]
+        else:
+            mine = [e for e in states if e.get("entity_id") in which]
         if not mine:
             return None
         on = any(e.get("state") not in ("unavailable", None) for e in mine)
@@ -449,14 +479,139 @@ class PanelStatus:
             for e in mine if str(e.get("entity_id", "")).startswith("sensor."))
         return {"wifi": {"on": on, "bars": bars}, "bluetooth": bluetooth}
 
-    def read(self):
+    @staticmethod
+    def _host(text):
+        return str(text or "").strip().lower().rstrip(".")
+
+    @classmethod
+    def match(cls, want, known):
+        """The ESPHome device (one of `known`) that is this screen, or None.
+
+        By the name given first, then by the address: the same host, the
+        same name with or without .local, or a name that resolves to the
+        panel's address (or the other way round).
+        """
+        names = lambda k: {cls.slug(k.get("name") or ""),
+                           cls.slug(k.get("title") or "")} - {""}
+        device = cls.slug(want.get("device") or "")
+        if device:
+            for k in known:
+                if device in names(k):
+                    return k
+        host = cls._host(want.get("host"))
+        if not host:
+            return None
+        bare = host[:-len(".local")] if host.endswith(".local") else host
+        for k in known:
+            theirs = cls._host(k.get("host"))
+            if theirs and theirs in (host, bare, bare + ".local"):
+                return k
+            if cls.slug(bare) in names(k):
+                return k
+        import socket
+
+        def address(text):
+            try:
+                return socket.gethostbyname(text)
+            except (OSError, UnicodeError):
+                return None
+        mine = address(host)
+        for k in known:
+            theirs = cls._host(k.get("host"))
+            if mine and theirs and address(theirs) == mine:
+                return k
+        return None
+
+    def _ask(self, path, body=None):
         import urllib.request
         request = urllib.request.Request(
-            f"{self.url}/api/states",
-            headers={"Authorization": f"Bearer {self.token}"})
+            f"{self.url}{path}",
+            data=None if body is None else json.dumps(body).encode(),
+            headers={"Authorization": f"Bearer {self.token}",
+                     "Content-Type": "application/json"})
+        with urllib.request.urlopen(request, timeout=15) as answer:
+            return answer.read().decode()
+
+    def devices_known(self):
+        """Home Assistant's ESPHome devices: entry id, title, host, name."""
+        known = []
+        entries = json.loads(
+            self._ask("/api/config/config_entries/entry?domain=esphome"))
+        for entry in entries:
+            ident = entry.get("entry_id")
+            if not ident:
+                continue
+            data = {}
+            try:
+                diag = json.loads(
+                    self._ask(f"/api/diagnostics/config_entry/{ident}"))
+                data = (((diag.get("data") or {}).get("config") or {})
+                        .get("data") or {})
+            except Exception:  # noqa: BLE001 - a device not loaded yet
+                pass
+            known.append({"id": ident, "title": entry.get("title") or "",
+                          "host": data.get("host") or "",
+                          "name": data.get("device_name") or ""})
+        return known
+
+    def entities_of(self, entry_id):
+        text = self._ask("/api/template", {"template": (
+            "{% for s in states %}{% if config_entry_id(s.entity_id) == '"
+            + entry_id + "' %}{{ s.entity_id }}\n{% endif %}{% endfor %}")})
+        return {line.strip() for line in text.splitlines() if line.strip()}
+
+    def find(self, now):
+        """Look for the screens not matched yet, and refresh the others."""
+        due = [n for n in self.wanted
+               if now - self._looked.get(n, -1e9)
+               >= (self.REFRESH_S if isinstance(self.entities.get(n), set)
+                   else self.RETRY_S)]
+        if not due:
+            return
         try:
-            with urllib.request.urlopen(request, timeout=10) as answer:
-                states = json.loads(answer.read().decode())
+            known = self.devices_known()
+        except Exception as err:  # noqa: BLE001 - keeps what it had
+            known = []
+            if "devices" not in self._said:
+                self._said.add("devices")
+                say(f"[status] could not list Home Assistant's ESPHome "
+                    f"devices ({err}) -- the screens are matched by "
+                    f"esphome_device alone")
+        for name in due:
+            self._looked[name] = now
+            want = self.wanted[name]
+            found = self.match(want, known)
+            if found is not None:
+                try:
+                    ids = self.entities_of(found["id"])
+                except Exception:  # noqa: BLE001
+                    ids = set()
+                if ids:
+                    if f"found {name}" not in self._said:
+                        self._said.add(f"found {name}")
+                        say(f"[{name}] Wi-Fi and Bluetooth icons: from the "
+                            f"ESPHome device \"{found['title'] or found['name']}"
+                            f"\" ({len(ids)} entities)")
+                    self.entities[name] = ids
+                    continue
+            # Not found that way: the name given, as an entity-id prefix,
+            # which is what 4.37.0 did and still works for most devices.
+            fallback = want["device"] or (
+                want["host"][:-len(".local")]
+                if want["host"].lower().endswith(".local") else "")
+            if fallback:
+                self.entities[name] = self.slug(fallback)
+            elif f"lost {name}" not in self._said and known:
+                self._said.add(f"lost {name}")
+                say(f"[{name}] Wi-Fi and Bluetooth icons: no ESPHome device "
+                    f"in Home Assistant has the address {want['host'] or '?'}"
+                    f" -- add esphome_device: <its name> under this panel's "
+                    f"advanced (Edit in YAML)")
+
+    def read(self):
+        self.find(time.monotonic())
+        try:
+            states = json.loads(self._ask("/api/states"))
         except Exception as err:  # noqa: BLE001 - keeps the last reading
             if "read" not in self._said:
                 self._said.add("read")
@@ -464,13 +619,17 @@ class PanelStatus:
                     f"({err}) -- the launcher shows no Wi-Fi or Bluetooth")
             return
         self._said.discard("read")
-        for name, slug in self.devices.items():
-            found = self.judge(states, slug)
-            if found is None and name not in self._said:
-                self._said.add(name)
+        for name in self.wanted:
+            which = self.entities.get(name)
+            found = None if which is None else self.judge(states, which)
+            if which is not None and found is None \
+                    and f"none {name}" not in self._said:
+                self._said.add(f"none {name}")
                 say(f"[{name}] esphome_device: no entity in Home Assistant "
-                    f"begins with \"{slug}_\" -- check the device's name "
-                    f"in its YAML (esphome: name:)")
+                    f"begins with \"{which}_\" -- check the device's name "
+                    f"in its YAML (esphome: name:)"
+                    if isinstance(which, str) else
+                    f"[{name}] its ESPHome device has no entity with a state")
             self.state[name] = found
 
     def run(self):
@@ -479,11 +638,13 @@ class PanelStatus:
             time.sleep(self.EVERY_S)
 
     def start(self):
-        if not self.devices or not (self.url and self.token):
+        # The first reading in the thread too: matching a screen asks Home
+        # Assistant a few questions, and the panels are not kept waiting for
+        # their icons. The page asks again every ten seconds anyway.
+        if not self.wanted or not (self.url and self.token):
             return None
-        self.read()
         threading.Thread(target=self.run, name="status", daemon=True).start()
-        say("Status: Wi-Fi and Bluetooth of " + ", ".join(self.devices)
+        say("Status: Wi-Fi and Bluetooth of " + ", ".join(self.wanted)
             + " shown on the launcher")
         return self.state.get
 
@@ -1551,13 +1712,16 @@ def route_to_launcher(panels, where, own=None):
         # staging it will never see -- every time the corner brings the panel
         # home.
         panel["on_launcher"] = True
-        if given(panel.get("esphome_device")) and panel["url"]:
+        if STATUS is not None and panel["url"]:
             # The page has to know whose Wi-Fi and Bluetooth to show, and a
             # house launcher is one address for every panel.
             from urllib.parse import quote
+            # The same key PanelStatus files it under: its name, or its
+            # host when it has none.
+            who = str(panel.get("name") or panel.get("host") or "")
             panel["url"] = (panel["url"] + ("&" if "?" in panel["url"]
                                             else "?")
-                            + "panel=" + quote(name, safe=""))
+                            + "panel=" + quote(who, safe=""))
 
 
 def give_page_settings(panels, config):
