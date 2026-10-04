@@ -1,5 +1,15 @@
 # Changelog
 
+## 4.34.0
+
+- **Back, Reload and Home on the screen, inside a link.** Open a link -- Google,
+  Jellyfin, any site -- and a small bar appears at the top of the screen:
+  **←** goes back a page, **⟳** reloads it, **⌂** returns to the screen's own
+  page (the launcher). It shows for five seconds when a page opens and again
+  each time you touch the screen, then gets out of the way. It never shows on
+  the screen's own page, and pressing it never clicks the site underneath.
+  `--no-nav-bar` on a panel's command line turns it off.
+
 ## 4.33.1
 
 - **Back, Reload and Home buttons above the sign-in Chrome.** Chrome's own

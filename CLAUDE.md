@@ -1802,7 +1802,7 @@ the dashboard, where it is invisible while the keys go on working.
 ahead of the `pip install` as well as the `ADD`s, so a bump refetched
 everything — at the cost of the browser download on each update.
 `present_browser()` prints the Chromium version at startup and warns below 114,
-so this is never diagnosed by guesswork again. Currently **4.33.1**.
+so this is never diagnosed by guesswork again. Currently **4.34.0**.
 
 **CORRECTED in 4.29.5: the cost was every update, and a pin removes it.**
 Asked as *"verifie addon ... si il ya pas des elements qui freine la
@@ -10710,12 +10710,41 @@ exercised are Ubuntu 24.04's.
 as *"ok j'ai reussi a me connecter"* -- the first route to a Google session
 on a panel since Google refused the driven browser.
 
-Asked in the same message and NOT built: a way back to the previous page
-ON THE PANEL. The reply *"le retour qui est deja present sur la page web ? il suffit un
-appui a ce retour deja present"* has two readings -- the page's own back
-arrow does not answer a press (it may sit under the home corner, where a
-press between HOME_TAP_MAX_S and HOME_HOLD_S reaches nothing), or no new
-gesture is wanted at all. Asked rather than guessed.
+## Back, reload and home on the glass -- 4.34.0
+
+**The sign-in page's buttons (4.33.1) answered a request nobody made.** The
+household asked three times -- *"le vrai manque est la page precedente"*,
+then *"dans la page web il y a accueil, actualiser, cliquer pour revenir en
+arriere qui ne sont pas present"*, then, after 4.33.1, *"je ne vois aucun
+button ... voici comment est mon link google"* with the link's YAML. Every
+one was about the PANEL inside a link: a browser has a bar, a panel had none.
+"La page web" was read as the sign-in page because that was the page just
+built. The 4.33.1 buttons are kept -- they are useful there -- but the lesson
+is this file's oldest in a new costume: when a report names a thing, read
+which thing from what they pasted beside it, here a link.
+
+`NavBar` in ha_send.py, built on the keyboard's and the corner mark's rules:
+decoration in the top layer (popover, CSSOM, DOM, pointer-events none), and
+the sender owns the geometry, so the hit test and the drawing cannot drift.
+`Injector` takes a contact on it before the keyboard and the page and never
+moves the pointer; sliding off a button abandons it. Top centre, never over
+the home corner (`left >= corner width + gap`). Shown for `NAV_BAR_SECONDS`
+(5) after `domcontentloaded` and after any landing, held while a finger is on
+it, and never when `page.url` is the panel's own `--url` -- hidden it takes no
+touch, so the place belongs to the page again.
+
+- **Home goes through the corner's own path** (`_home`, fired_by `bar`), so
+  there is one way home to keep right.
+- **Back and reload wait only for commit**, like a link: the loop is blocked
+  while Playwright waits. Then `capture.restart()`, because a page given back
+  from the back/forward cache is already painted and may not paint again.
+- **`go_back()` returning None** -- nothing behind -- goes home instead.
+
+`tools/checknavbar.py` runs the shipped sender against a fake panel that
+reassembles the rectangles, sends real contacts up the return channel, and
+counts clicks on the page: 14 cases, and `--without` (`--no-nav-bar`, the
+panel as it was) fails 8, the reported fault among them. **Not seen on a
+panel**, and not on Chrome.
 
 ## Repository conventions
 
