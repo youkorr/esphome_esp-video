@@ -10885,6 +10885,15 @@ real sender: a tile and a touch on a fake panel, the film's two colours read
 off the reassembled picture. **Not seen on a panel**, and H.264 needs the
 box's Chrome.
 
+## The corner mark was furniture at five seconds -- 4.36.2
+
+Reported with a photograph of the quarter disc still over the Files page's
+heading: *"cette angle de retour reste trop longtemps ... il faut qu'elle
+s'efface rapidement"*. `HOME_HINT_SECONDS` 5.0 -> 1.5. `checkhint.py` proved
+the mark is drawn and removed but never for how long; `tools/checkhinttime.py`
+reads it off a fake panel's pixels, just below the bar's strip: **5.0 s at
+4.36.1, 1.5 s now** (`--ref` measures an older sender).
+
 ## Repository conventions
 
 - Work on branch `claude/esphome-pr-outdated-mdq36w`, then merge into `main`
