@@ -27,6 +27,8 @@ Each entry is a slug, the words that should reach it in both languages, the
 brand colour, and the path itself on a 24x24 grid.
 """
 
+import base64
+
 LOGO_LIST = (
     ("adguard", "adguard adguardhome", "#68BC71",
      "M12 0C8.249 0 3.725.861 0 2.755 0 6.845-.051 17.037 12 24 24.051 17.037 24 6.845 24 2.755 20.275.861 15.751 0 12 0zm-.106 15.429L6.857 9.612c.331-.239 1.75-1.143 2.794.042l2.187 2.588c.009-.001 5.801-5.948 5.815-5.938.246-.22.694-.503 1.204-.101l-6.963 9.226z"),
@@ -427,6 +429,41 @@ PICTURE_LIST = (
 # name -> (mime, base64, badge). Same flattening and the same loud failure on
 # a name used twice.
 #
+# Two of the launcher's own tiles, drawn rather than carried: the Files page
+# and a web browser, chosen by the household from a sheet of five each
+# ("fichier 5 et internet 5") as an app icon would look on a telephone -- a
+# rounded square in a gradient with a white glyph on it. The glyphs are
+# Google's Material Symbols (Rounded, filled), Apache License 2.0,
+# https://github.com/google/material-design-icons -- "folder_open" and
+# "explore". The squares are this file's. They are badges for the reason
+# Reolink's is: they bring their own ground, so they take the whole square.
+#
+# Their words are in launcher.ICON_NAMES as well, as the emoji they were
+# before; a picture is asked for first, so the badge wins wherever it exists.
+def _app_badge(top, bottom, glyph):
+    svg = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96">'
+           '<defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1">'
+           f'<stop offset="0" stop-color="{top}"/>'
+           f'<stop offset="1" stop-color="{bottom}"/></linearGradient></defs>'
+           '<rect width="96" height="96" rx="22" fill="url(#g)"/>'
+           '<g transform="translate(18 78) scale(0.0625)">'
+           f'<path fill="#fff" d="{glyph}"/></g></svg>')
+    return base64.b64encode(svg.encode()).decode()
+
+
+MATERIAL_FOLDER_OPEN = (
+    "M140-160q-23 0-41.5-18.5T80-220v-520q0-23 18.5-41.5T140-800h256q12 0 23.5 5t19.5 13l42 42h369q13 0 21.5 8.5T880-710q0 13-8.5 21.5T850-680H289q-57 0-103 28t-46 79v353l90-355q5-20 22-32.5t37-12.5h574q29 0 47.5 23t10.5 52l-88 339q-6 24-22 35t-41 11H140Z")
+MATERIAL_EXPLORE = (
+    "M480-440q-17 0-28.5-11.5T440-480q0-17 11.5-28.5T480-520q17 0 28.5 11.5T520-480q0 17-11.5 28.5T480-440Zm0 360q-82 0-155-31.5t-127.5-86Q143-252 111.5-325T80-480q0-83 31.5-156t86-127Q252-817 325-848.5T480-880q83 0 156 31.5T763-763q54 54 85.5 127T880-480q0 82-31.5 155T763-197.5q-54 54.5-127 86T480-80Zm0-60q142 0 241-99.5T820-480q0-142-99-241t-241-99q-141 0-240.5 99T140-480q0 141 99.5 240.5T480-140Zm0 0q-141 0-240.5-99.5T140-480q0-142 99.5-241T480-820q142 0 241 99t99 241q0 141-99 240.5T480-140Zm64-261q5-2 8.5-5.5t5.5-8.5l118-241q5-10-2.5-17.5T656-676L415-558q-5 2-8.5 5.5T401-544L283-303q-5 10 2.5 17.5T303-283l241-118Z")
+
+PICTURE_LIST = PICTURE_LIST + (
+    ("files", "dossier dossiers fichiers fichier folder folders files file "
+              "explorateur explorer", "image/svg+xml", True,
+     _app_badge("#60A5FA", "#2563EB", MATERIAL_FOLDER_OPEN)),
+    ("web", "internet web site navigateur browser", "image/svg+xml", True,
+     _app_badge("#34D399", "#0EA5E9", MATERIAL_EXPLORE)),
+)
+
 # `badge` says which of the two shapes a picture is, and it decides how big it
 # is drawn. A BADGE brings its own rounded ground -- Reolink's blue square,
 # 95% opaque -- so it replaces the tinted square a tile draws behind an icon

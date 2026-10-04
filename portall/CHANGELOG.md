@@ -1,5 +1,23 @@
 # Changelog
 
+## 4.39.0
+
+- **New icons for Files and the web.** The Files tile is a blue app icon
+  with an open folder, and a tile named `web`, `internet` or `navigateur`
+  is a green-to-blue one with a compass. Both are Material Symbols glyphs
+  (Apache 2.0) on a rounded badge.
+- **Signing a screen in from a telephone is readable now.** The browser on
+  the Portall page opens at the telephone's own size and sharpness, so
+  nothing needs zooming. An address field above it opens any site, and
+  Back, Reload and the start page are beside it.
+- **Once a screen is signed into Google, the page just says so.** Each
+  screen reads `● Connecté à Google` or offers `Se connecter à Google`. No
+  browser opens unless you ask for one. `Se déconnecter de Google` (tap it
+  twice) stops that screen for a moment, removes its Google and YouTube
+  cookies, and starts it again.
+- **Downloaded files are no longer listed on the Portall page.** They are
+  still kept, and you use them from the Files tile on the screen.
+
 ## 4.38.0
 
 - **One face for the launcher's avatar, and it looks like EMO now.** A

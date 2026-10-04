@@ -341,7 +341,7 @@ def main():
             ".stage iframe", "f => f.getAttribute('src')").startswith("/files/raw"))
         view("archive.bin")
         check("a file that cannot be opened says so",
-              "page Portall" in page.inner_text("main"))
+              "ne s'ouvre pas sur l" in page.inner_text("main"))
         check("and offers no wallpaper", page.query_selector(
             "button[data-do=wallpaper]") is None)
 

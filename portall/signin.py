@@ -16,6 +16,17 @@ protocol, no automation of any kind, and an address bar. Somebody signs in
 with the telephone's own keyboard, presses Done, and the panel comes back
 signed in.
 
+The browser is an APP window (--app) at the telephone's own size and pixel
+density, because an ordinary Chrome window is never narrower than 500 points:
+on a telephone 390 points wide noVNC then shrank it to three quarters, and the
+household had to zoom to read it. An app window has no address bar, so the
+page carries one, with back, reload and home; another address is the same
+browser closed and opened again on it.
+
+A screen already signed into Google says so and opens nothing: its cookie jar
+is read for Google's session cookie, and "Se deconnecter" removes Google's
+and YouTube's cookies from the profile while its browser is stopped.
+
 Two rules this file lives under, both the add-on's own:
 
 - An accessory must never cost the picture. A missing Xvfb, x11vnc, websockify
@@ -30,14 +41,15 @@ Two rules this file lives under, both the add-on's own:
 import glob
 import html
 import json
-import mimetypes
 import os
 import re
 import shutil
 import signal
 import socket
 import socketserver
+import sqlite3
 import subprocess
+import tempfile
 import threading
 import time
 import urllib.parse
@@ -68,6 +80,82 @@ SESSION_LIMIT_S = 20 * 60
 START_URL = "https://accounts.google.com/"
 
 TOOLS = ("Xvfb", "x11vnc", "websockify", "xdotool")
+
+# The page a session opens on when it is not to sign into Google: nothing at
+# all, so the address the telephone types is the first page shown.
+BLANK_URL = "about:blank"
+
+# Signed into Google means Google's own session cookie, on google.<country>,
+# not run out. Chrome keeps time in microseconds since 1601.
+GOOGLE_SESSION = ("SID", "__Secure-1PSID", "__Secure-3PSID")
+GOOGLE_HOST = re.compile(r"(^|\.)google\.[a-z]{2,3}(\.[a-z]{2})?$")
+YOUTUBE_HOST = re.compile(r"(^|\.)youtube\.com$")
+CHROME_EPOCH_S = 11644473600
+
+
+def cookie_jar(profile):
+    """The profile's cookie file, where this Chrome keeps it, or None."""
+    if not profile:
+        return None
+    for parts in (("Default", "Network", "Cookies"), ("Default", "Cookies")):
+        path = os.path.join(profile, *parts)
+        if os.path.isfile(path):
+            return path
+    return None
+
+
+def google_signed_in(profile):
+    """True or False, or None when there is no jar to read yet.
+
+    Read from a COPY: the panel's own browser keeps the jar open while it
+    runs, and copying a file asks nothing of it. The values are encrypted and
+    not needed -- the name, the host and the expiry are plain.
+    """
+    jar = cookie_jar(profile)
+    if jar is None:
+        return None
+    with tempfile.TemporaryDirectory() as work:
+        copy = os.path.join(work, "Cookies")
+        try:
+            shutil.copyfile(jar, copy)
+            for tail in ("-journal", "-wal"):
+                if os.path.exists(jar + tail):
+                    shutil.copyfile(jar + tail, copy + tail)
+            db = sqlite3.connect(copy)
+            try:
+                rows = db.execute(
+                    "SELECT host_key, expires_utc FROM cookies WHERE name IN "
+                    "(?, ?, ?)", GOOGLE_SESSION).fetchall()
+            finally:
+                db.close()
+        except (OSError, sqlite3.Error):
+            return None
+    now = (time.time() + CHROME_EPOCH_S) * 1e6
+    return any(GOOGLE_HOST.search(host or "") and (not until or until > now)
+               for host, until in rows)
+
+
+def forget_google(profile):
+    """Remove Google's and YouTube's cookies from a profile nobody has open.
+
+    Returns how many went. Only ever with the panel's browser stopped: Chrome
+    writes its jar back from memory, and would put them back.
+    """
+    jar = cookie_jar(profile)
+    if jar is None:
+        return 0
+    db = sqlite3.connect(jar)
+    try:
+        hosts = [h for (h,) in db.execute("SELECT DISTINCT host_key FROM cookies")
+                 if GOOGLE_HOST.search(h or "") or YOUTUBE_HOST.search(h or "")]
+        gone = 0
+        for host in hosts:
+            gone += db.execute("DELETE FROM cookies WHERE host_key = ?",
+                               (host,)).rowcount
+        db.commit()
+    finally:
+        db.close()
+    return gone
 
 
 def tools_missing():
@@ -183,21 +271,29 @@ class Session:
     """One plain browser on one profile, and the screen it is shown on."""
 
     def __init__(self, name, profile, browser, width, height, locale="",
-                 url=START_URL):
+                 url=START_URL, scale=1.0):
         self.name = name
         self.profile = profile
         self.browser = browser
+        # The window in points, as the telephone lays its own page out, and
+        # the telephone's pixels per point: the screen is drawn at that many
+        # pixels, so noVNC shows it one pixel for one and nothing is shrunk.
         self.width = width
         self.height = height
+        self.scale = scale
         self.locale = locale
         self.url = url
         self.started = time.monotonic()
         self.web_port = None
         self._processes = []
         self._browser = None
+        self._env = None
+        # While go() closes the browser to open it again, the watcher must
+        # not read the gap as somebody having closed it.
+        self.reopening = False
         self.display = None
 
-    def browser_command(self, display):
+    def browser_command(self, url=None):
         """The plain browser's command line -- and what it must NOT carry.
 
         Nothing here drives the browser, which is the whole point, so no
@@ -207,30 +303,42 @@ class Session:
         on it, and a mismatch would copy the session across and decrypt it to
         nothing. --no-sandbox because a container runs as root, where Chrome
         will not start without it -- Playwright passes that one too.
+
+        --app because an ordinary window is never narrower than 500 points,
+        measured: given 390 it opens at 500 and runs off a screen drawn for a
+        telephone. An app window takes the size it is given.
         """
         argv = [self.browser, f"--user-data-dir={os.path.abspath(self.profile)}",
                 "--password-store=basic", "--no-sandbox",
                 "--no-first-run", "--no-default-browser-check",
                 "--disable-dev-shm-usage", "--disable-gpu",
+                f"--force-device-scale-factor={self.scale:g}",
                 "--window-position=0,0",
                 f"--window-size={self.width},{self.height}"]
         if self.locale:
             argv.append(f"--lang={self.locale}")
-        argv.append(self.url)
+        argv.append(f"--app={url or self.url}")
         return argv
+
+    def screen_size(self):
+        """The virtual screen in pixels: the window at the telephone's
+        density, and never smaller than the window itself."""
+        return (max(self.width, round(self.width * self.scale)),
+                max(self.height, round(self.height * self.scale)))
 
     def start(self):
         display = self.display = free_display()
         if display is None:
             raise RuntimeError("no free X display number")
-        env = dict(os.environ, DISPLAY=f":{display}")
+        env = self._env = dict(os.environ, DISPLAY=f":{display}")
         vnc_port, self.web_port = free_port(), free_port()
+        wide, high = self.screen_size()
         self._spawn(["Xvfb", f":{display}", "-screen", "0",
-                     f"{self.width}x{self.height}x24", "-nolisten", "tcp"])
+                     f"{wide}x{high}x24", "-nolisten", "tcp"])
         if not _wait_for(lambda: os.path.exists(f"/tmp/.X11-unix/X{display}"),
                          10):
             raise RuntimeError("the virtual screen did not start")
-        self._browser = self._spawn(self.browser_command(display), env=env)
+        self._browser = self._spawn(self.browser_command(), env=env)
         self._spawn(["x11vnc", "-display", f":{display}", "-rfbport",
                      str(vnc_port), "-localhost", "-nopw", "-forever",
                      "-shared", "-quiet"], env=env)
@@ -288,10 +396,8 @@ class Session:
     def navigate(self, what):
         """Back, reload, or the page it was opened on.
 
-        Chrome's own bar has the first two, drawn for a desktop and scaled
-        down to a telephone, where they are a few pixels wide -- so the
-        page carries them as buttons of its own. Home is the start page
-        rather than Chrome's homepage, which is a new tab and not set.
+        An app window has no bar of its own, so the page carries these as
+        buttons. Home is the page the session started on.
         """
         if what == "back":
             return self.keys(("key", "alt+Left"))
@@ -302,8 +408,21 @@ class Session:
         return False
 
     def go(self, url):
-        """The address bar, typed into: focus it, the address, Enter."""
-        return self.keys(("key", "ctrl+l"), ("type", url), ("key", "Return"))
+        """Another address. An app window has no address bar, so the browser
+        is closed the way a person closes it -- its cookies written out --
+        and opened again on the address: a second or two."""
+        if self._env is None:
+            return False
+        self.reopening = True
+        try:
+            if not self.quit_browser():
+                return False
+            wait_profile_free(self.profile, 5)
+            self._browser = self._spawn(self.browser_command(url),
+                                        env=self._env)
+            return True
+        finally:
+            self.reopening = False
 
     def quit_browser(self):
         """Close the browser the way a person does, and say whether it went.
@@ -373,7 +492,7 @@ class SignIn:
 
     # -- the session ---------------------------------------------------------
 
-    def begin(self, name, width, height):
+    def begin(self, name, width, height, scale=1.0, url=None):
         with self._lock:
             if self.session is not None:
                 return "busy"
@@ -401,9 +520,10 @@ class SignIn:
                 return "profile busy"
             os.makedirs(panel["profile"], exist_ok=True)
             session = Session(name, panel["profile"], browser,
-                              max(500, min(1600, width)),
-                              max(600, min(1400, height)),
-                              panel.get("locale") or "", self.url)
+                              max(280, min(1600, width)),
+                              max(300, min(2000, height)),
+                              panel.get("locale") or "", url or self.url,
+                              max(1.0, min(3.0, scale)))
             try:
                 session.start()
             except Exception as err:  # noqa: BLE001 - the panel comes back
@@ -431,7 +551,7 @@ class SignIn:
     def _watch(self, session):
         """Ends a session nobody finished: a closed browser, or too long."""
         while self.session is session:
-            if not session.browser_running():
+            if not session.browser_running() and not session.reopening:
                 self.finish("the browser was closed")
                 return
             if time.monotonic() - session.started > SESSION_LIMIT_S:
@@ -439,48 +559,34 @@ class SignIn:
                 return
             time.sleep(1)
 
-    # -- the downloads -------------------------------------------------------
+    # -- Google ----------------------------------------------------------------
 
-    def files(self, name):
-        """What a screen's pages downloaded, newest first: (name, bytes, when).
+    def google(self, name):
+        """True, False or None (no profile, or nothing to read yet)."""
+        return google_signed_in((self.panels.get(name) or {}).get("profile"))
 
-        A file still arriving is under a .part name and is not listed.
+    def sign_out(self, name):
+        """Sign a screen out of Google: its browser stopped, Google's and
+        YouTube's cookies removed from its profile, the screen started again.
         """
-        folder = (self.panels.get(name) or {}).get("downloads")
-        if not folder or not os.path.isdir(folder):
-            return []
-        found = []
-        for entry in os.scandir(folder):
-            if entry.is_file() and not entry.name.endswith(".part") \
-                    and not entry.name.startswith("."):
-                info = entry.stat()
-                found.append((entry.name, info.st_size, info.st_mtime))
-        return sorted(found, key=lambda f: f[2], reverse=True)
-
-    def file_path(self, name, file):
-        """The file a request names, or None -- never anything outside."""
-        if not file or file != os.path.basename(file) or file.startswith("."):
-            return None
-        if file not in {f[0] for f in self.files(name)}:
-            return None
-        return os.path.join(self.panels[name]["downloads"], file)
-
-    @staticmethod
-    def _send_file(conn, path, file):
-        size = os.path.getsize(path)
-        kind = mimetypes.guess_type(file)[0] or "application/octet-stream"
-        quoted = urllib.parse.quote(file)
-        conn.sendall((f"HTTP/1.1 200 OK\r\nContent-Type: {kind}\r\n"
-                      f"Content-Length: {size}\r\n"
-                      f"Content-Disposition: attachment; filename*=UTF-8''"
-                      f"{quoted}\r\nCache-Control: no-store\r\n"
-                      "Connection: close\r\n\r\n").encode())
-        with open(path, "rb") as source:
-            while True:
-                chunk = source.read(1 << 16)
-                if not chunk:
-                    break
-                conn.sendall(chunk)
+        with self._lock:
+            if self.session is not None:
+                return "busy"
+            profile = (self.panels.get(name) or {}).get("profile")
+            if not profile:
+                return "no such screen"
+            self.hold(name)
+            try:
+                if not wait_profile_free(profile):
+                    return "profile busy"
+                gone = forget_google(profile)
+            except (OSError, sqlite3.Error) as err:
+                self.say(f"[{name}] could not sign out of Google ({err})")
+                return f"could not: {err}"
+            finally:
+                self.release(name)
+        self.say(f"[{name}] signed out of Google ({gone} cookies removed)")
+        return "ok"
 
     # -- the server ----------------------------------------------------------
 
@@ -541,8 +647,14 @@ class SignIn:
                         return int(float(form.get(key, [default])[0]))
                     except ValueError:
                         return default
+                try:
+                    scale = float(form.get("s", ["1"])[0])
+                except ValueError:
+                    scale = 1.0
+                want = form.get("url", [""])[0]
                 answer = self.begin(form.get("panel", [""])[0],
-                                    number("w", 1024), number("h", 800))
+                                    number("w", 1024), number("h", 800),
+                                    scale, address(want) if want else None)
                 self._reply(conn, 200, "application/json",
                             json.dumps({"answer": answer}))
             elif method == "POST" and path == "/nav":
@@ -551,6 +663,16 @@ class SignIn:
                     form.get("what", [""])[0])
                 self._reply(conn, 200, "application/json",
                             json.dumps({"answer": "ok" if ok else "no"}))
+            elif method == "POST" and path == "/go":
+                session = self.session
+                want = address(form.get("url", [""])[0])
+                ok = session is not None and bool(want) and session.go(want)
+                self._reply(conn, 200, "application/json",
+                            json.dumps({"answer": "ok" if ok else "no"}))
+            elif method == "POST" and path == "/signout":
+                answer = self.sign_out(form.get("panel", [""])[0])
+                self._reply(conn, 200, "application/json",
+                            json.dumps({"answer": answer}))
             elif method == "POST" and path == "/stop":
                 threading.Thread(target=self.finish, daemon=True).start()
                 self._reply(conn, 200, "application/json", '{"answer": "ok"}')
@@ -559,26 +681,6 @@ class SignIn:
                 self._reply(conn, 200, "application/json", json.dumps({
                     "panel": session.name if session else None,
                     "message": self.message}))
-            elif method == "GET" and path == "/file":
-                asked = urllib.parse.parse_qs(query)
-                name = asked.get("panel", [""])[0]
-                file = asked.get("name", [""])[0]
-                where = self.file_path(name, file) \
-                    if name in self.panels else None
-                if where is None:
-                    self._reply(conn, 404, "text/plain", "not found")
-                else:
-                    self._send_file(conn, where, file)
-            elif method == "POST" and path == "/delete":
-                name = form.get("panel", [""])[0]
-                where = self.file_path(name, form.get("name", [""])[0]) \
-                    if name in self.panels else None
-                if where is not None:
-                    os.remove(where)
-                    self.say(f"[{name}] downloaded file "
-                             f"{os.path.basename(where)} deleted")
-                self._reply(conn, 200, "application/json", json.dumps(
-                    {"answer": "ok" if where else "no"}))
             elif method == "GET" and path in ("/", ""):
                 prefix = headers.get("x-ingress-path", "")
                 self._reply(conn, 200, "text/html; charset=utf-8",
@@ -659,27 +761,23 @@ class SignIn:
         for name, panel in self.panels.items():
             label = html.escape(name)
             if not panel.get("profile"):
-                rows.append(f'<li><button disabled>{label}</button>'
-                            f'<small data-k="noprofile"></small></li>')
-            else:
-                rows.append(f'<li><button data-panel="{label}">{label}'
-                            f'</button></li>')
+                rows.append(f'<li class="screen"><div class="who"><b>{label}'
+                            f'</b><small data-k="noprofile"></small></div></li>')
+                continue
+            # Signed in: the screen says so and opens nothing. Only a screen
+            # that is not offers Google's sign-in page.
+            state = "on" if self.google(name) is True else "off"
+            main = (f'<button class="ghost" data-out="{label}" '
+                    f'data-k="signout"></button>' if state == "on" else
+                    f'<button class="go" data-panel="{label}" '
+                    f'data-k="signin"></button>')
+            rows.append(
+                f'<li class="screen"><div class="who"><b>{label}</b>'
+                f'<small class="state {state}" data-k="{state}"></small></div>'
+                f'{main}<button class="link" data-panel="{label}" '
+                f'data-url="{BLANK_URL}" data-k="other"></button></li>')
         missing = tools_missing()
-        kept = []
-        for name in self.panels:
-            for file, size, when in self.files(name):
-                link = ("file?panel=" + urllib.parse.quote(name)
-                        + "&name=" + urllib.parse.quote(file))
-                kept.append(
-                    f'<li class="file"><a href="{html.escape(link)}" '
-                    f'download="{html.escape(file)}">{html.escape(file)}</a>'
-                    f'<small>{html.escape(name)} &middot; {_size(size)} '
-                    f'&middot; {time.strftime("%Y-%m-%d %H:%M", time.localtime(when))}'
-                    f'</small><button class="del" data-del="{html.escape(file)}" '
-                    f'data-of="{html.escape(name)}" data-t="delete">&#10005;'
-                    f'</button></li>')
         return PAGE % {
-            "files": "".join(kept),
             "rows": "".join(rows),
             "missing": html.escape(", ".join(missing)),
             "active": html.escape(session.name) if session else "",
@@ -688,11 +786,27 @@ class SignIn:
         }
 
 
-def _size(n):
-    for unit in ("B", "KB", "MB", "GB"):
-        if n < 1024 or unit == "GB":
-            return f"{n:.0f} {unit}" if unit == "B" else f"{n:.1f} {unit}"
-        n /= 1024.0
+def address(text):
+    """What somebody typed into the page's address field, as an address.
+
+    http and https only -- a page this one opens must not be handed a file:
+    or a javascript: -- and a bare name is taken to be a site, the way a
+    browser's own bar takes it: https for a name with a dot in it, http for
+    an address on the house's network (an IP, a port, a name with no dot),
+    which is where Jellyfin and the like answer and seldom in https.
+    """
+    text = str(text or "").strip()
+    if not text or text == BLANK_URL:
+        return text
+    if re.match(r"^https?://", text, re.I):
+        return text
+    if re.match(r"^(javascript|file|data|chrome|about|view-source|blob):",
+                text, re.I):
+        return ""
+    host = re.split(r"[/?#]", text, 1)[0]
+    local = (re.match(r"^\d+\.\d+\.\d+\.\d+(:\d+)?$", host)
+             or ":" in host or "." not in host)
+    return ("http://" if local else "https://") + text
 
 
 PAGE = """<!doctype html>
@@ -701,10 +815,11 @@ PAGE = """<!doctype html>
 <title>Portall - sign in</title>
 <style>
  :root { --ground: #f4f6fa; --ink: #161b26; --faint: #5b6475; --card: #fff;
-         --edge: #d8dde6; --accent: #2f6fdf; }
+         --edge: #d8dde6; --accent: #2f6fdf; --ok: #15803d; }
  @media (prefers-color-scheme: dark) {
    :root { --ground: #0b0e14; --ink: #e8ecf4; --faint: #99a3b5;
-           --card: #161b26; --edge: #2a3140; --accent: #5b8ff0; } }
+           --card: #161b26; --edge: #2a3140; --accent: #5b8ff0;
+           --ok: #4ade80; } }
  * { box-sizing: border-box; }
  html, body { margin: 0; height: 100%%; }
  body { background: var(--ground); color: var(--ink);
@@ -712,31 +827,37 @@ PAGE = """<!doctype html>
  main { max-width: 40rem; margin: 0 auto; }
  h1 { font-size: 1.3rem; margin: 0 0 .4rem; }
  p { color: var(--faint); margin: .3rem 0 1rem; }
- ul { list-style: none; padding: 0; display: grid; gap: .6rem; }
- button { font: inherit; width: 100%%; padding: .9rem 1rem; border-radius: 12px;
+ ul { list-style: none; padding: 0; display: grid; gap: .7rem; }
+ button { font: inherit; padding: .8rem 1rem; border-radius: 12px;
           border: 1px solid var(--edge); background: var(--card);
-          color: var(--ink); text-align: left; cursor: pointer; }
- button[data-panel]::after { content: " \\2192"; color: var(--accent); }
+          color: var(--ink); cursor: pointer; }
  button:disabled { opacity: .55; }
- small { display: block; color: var(--faint); margin: .2rem .2rem 0; }
- .bar { display: flex; gap: .5rem; align-items: center; margin-bottom: .6rem; }
- .bar button { width: auto; padding: .7rem .9rem; }
+ small { display: block; color: var(--faint); }
+ .screen { display: grid; gap: .5rem; padding: .9rem 1rem; border-radius: 14px;
+           border: 1px solid var(--edge); background: var(--card); }
+ .who b { font-size: 1.05rem; }
+ .state.on { color: var(--ok); font-weight: 600; }
+ .screen .go { background: var(--accent); color: #fff; border: 0;
+               font-weight: 600; }
+ .screen .link { border: 0; background: none; color: var(--accent);
+                 padding: .2rem 0; text-align: left; font-size: .9rem; }
+ .bar { display: flex; gap: .5rem; align-items: center; }
+ .bar button { padding: .7rem .9rem; }
  .bar .nav { font-size: 1.15rem; line-height: 1; min-width: 3rem;
              text-align: center; }
  .bar .gap { flex: 1; }
  #done { background: var(--accent); color: #fff; border: 0; font-weight: 600; }
- #live > p { margin: 0 0 .5rem; font-size: .9rem; }
- iframe { width: 100%%; height: calc(100vh - 150px); border: 1px solid var(--edge);
+ #live { display: flex; flex-direction: column; gap: .5rem;
+         height: calc(100vh - 32px); height: calc(100dvh - 32px); }
+ #live[hidden] { display: none; }
+ .addr { display: flex; gap: .5rem; }
+ .addr input { flex: 1; min-width: 0; font: inherit; padding: .7rem .8rem;
+               border-radius: 12px; border: 1px solid var(--edge);
+               background: var(--card); color: var(--ink); }
+ #live > p { margin: 0; font-size: .85rem; }
+ iframe { flex: 1; min-height: 0; width: 100%%; border: 1px solid var(--edge);
           border-radius: 12px; background: #000; }
  .warn { color: #c2410c; }
- h2 { font-size: 1.1rem; margin: 1.6rem 0 .2rem; }
- .file { display: grid; grid-template-columns: 1fr auto; gap: 0 .6rem;
-         align-items: center; padding: .7rem .9rem; border-radius: 12px;
-         border: 1px solid var(--edge); background: var(--card); }
- .file a { color: var(--accent); overflow-wrap: anywhere; font-weight: 600; }
- .file small { grid-column: 1; margin: .1rem 0 0; }
- .file .del { grid-row: 1 / span 2; grid-column: 2; width: auto;
-              padding: .5rem .8rem; }
 </style></head>
 <body><main id="m"
  data-active="%(active)s" data-prefix="%(prefix)s"
@@ -746,9 +867,6 @@ PAGE = """<!doctype html>
   <p data-k="intro"></p>
   <p class="warn" id="warn"></p>
   <ul>%(rows)s</ul>
-  <h2 data-k="files"></h2>
-  <p data-k="filesintro"></p>
-  <ul id="files">%(files)s</ul>
  </div>
  <div id="live" hidden>
   <div class="bar">
@@ -758,45 +876,58 @@ PAGE = """<!doctype html>
    <span class="gap"></span>
    <button id="done" data-k="done"></button>
   </div>
-  <p data-k="live"></p>
+  <form class="addr" id="addr"><input id="url" type="text" inputmode="url"
+   autocomplete="off" autocapitalize="off" spellcheck="false"
+   enterkeyhint="go"><button data-k="go"></button></form>
   <iframe id="screen" allow="clipboard-read; clipboard-write"></iframe>
+  <p data-k="live"></p>
  </div>
 </main>
 <script>
 (function () {
   var fr = (navigator.language || '').toLowerCase().indexOf('fr') === 0;
   var T = fr ? {
-    title: "Se connecter depuis un \\u00e9cran",
-    intro: "Choisissez l'\\u00e9cran. Un vrai Chrome s'ouvre ici sur son profil, avec une barre d'adresse : connectez-vous \\u00e0 Google ou \\u00e0 n'importe quel site avec le clavier de ce t\\u00e9l\\u00e9phone, puis appuyez sur Termin\\u00e9. L'\\u00e9cran s'arr\\u00eate pendant ce temps et revient connect\\u00e9.",
-    live: "Connect\\u00e9 au profil de l'\\u00e9cran. Le clavier : bouton \\u2328 dans le menu \\u00e0 gauche.",
+    title: "Comptes des \\u00e9crans",
+    intro: "Chaque \\u00e9cran garde sa connexion. Pour se connecter, un vrai Chrome s'ouvre ici \\u00e0 la taille de ce t\\u00e9l\\u00e9phone : tapez avec son clavier, puis appuyez sur Termin\\u00e9. L'\\u00e9cran s'arr\\u00eate pendant ce temps et revient connect\\u00e9.",
+    on: "\\u25cf Connect\\u00e9 \\u00e0 Google",
+    off: "Pas connect\\u00e9 \\u00e0 Google",
+    signin: "Se connecter \\u00e0 Google",
+    signout: "Se d\\u00e9connecter de Google",
+    sure: "Appuyez encore pour vous d\\u00e9connecter",
+    working: "Un instant\\u2026",
+    other: "Se connecter \\u00e0 un autre site\\u2026",
+    live: "Le clavier : bouton \\u2328 dans le menu \\u00e0 gauche.",
+    url: "Adresse d'un site",
+    go: "Aller",
     done: "Termin\\u00e9",
     back: "Page pr\\u00e9c\\u00e9dente",
     reload: "Actualiser",
-    home: "Accueil (page de connexion Google)",
+    home: "Page de d\\u00e9part",
     noprofile: "keep_profile est d\\u00e9sactiv\\u00e9 pour cet \\u00e9cran : il n'a pas de profil o\\u00f9 garder une connexion.",
     missing: "Il manque \\u00e0 l'add-on : ",
     busy: "Une connexion est d\\u00e9j\\u00e0 en cours.",
-    files: "T\\u00e9l\\u00e9chargements des \\u00e9crans",
-    filesintro: "Ce que les pages des \\u00e9crans ont t\\u00e9l\\u00e9charg\\u00e9. Touchez un nom pour l'enregistrer sur cet appareil.",
-    nofiles: "Rien pour l'instant.",
-    delete: "Supprimer",
-    failed: "Impossible de d\\u00e9marrer : "
+    failed: "Impossible : "
   } : {
-    title: "Sign in from a screen",
-    intro: "Pick the screen. A real Chrome opens here on its profile, with an address bar: sign into Google or any site with this phone's keyboard, then press Done. The screen stops meanwhile and comes back signed in.",
-    live: "On the screen's profile. The keyboard: the \\u2328 button in the menu on the left.",
+    title: "Screens' accounts",
+    intro: "Each screen keeps its own sign-in. To sign in, a real Chrome opens here at this phone's size: type with its keyboard, then press Done. The screen stops meanwhile and comes back signed in.",
+    on: "\\u25cf Signed into Google",
+    off: "Not signed into Google",
+    signin: "Sign into Google",
+    signout: "Sign out of Google",
+    sure: "Tap again to sign out",
+    working: "One moment\\u2026",
+    other: "Sign into another site\\u2026",
+    live: "The keyboard: the \\u2328 button in the menu on the left.",
+    url: "A site's address",
+    go: "Go",
     done: "Done",
     back: "Back",
     reload: "Reload",
-    home: "Home (Google's sign-in page)",
+    home: "Start page",
     noprofile: "keep_profile is off for this screen: it has no profile to keep a sign-in in.",
     missing: "The add-on is missing: ",
     busy: "A sign-in is already running.",
-    files: "Screens' downloads",
-    filesintro: "What the screens' pages downloaded. Tap a name to save it on this device.",
-    nofiles: "Nothing yet.",
-    delete: "Delete",
-    failed: "Could not start: "
+    failed: "Could not: "
   };
   var m = document.getElementById('m');
   document.querySelectorAll('[data-k]').forEach(function (e) {
@@ -806,21 +937,7 @@ PAGE = """<!doctype html>
     e.title = T[e.getAttribute('data-t')] || '';
     e.setAttribute('aria-label', e.title);
   });
-  var list = document.getElementById('files');
-  if (!list.children.length) {
-    var none = document.createElement('li');
-    none.innerHTML = '<small></small>';
-    none.firstChild.textContent = T.nofiles;
-    list.appendChild(none);
-  }
-  document.querySelectorAll('button[data-del]').forEach(function (b) {
-    b.addEventListener('click', function () {
-      b.disabled = true;
-      post('delete', 'panel=' + encodeURIComponent(b.dataset.of)
-           + '&name=' + encodeURIComponent(b.dataset.del))
-        .then(function () { location.reload(); });
-    });
-  });
+  document.getElementById('url').placeholder = T.url;
   var warn = document.getElementById('warn');
   if (m.dataset.missing) warn.textContent = T.missing + m.dataset.missing;
   else if (m.dataset.message) warn.textContent = T.failed + m.dataset.message;
@@ -831,37 +948,65 @@ PAGE = """<!doctype html>
   var base = location.pathname.replace(/[^\\/]*$/, '');
   var wsPath = (m.dataset.prefix ? m.dataset.prefix + '/' : base.replace(/^\\//, ''))
                + 'vnc/websockify';
-  function show() {
-    document.getElementById('pick').hidden = true;
-    document.getElementById('live').hidden = false;
-    document.getElementById('screen').src = 'vnc/vnc.html?autoconnect=1'
-      + '&resize=scale&reconnect=1&show_dot=1&path=' + encodeURIComponent(wsPath);
+  var pick = document.getElementById('pick'), live = document.getElementById('live');
+  var screen = document.getElementById('screen');
+  function open() { pick.hidden = true; live.hidden = false; }
+  function connect() {
+    screen.src = 'vnc/vnc.html?autoconnect=1&resize=scale&reconnect=1'
+      + '&show_dot=1&path=' + encodeURIComponent(wsPath);
   }
-  if (m.dataset.active) show();
+  if (m.dataset.active) { open(); connect(); }
 
   function post(what, body) {
     return fetch(what, {method: 'POST', body: body,
       headers: {'Content-Type': 'application/x-www-form-urlencoded'}})
       .then(function (r) { return r.json(); });
   }
+  // The browser is opened at the size of the frame it will be shown in,
+  // in points, and at this phone's pixels per point -- so noVNC shows it
+  // one pixel for one, the size this phone draws its own pages.
   document.querySelectorAll('button[data-panel]').forEach(function (b) {
     b.addEventListener('click', function () {
-      var w = Math.round(window.innerWidth * Math.min(window.devicePixelRatio || 1, 1.5));
-      var h = Math.round((window.innerHeight - 150) * Math.min(window.devicePixelRatio || 1, 1.5));
+      open();
+      var r = screen.getBoundingClientRect();
+      var s = Math.min(3, Math.max(1, window.devicePixelRatio || 1));
       b.disabled = true;
       post('start', 'panel=' + encodeURIComponent(b.dataset.panel)
-           + '&w=' + w + '&h=' + h).then(function (r) {
-        if (r.answer === 'ok') { show(); return; }
-        b.disabled = false;
-        warn.textContent = r.answer === 'busy' ? T.busy
-          : r.answer === 'keep_profile' ? T.noprofile : T.failed + r.answer;
-      });
+           + '&w=' + Math.floor(r.width - 2) + '&h=' + Math.floor(r.height - 2)
+           + '&s=' + s.toFixed(2)
+           + (b.dataset.url ? '&url=' + encodeURIComponent(b.dataset.url) : ''))
+        .then(function (a) {
+          if (a.answer === 'ok') { connect(); return; }
+          live.hidden = true; pick.hidden = false;
+          b.disabled = false;
+          warn.textContent = a.answer === 'busy' ? T.busy
+            : a.answer === 'keep_profile' ? T.noprofile : T.failed + a.answer;
+        });
+    });
+  });
+  document.querySelectorAll('button[data-out]').forEach(function (b) {
+    b.addEventListener('click', function () {
+      if (!b.dataset.sure) { b.dataset.sure = '1'; b.textContent = T.sure; return; }
+      b.disabled = true;
+      b.textContent = T.working;
+      post('signout', 'panel=' + encodeURIComponent(b.dataset.out))
+        .then(function (a) {
+          if (a.answer !== 'ok') warn.textContent = T.failed + a.answer;
+          location.reload();
+        });
     });
   });
   document.querySelectorAll('button[data-nav]').forEach(function (b) {
     b.addEventListener('click', function () {
       post('nav', 'what=' + b.dataset.nav);
     });
+  });
+  document.getElementById('addr').addEventListener('submit', function (e) {
+    e.preventDefault();
+    var field = document.getElementById('url');
+    if (!field.value.trim()) return;
+    post('go', 'url=' + encodeURIComponent(field.value));
+    field.blur();
   });
   document.getElementById('done').addEventListener('click', function () {
     post('stop', '').then(function () { location.reload(); });
