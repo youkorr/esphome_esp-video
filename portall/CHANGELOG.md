@@ -1,5 +1,14 @@
 # Changelog
 
+## 4.37.0
+
+- **The screen's Wi-Fi and Bluetooth on its launcher.** Give a screen its
+  ESPHome name (`esphome_device:` under its **advanced**) and its launcher
+  shows a Wi-Fi icon while it is on the network -- with bars if its YAML has
+  a `wifi_signal` sensor -- and a Bluetooth icon while a speaker or a
+  controller is connected. Read from Home Assistant, nothing to change on the
+  screen.
+
 ## 4.36.5
 
 - **Home Assistant without a token is recognised reliably too.** Right after

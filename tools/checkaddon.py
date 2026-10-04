@@ -237,6 +237,9 @@ def check_reaches_sender(folder):
         "import_profile",
         # A switch that WITHHOLDS the links' tokens rather than adding a flag.
         "home_assistant",
+        # Read HERE, by PanelStatus, which asks Home Assistant for the screen's
+        # Wi-Fi and Bluetooth for the launcher; the sender never needs it.
+        "esphome_device",
         # This one starts a HomeKit accessory HERE; what it adds to the
         # sender's line is --control, which is wider than the option and so
         # is not named after it. tools/checkhomekit.py runs command_for and
