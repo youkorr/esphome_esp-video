@@ -818,6 +818,7 @@ PROFILES = "/data/profiles"
 # PC. Left out of the add-on's backups (backup_exclude in config.yaml): a
 # backup is not where a downloaded film should go.
 DOWNLOADS = "/data/downloads"
+RESUME = "/data/resume"
 
 
 def profile_name(panel):
@@ -945,6 +946,9 @@ def command_for(panel):
     if profile:
         argv += ["--profile", profile]
     argv += ["--downloads", downloads_for(panel)]
+    # Where the panel was, so a sender that stops unasked -- a browser that
+    # closed under it -- comes back on that page rather than on its launcher.
+    argv += ["--resume", os.path.join(RESUME, profile_name(panel) + ".url")]
     for key in (
         "host",
         "port",

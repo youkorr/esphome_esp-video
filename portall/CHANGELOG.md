@@ -1,5 +1,19 @@
 # Changelog
 
+## 4.36.3
+
+- **Downloading no longer sends the screen back to its launcher.** With Google
+  Chrome -- what an amd64 Home Assistant box runs -- a download closed the
+  page the moment it began, the screen was restarted on its launcher, and
+  nothing was kept (reported on a wallpaper from 4kwallpapers.com). The
+  browser no longer downloads anything itself: the add-on fetches the file
+  with the page's own cookies, so signed-in sites work too, including files a
+  page makes itself.
+- **If the browser does stop under a screen, it comes back on the page it
+  was showing** rather than on its launcher -- when it restarts within three
+  minutes. Stopping or restarting the add-on still starts every screen on its
+  own page.
+
 ## 4.36.2
 
 - **The corner mark goes away quickly.** The faint quarter circle in the

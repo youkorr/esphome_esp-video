@@ -701,12 +701,14 @@ def _launch(playwright, executable, profile, view, browser_args,
                 device_scale_factor=1, executable_path=path,
                 ignore_default_args=list(ignore), env=env, locale=locale,
                 has_touch=touch,
+                # Refused, and fetched by Downloads instead: see why there.
+                accept_downloads=False,
             )
         return playwright.chromium.launch(
             args=browser_args, executable_path=path,
             ignore_default_args=list(ignore), env=env,
         ).new_context(viewport=view, device_scale_factor=1, locale=locale,
-                      has_touch=touch)
+                      has_touch=touch, accept_downloads=False)
 
     # A panel's only input is a finger, and the browser was telling every site
     # it had no touchscreen at all -- navigator.maxTouchPoints 0, measured. On
@@ -1546,20 +1548,35 @@ class Downloads:
     Left alone, Playwright puts a download in a temporary folder deleted when
     the browser closes, and a panel shows nothing at all: reported as the
     download "qui ne fonctionne pas". Here every file a page downloads is
-    copied into this panel's own folder -- the add-on hands every panel one,
-    and lists them on its own page in Home Assistant -- and the panel says so
-    in the bar's strip.
+    kept in this panel's own folder -- the add-on hands every panel one, and
+    lists them on its own page in Home Assistant and on the panel's Files
+    page -- and the panel says so in the bar's strip.
 
-    save_as() waits for the download to finish, and it is called from
-    Playwright's own handler for the event: in the synchronous API a handler
-    runs in a greenlet of its own, so the wait does not hold the loop -- the
-    picture goes on while a file arrives. Measured with a file served slowly,
-    by tools/checkdownload.py. The file is written under a temporary name and
-    renamed once whole, so nothing reads half of one.
+    THE BROWSER IS NOT ALLOWED TO DOWNLOAD ANYTHING ITSELF (accept_downloads
+    is off), and this fetches the file instead. Google Chrome, which a Home
+    Assistant box on amd64 runs, closed the page the moment a download began
+    -- "Download.save_as: Target page, context or browser has been closed",
+    then the loop's next call to the page, then the sender exited and the
+    panel was back on its launcher with nothing kept. Measured on Chromium,
+    which does not do it, and read off a panel's log, which did: a wallpaper
+    from 4kwallpapers.com. With downloads refused the event still arrives,
+    carrying the address and the file's name, and the browser's own download
+    code -- the part that closed the page -- never runs.
+
+    An address is fetched with the context's own cookies, the page's user
+    agent and the page as referrer, so a site that only serves a signed-in
+    or a same-site visitor serves this too -- and streamed to disk in a
+    thread, so a film is never held in memory and the picture never waits.
+    A blob: or data: address belongs to the page that made it, so that page
+    reads it out itself. Written under a .part name and renamed once whole,
+    so nothing reads half of a file.
     """
 
-    def __init__(self, folder):
+    BLOB_LIMIT = 256 * 1024 * 1024
+
+    def __init__(self, folder, context=None):
         self.folder = folder
+        self.context = context
         self._news = collections.deque(maxlen=8)
 
     def attach(self, page):
@@ -1579,7 +1596,9 @@ class Downloads:
         if not dot:
             stem, ext = name, ""
         candidate, n = name, 1
-        while os.path.exists(os.path.join(self.folder, candidate)):
+        while os.path.exists(os.path.join(self.folder, candidate)) \
+                or os.path.exists(os.path.join(self.folder,
+                                               candidate + ".part")):
             n += 1
             candidate = f"{stem} ({n}){'.' + ext if ext else ''}"
         return candidate
@@ -1587,8 +1606,9 @@ class Downloads:
     def _on_download(self, download):
         try:
             name = self._safe(download.suggested_filename)
+            url = download.url
         except Exception:  # noqa: BLE001
-            name = "download"
+            name, url = "download", ""
         if not self.folder:
             print(f"Download: {name} -- not kept, since no --downloads folder "
                   "was given")
@@ -1599,18 +1619,96 @@ class Downloads:
             name = self._free(name)
             final = os.path.join(self.folder, name)
             part = final + ".part"
-            print(f"Download: {name} from {download.url[:80]} ...")
-            self._news.append(("start", name))
-            download.save_as(part)
+            open(part, "wb").close()  # holds the name while it arrives
+        except OSError as err:
+            print(f"Download: {name} could not be kept ({err})")
+            self._news.append(("failed", name))
+            return
+        print(f"Download: {name} from {url[:80]} ...")
+        self._news.append(("start", name))
+        source = None
+        try:
+            source = download.page
+        except Exception:  # noqa: BLE001
+            pass
+        if url.startswith(("http://", "https://")):
+            # The cookies, the user agent and the referrer are asked of the
+            # browser here, in Playwright's own handler; the bytes are fetched
+            # in a thread, which asks Playwright nothing.
+            headers = {}
+            try:
+                cookies = self.context.cookies([url]) if self.context else []
+                if cookies:
+                    headers["Cookie"] = "; ".join(
+                        f"{c['name']}={c['value']}" for c in cookies)
+            except Exception:  # noqa: BLE001 - without them, then
+                pass
+            try:
+                if source is not None and not source.is_closed():
+                    headers["User-Agent"] = source.evaluate(
+                        "navigator.userAgent")
+                    if source.url.startswith(("http://", "https://")):
+                        headers["Referer"] = source.url
+            except Exception:  # noqa: BLE001
+                pass
+            threading.Thread(target=self._fetch, name="download",
+                             args=(url, headers, part, final, name),
+                             daemon=True).start()
+            return
+        try:
+            blob = self._read_in_page(source, url)
+            with open(part, "wb") as out:
+                out.write(blob)
+        except Exception as err:  # noqa: BLE001 - one file, never the panel
+            self._failed(name, part, err)
+            return
+        self._done(name, part, final)
+
+    def _read_in_page(self, source, url):
+        """A blob: or data: address, read by the page that made it."""
+        if url.startswith("data:"):
+            head, _, body = url.partition(",")
+            if head.endswith(";base64"):
+                return base64.b64decode(body)
+            return urllib.parse.unquote_to_bytes(body)
+        if source is None or source.is_closed():
+            raise RuntimeError("the page that made it has gone")
+        encoded = source.evaluate("""async ([u, limit]) => {
+          const b = new Uint8Array(await (await fetch(u)).arrayBuffer());
+          if (b.length > limit) throw new Error('larger than ' + limit);
+          let s = '';
+          for (let i = 0; i < b.length; i += 32768)
+            s += String.fromCharCode.apply(null, b.subarray(i, i + 32768));
+          return btoa(s);
+        }""", [url, self.BLOB_LIMIT])
+        return base64.b64decode(encoded)
+
+    def _fetch(self, url, headers, part, final, name):
+        import urllib.request
+        try:
+            request = urllib.request.Request(url, headers=headers)
+            with urllib.request.urlopen(request, timeout=60) as answer, \
+                    open(part, "wb") as out:
+                shutil.copyfileobj(answer, out, 1 << 16)
+        except Exception as err:  # noqa: BLE001 - one file, never the panel
+            self._failed(name, part, err)
+            return
+        self._done(name, part, final)
+
+    def _failed(self, name, part, err):
+        print(f"Download: {name} did not finish ({err})")
+        self._news.append(("failed", name))
+        try:
+            os.remove(part)
+        except OSError:
+            pass
+
+    def _done(self, name, part, final):
+        try:
             os.replace(part, final)
             size = os.path.getsize(final)
-        except Exception as err:  # noqa: BLE001 - one file, never the panel
-            print(f"Download: {name} did not finish ({err})")
-            self._news.append(("failed", name))
-            try:
-                os.remove(part)
-            except (OSError, UnboundLocalError):
-                pass
+        except OSError as err:
+            self._failed(name, part, err)
             return
         print(f"Download: {name} kept, {size / 1024:.0f} KiB, in "
               f"{self.folder}")
@@ -1621,6 +1719,61 @@ class Downloads:
         news = list(self._news)
         self._news.clear()
         return news
+
+
+class Resume:
+    """Where the panel was, so a run that ends unasked can go back there.
+
+    A file holding the address of the page shown -- written when it changes,
+    removed on the panel's own page and when the sender is stopped on
+    purpose -- read once at the start of the next run and used only if it is
+    fresh: a run that ended long ago was stopped, not lost.
+    """
+
+    FRESH_S = 180.0
+
+    def __init__(self, path, home):
+        self.path = path
+        self.home = home
+        self._said = None
+
+    def take(self):
+        """(address, seconds ago) of a fresh page to go back to, or None."""
+        if not self.path:
+            return None
+        try:
+            with open(self.path, encoding="utf-8") as handle:
+                url = handle.read().strip()
+            age = time.time() - os.path.getmtime(self.path)
+        except OSError:
+            return None
+        self.forget()
+        if age > self.FRESH_S or not url.startswith(("http://", "https://")) \
+                or _same_page(url, self.home):
+            return None
+        return url, age
+
+    def note(self, url):
+        """The page shown now; written only when it changes."""
+        if not self.path or url == self._said:
+            return
+        self._said = url
+        if not url.startswith(("http://", "https://")) \
+                or _same_page(url, self.home):
+            self.forget()
+            return
+        try:
+            os.makedirs(os.path.dirname(self.path) or ".", exist_ok=True)
+            with open(self.path, "w", encoding="utf-8") as handle:
+                handle.write(url)
+        except OSError:
+            pass
+
+    def forget(self):
+        try:
+            os.remove(self.path)
+        except (OSError, TypeError):
+            pass
 
 
 def _origin_of(url):
@@ -4848,6 +5001,13 @@ def main():
         "toolbar does, and is never shown on the panel's own page",
     )
     parser.add_argument(
+        "--resume",
+        metavar="FILE",
+        help="remember the page shown in this file, and go back to it when "
+        "the sender starts again within three minutes of stopping unasked "
+        "(the add-on gives every panel one)",
+    )
+    parser.add_argument(
         "--downloads",
         metavar="DIR",
         help="keep what a page downloads in this folder (the add-on gives "
@@ -5543,7 +5703,7 @@ def main():
         page = context.pages[0] if context.pages else context.new_page()
         # Every page, the panel's and any a link opens in a new window --
         # a download link often does.
-        downloads = Downloads(args.downloads)
+        downloads = Downloads(args.downloads, context)
         downloads.attach(page)
         context.on("page", downloads.attach)
         user_agent = present_browser(
@@ -5605,6 +5765,18 @@ def main():
             )
         print(f"Ready {time.monotonic() - started:.1f}s after starting "
               f"({browser_ready:.1f}s of it the browser)")
+        # Back to the page the panel was on, when the last run ended a moment
+        # ago without being asked to: the browser stopped under it. Coming
+        # back to the launcher instead was reported as the panel "qui revient
+        # sur le launcher" -- from a site that had nothing wrong with it.
+        # Through the panel's own page first, so its history is the one a
+        # tile would have made and the bar's back and home stay in the link.
+        resumed = Resume(args.resume, args.url)
+        back_to = resumed.take()
+        if back_to:
+            print(f"Resume: the last run stopped {back_to[1]:.0f}s ago on "
+                  f"{back_to[0][:80]} -- going back there")
+            go_to(page, back_to[0])
         if "/auth/authorize" in page.url:
             print(
                 "Warning: Home Assistant is asking to log in, so the token was "
@@ -6328,6 +6500,8 @@ def main():
                     # to -- nor on a Home Assistant dashboard, which has its
                     # own. Shown, the page is made shorter by its height, so
                     # the two never overlap.
+                    if not parked:
+                        resumed.note(page.url)
                     if bar is not None:
                         french = (args.locale or "").lower().startswith("fr")
                         for what, name in downloads.take():
@@ -6646,8 +6820,28 @@ def main():
                 endpoint.close()
 
 
+def _forget_resume():
+    for i, word in enumerate(sys.argv):
+        if word == "--resume" and i + 1 < len(sys.argv):
+            Resume(sys.argv[i + 1], None).forget()
+
+
+def _stopped_on_purpose(number, _frame):
+    """A stop asked for is not a crash: the next run starts at home.
+
+    Then dies of the signal exactly as it always did -- the default action,
+    re-raised -- so nothing about how the add-on stops a panel changes.
+    """
+    import signal
+    _forget_resume()
+    signal.signal(number, signal.SIG_DFL)
+    os.kill(os.getpid(), number)
+
+
 if __name__ == "__main__":
+    import signal
+    signal.signal(signal.SIGTERM, _stopped_on_purpose)
     try:
         main()
     except KeyboardInterrupt:
-        pass
+        _forget_resume()

@@ -10894,6 +10894,49 @@ the mark is drawn and removed but never for how long; `tools/checkhinttime.py`
 reads it off a fake panel's pixels, just below the bar's strip: **5.0 s at
 4.36.1, 1.5 s now** (`--ref` measures an older sender).
 
+## Google Chrome closed the page when a download began -- 4.36.3
+
+**From a panel's own log, after "il revient sur le launcher et il a rien
+telecharge":**
+
+    Download: mclaren-...-3840x2160-27223.jpg from https://4kwallpapers.com/...
+    Download: ... did not finish (Download.save_as: Target page, context or
+              browser has been closed)
+    ... TargetClosedError: Page.wait_for_timeout: Target page, context or
+              browser has been closed
+    exited with 1 after 23s, restarting in 5s
+
+0.2 s from the download starting to the page being gone, and the loop's next
+call to the page took the sender down. `google-chrome-stable` on that box;
+**not reproducible here** -- Chromium keeps the page, five download shapes
+were tried (same-site, new window, blob, cross-site, plain link), and neither
+Chrome nor that site is reachable from this container. So the fix removes the
+mechanism rather than chasing it: `accept_downloads=False` on both launch
+paths. Measured on Chromium first that the `download` event STILL arrives
+with the address and the name when downloads are refused, and that
+`context.request` / `context.cookies()` carry the page's cookies. `Downloads`
+then fetches an http(s) address in a thread with urllib (cookies from
+`context.cookies([url])`, the page's own `navigator.userAgent`, the page as
+Referer), streamed to disk, and reads a `blob:` address out of the page that
+made it (`fetch` + base64, `BLOB_LIMIT`), a `data:` one directly. The cost:
+the site sees the start of a request the browser abandons, then ours.
+
+**A trap in the reproduction script, worth keeping:** an inline `onclick`
+has `document` in its scope chain, so `URL.createObjectURL` there is
+`document.URL.createObjectURL` -- a string's -- and the blob case "failed".
+`window.URL`.
+
+**And a crash now comes back where it was.** `--resume FILE` (run.py:
+`/data/resume/<panel>.url`): `Resume.note()` writes the page's address when
+it changes and removes the file on the panel's own page; the next run, if
+the file is under `FRESH_S` (180 s) old, goes home and then `go_to()`s it, so
+the bar's history is the one a tile makes. SIGTERM -- how run.py stops a
+panel, and how sign-in holds one -- forgets the file and then dies of the
+signal exactly as before (default action re-raised), so a stop asked for is
+never "recovered". `tools/checkresume.py`: killed -> back on the link,
+SIGTERM -> home, a 10-minute-old file -> home. `checkdownload.py` gained a
+cookie-only file, a blob and a data: address. **Not verified on Chrome.**
+
 ## Repository conventions
 
 - Work on branch `claude/esphome-pr-outdated-mdq36w`, then merge into `main`
