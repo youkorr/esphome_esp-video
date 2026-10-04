@@ -1,5 +1,14 @@
 # Changelog
 
+## 4.39.1
+
+- **A site you pinched on the telephone is no longer small on the screen.**
+  Pinching in the sign-in page zooms that site in Chrome, and Chrome kept the
+  zoom for the screen too: Google appeared at about two thirds of its size,
+  and every tap landed beside what you touched. The screen now clears any
+  saved zoom each time it starts, so the page fills it again and taps land
+  where your finger is. Restarting the add-on after this update is enough.
+
 ## 4.39.0
 
 - **New icons for Files and the web.** The Files tile is a blue app icon

@@ -683,6 +683,48 @@ def forget_tabs(profile):
             pass
 
 
+def forget_zoom(profile):
+    """Throw away the page zoom a person set on a site, so it is laid out at
+    the panel's own size.
+
+    Chrome keeps a zoom per host in the profile's Preferences, and the plain
+    Chrome on the add-on's sign-in page shares this profile. noVNC turns a
+    two-finger pinch on the telephone into Ctrl + wheel (core/rfb.js), which
+    is Chrome's page zoom -- so pinching there to read the page saved, say,
+    75% for google.com, and the panel then drew google.com at 75%: measured,
+    innerWidth 1706 for a 1280 viewport and devicePixelRatio 0.75. Worse,
+    every tap went to the wrong place, because the sender maps the panel to
+    the page at 1:1 -- a finger at 640,365 clicked what was drawn at 480,274.
+    Reported as the link "ne fonctionne plus et plus petite".
+
+    Nothing on a panel can set a zoom (there is no Ctrl and no wheel to hold
+    it with), so none is worth keeping. Done before the browser starts,
+    because Chrome rewrites the file while it runs.
+    """
+    path = os.path.join(profile, "Default", "Preferences")
+    try:
+        with open(path, encoding="utf-8") as handle:
+            prefs = json.load(handle)
+    except (OSError, ValueError):
+        return
+    partition = prefs.get("partition")
+    if not isinstance(partition, dict):
+        return
+    gone = [key for key in ("per_host_zoom_levels", "default_zoom_level")
+            if partition.pop(key, None) is not None]
+    if not gone:
+        return
+    try:
+        with open(path + ".tmp", "w", encoding="utf-8") as handle:
+            json.dump(prefs, handle, separators=(",", ":"))
+        os.replace(path + ".tmp", path)
+    except OSError as err:
+        print(f"Browser: could not clear the zoom a site was given ({err})")
+        return
+    print("Browser: cleared the page zoom a site had been given, so it is "
+          "drawn at the screen's own size")
+
+
 def _launch(playwright, executable, profile, view, browser_args,
             ignore=(), env=None, locale=None, touch=False):
     """Start the browser, and fall back to Playwright's own if it will not.
@@ -5639,6 +5681,7 @@ def main():
             # start.
             print(f"Browser: keeping its profile in {args.profile}")
             forget_tabs(args.profile)
+            forget_zoom(args.profile)
             context = _launch(
                 playwright, executable, args.profile, view, browser_args,
                 ignore, launch_env, args.locale, not args.no_touch,

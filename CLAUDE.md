@@ -1802,7 +1802,7 @@ the dashboard, where it is invisible while the keys go on working.
 ahead of the `pip install` as well as the `ADD`s, so a bump refetched
 everything — at the cost of the browser download on each update.
 `present_browser()` prints the Chromium version at startup and warns below 114,
-so this is never diagnosed by guesswork again. Currently **4.39.0**.
+so this is never diagnosed by guesswork again. Currently **4.39.1**.
 
 **CORRECTED in 4.29.5: the cost was every update, and a pin removes it.**
 Asked as *"verifie addon ... si il ya pas des elements qui freine la
@@ -10795,6 +10795,21 @@ opened while a session runs (`data-active`) connects straight back to it.
 checksignin.py now closes the telephone's tab, waits, opens a new one, and
 types a code into the same field -- which only works if the page was never
 reloaded.
+
+**A pinch on the telephone shrank the site on the panel -- 4.39.1.**
+Reported with a photograph of google.com at about two thirds of its size and
+*"la page ne fonctionne plus et plus petite"*. noVNC turns a two-finger pinch
+into Ctrl + wheel (`core/rfb.js`, the GESTURE_ZOOMSENS loop), Chrome makes
+that a page zoom and saves it per host in the profile's Preferences
+(`partition.per_host_zoom_levels`), and the panel's driven browser opens the
+same profile. Measured: a saved 75% gives innerWidth 1706 in a 1280 viewport
+at devicePixelRatio 0.75, and a tap sent at 640,365 lands on what is drawn at
+480,274 -- which is the "ne fonctionne plus". `forget_zoom()` clears it
+before every start, beside `forget_tabs()`; nothing on a panel can set a zoom,
+so none is worth keeping. `tools/checkzoom.py` writes the exact entry a real
+Chrome wrote and reproduces both halves before the fix clears them. The
+lesson is the shared profile's: anything a person does in the sign-in Chrome
+is carried to the panel, not only the cookies it was opened for.
 
 **Downloads came off this page**, asked as *"les retirer de cette page"*:
 they are used from the Files tile on the screen. `/file` and `/delete` are
