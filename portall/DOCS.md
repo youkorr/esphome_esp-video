@@ -2030,7 +2030,8 @@ own profile, and shows it to you:
    you sign in.
 3. A Chrome appears **at your telephone's own size**, on
    `accounts.google.com`, so its text reads like any page on the telephone
-   with no zooming. Sign in with the telephone's keyboard: in the noVNC menu
+   with no zooming. Pinching to zoom is fine: the zoom stays on the
+   telephone and is cleared before the screen starts again. Sign in with the telephone's keyboard: in the noVNC menu
    on the left, the ⌨ button brings it up. Above the picture, **←** goes back
    a page, **⟳** reloads it, **⌂** returns to the page it opened on, and the
    **address field** opens any other site (`192.168.1.3:8096` for a Jellyfin
