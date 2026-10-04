@@ -199,7 +199,7 @@ WORDS = """
     wall: "Mettre en fond d'\\u00e9cran", unwall: "Retirer ce fond d'\\u00e9cran",
     unwallany: "Revenir au fond d'\\u00e9cran r\\u00e9gl\\u00e9 dans l'add-on",
     isWall: "C'est le fond d'\\u00e9cran du launcher.", del: "Supprimer",
-    sure: "Supprimer ce fichier ?", open: "Ce fichier ne s'ouvre pas sur l'\\u00e9cran. R\\u00e9cup\\u00e9rez-le depuis la page Portall de Home Assistant.",
+    sure: "Supprimer ce fichier ?", open: "Ce fichier ne s'ouvre pas sur l'\\u00e9cran.",
     cannot: "Le navigateur de l'add-on ne lit pas ce format (souvent une vid\\u00e9o MP4 en H.264 ou de l'AAC). Un fichier WebM, MP3 ou Opus se lit partout.",
     cut: "Seul le d\\u00e9but du fichier est affich\\u00e9."
   } : {
@@ -208,7 +208,7 @@ WORDS = """
     wall: "Make it the wallpaper", unwall: "Remove this wallpaper",
     unwallany: "Go back to the wallpaper set in the add-on",
     isWall: "This is the launcher's wallpaper.", del: "Delete",
-    sure: "Delete this file?", open: "This file cannot be opened on the screen. Fetch it from the Portall page in Home Assistant.",
+    sure: "Delete this file?", open: "This file cannot be opened on the screen.",
     cannot: "The add-on's browser cannot play this format (usually an H.264 MP4 or AAC). A WebM, MP3 or Opus file plays everywhere.",
     cut: "Only the start of the file is shown."
   };

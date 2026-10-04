@@ -251,32 +251,22 @@ def main():
         listener.close()
         server.shutdown()
 
-    print("On the add-on's page:")
+    # Not on the add-on's page since 4.39.0, asked for: the Files tile on
+    # the screen is where they are used, and that page is about accounts.
+    print("Not on the add-on's page:")
     page = signin.SignIn({"salon": {"profile": None, "downloads": folder}},
                          lambda n: None, lambda n: None, lambda s: None,
                          peers=("127.0.0.1",))
     port = page.serve(0, host="127.0.0.1")
     base = f"http://127.0.0.1:{port}"
     listing = urllib.request.urlopen(base + "/").read().decode()
-    check("it lists the files", all(n in listing for n in
-                                     ("file.bin", "other.bin", "file (2).bin")))
-    reply = urllib.request.urlopen(base + "/file?panel=salon&name=file.bin")
-    check("and gives one back whole, under its name",
-          reply.read() == BODY and "file.bin" in
-          reply.headers.get("Content-Disposition", ""))
-    for bad in ("../" + os.path.basename(folder), "..%2Fetc%2Fpasswd",
-                ".hidden", "nothing.bin"):
-        try:
-            urllib.request.urlopen(base + "/file?panel=salon&name=" + bad)
-            refused = False
-        except urllib.error.HTTPError as err:
-            refused = err.code == 404
-        check(f"a name outside the folder is refused ({bad})", refused)
-    urllib.request.urlopen(urllib.request.Request(
-        base + "/delete", data=b"panel=salon&name=other.bin", method="POST"))
-    check("and one can be deleted",
-          not os.path.exists(os.path.join(folder, "other.bin"))
-          and os.path.exists(kept))
+    check("it does not list them", "file.bin" not in listing)
+    try:
+        urllib.request.urlopen(base + "/file?panel=salon&name=file.bin")
+        served = True
+    except urllib.error.HTTPError:
+        served = False
+    check("and does not hand one out", not served)
     print("ok" if not fails else f"{fails} ECHEC")
     return 1 if fails else 0
 

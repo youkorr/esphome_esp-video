@@ -601,11 +601,10 @@ page that swallows everything else.
 What a page downloads is kept, one folder per screen, and the bar says so --
 the add-on fetches the file itself, with the page's cookies, rather than
 letting the browser download it --
-*Téléchargement de …*, then *… enregistré*. To get a file: open **Portall**
-in Home Assistant's sidebar (the add-on's web page), from a telephone or a
-PC, and touch its name under **Téléchargements des écrans**; the cross deletes
-it. The files are kept in the add-on's own storage and are left out of its
-backups.
+*Téléchargement de …*, then *… enregistré*. They are used on the screen
+itself, from the Files page below. The files are kept in the add-on's own
+storage and are left out of its backups. (Until 4.39.0 they were listed on the
+add-on's web page too; that page is about accounts now.)
 
 ### The Files page, on the screen itself
 
@@ -618,10 +617,15 @@ links:
     icon: dossier
 ```
 
+`icon: dossier` (or `fichiers`, `folder`, `files`) draws a blue folder in a
+rounded square, the way an app looks on a telephone; `internet`, `web`,
+`navigateur` and `browser` draw a compass on green and blue, for a link to a
+web browser or a search page.
+
 Its tile opens a page listing every screen's downloads, newest first. Touch
 one and it opens on the screen: a picture is shown, a film or a song plays, a
 PDF is shown in the browser's own viewer, a text file is shown as text.
-Anything else says to fetch it from the Portall page instead.
+Anything else says it cannot be opened on the screen.
 
 A picture or a film has **Mettre en fond d'écran**: it becomes the launcher's
 wallpaper at once, with no restart, and stays it across restarts. A film
@@ -2020,14 +2024,27 @@ own profile, and shows it to you:
 1. In Home Assistant, open the add-on and press **Open web UI** -- from the
    Home Assistant app on your telephone too. (Show in sidebar puts it in the
    menu as **Portall**.)
-2. Press the screen's name. That screen's picture stops while you sign in.
-3. A Chrome appears, **with its address bar**, on `accounts.google.com`. Sign
-   in with the telephone's keyboard: in the noVNC menu on the left, the ⌨
-   button brings it up. Go to any other address the same way. Above the
-   picture, **←** goes back a page, **⟳** reloads it and **⌂** returns to
-   Google's sign-in page -- Chrome's own arrows are too small to hit on a
-   telephone.
-4. Press **Done**. Chrome closes, and the screen comes back already signed in.
+2. Each screen says whether it is **signed into Google**. A screen that is
+   offers **Se déconnecter de Google** (tap twice) and opens nothing; one that
+   is not offers **Se connecter à Google**. That screen's picture stops while
+   you sign in.
+3. A Chrome appears **at your telephone's own size**, on
+   `accounts.google.com`, so its text reads like any page on the telephone
+   with no zooming. Sign in with the telephone's keyboard: in the noVNC menu
+   on the left, the ⌨ button brings it up. Above the picture, **←** goes back
+   a page, **⟳** reloads it, **⌂** returns to the page it opened on, and the
+   **address field** opens any other site (`192.168.1.3:8096` for a Jellyfin
+   on the house's network works as typed).
+4. Press **Terminé** (Done). Chrome closes, and the screen comes back already
+   signed in.
+
+**Se connecter à un autre site…** opens the same Chrome on an empty page, for
+a site other than Google (Netflix, Jellyfin...): type its address in the
+field.
+
+**Se déconnecter de Google** stops the screen for a moment, removes Google's
+and YouTube's cookies from its profile -- the other sites' sign-ins are kept
+-- and starts it again.
 
 If you forget Done, it ends by itself after 20 minutes, or when you close the
 Chrome window.

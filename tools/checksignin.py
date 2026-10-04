@@ -70,7 +70,8 @@ class Site(http.server.BaseHTTPRequestHandler):
             body = ("<!doctype html><body style='margin:0;background:rgb(%d,%d,%d)'>"
                     "<input id=q autofocus style='font-size:40px;width:90%%;"
                     "margin:40px'><script>"
-                    "fetch('/probe?w='+navigator.webdriver);"
+                    "fetch('/probe?w='+navigator.webdriver+'&iw='+innerWidth"
+                    "+'&dpr='+devicePixelRatio);"
                     "addEventListener('pageshow',()=>fetch('/shown?p=set'));"
                     "q.addEventListener('input',()=>fetch('/typed?v='+"
                     "encodeURIComponent(q.value)));</script>" % COLOUR)
@@ -82,6 +83,14 @@ class Site(http.server.BaseHTTPRequestHandler):
                      ("Set-Cookie", "last=%d; Max-Age=86400; Path=/"
                       % heard["sets"]),
                      ("Set-Cookie", "session=yes; Path=/")]
+        elif path == "/hop":
+            # A link to /other, focused, so a key opens it: a page with
+            # something behind it to go back to, inside one browser. Opened
+            # by a person's key and not by a script, because Chrome's back
+            # skips a page that moved on by itself.
+            body = ("<!doctype html><body><a id=a href=/other autofocus>"
+                    "other</a><script>addEventListener('pageshow',"
+                    "()=>fetch('/shown?p=hop'));</script>")
         elif path == "/other":
             body = ("<!doctype html><body><script>addEventListener('pageshow',"
                     "()=>fetch('/shown?p=other'));</script>")
@@ -90,6 +99,7 @@ class Site(http.server.BaseHTTPRequestHandler):
             body = "ok"
         elif path == "/probe":
             heard["webdriver"] = q.get("w", [""])[0]
+            heard["inner"] = (q.get("iw", [""])[0], q.get("dpr", [""])[0])
             body = "ok"
         elif path == "/typed":
             heard["typed"] = q.get("v", [""])[0]
@@ -113,9 +123,12 @@ class Site(http.server.BaseHTTPRequestHandler):
 FAKE_SENDER = r'''
 import sys, time
 sys.path.insert(0, sys.argv[3])
-from ha_send import BROWSER_ARGS
+from ha_send import BROWSER_ARGS, forget_tabs
 from playwright.sync_api import sync_playwright
 profile, site, browser = sys.argv[1], sys.argv[2], sys.argv[4]
+# As the real sender does before every start: --restore-last-session would
+# otherwise bring back the tabs of the run before.
+forget_tabs(profile)
 with sync_playwright() as pw:
     ctx = pw.chromium.launch_persistent_context(profile, args=BROWSER_ARGS,
                                                 headless=True,
@@ -194,21 +207,34 @@ def main():
 
     with sync_playwright() as pw:
         phone = pw.chromium.launch(executable_path=browser)
-        tab = phone.new_page(viewport={"width": 420, "height": 860})
+        # A telephone: 420 points wide at three pixels a point.
+        tab = phone.new_page(viewport={"width": 420, "height": 860},
+                             device_scale_factor=3)
         tab.goto(page_url)
         print("The page on the telephone:")
         check("each screen is offered", tab.locator(
-            "button[data-panel='salon']").count() == 1)
+            "button.go[data-panel='salon']").count() == 1)
         check("a screen with no profile cannot be chosen",
-              tab.locator("button[disabled]").count() == 1)
+              tab.locator("button[data-panel='cuisine']").count() == 0)
+        check("its downloads are not on this page any more",
+              tab.locator("#files").count() == 0)
+        check("a running browser's cookie jar can be read: not signed in",
+              signin.google_signed_in(profile) is False,
+              str(signin.cookie_jar(profile)))
 
         check("the page carries Home Assistant's ingress path for noVNC",
               'data-prefix="api/hassio_ingress/abc"'
               in sign.page("/api/hassio_ingress/abc"))
 
         print("Choosing the screen:")
-        tab.click("button[data-panel='salon']")
+        tab.click("button.go[data-panel='salon']")
         tab.wait_for_selector("#live:not([hidden])", timeout=30000)
+        # The frame is shown first, so it can be measured; the session is
+        # there once the start has been answered.
+        end = time.monotonic() + 30
+        while time.monotonic() < end and sign.session is None:
+            time.sleep(0.2)
+        time.sleep(0.5)
         check("the panel's own sender is stopped",
               run._current.get("salon") is None)
         session = sign.session
@@ -223,6 +249,13 @@ def main():
               " / ".join(open(f"/proc/{p}/cmdline", "rb").read()
                          .replace(b"\0", b" ")[:160].decode(errors="replace")
                          for p in pids))
+        check("it is an app window at the telephone's own density",
+              "--app=" in flat and "--force-device-scale-factor=3" in flat,
+              flat)
+        check("drawn on a screen of that many pixels",
+              session.screen_size() == (round(session.width * 3),
+                                        round(session.height * 3)),
+              f"{session.screen_size()} for {session.width}x{session.height}")
         check("it carries no debugging port and no automation flag",
               "remote-debugging" not in flat and "enable-automation" not in flat,
               flat)
@@ -231,6 +264,13 @@ def main():
             time.sleep(0.2)
         check("and the page it shows sees no automation",
               heard["webdriver"] == "false", str(heard["webdriver"]))
+        frame_w = tab.evaluate("document.getElementById('screen')"
+                               ".getBoundingClientRect().width")
+        inner = heard.get("inner") or ("0", "0")
+        check("the page is laid out as wide as the phone shows it, not 500",
+              abs(float(inner[0] or 0) - (frame_w - 2)) <= 2
+              and float(inner[1] or 0) == 3,
+              f"{inner} in a frame {frame_w:.0f} wide")
 
         check("a second screen cannot start while one is signing in",
               sign.begin("salon", 800, 600) == "busy")
@@ -277,17 +317,26 @@ def main():
             got = heard["shown"][before:]
             return got[-1] if got else None, got
 
-        seen, got = after(lambda: session.go(site + "/other"), "other")
-        check("the session can open another address", seen == "other",
-              str(got))
-        seen, got = after(lambda: tab.click("button[data-nav='back']"), "set")
-        check("the back button returns to the page before", seen == "set",
+        host = site.split("://", 1)[1]
+
+        def typed(text):
+            tab.fill("#url", text)
+            tab.press("#url", "Enter")
+        seen, got = after(lambda: typed(host + "/hop"), "hop")
+        check("an address typed on the telephone opens in the browser",
+              seen == "hop", str(got))
+        time.sleep(0.5)
+        seen, got = after(lambda: session.keys(("key", "Return")), "other")
+        check("and its page goes on from there", seen == "other", str(got))
+        check("and the session went on through it", sign.session is session
+              and session.browser_running())
+        seen, got = after(lambda: tab.click("button[data-nav='back']"), "hop")
+        check("the back button returns to the page before", seen == "hop",
               str(got))
         seen, got = after(lambda: tab.click("button[data-nav='reload']"),
-                          "set")
-        check("the reload button loads the page again", seen == "set",
+                          "hop")
+        check("the reload button loads the page again", seen == "hop",
               str(got))
-        after(lambda: session.go(site + "/other"), "other")
         seen, got = after(lambda: tab.click("button[data-nav='home']"), "set")
         check("the home button opens the page it started on", seen == "set",
               str(got))
@@ -306,7 +355,7 @@ def main():
             time.sleep(0.2)
         check("the session is over", sign.session is None)
         check("the panel's sender starts again by itself",
-              heard["visits"] == visits + 1)
+              heard["visits"] == visits + 1, f"{visits} -> {heard['visits']}")
         last = heard["cookies"][-1] if heard["cookies"] else ""
         check("and the DRIVEN browser presents what the plain one was given",
               "kept=yes" in last, repr(last))
@@ -321,6 +370,8 @@ def main():
               f"{'kept' if 'session=yes' in last else 'not kept'} -- Google's "
               f"sign-in cookies have an expiry, so this one is only noted)")
         phone.close()
+
+    google_cases(signin, run)
 
     print("Nothing but the Supervisor may ask:")
     import socket
@@ -342,6 +393,56 @@ def main():
             process.kill()
     print("ok" if not fails else f"{fails} ECHEC")
     return 1 if fails else 0
+
+
+def google_cases(signin, run):
+    """Signed into Google: said on the page, nothing opened, and undone.
+
+    A cookie jar written the way Chrome's is (the columns that matter), with
+    Google's session cookie on .google.com, one on .google.fr that has run
+    out, YouTube's, and a site's own that must survive signing out.
+    """
+    import sqlite3
+    print("Signed into Google:")
+    work = tempfile.mkdtemp()
+    profile = os.path.join(work, "salon")
+    os.makedirs(os.path.join(profile, "Default", "Network"))
+    jar = os.path.join(profile, "Default", "Network", "Cookies")
+    db = sqlite3.connect(jar)
+    db.execute("CREATE TABLE cookies (host_key TEXT, name TEXT, value TEXT,"
+               " expires_utc INTEGER)")
+    future = int((time.time() + signin.CHROME_EPOCH_S + 86400 * 365) * 1e6)
+    past = int((time.time() + signin.CHROME_EPOCH_S - 86400) * 1e6)
+    db.executemany("INSERT INTO cookies VALUES (?, ?, '', ?)", [
+        (".google.com", "SID", future), (".google.fr", "SID", past),
+        (".youtube.com", "LOGIN_INFO", future), ("jellyfin.local", "x", 0)])
+    db.commit()
+    db.close()
+    check("a jar with Google's session cookie reads as signed in",
+          signin.google_signed_in(profile) is True)
+    held = []
+    page = signin.SignIn({"salon": {"profile": profile, "browser": "x"}},
+                         lambda n: held.append(("hold", n)),
+                         lambda n: held.append(("release", n)),
+                         lambda text: None, peers=("127.0.0.1",))
+    html_page = page.page()
+    check("the page says so, and offers to sign out rather than in",
+          'class="state on"' in html_page and 'data-out="salon"' in html_page
+          and 'class="go" data-panel="salon"' not in html_page)
+    check("signing out answers ok", page.sign_out("salon") == "ok")
+    check("with the screen stopped while it did, and started again",
+          held == [("hold", "salon"), ("release", "salon")], str(held))
+    db = sqlite3.connect(jar)
+    left = sorted(h for (h,) in db.execute("SELECT host_key FROM cookies"))
+    db.close()
+    check("Google's and YouTube's cookies are gone, a site's own is not",
+          left == ["jellyfin.local"], str(left))
+    check("and the page offers to sign in again",
+          'class="go" data-panel="salon"' in page.page()
+          and signin.google_signed_in(profile) is False)
+    check("google.co.uk is Google, notgoogle.com is not",
+          not signin.GOOGLE_HOST.search("notgoogle.com")
+          and signin.GOOGLE_HOST.search("accounts.google.co.uk"))
 
 
 if __name__ == "__main__":

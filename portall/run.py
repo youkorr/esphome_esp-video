@@ -1787,7 +1787,6 @@ def start_signin(panels):
     for index, panel in enumerate(panels, start=1):
         name = str(panel.get("name") or panel.get("host") or f"panel {index}")
         screens[name] = {"profile": profile_for(panel),
-                         "downloads": downloads_for(panel),
                          "browser": panel.get("browser"),
                          "locale": panel.get("locale")}
     page = signin.SignIn(screens, hold_panel, release_panel, say)

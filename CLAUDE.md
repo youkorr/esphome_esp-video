@@ -1802,7 +1802,7 @@ the dashboard, where it is invisible while the keys go on working.
 ahead of the `pip install` as well as the `ADD`s, so a bump refetched
 everything — at the cost of the browser download on each update.
 `present_browser()` prints the Chromium version at startup and warns below 114,
-so this is never diagnosed by guesswork again. Currently **4.38.0**.
+so this is never diagnosed by guesswork again. Currently **4.39.0**.
 
 **CORRECTED in 4.29.5: the cost was every update, and a pin removes it.**
 Asked as *"verifie addon ... si il ya pas des elements qui freine la
@@ -10757,6 +10757,51 @@ exercised are Ubuntu 24.04's.
 **Signing into Google this way WORKS on a real panel and account**, reported
 as *"ok j'ai reussi a me connecter"* -- the first route to a Google session
 on a panel since Google refused the driven browser.
+
+## The sign-in page at a telephone's size, and the Google state -- 4.39.0
+
+**Reported as *"la connexion du compte Google c'est illisible je suis oblige
+de zoomer avec vnc"*.** The plain Chrome ran at desktop size and noVNC scaled
+it down to a telephone. Two answers, both measured in the shipped Chromium:
+
+- **Chrome will not open an ORDINARY window narrower than 500 DIP** -- asked
+  for 390, it opened at 500, so no window can match a phone. An `--app=URL`
+  window takes the exact size given. So the browser is an app window at the
+  frame's own size (`w`, `h` from the page's `getBoundingClientRect`), with
+  `--force-device-scale-factor` at the phone's `devicePixelRatio` (1 to 3)
+  and Xvfb at w*s x h*s: noVNC's `resize=scale` then draws it 1:1.
+- **An app window has no address bar**, so the page carries one. `go()`
+  closes the browser the polite way (Ctrl+Shift+W, cookies written) and
+  starts it again with `--app=<address>`; a typed address therefore loses
+  the history, while Back (Alt+Left), Reload (F5) and Home keep it.
+  `address()` refuses `javascript:`, `file:`, `data:`, `chrome:`, `blob:`
+  and `view-source:`.
+
+**Asked as *"une fois connecter il indique seule connecter"*: no browser is
+started to show a state.** `google_signed_in(profile)` reads a COPY of the
+profile's cookie jar (with its -journal and -wal) and looks for an unexpired
+SID, `__Secure-1PSID` or `__Secure-3PSID` on a `google.<tld>` host -- Chrome
+time is microseconds since 1601. Those three names are not encrypted, only
+their values. `sign_out(name)` holds the panel, waits for the profile to be
+free, deletes the rows whose host is Google's or YouTube's, and releases it.
+**Not tried against Google**: if Chrome itself is signed into the account
+(DICE), it may mint the cookies again; the next report says.
+
+**Downloads came off this page**, asked as *"les retirer de cette page"*:
+they are used from the Files tile on the screen. `/file` and `/delete` are
+gone, and checkdownload.py asserts the page neither lists nor serves one.
+
+**Two faults in the test, none in the code, both worth keeping.** Chrome's
+Back SKIPS a history entry made without a user gesture, so a fixture that
+redirects by script has nothing to go back to: the fixture moves on by a
+link and a Return key. And a fake sender that did not call `forget_tabs()`
+had `--restore-last-session` bring every earlier tab back, which read as a
+page visited three times -- the real sender calls it, so the fake does now.
+
+**The icons** are the household's pick from a proposal sheet ("fichier 5 et
+internet 5"): Material Symbols `folder_open` and `explore` (Apache 2.0) in
+white on a 96-unit gradient badge, `_app_badge()` in logos.py, as
+`PICTURES` entries, so they win over the emoji of the same names.
 
 ## Back, reload and home on the glass -- 4.34.0
 
