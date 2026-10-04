@@ -5675,6 +5675,15 @@ def main():
         if args.token:
             pairs.append((args.token_url or args.url, args.token))
         pairs += args.page_token
+        # Where Home Assistant is: an address a token belongs to. Its own
+        # frontend has its own arrows and needs the whole screen, so the
+        # bar's strip is never put above it.
+        ha_origins = {origin_of(address) for address, _ in pairs}
+        if getattr(args, "not_home_assistant", False):
+            # A launcher panel's own token, given no address of its own,
+            # names the launcher -- which is not a Home Assistant, and whose
+            # Files page wants its bar.
+            ha_origins.discard(origin_of(args.url))
         if pairs:
             done = install_tokens(context, pairs)
             if len(done) > 1:
@@ -5845,6 +5854,9 @@ def main():
         nav_session = None
         # History entries a link was opened from, when that was another link.
         links_left = set()
+        # Addresses whose page was looked at and found not to be Home
+        # Assistant, so they are not asked again.
+        not_ha_origins = set()
         injector = (
             None if args.no_touch
             else Injector(page, touch_map, keyboard, page_w, page_h,
@@ -6522,7 +6534,27 @@ def main():
                         want = (not parked
                                 and open_page.is_home_assistant is not True
                                 and here.startswith(("http:", "https:"))
-                                and not _same_page(here, args.url))
+                                and not _same_page(here, args.url)
+                                and origin_of(here) not in ha_origins)
+                        if want and origin_of(here) not in not_ha_origins:
+                            # A Home Assistant this panel has no token for --
+                            # signed in some other way -- is known by its
+                            # page instead, once per address: asked only
+                            # while unknown, and "not it" remembered only
+                            # once the page has finished arriving.
+                            try:
+                                seen = page.evaluate(
+                                    "() => [!!document.querySelector("
+                                    "'home-assistant'), document.readyState]")
+                            except Exception:  # noqa: BLE001 - mid-navigation
+                                seen = [False, "loading"]
+                            if seen[0]:
+                                ha_origins.add(origin_of(here))
+                                print(f"Bar: {origin_of(here)} is a Home "
+                                      f"Assistant, so no bar above it")
+                                want = False
+                            elif seen[1] == "complete":
+                                not_ha_origins.add(origin_of(here))
                         set_strip(want)
                         if want:
                             bar.host = urllib.parse.urlsplit(here).hostname \
@@ -6641,7 +6673,8 @@ def main():
                             # A link opened from the launcher: the strip goes
                             # up first, so the page is laid out once.
                             if was_tapped and open_page.is_home_assistant \
-                                    is not True:
+                                    is not True \
+                                    and origin_of(link) not in ha_origins:
                                 set_strip(True, restart=False)
                             done = (go_to(page, link) if was_tapped
                                     else open_link(page, link))

@@ -617,7 +617,8 @@ does **holding ←** for a moment, since that is where the corner is.
 It has a strip of its own, the way a browser's toolbar does: the site is shown
 below it, never under it, so a search box at the top of a page is always the
 search box and never a button of the bar. It is never shown on the screen's
-own page, nor on a Home Assistant dashboard, which has its own arrows. A press
+own page, nor on Home Assistant -- opened from a tile or not, it has its own
+arrows and keeps the whole screen. A press
 on it is decided by the add-on and never reaches the site, so it works on a
 page that swallows everything else.
 
