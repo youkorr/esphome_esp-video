@@ -8,15 +8,21 @@ the only check that can fail the way a panel would is one that reads the
 PIXELS that come down the socket and sends real contacts up it.
 
 The shipped ha_send.py runs against a fake panel that reassembles every
-rectangle into a picture. Three pages: the panel's own (home), A and B, each
-its own colour, and A and B count every click they receive.
+rectangle into a picture. Pages, each its own colour: the panel's own (home,
+a launcher here), A, which goes to B when its left quarter is tapped -- a
+page moving on inside a link -- B, and C, which moves within itself by
+history.pushState when tapped, the way most sites move today.
 
   - the bar is not drawn on the panel's own page;
   - it is drawn when a link opens, and gone five seconds later;
   - a touch anywhere brings it back;
   - back, reload and home each do their job, and the page under the bar is
     never clicked by any of them;
-  - back from the first page a link opened goes to the page before it.
+  - and they stay INSIDE the link, as a browser's do: back from the link's
+    first page stays on it, home is the link's first page, and neither ever
+    lands on the launcher (reported: both did). A page that moved within
+    itself goes back within itself, and a link asked for from inside another
+    one starts where it was opened.
 
 --without runs the same sender with --no-nav-bar, which is the panel as it
 was: every case about the bar must then fail. --picture FILE saves what the
@@ -46,7 +52,9 @@ W, H = 800, 480
 HOME = (0x80, 0x20, 0x20)
 A = (0x20, 0x60, 0xA0)
 B = (0x30, 0x90, 0x40)
-counts = {"a": 0, "b": 0, "clicked": 0}
+C = (0xB0, 0xA0, 0x20)
+D = (0x70, 0x30, 0x90)
+counts = {"a": 0, "b": 0, "c": 0, "clicked": 0}
 fails = 0
 
 
@@ -72,13 +80,25 @@ class Site(http.server.BaseHTTPRequestHandler):
             counts["clicked"] += 1
             body = b"ok"
         else:
-            colour = {"home": HOME, "a": A, "b": B}.get(name, HOME)
+            colour = {"home": HOME, "a": A, "b": B, "c": C}.get(name, HOME)
             if name in counts:
                 counts[name] += 1
-            body = (b"<!doctype html><body style='margin:0;height:100vh;"
-                    b"background:rgb(%d,%d,%d)'><script>"
-                    b"addEventListener('click',()=>fetch('/clicked'));"
-                    b"</script>" % colour)
+            pushed = D if name == "c" else colour
+            body = ("<!doctype html><body style='margin:0;height:100vh'>"
+                    "<script>"
+                    f"const base='rgb{colour}', pushed='rgb{pushed}';"
+                    f"const push={'true' if name == 'c' else 'false'};"
+                    "const next=new URLSearchParams(location.search)"
+                    ".get('next');"
+                    "function paint(){document.body.style.background="
+                    "location.hash=='#2'?pushed:base;}"
+                    "addEventListener('popstate',paint);paint();"
+                    "addEventListener('click',e=>{fetch('/clicked',{keepalive:true});"
+                    "if(push){history.pushState({},'',location.pathname"
+                    "+location.search+'#2');paint();}"
+                    "else if(next&&e.clientX<innerWidth/4)"
+                    "location.href=next;});"
+                    "</script>").encode()
         self.send_response(200)
         self.send_header("Content-Type", "text/html")
         self.send_header("Content-Length", str(len(body)))
@@ -142,6 +162,7 @@ def main():
     spots = {b["name"]: (int(b["x"] + b["w"] / 2), int(b["y"] + b["h"] / 2))
              for b in bar.buttons}
     middle = (W // 2, H * 2 // 3)
+    left = (W // 8, H * 2 // 3)
 
     def colour(at):
         with lock:
@@ -220,35 +241,82 @@ def main():
         check("and is gone a few seconds later", bar_gone(A))
         tap(middle)
         check("a touch anywhere brings it back", bar_drawn(A))
+        # The click comes when the finger is let go, a moment after the bar
+        # is drawn; a navigation asked for before it would swallow it.
+        time.sleep(0.5)
 
-        print("Its buttons:")
-        ask(f"open {site}/b")
-        check("page B arrives", wait(B))
-        bar_drawn(B)
-        clicked = counts["clicked"]
-        tap(spots["back"])
+        taps = 1  # the touch in the middle of A, just above
+
+        def press(name, page_colour):
+            bar_drawn(page_colour)
+            tap(spots[name])
+
+        def stays(page_colour, name, before):
+            """Still that page after a while, and not asked for again."""
+            time.sleep(1.5)
+            return near(colour(middle), page_colour) and \
+                counts[name] == before
+
+        print("Inside a link:")
+        ask(f"open {site}/a?next=/b")
+        wait(A)
+        time.sleep(0.5)
+        before = counts["a"]
+        press("back", A)
+        check("back on the link's first page stays on it, not the launcher",
+              stays(A, "a", before), str(colour(middle)))
+        tap(left)
+        taps += 1
+        check("a link on the page moves on to B", wait(B))
+        before = counts["b"]
+        press("reload", B)
+        end = time.monotonic() + 8
+        while time.monotonic() < end and counts["b"] == before:
+            time.sleep(0.05)
+        check("reload asks for B again", counts["b"] > before,
+              f"{before} -> {counts['b']}")
+        check("and B is still what the panel shows", wait(B))
+        press("back", B)
         check("back returns to A", wait(A))
         before = counts["a"]
-        bar_drawn(A)
-        tap(spots["reload"])
-        end = time.monotonic() + 8
-        while time.monotonic() < end and counts["a"] == before:
-            time.sleep(0.05)
-        check("reload asks for A again", counts["a"] > before,
-              f"{before} -> {counts['a']}")
-        check("and A is still what the panel shows", wait(A))
-        bar_drawn(A)
-        tap(spots["back"])
-        check("back from the first page a link opened goes home", wait(HOME))
-        ask(f"open {site}/b")
+        press("back", A)
+        check("and back again stays on A, the link's first page",
+              stays(A, "a", before), str(colour(middle)))
+        tap(left)
+        taps += 1
         wait(B)
-        bar_drawn(B)
-        tap(spots["home"])
-        check("home goes to the panel's own page", wait(HOME))
+        before = counts["a"]
+        press("home", B)
+        check("home goes to the link's first page, not the launcher",
+              wait(A) and not near(colour(middle), HOME),
+              str(colour(middle)))
+        check("and loads it afresh, as a browser's home does",
+              counts["a"] > before, f"{before} -> {counts['a']}")
+
+        print("A page that moves within itself:")
+        ask(f"open {site}/c")
+        check("C arrives, asked for from inside A", wait(C))
+        tap(middle)
+        taps += 1
+        check("C moves within itself", wait(D))
+        press("back", D)
+        check("back goes back within C, not to the launcher", wait(C)
+              and not near(colour(middle), HOME), str(colour(middle)))
+        before = counts["c"]
+        press("back", C)
+        check("back on C stays on it: C started there, not at A",
+              stays(C, "c", before), str(colour(middle)))
+        before = counts["c"]
+        press("home", C)
+        end = time.monotonic() + 8
+        while time.monotonic() < end and counts["c"] == before:
+            time.sleep(0.05)
+        check("home on the link's first page loads it again",
+              counts["c"] > before and wait(C), f"{before} -> {counts['c']}")
         time.sleep(0.5)
         check("no button press ever reached the page under the bar",
-              counts["clicked"] == clicked,
-              f"{counts['clicked'] - clicked} clicks")
+              counts["clicked"] == taps,
+              f"{counts['clicked']} clicks for {taps} taps on the page")
         crashed = [l.strip() for l in out if "Traceback" in l]
         check("the sender did not crash", not crashed, str(crashed))
         said = [l.strip() for l in out if l.startswith("Bar:")

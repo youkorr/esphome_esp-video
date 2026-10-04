@@ -1,5 +1,15 @@
 # Changelog
 
+## 4.34.1
+
+- **The bar stays inside the link, like a browser's.** **⌂** now goes to the
+  link's own first page -- `https://www.google.com` for a Google link -- not to
+  the launcher; the corner still takes you to the launcher. **←** goes back
+  within the link and stops on its first page instead of falling back to the
+  launcher, and it now works on sites that move within one page (it used to
+  send them home). A link opened by voice from inside another link starts
+  where it was opened.
+
 ## 4.34.0
 
 - **Back, Reload and Home on the screen, inside a link.** Open a link -- Google,

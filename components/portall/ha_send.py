@@ -1248,7 +1248,6 @@ def present_browser(session, page, keyboard_wanted, wanted_agent):
 HOW = {
     "swipe": "swiped, ",
     "board": "asked by the board, ",
-    "bar": "the home button of the bar, ",
 }
 
 
@@ -1439,6 +1438,41 @@ def greet_avatar(page):
             " && window.portallAvatar.greet())"))
     except Exception:  # noqa: BLE001 - an accessory must never cost the picture
         return False
+
+
+def _same_page(a, b):
+    """Two addresses for one page: a fragment and a trailing slash aside."""
+    return ((a or "").split("#")[0].rstrip("/")
+            == (b or "").split("#")[0].rstrip("/"))
+
+
+def link_history(session, home, left=()):
+    """Where the page stands in its own history, against the panel's home.
+
+    Returns (entries, current, start). `start` is the index of the first page
+    after the LAST visit to the panel's own page -- the page a link opened,
+    whichever way it was opened (a tile, a voice, an ordinary link) -- or None
+    when the panel's own page is not behind it at all. Read from the browser's
+    history rather than remembered here, because a link can be followed in
+    ways this program is never told about.
+
+    `left` are the ids of history entries a link was opened FROM when that
+    was not the panel's own page -- a voice asking for another link while one
+    is showing -- since nothing in the history marks those: the entry after
+    one of them starts a link exactly as the entry after home does. The id of
+    the page being left, read before the navigation, rather than the new
+    one's after it: at commit the history may not have moved on yet, and
+    marking the entry it still points at marks the wrong link.
+    """
+    history = session.send("Page.getNavigationHistory")
+    entries = history.get("entries") or []
+    current = min(history.get("currentIndex", len(entries) - 1),
+                  len(entries) - 1)
+    for index in range(current - 1, -1, -1):
+        if entries[index].get("id") in left \
+                or _same_page(entries[index].get("url"), home):
+            return entries, current, index + 1
+    return entries, current, None
 
 
 def go_to(page, url):
@@ -4163,9 +4197,10 @@ class Injector:
         self._bar = bar
         self._on_bar = False
         self._bar_key = None
-        # Set when a bar button was released on: "back" or "reload" for the
-        # loop to collect with take_nav(). Home goes through the corner's own
-        # path instead, so there is one way home to keep right.
+        # Set when a bar button was released on: "back", "reload" or "home",
+        # for the loop to collect with take_nav(). The bar's home is the
+        # LINK's first page, as a browser's home button is its start page --
+        # not the panel's own page, which the corner already goes to.
         self._nav = None
         self._corner = (page_w * corner, page_h * corner)
         # How long a finger must stay in the corner. A panel mounted where it
@@ -4388,7 +4423,7 @@ class Injector:
         return self._on_bar
 
     def take_nav(self):
-        """"back" or "reload" once, when a bar button was let go on; else None."""
+        """"back", "reload" or "home" once, when a bar button was let go on."""
         nav, self._nav = self._nav, None
         return nav
 
@@ -4515,10 +4550,7 @@ class Injector:
         # there will be no later turn to carry it.
         self._flush_wheel(force=True)
         if self._on_bar:
-            if self._bar_key == "home":
-                self._home = True
-                self._home_by = "bar"
-            elif self._bar_key is not None:
+            if self._bar_key is not None:
                 self._nav = self._bar_key
             self._bar.set(True, None)
         elif self._on_keyboard:
@@ -5492,6 +5524,10 @@ def main():
         bar = (None if args.no_touch or args.no_nav_bar
                else NavBar(page, page_w, page_h, corner_fraction * page_w))
         bar_until = 0.0
+        # Asked for the page's history the first time the bar is pressed.
+        nav_session = None
+        # History entries a link was opened from, when that was another link.
+        links_left = set()
         injector = (
             None if args.no_touch
             else Injector(page, touch_map, keyboard, page_w, page_h,
@@ -6145,27 +6181,57 @@ def main():
                     gestured = injector is not None and injector.tick(now)
                     nav = injector.take_nav() if injector is not None else None
                     if nav is not None and not (gestured or asked_home):
-                        # Back and reload, from the bar. At commit like a
-                        # link, for the same reason: the loop is blocked while
-                        # it waits, and the panel would show nothing of the
-                        # page coming in.
+                        # Back, reload and home, from the bar. At commit like
+                        # a link, for the same reason: the loop is blocked
+                        # while it waits, and the panel would show nothing of
+                        # the page coming in.
                         nav_at = time.monotonic()
+                        moved = False
                         try:
+                            if nav_session is None:
+                                nav_session = page.context.new_cdp_session(page)
+                            entries, current, start = link_history(
+                                nav_session, args.url, links_left)
+                            # The first page of what was opened from the
+                            # panel's own page. On a launcher that is the
+                            # LINK, and the bar stays inside it: neither its
+                            # back nor its home ever lands on the launcher,
+                            # which is the corner's job. A panel showing a
+                            # dashboard has no links to stay inside, so there
+                            # the panel's own page is the start, as before.
+                            if not open_page.is_launcher:
+                                start = 0
+                            first = 0 if start is None else start
                             if nav == "reload":
                                 page.reload(wait_until="commit",
                                             timeout=LOAD_TIMEOUT_S * 1000)
-                            elif page.go_back(wait_until="commit",
-                                              timeout=LOAD_TIMEOUT_S * 1000) \
-                                    is None:
-                                # Nothing to go back to: the first page a
-                                # panel opened. Home is the only way back.
-                                print("Bar: nothing to go back to -- home")
-                                gestured = True
-                                injector.fired_by = "bar"
-                                injector.held_for = None
+                                moved = True
+                            elif nav == "back":
+                                if current <= first:
+                                    print("Bar: back -- already on the first "
+                                          "page of this link, staying")
+                                else:
+                                    # None is not "nothing behind": Playwright
+                                    # also answers None for a page that went
+                                    # back within itself (history.pushState),
+                                    # which is how most sites move today.
+                                    page.go_back(wait_until="commit",
+                                                 timeout=LOAD_TIMEOUT_S * 1000)
+                                    moved = True
+                            elif first < len(entries) and first != current:
+                                # Loaded afresh from its address, as a
+                                # browser's home button does, rather than
+                                # walked back to through the history.
+                                moved = go_to(page, entries[first]["url"])
+                            else:
+                                print("Bar: home -- already on the first page "
+                                      "of this link, loading it again")
+                                page.reload(wait_until="commit",
+                                            timeout=LOAD_TIMEOUT_S * 1000)
+                                moved = True
                         except Exception as err:  # noqa: BLE001
                             print(f"Bar: {nav} did not finish ({err})")
-                        if not gestured:
+                        if moved:
                             print(f"Bar: {nav} -> {page.url} in "
                                   f"{time.monotonic() - nav_at:.1f}s")
                             home_pending = time.monotonic()
@@ -6181,10 +6247,11 @@ def main():
                             previous = None
                             pending = None
                             image = None
-                            # A page given back from the back/forward cache
-                            # has been painted already and may not paint
-                            # again on its own, so the picture is asked for
-                            # rather than waited for -- the corner's rule.
+                            # A page given back from the back/forward cache,
+                            # or one that moved within itself, has been
+                            # painted already and may not paint again on its
+                            # own, so the picture is asked for rather than
+                            # waited for -- the corner's rule.
                             capture.restart()
                     if gestured or asked_home or asked_open:
                         # Timed in three pieces, because "coming home is slow"
@@ -6203,6 +6270,22 @@ def main():
                         was_tapped, tapped = tapped, False
                         home_at = time.monotonic()
                         if link is not None:
+                            # Asked for from inside another link, the panel's
+                            # own page is not just behind the new one, so the
+                            # bar is told where it starts -- or its back and
+                            # home would walk into the last link.
+                            if bar is not None and \
+                                    not _same_page(page.url, args.url):
+                                try:
+                                    if nav_session is None:
+                                        nav_session = \
+                                            page.context.new_cdp_session(page)
+                                    history = nav_session.send(
+                                        "Page.getNavigationHistory")
+                                    links_left.add(history["entries"][
+                                        history["currentIndex"]]["id"])
+                                except Exception:  # noqa: BLE001
+                                    pass
                             done = (go_to(page, link) if was_tapped
                                     else open_link(page, link))
                             if not done:
