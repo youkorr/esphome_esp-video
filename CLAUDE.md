@@ -1802,7 +1802,7 @@ the dashboard, where it is invisible while the keys go on working.
 ahead of the `pip install` as well as the `ADD`s, so a bump refetched
 everything — at the cost of the browser download on each update.
 `present_browser()` prints the Chromium version at startup and warns below 114,
-so this is never diagnosed by guesswork again. Currently **4.42.0**.
+so this is never diagnosed by guesswork again. Currently **4.42.1**.
 
 **CORRECTED in 4.29.5: the cost was every update, and a pin removes it.**
 Asked as *"verifie addon ... si il ya pas des elements qui freine la
@@ -11013,6 +11013,16 @@ stops -- but the value is gone before run.py sees it, so
 `say_dropped_exceptions()` reads the STORED options from `/addons/self/info`
 (they still carry it) and names each one at start. fps, quality and max_rate
 stay per link. The translations' Advanced description says where they went.
+
+**Then, asked as *"il aurait fallu mettre le réglage commun en tête au dessus
+de mes écrans"* (4.42.1)**: `defaults:` is first in both `options:` and
+`schema:`. The form follows the SCHEMA's order (`UiOptions` walks
+`raw_schema.items()`, read in the Supervisor's `apps/options.py`), and the
+section names carry the numbers the form shows, 1 to 6, so every "see 5" in a
+description had to move with them. Inside it the fields run plainest first,
+port last. `stats`, `show_media` and `show_touches` were the same duplication
+between `debug:` and a panel's `advanced:` and went the same way; they are in
+`COMMON_ONLY` so the start-up line names them too.
 
 ## A link's user agent was said by the first request only -- 4.41.1
 

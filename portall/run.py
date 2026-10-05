@@ -1607,7 +1607,7 @@ SUPERVISOR_API = "http://supervisor"
 # duplication: the same names in two places of the form read as the same
 # setting asked twice.
 COMMON_ONLY = ("port", "fps", "quality", "max_rate", "keyboard",
-               "keep_profile", "locale")
+               "keep_profile", "locale", "stats", "show_media", "show_touches")
 
 
 def say_dropped_exceptions(panels):
@@ -1629,9 +1629,10 @@ def say_dropped_exceptions(panels):
         if kept:
             listed = ", ".join(f"{key}: {value}" for key, value in kept.items())
             say(f"[{panel.get('name') or panel.get('host')}] its own {listed} "
-                f"under Advanced is no longer read: these are set once for "
-                f"every screen in Common settings now. Put the value there if "
-                f"it is the one you want")
+                f"under Advanced is no longer read: it is set once for every "
+                f"screen now, in Common settings (or Diagnostics for stats, "
+                f"show_media and show_touches). Put the value there if it is "
+                f"the one you want")
 
 
 def show_enabled_switch():

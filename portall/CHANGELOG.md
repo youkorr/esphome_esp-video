@@ -1,5 +1,18 @@
 # Changelog
 
+## 4.42.1
+
+- **Common settings come first on the form**, above My screens: they apply to
+  every screen listed under them. The sections are renumbered in the order
+  they are shown -- 1 Common settings, 2 My screens, 3 Shared links, 4 Look of
+  the page of links, 5 A screen's own page of links, 6 Diagnostics.
+- Inside Common settings, the fields go from the plainest to the most
+  technical: language, keyboard, staying signed in, pictures per second,
+  quality, maximum rate, iPhone remote, and the network port last.
+- **Statistics, Follow videos and Show every touch** were also asked twice,
+  in Diagnostics and in each screen's Advanced. They are in Diagnostics only
+  now; a screen's own value is named in the log at start.
+
 ## 4.42.0
 
 - **No more doubled settings.** Network port, pictures per second, quality,
