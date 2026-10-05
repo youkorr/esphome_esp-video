@@ -1,5 +1,16 @@
 # Changelog
 
+## 4.42.0
+
+- **No more doubled settings.** Network port, pictures per second, quality,
+  maximum rate, on-screen keyboard, staying signed in and language were
+  asked both in Common settings and again in each screen's Advanced, under
+  the same names. They are now in **Common settings only**, once for every
+  screen. Pictures per second, quality and rate can still be set per link.
+- A screen that had its own value there loses it and takes the common one;
+  the add-on's log names it at start (`its own fps: 15 under Advanced is no
+  longer read`), so it can be copied into Common settings.
+
 ## 4.41.1
 
 - **A link with a television user agent says it on everything.** Only the

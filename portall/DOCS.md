@@ -159,9 +159,14 @@ under `advanced:`. The tables below name each setting; the heading it lives
 under is in the example beside it.
 
 
-Everything except a panel's own name, address, size, calibration and `url` can
-be set once at the top and every panel inherits it; a panel that sets one for
-itself keeps its own.
+**`port`, `fps`, `quality`, `max_rate`, `keyboard`, `keep_profile` and
+`locale` are set once, under `defaults:` (Common settings), for every screen.**
+They used to be offered again under each screen's `advanced:`, with the same
+names, which read as the same setting asked twice. It was an exception for
+that one screen; it is gone since 4.42.0, and a value a screen still carries
+there is dropped with a warning in the Supervisor's log. `fps`, `quality` and
+`max_rate` remain settable per **link**, which is where a film and a
+dashboard really differ.
 
 **Home Assistant's address and token are not up there.** They are a link, with
 the token on the link -- see *Moving from 2.x* above. A token belongs to an

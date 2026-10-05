@@ -42,11 +42,9 @@ configuration:
             name: Inverser haut/bas
       advanced:
         name: 🛠️ Avancé
-        description: 'Rien d''obligatoire ici : chaque réglage vide reprend « Réglages communs ».'
+        description: Rien d'obligatoire ici. Port, images par seconde, qualité, débit, clavier, connexion
+          aux sites et langue se règlent une fois pour tous les écrans dans « Réglages communs ».
         fields:
-          port:
-            name: Port réseau
-            description: 5000 sauf si l'écran dit autre chose.
           token:
             name: 🔑 Jeton pour cet écran seulement
             description: 'Laissez vide : le jeton se met sur le lien Home Assistant.'
@@ -57,26 +55,9 @@ configuration:
             name: 📶 Nom ESPHome de l'écran (Wi-Fi, Bluetooth)
             description: 'Seulement si le journal dit qu''aucun appareil n''a l''adresse de l''écran :
               le nom de son YAML (esphome: name:). Sinon l''écran est trouvé tout seul.'
-          fps:
-            name: 🎬 Images par seconde
-          quality:
-            name: ✨ Qualité de l'image
-            description: 1 à 95.
-          max_rate:
-            name: 📶 Débit maximum (Ko/s)
-            description: 0 = sans limite.
-          keyboard:
-            name: ⌨️ Clavier à l'écran
-            description: azerty, qwerty, ou off pour aucun.
           blank_after:
             name: Libérer la page après (secondes)
             description: Quand l'écran dort depuis ce temps, le serveur arrête la page. 300 par défaut.
-          keep_profile:
-            name: 💾 Rester connecté aux sites
-            description: Garde cookies et connexions entre deux redémarrages.
-          locale:
-            name: Langue
-            description: Par exemple fr ou fr-FR.
           user_agent:
             name: Se présenter comme…
             description: Rarement utile.
