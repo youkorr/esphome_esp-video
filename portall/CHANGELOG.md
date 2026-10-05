@@ -1,5 +1,14 @@
 # Changelog
 
+## 4.40.2
+
+- **A link that opens in a new tab now opens on the screen.** Google News
+  opens its articles in a new tab, and a screen shows one page: the tab
+  loaded out of sight and the article list stayed. The same for any link a
+  site opens in a new window. The page is now shown on the screen itself,
+  and the bar's back returns to the page it was opened from. A download
+  opened that way is still kept in Files, once.
+
 ## 4.40.1
 
 - **The log no longer calls a stopped player an error.** A site that stops

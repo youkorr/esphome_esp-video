@@ -1686,6 +1686,90 @@ class Follow:
         return taken
 
 
+class NewWindows:
+    """A page a site opens in a new window, brought into the panel's own.
+
+    Reported from Google News: the article list showed, a tap on an article
+    focused its link (the keyboard's line said `focus is A`) and nothing else
+    happened. Its links open in a new tab, and a panel shows one page -- the
+    tab opened behind it, loaded, and was never seen. The same for every
+    `target="_blank"` link and every `window.open()`.
+
+    So the new window's address is taken and opened in the panel's page, as
+    the bar's star opens a bookmark: a step inside the link, so the bar's
+    back returns to the page the window was opened from. The window itself
+    is closed. A page that relied on talking to its opener afterwards (a
+    sign-in pop-up handing a token back) loses that -- it was invisible
+    before, so nothing that worked is given up.
+
+    Taken once the window has a document of its own: Playwright hands a
+    window over after its first navigation, and one opened blank and sent
+    somewhere afterwards is caught on framenavigated. A download opened in a
+    new window never gets a document -- it stays about:blank -- so it is not
+    opened a second time in the panel's page; Downloads stays attached to the
+    window for it, and a window with nothing in it after WAIT_S is closed.
+
+    Like Follow, this only queues: it runs in Playwright's own dispatch.
+    """
+
+    WAIT_S = 10.0
+
+    def __init__(self, panel_page):
+        self.panel = panel_page
+        self._waiting = []  # [page, opened at, committed address or None]
+
+    def __call__(self, page):
+        if page is self.panel:
+            return
+        entry = [page, time.monotonic(), None]
+        self._waiting.append(entry)
+        # Playwright hands a window over once it has navigated to its first
+        # address, so for a link that is usually already its url; one that
+        # starts blank and is sent somewhere afterwards is caught below.
+        try:
+            if re.match(r"https?://", page.url or ""):
+                entry[2] = page.url
+        except Exception:  # noqa: BLE001
+            pass
+
+        def committed(frame):
+            try:
+                url = frame.url
+                if frame is page.main_frame and entry[2] is None \
+                        and re.match(r"https?://", url or ""):
+                    entry[2] = url
+            except Exception:  # noqa: BLE001 - the window is going anyway
+                pass
+        try:
+            page.on("framenavigated", committed)
+        except Exception:  # noqa: BLE001
+            pass
+
+    def drain(self):
+        taken = []
+        now = time.monotonic()
+        for entry in list(self._waiting):
+            page, since, url = entry
+            try:
+                closed = page.is_closed()
+            except Exception:  # noqa: BLE001
+                closed = True
+            if url is None and not closed and now - since < self.WAIT_S:
+                continue
+            self._waiting.remove(entry)
+            if url is not None:
+                taken.append(("window", url))
+            elif not closed:
+                print("New window: nothing opened in it after "
+                      f"{self.WAIT_S:.0f}s -- closed")
+            if not closed:
+                try:
+                    page.close()
+                except Exception:  # noqa: BLE001
+                    pass
+        return taken
+
+
 def read_bookmarks(profile):
     """The Chrome bookmarks kept in a profile, as [(folder path, [(name, url)])].
 
@@ -6129,6 +6213,10 @@ def main():
         downloads = Downloads(args.downloads, context)
         downloads.attach(page)
         context.on("page", downloads.attach)
+        # Registered after the panel's own page exists, so only the windows a
+        # site opens arrive here.
+        windows = NewWindows(page)
+        context.on("page", windows)
         user_agent = present_browser(
             context.new_cdp_session(page), page, args.keyboard != "off",
             args.user_agent, launched.get("used"),
@@ -6712,7 +6800,7 @@ def main():
                     said = endpoint.read_messages()
                     if control is not None:
                         said = said + control.drain()
-                    said = said + follow.drain()
+                    said = said + follow.drain() + windows.drain()
                     for kind, body in said:
                         if kind == "touch":
                             reports.append(body)
@@ -6759,6 +6847,15 @@ def main():
                             tapped = True
                             continue
                         if kind == "bookmark":
+                            asked_open = body
+                            tapped = True
+                            from_shelf = True
+                            continue
+                        if kind == "window":
+                            # A link the site opened in a new window: a step
+                            # inside the link, like a bookmark (see
+                            # NewWindows).
+                            print(f"New window: {body[:100]} -- shown here")
                             asked_open = body
                             tapped = True
                             from_shelf = True
