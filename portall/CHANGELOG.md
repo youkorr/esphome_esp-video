@@ -1,5 +1,13 @@
 # Changelog
 
+## 4.41.0
+
+- **Scrolling like a tablet, on trial: `glide` in a screen's Advanced.** A
+  page flicked with a finger carries on after the finger lifts and slows
+  down, as on a telephone. A finger laid on it stops it without clicking
+  anything; a finger that stops before lifting does not glide. Off by
+  default.
+
 ## 4.40.2
 
 - **A link that opens in a new tab now opens on the screen.** Google News

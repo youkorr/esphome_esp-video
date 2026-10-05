@@ -58,6 +58,7 @@ import base64
 import collections
 import io
 import json
+import math
 import os
 import re
 import shutil
@@ -408,6 +409,29 @@ HOME_SWIPE_STRAIGHTNESS = 1.5
 # 30 ms rather than every turn, because Chromium coalesces input per frame
 # anyway and nothing above the picture rate is visible.
 WHEEL_MIN_INTERVAL_S = 0.030
+# --glide: a page flicked with a finger carries on after the lift and slows
+# down, as on a telephone or a tablet. The browser can do this itself when it
+# is sent touches instead of a wheel, and it was measured first: in the
+# shipped Chromium, the same flick sent the same way glided only six times in
+# eight, the rest stopping dead -- with or without the add-on around it. A
+# glide that comes one flick in four is worse than none, so the sender does
+# it, with the wheel it already scrolls by.
+#
+# GLIDE_TAU_S is how long the speed takes to fall to a third: the glide
+# covers speed x tau in all, about what Chromium's own covered (300 px of
+# flick, 545 px more). Under GLIDE_MIN_SPEED the finger was dragging, not
+# flicking, and nothing glides; GLIDE_MAX_SPEED stops a flick read across a
+# late batch of reports sending the page a whole document away.
+GLIDE_TAU_S = 0.30
+GLIDE_MIN_SPEED = 250.0
+GLIDE_MAX_SPEED = 6000.0
+# How far back the finger's speed is measured at the lift, and how long a
+# finger must have been still before its lift counts as resting. The board
+# sends nothing for a finger that is not moving, so a rest is a gap; the
+# loop reads reports a turn at a time, and a turn while a page scrolls takes
+# up to about 100 ms, so anything shorter than this is the loop, not a rest.
+GLIDE_WINDOW_S = 0.08
+LIFT_STILL_S = 0.12
 # How far a finger has to travel before the gesture is scrolling rather than
 # a tap. Small enough that a deliberate drag is recognised at once, large
 # enough that the wobble of a fingertip on a press is not.
@@ -4903,8 +4927,20 @@ class Injector:
 
     def __init__(self, page, touch_map, keyboard=None, page_w=0, page_h=0,
                  corner=HOME_CORNER_FRACTION, hold=HOME_HOLD_S,
-                 press_hold=PRESS_HOLD_S, bar=None):
+                 press_hold=PRESS_HOLD_S, bar=None, glide=False):
         self._page = page
+        # --glide (see GLIDE_TAU_S). Where the finger was seen while it
+        # dragged, as (when read, x, y); the glide's speed in page pixels a
+        # second, already in the direction the page goes; and the part of a
+        # pixel not yet sent.
+        self.glide = glide
+        self._trail = collections.deque(maxlen=32)
+        self._speed = None
+        self._glide_at = 0.0
+        self._glide_left = [0.0, 0.0]
+        # A finger that landed on a gliding page stopped it, as on a
+        # telephone, and is not a tap on whatever was passing under it.
+        self._caught = False
         # The back/reload/home bar, when one is drawn. A contact on it is a
         # button and never reaches the page, exactly like the keyboard.
         self._bar = bar
@@ -5051,6 +5087,9 @@ class Injector:
                 self._down_at = time.monotonic()
                 self._scrolling = False
                 self.began = True
+                self._caught = self._stop_glide()
+                self._trail.clear()
+                self._trail.append((self._down_at, x, y))
                 # Two questions, and they need two pieces of state. The hold
                 # asks whether the finger is STILL in the corner, so its clock
                 # is cleared the moment it leaves. The swipe asks where the
@@ -5132,6 +5171,8 @@ class Injector:
                 # see WHEEL_MIN_INTERVAL_S for what one call costs.
                 self._wheel[0] += self._last[0] - x
                 self._wheel[1] += self._last[1] - y
+                if (x, y) != self._last:
+                    self._trail.append((time.monotonic(), x, y))
             self._last = (x, y)
         # A gesture that began in the corner and is still going sideways has
         # not been decided yet, so its scroll is held rather than sent: a swipe
@@ -5187,6 +5228,7 @@ class Injector:
         thing fifty times a second.
         """
         self.release_press(now)
+        self._glide_step(now)
         if self._home:
             self._home = False
             self.held_for = None
@@ -5214,6 +5256,72 @@ class Injector:
         self._scrolling = False
         self._wheel = [0, 0]
         return True
+
+    def _flick_speed(self):
+        """How fast the finger was going when it lifted, in page px a second.
+
+        None for a finger that had stopped. Measured from where it was
+        GLIDE_WINDOW_S before its last movement to where it last was -- or
+        from the furthest back the trail goes, when the reports came in one
+        batch -- and only when that last movement was read just before the
+        lift.
+        """
+        if not self.glide or len(self._trail) < 2:
+            return None
+        when, x, y = self._trail[-1]
+        if time.monotonic() - when > LIFT_STILL_S:
+            return None
+        before = self._trail[0]
+        for sample in reversed(self._trail):
+            if when - sample[0] >= GLIDE_WINDOW_S:
+                before = sample
+                break
+        span = when - before[0]
+        if span < 0.01:
+            return None
+        vx, vy = (before[1] - x) / span, (before[2] - y) / span
+        speed = math.hypot(vx, vy)
+        if speed < GLIDE_MIN_SPEED:
+            return None
+        if speed > GLIDE_MAX_SPEED:
+            vx, vy = vx * GLIDE_MAX_SPEED / speed, vy * GLIDE_MAX_SPEED / speed
+        return [vx, vy]
+
+    def _stop_glide(self):
+        """Stop a glide. True when there was one to stop."""
+        gliding = self._speed is not None
+        self._speed = None
+        self._glide_left = [0.0, 0.0]
+        return gliding
+
+    def _glide_step(self, now):
+        """Carry a glide on by however long has passed since the last step.
+
+        The speed falls as exp(-t/tau), so the distance over a step is the
+        integral of it rather than speed x step: a loop that turns slowly
+        while the page scrolls glides exactly as far as a fast one. Sent as a
+        wheel, at most every WHEEL_MIN_INTERVAL_S like a drag.
+        """
+        if self._speed is None:
+            return
+        dt = now - self._glide_at
+        if dt < WHEEL_MIN_INTERVAL_S:
+            return
+        self._glide_at = now
+        keep = math.exp(-dt / GLIDE_TAU_S)
+        for i in (0, 1):
+            self._glide_left[i] += self._speed[i] * GLIDE_TAU_S * (1 - keep)
+            self._speed[i] *= keep
+        dx, dy = int(self._glide_left[0]), int(self._glide_left[1])
+        self._glide_left[0] -= dx
+        self._glide_left[1] -= dy
+        if math.hypot(*self._speed) < GLIDE_MIN_SPEED / 5:
+            self._stop_glide()
+        if dx or dy:
+            try:
+                self._page.mouse.wheel(dx, dy)
+            except Exception:  # noqa: BLE001 - a page going away
+                self._stop_glide()
 
     def _flush_wheel(self, force=False):
         """Send what has gathered, if it is time or the gesture has ended."""
@@ -5279,6 +5387,15 @@ class Injector:
         # Whatever is left of the scroll goes now: the finger has gone and
         # there will be no later turn to carry it.
         self._flush_wheel(force=True)
+        if self._scrolling and not self._went_home and not self._on_bar \
+                and not self._on_keyboard:
+            speed = self._flick_speed()
+            if speed is not None:
+                self._speed = speed
+                self._glide_at = time.monotonic()
+                if self.verbose:
+                    print(f"[{stamp()}] glide: "
+                          f"{math.hypot(*speed):.0f} px/s", flush=True)
         if self._on_bar:
             if self._bar_key is not None and not self._went_home:
                 self._nav = self._bar_key
@@ -5290,6 +5407,12 @@ class Injector:
                 clicked = self._keyboard.commit(self._key)
             else:
                 self._keyboard.highlight(None)
+        elif self._start is not None and not self._scrolling \
+                and not self._went_home and self._caught:
+            # The finger stopped a glide; that was all it was for.
+            if self.verbose:
+                print(f"[{stamp()}] glide: stopped by a finger, which "
+                      "clicks nothing", flush=True)
         elif self._start is not None and not self._scrolling and not self._went_home:
             # A gesture that began in the corner never reaches the page, even
             # when it was too short to go home. Measured on a panel: a 0.13s
@@ -5378,6 +5501,8 @@ class Injector:
             self._keyboard.highlight(None)
         if self._on_bar and self._bar is not None:
             self._bar.press(None)
+        # And no glide carries on into whatever comes next.
+        self._stop_glide()
         self._reset()
 
     def _undecided(self):
@@ -5397,6 +5522,7 @@ class Injector:
 
     def _reset(self):
         self._wheel = [0, 0]
+        self._caught = False
         if self.verbose and self._corner_at is not None and not self._went_home:
             print(f"[{stamp()}] corner: the finger lifted "
                   f"after {time.monotonic() - self._corner_at:.2f}s of "
@@ -5649,6 +5775,13 @@ def main():
         "and then stops it, which is what YouTube's 'un probleme est survenu' "
         "is. A Chromium packaged by a distribution has them. Give a path to "
         "name one exactly, or 'off' to keep Playwright's whatever is installed",
+    )
+    parser.add_argument(
+        "--glide",
+        action="store_true",
+        help="a page flicked with a finger carries on after the finger lifts "
+        "and slows down, as on a telephone or a tablet; a finger that lands "
+        "on it stops it",
     )
     parser.add_argument(
         "--stereo",
@@ -6363,7 +6496,8 @@ def main():
             None if args.no_touch
             else Injector(page, touch_map, keyboard, page_w, page_h,
                           corner_fraction, args.home_hold,
-                          max(0.0, args.press_hold) / 1000.0, bar)
+                          max(0.0, args.press_hold) / 1000.0, bar,
+                          glide=args.glide)
         )
         if injector is not None:
             injector.verbose = args.show_touches

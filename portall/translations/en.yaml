@@ -82,6 +82,10 @@ configuration:
           import_profile:
             name: Import a browser profile
             description: See the documentation.
+          glide:
+            name: 📱 Scroll like a tablet
+            description: A page flicked with a finger carries on and slows down. A finger laid on it stops
+              it. On trial.
           stereo:
             name: 🔊 Stereo sound
             description: 'Twice the data. Needs the board updated, and num_channels: 2 on the Bluetooth
