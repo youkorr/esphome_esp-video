@@ -1802,7 +1802,7 @@ the dashboard, where it is invisible while the keys go on working.
 ahead of the `pip install` as well as the `ADD`s, so a bump refetched
 everything — at the cost of the browser download on each update.
 `present_browser()` prints the Chromium version at startup and warns below 114,
-so this is never diagnosed by guesswork again. Currently **4.40.2**.
+so this is never diagnosed by guesswork again. Currently **4.41.0**.
 
 **CORRECTED in 4.29.5: the cost was every update, and a pin removes it.**
 Asked as *"verifie addon ... si il ya pas des elements qui freine la
@@ -10938,6 +10938,39 @@ that changes now and then 1-2 s is the page being still).
   was true of googlevideo.com once and is not a rule: an advert's name that
   no longer exists fails the same way. Whether sync.outbrainimg.com exists
   could not be checked from here (no external DNS).
+
+## A flick glides on, and the browser's own glide was not good enough -- 4.41.0
+
+**Asked as *"est il possible que le slide up et down avec le doigt soit comme
+une tablette ou un smartphone ?"*.** A drag is replayed as summed wheels, so
+the page stopped dead at the lift. The first answer, given in chat, was to
+send real touches (`Input.dispatchTouchEvent`) and let Chromium fling: one
+measured flick of 300 px went to 845. **Built that way, it glided one flick
+in two in the sender** -- and measured on its own, outside the add-on, the
+same flick sent the same way glided six to eight times in eight, with or
+without explicit timestamps, whatever the number and spacing of the moves.
+A glide that comes at random is worse than none, so it was thrown away
+before shipping. The lesson is this file's oldest: one measurement that
+worked is not a behaviour; run it eight times.
+
+So `--glide` (`glide:` in a panel's Advanced, off by default) does it in the
+`Injector`, with the wheel it already scrolls by. The finger's speed at the
+lift is read off the positions seen over the last `GLIDE_WINDOW_S`; a finger
+whose last movement was read more than `LIFT_STILL_S` before its lift had
+stopped (the board sends nothing for a still finger, so a rest is a gap
+longer than a loop turn) and does not glide. The speed falls as
+exp(-t/`GLIDE_TAU_S`) and each `tick()` sends the INTEGRAL over the time
+since the last step, so a slow loop glides as far as a fast one. A finger
+landing on a gliding page stops it and its tap clicks nothing, as on a
+telephone. What the touch route had and this does not: a site's own swipe
+handlers (carousels) see a mouse, not a finger.
+
+`tools/checkglide.py`: a fake panel sending real contacts on a tall page that
+reports its scroll and its clicks: a flick glides on (about 350 px at the
+lift, 750-850 after, three runs in three), a resting finger does not, a tap
+clicks, a finger stops a glide without clicking, a flick on another site
+after a navigation glides, and without the option the page stops at the
+lift. **Not seen on a panel.**
 
 ## A new tab was opened behind the panel and never shown -- 4.40.2
 

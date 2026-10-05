@@ -605,6 +605,20 @@ arrows and keeps the whole screen. A press
 on it is decided by the add-on and never reaches the site, so it works on a
 page that swallows everything else.
 
+### Scrolling like a tablet: `glide`
+
+A finger dragged on the panel scrolls the page, and by default the page stops
+the moment the finger lifts. Turn on **`glide`** in a panel's *Advanced* and a
+page **flicked** with a finger carries on after the lift and slows down, as on
+a telephone or a tablet. A finger laid on a gliding page stops it -- and that
+touch clicks nothing, so you can stop a list without opening what was passing
+under your finger. A finger that stops moving before it lifts does not glide.
+A tap is a tap either way.
+
+It is an option on trial. While the page glides, every picture is a whole
+screen, so how smooth it looks depends on the screen's Wi-Fi, as any scroll
+does.
+
 ### Downloads
 
 What a page downloads is kept, one folder per screen, and the bar says so --

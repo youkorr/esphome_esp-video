@@ -1443,6 +1443,7 @@ def command_for(panel):
         "touch_mirror_x",
         "touch_mirror_y",
         "no_touch",
+        "glide",
         "stereo",
         "freeze_animations",
         "stats",

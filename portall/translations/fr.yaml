@@ -83,6 +83,10 @@ configuration:
           import_profile:
             name: Importer un profil de navigateur
             description: Voir la documentation.
+          glide:
+            name: 📱 Défilement comme une tablette
+            description: Une page lancée du doigt continue sur son élan puis ralentit. Un doigt posé l'arrête.
+              À l'essai.
           stereo:
             name: 🔊 Son en stéréo
             description: 'Le double de données. Carte à jour obligatoire, et num_channels: 2 sur l''enceinte
