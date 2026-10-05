@@ -1769,6 +1769,13 @@ is redirected to the ordinary site. The user agent goes on the **link**, never
 on the panel -- a panel-wide one would tell Home Assistant and your launcher
 they are talking to a television too.
 
+Everything that page asks for says it is the television, not only its first
+request, and it sends none of the Chrome details a television would not send.
+If YouTube still gives you the ordinary site, the add-on's log says so in a
+line starting `Agent:` -- *"answered ... with a redirect to"* or *"went to ...
+after it arrived"* -- with the address it was sent to. That line is what to
+send if you report it.
+
 **2. Sign in with a code, from your phone.** The television interface never
 asks for a password: it shows a code, and you enter it at `youtube.com/pair`.
 Nothing is typed on the panel and no keyboard is needed. With `keep_profile`

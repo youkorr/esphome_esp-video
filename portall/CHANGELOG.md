@@ -1,5 +1,16 @@
 # Changelog
 
+## 4.41.1
+
+- **A link with a television user agent says it on everything.** Only the
+  first request of YouTube's television page said it was a Tizen
+  television; everything the page asked for afterwards -- its scripts, the
+  pairing a cast goes through -- said it was Chrome on a computer, and the
+  Chrome details went with every request, a television's included. The whole
+  page now says the same thing. **Not tried on YouTube itself**: nothing here
+  reaches it. If it still shows the ordinary site, the log now says so in a
+  line starting `Agent:`, with where YouTube sent the screen.
+
 ## 4.41.0
 
 - **Scrolling like a tablet, on trial: `glide` in a screen's Advanced.** A
