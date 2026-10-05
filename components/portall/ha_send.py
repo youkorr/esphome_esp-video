@@ -1317,6 +1317,17 @@ class Control:
         return out
 
 
+# The override present_browser set on the panel's page, if it set one: what
+# route_agents puts back when the panel leaves a page that asked for another
+# user agent. Empty when the browser says what it is by itself, and then an
+# empty user agent is what clears an override.
+PRESENTED = {}
+
+# Called with an address just before the panel's page is sent there, by
+# go_to; set by route_agents when some link asked for a user agent.
+BEFORE_GOING = [None]
+
+
 def present_browser(session, page, keyboard_wanted, wanted_agent,
                     launched_as=None):
     """Name the browser, warn if it is too old, and settle what it says it is.
@@ -1399,6 +1410,9 @@ def present_browser(session, page, keyboard_wanted, wanted_agent,
     except Exception as err:  # noqa: BLE001 - the honest one still works
         print(f"Browser: would not be disguised ({err})")
         return None
+    # What a page that asked for another agent goes back to (route_agents).
+    PRESENTED.clear()
+    PRESENTED.update(params)
     brands = ", ".join(b["brand"] for b in (metadata or {}).get("brands", []))
     print(f"Browser: saying it is {agent}")
     print("Browser: and its brands are " + (brands or "not set, which is a tell"))
@@ -1648,6 +1662,11 @@ def go_to(page, url):
     launcher.py, and the measurement there).
     """
     from playwright.sync_api import TimeoutError as PageTimeout
+
+    # Before the request exists, so even its first one says what the link
+    # asked for -- see route_agents.
+    if BEFORE_GOING[0] is not None:
+        BEFORE_GOING[0](url)
 
     # "commit", not "domcontentloaded": return as soon as the site has
     # answered and its page has started. The loop is blocked while goto
@@ -2692,6 +2711,12 @@ def fps_for(url, page_fps):
     return None
 
 
+# A page that asked for a user agent and left it this soon after arriving is
+# printed: an interface that refused the agent sends it away in seconds, and
+# somebody choosing to leave one takes longer.
+AGENT_LEFT_S = 15.0
+
+
 def agent_for(url, page_agent):
     """The user agent this address asks for, or None to leave it alone.
 
@@ -2704,41 +2729,165 @@ def agent_for(url, page_agent):
     return None
 
 
-def route_agents(page, page_agent):
-    """Give the FIRST request for a page the user agent that page asked for.
+def is_chrome_agent(agent):
+    """True when a user agent string claims a Chrome, which sends client hints.
 
-    This has to happen at the request rather than afterwards, because the
+    A smart television's browser -- Tizen, webOS -- is an old Chromium that
+    sends no Sec-CH-UA at all, and its string carries no "Chrome/" token.
+    """
+    return "Chrome/" in (agent or "")
+
+
+def route_agents(page, page_agent, session=None, own=None):
+    """Make every request of a page that asked for a user agent carry it.
+
+    It has to happen at the request rather than afterwards, because the
     request is where it is decided. youtube.com/tv is not a page, it is a
     junction: a television is served the television interface, everybody else
     is redirected to the ordinary site -- so by the time the sender could see
     the address and change anything, the answer has already been given and the
     address is somewhere else entirely.
 
-    Matched by a function rather than a glob so a prefix means exactly what it
-    says, and registered only for the prefixes configured, so a page nobody
-    asked about is never intercepted.
-    """
-    # A CLOSURE and not a default argument, which is not a style choice.
-    # Playwright reads the handler's arity: a two-parameter one is called as
-    # (route, request), so `def handler(route, agent=agent)` has its agent
-    # replaced by a Request object -- and then continue_() is handed something
-    # that will not serialise, the route is never released, and the page never
-    # loads at all. Caught by running it; it fails silently in every other way.
-    def make_handler(agent):
-        def handler(route):
-            try:
-                route.continue_(headers={**route.request.headers,
-                                         "user-agent": agent})
-            except Exception:  # noqa: BLE001 - never cost the page a request
-                try:
-                    route.continue_()
-                except Exception:  # noqa: BLE001 - already gone
-                    pass
-        return handler
+    EVERY request, not only the page's own. The first version matched the
+    request's address alone, so the television interface's document went out
+    as a television and every call it made afterwards -- its scripts, its API,
+    the pairing a cast goes through -- went out as a desktop Chrome on Linux:
+    one page saying two things about what it runs on. A navigation is matched
+    by where it is going; anything else by the document that asked for it.
 
-    for prefix, agent in page_agent:
-        page.route(lambda url, prefix=prefix: url.startswith(prefix),
-                   make_handler(agent))
+    And no client hints beside a string that is not a Chrome. A television's
+    browser sends none, and the Chrome brands this browser adds on its own
+    contradict the string they travel with. A route cannot take them off --
+    measured, a request continued without Sec-CH-UA still carries it, because
+    the browser adds it afterwards -- but the page's own override can: one
+    set with no metadata sends no hints at all (measured, on the document and
+    on what it fetches), and an empty one gives the browser its own back. So
+    `session`, the panel's page's CDP session, is told the television's string
+    before go_to sends the page there, while a navigation to such a page is
+    being asked for, and when one arrives; and given back what present_browser
+    set (PRESENTED) when the page goes anywhere else. The page's own scripts
+    are told the same by the init script beside this (userAgentData).
+
+    NEVER from inside the route handler: an override sent while the browser
+    holds a request there hangs that navigation for good -- measured, a page
+    that moved itself off the television page never arrived. So it is sent
+    from go_to, before the request exists, and from the page's arrival; and a
+    navigation away that the page starts by itself, which neither sees in
+    time, has its document asked for as `own` (the browser's own string) by
+    the route instead.
+
+    One route for everything: once a page has any route, Playwright intercepts
+    every request it makes and asks the matchers on this side anyway, so
+    matching inside the handler costs nothing a prefix matcher did not.
+
+    And it says when the site would not have it: a navigation redirected away
+    from an address that asked for an agent, or a page that left one within
+    AGENT_LEFT_S of arriving, is printed with where it went -- from the panel,
+    an interface refused and an interface never asked for look the same.
+    """
+    state = {"at": None, "since": 0.0, "said": set(), "worn": None}
+
+    def wear(url):
+        """The page's override for what `url` asked for, if not already."""
+        agent = agent_for(url, page_agent)
+        want = agent if agent and not is_chrome_agent(agent) else None
+        if session is None or want == state["worn"]:
+            return
+        try:
+            session.send("Emulation.setUserAgentOverride",
+                         {"userAgent": want} if want
+                         else (dict(PRESENTED) or {"userAgent": ""}))
+            state["worn"] = want
+        except Exception as err:  # noqa: BLE001 - the route still says it
+            say_once(("wear", want), f"Agent: could not be set on the page "
+                     f"({err}); its requests are still told by the route")
+
+    def say_once(key, line):
+        if key not in state["said"] and len(state["said"]) < 16:
+            state["said"].add(key)
+            print(line)
+
+    def agent_of(request):
+        found = agent_for(request.url, page_agent)
+        if found is not None or request.is_navigation_request():
+            return found
+        try:
+            return agent_for(request.frame.url, page_agent)
+        except Exception:  # noqa: BLE001 - a service worker has no frame
+            return None
+
+    # A CLOSURE taking ONE parameter, which is not a style choice. Playwright
+    # reads the handler's arity: a two-parameter one is called as (route,
+    # request), so `def handler(route, agent=agent)` once had its agent
+    # replaced by a Request object -- continue_() was handed something that
+    # will not serialise, the route was never released, and the page never
+    # loaded at all. Caught by running it; it fails silently in every other way.
+    def handler(route):
+        request = route.request
+        try:
+            agent = agent_of(request)
+            if agent is None and state["worn"] and own \
+                    and request.is_navigation_request():
+                agent = own
+        except Exception:  # noqa: BLE001 - never cost the page a request
+            agent = None
+        try:
+            if agent is None:
+                route.fallback()
+                return
+            route.continue_(headers={**request.headers,
+                                     "user-agent": agent})
+        except Exception:  # noqa: BLE001 - never cost the page a request
+            try:
+                route.continue_()
+            except Exception:  # noqa: BLE001 - already gone
+                pass
+
+    def arrived(frame):
+        try:
+            if frame != page.main_frame:
+                return
+            url = frame.url
+        except Exception:  # noqa: BLE001 - a closing page
+            return
+        # A page given back from the back/forward cache asks for nothing, so
+        # this is the only place its agent can be settled.
+        wear(url)
+        if agent_for(url, page_agent) is not None:
+            if state["at"] is None:
+                state["since"] = time.monotonic()
+            state["at"] = url
+            return
+        if state["at"] is not None:
+            stayed = time.monotonic() - state["since"]
+            if stayed < AGENT_LEFT_S:
+                say_once(("left", state["at"].split("#")[0],
+                          url.split("#")[0]),
+                         f"Agent: {state['at'][:64]} went to {url[:64]} "
+                         f"{stayed:.1f}s after it arrived")
+        state["at"] = None
+
+    # A redirect is followed by the browser without coming back through the
+    # route, so it is noticed as a request instead.
+    def redirected(request):
+        try:
+            origin = request.redirected_from
+            if origin is None or not request.is_navigation_request():
+                return
+            asked = agent_for(origin.url, page_agent)
+            if asked and agent_for(request.url, page_agent) is None:
+                say_once(("redirect", origin.url),
+                         f"Agent: {origin.url[:64]} answered as "
+                         f"{asked[:40]}... with a redirect to "
+                         f"{request.url[:64]} -- the site did not take the "
+                         f"panel for what that agent says")
+        except Exception:  # noqa: BLE001 - a diagnostic, never the page's cost
+            pass
+
+    page.route(lambda url: True, handler)
+    page.on("framenavigated", arrived)
+    page.on("request", redirected)
+    BEFORE_GOING[0] = wear
 
 
 def send_picture(endpoint, image, frame_id, transpose, panel_w, panel_h, quality):
@@ -6350,14 +6499,18 @@ def main():
         # site opens arrive here.
         windows = NewWindows(page)
         context.on("page", windows)
+        # One session for both: an override belongs to the session that set
+        # it, so route_agents puts back what present_browser set through it.
+        agent_session = context.new_cdp_session(page)
         user_agent = present_browser(
-            context.new_cdp_session(page), page, args.keyboard != "off",
+            agent_session, page, args.keyboard != "off",
             args.user_agent, launched.get("used"),
         )
         # Before any navigation: the very first request for an address is the
         # one that decides what is served for it.
         if page_agent:
-            route_agents(page, page_agent)
+            route_agents(page, page_agent, agent_session,
+                         user_agent or launched.get("used"))
             # The header settles what the SERVER does; this settles what the
             # page's own scripts read. Done as an init script rather than by
             # setting the override when the address is noticed, because by
@@ -6368,7 +6521,13 @@ def main():
                 " const here = location.href;"
                 " for (const r of rules) { if (here.startsWith(r[0])) {"
                 "   Object.defineProperty(navigator, 'userAgent',"
-                "     {get: () => r[1], configurable: true}); break; } } })();"
+                "     {get: () => r[1], configurable: true});"
+                # A television's browser has no userAgentData either: the
+                # brands this one would answer with are a desktop Chrome's.
+                "   if (!/Chrome\\//.test(r[1]))"
+                "     Object.defineProperty(navigator, 'userAgentData',"
+                "       {get: () => undefined, configurable: true});"
+                "   break; } } })();"
             )
             for prefix, agent in page_agent:
                 print(f"Agent: {prefix[:48]} is told {agent[:48]}...")

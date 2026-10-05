@@ -1802,7 +1802,7 @@ the dashboard, where it is invisible while the keys go on working.
 ahead of the `pip install` as well as the `ADD`s, so a bump refetched
 everything — at the cost of the browser download on each update.
 `present_browser()` prints the Chromium version at startup and warns below 114,
-so this is never diagnosed by guesswork again. Currently **4.41.0**.
+so this is never diagnosed by guesswork again. Currently **4.41.1**.
 
 **CORRECTED in 4.29.5: the cost was every update, and a pin removes it.**
 Asked as *"verifie addon ... si il ya pas des elements qui freine la
@@ -10997,6 +10997,41 @@ hands a token back to its opener loses that -- it was invisible before.
 a download in a new window, tapped on a fake panel's glass. `--sender` an
 older copy reproduces the report (two failures). **Not tried on Google News**
 -- no route to it here.
+
+## A link's user agent was said by the first request only -- 4.41.1
+
+**Reported as YouTube's ordinary site where the Tizen link used to give the
+television interface, and casting to the panel gone with it.** Measured first,
+against the sender before 4.39.2 and after, with a server shaped like the
+junction: the document went out as the television in BOTH, and every request
+the page made afterwards went out as a desktop Chrome in both, with Chrome's
+Sec-CH-UA beside the Tizen string. So nothing had changed for that link;
+whatever YouTube now checks is not visible from here, and the page had always
+contradicted itself. `route_agents` matched a request by its OWN address.
+
+- **Every request of such a page now carries it**: one route for everything
+  (Playwright intercepts every request once any route exists, so a matcher
+  inside the handler costs nothing more), a navigation matched by where it
+  goes, anything else by the document that asked for it.
+- **No hints beside a non-Chrome string, and a route cannot remove them**:
+  a request continued without Sec-CH-UA still carries it, the browser adds it
+  afterwards. The page's own `Emulation.setUserAgentOverride` with no
+  metadata does (measured: none on the document or on what it fetches), and
+  `userAgent: ""` gives the browser its own back. It is put on through the
+  SAME session present_browser used (`PRESENTED` is what it set, restored on
+  the way out), from `go_to` before the request exists (`BEFORE_GOING`) and on
+  the page's arrival -- **never from the route handler**: sent while the
+  browser holds a request there, that navigation never completed. A
+  navigation the page starts by itself away from it has its document asked
+  for as the browser's own string by the route.
+- `navigator.userAgentData` is undefined on that page for a non-Chrome agent.
+- **A refusal is logged**: a redirect away from an address with an agent
+  (`page.on("request")` -- a redirect is followed without coming back through
+  the route), and a page that left one within `AGENT_LEFT_S` of arriving.
+
+`tools/checkpageagent.py`: against 4.41.0 seven of its twelve cases fail.
+**Not tried on YouTube** -- no route to it -- so whether this was the cause is
+what the next report's `Agent:` lines say.
 
 ## Back, reload and home on the glass -- 4.34.0
 
