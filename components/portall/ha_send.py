@@ -1640,21 +1640,266 @@ class Follow:
 
     def __init__(self, home):
         self._origin = _origin_of(home)
+        # The bookmarks page's own origin (see Bookmarks), set once it runs.
+        # Its taps are told apart: a bookmark opened from it is a step inside
+        # the link, so the bar's back returns to the list.
+        self.bookmarks = None
         self._queue = collections.deque(maxlen=4)
 
     def __call__(self, source, url):
         frame = source.get("frame") if isinstance(source, dict) else None
         if frame is None or frame.parent_frame is not None:
             return
-        if _origin_of(frame.url) != self._origin:
+        origin = _origin_of(frame.url)
+        if origin == self._origin:
+            kind = "follow"
+        elif self.bookmarks is not None and origin == self.bookmarks:
+            kind = "bookmark"
+        else:
             return
         if isinstance(url, str) and re.match(r"https?://", url):
-            self._queue.append(("follow", url))
+            self._queue.append((kind, url))
 
     def drain(self):
         taken = list(self._queue)
         self._queue.clear()
         return taken
+
+
+def read_bookmarks(profile):
+    """The Chrome bookmarks kept in a profile, as [(folder path, [(name, url)])].
+
+    Chrome keeps them in `Default/Bookmarks` -- and, for an account signed in
+    without full sync, in `Default/AccountBookmarks` beside it -- as JSON:
+    `roots` holds the bookmarks bar, "other" and the mobile ones, each a tree
+    of `{"type": "folder", "children": [...]}` and `{"type": "url", "name",
+    "url"}`. Read on every request, because the sign-in page's Chrome writes
+    the file and the panel's browser may too. Both files are read and an
+    address already listed is not listed twice. A folder becomes a section
+    titled with its path; one with nothing openable in it is left out.
+
+    The second value counts what cannot be opened on a panel (javascript:,
+    chrome: and the like), so the page can say so rather than hiding them.
+    """
+    # Keyed by folder path, so a folder found in both files is one section.
+    merged, seen, skipped = {}, set(), 0
+    if not profile:
+        return [], skipped
+    roots_order = ("bookmark_bar", "other", "synced")
+    for name in ("Bookmarks", "AccountBookmarks"):
+        try:
+            with open(os.path.join(profile, "Default", name),
+                      encoding="utf-8") as handle:
+                roots = json.load(handle).get("roots") or {}
+        except (OSError, ValueError, AttributeError):
+            continue
+        if not isinstance(roots, dict):
+            continue
+
+        def walk(node, path):
+            # A folder's own bookmarks first, then its subfolders', the
+            # order Chrome's own bookmark manager shows them in.
+            nonlocal skipped
+            here, folders = [], []
+            for child in node.get("children") or []:
+                if not isinstance(child, dict):
+                    continue
+                if child.get("type") == "folder":
+                    folders.append(child)
+                elif child.get("type") == "url":
+                    url = str(child.get("url") or "")
+                    if not re.match(r"https?://", url):
+                        skipped += 1
+                    elif url not in seen:
+                        seen.add(url)
+                        here.append((str(child.get("name") or url), url))
+            if here:
+                merged.setdefault(tuple(path), []).extend(here)
+            for folder in folders:
+                walk(folder, path + [str(folder.get("name") or "")])
+
+        for key in roots_order:
+            root = roots.get(key)
+            if isinstance(root, dict):
+                walk(root, [key])
+    return [(list(path), items) for path, items in merged.items()], skipped
+
+
+class Bookmarks:
+    """The profile's Chrome bookmarks, as a page the panel can open.
+
+    A panel's browser has no toolbar, so the bookmarks somebody keeps in
+    Chrome -- brought into the panel's profile when Chrome itself was signed
+    into their account on the add-on's sign-in page -- had nowhere to be
+    seen. Reported as "il manque mes favoris dans le navigateur web". The bar
+    above a link carries a star; pressing it opens this page.
+
+    Served from a small server of its own on 127.0.0.1, one per sender, NOT
+    by routing a made-up address through Playwright: any route switches off
+    the browser's HTTP cache for every page it shows (Playwright's own
+    documentation says so), which would cost every site the panel opens.
+    127.0.0.1 is a secure context, so the page is like any other. A bookmark
+    is opened through `__udispFollow`, which this origin is allowed to call
+    (see Follow), so a site's Strict login cookie goes with it -- the
+    launcher's rule -- and the bar's back button returns here.
+    """
+
+    def __init__(self, profile, french):
+        self.profile = profile
+        self.french = french
+        self.url = None
+        self.origin = None
+
+    def start(self):
+        import http.server
+        owner = self
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def log_message(self, *_):
+                pass
+
+            def do_GET(self):
+                body = owner.page().encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.send_header("Content-Length", str(len(body)))
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+                self.wfile.write(body)
+
+        try:
+            server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        except OSError as err:
+            print(f"Bookmarks: no page for them ({err})")
+            return False
+        server.daemon_threads = True
+        threading.Thread(target=server.serve_forever, daemon=True,
+                         name="bookmarks").start()
+        self.origin = f"http://127.0.0.1:{server.server_address[1]}"
+        self.url = self.origin + "/"
+        return True
+
+    def count(self):
+        sections, _ = read_bookmarks(self.profile)
+        return sum(len(items) for _, items in sections)
+
+    TITLES = {
+        "bookmark_bar": ("Barre de favoris", "Bookmarks bar"),
+        "other": ("Autres favoris", "Other bookmarks"),
+        "synced": ("Favoris sur mobile", "Mobile bookmarks"),
+    }
+
+    def page(self):
+        import html as html_module
+        esc = html_module.escape
+        fr = self.french
+        sections, skipped = read_bookmarks(self.profile)
+        parts = []
+        for path, items in sections:
+            root = self.TITLES.get(path[0], (path[0], path[0]))[0 if fr else 1]
+            title = " › ".join([root] + [p for p in path[1:] if p])
+            tiles = []
+            for name, url in items:
+                host = urllib.parse.urlsplit(url).hostname or ""
+                host = host[4:] if host.startswith("www.") else host
+                letter = (name.strip() or host or "?")[0].upper()
+                hue = sum(host.encode()) * 47 % 360
+                tiles.append(
+                    f'<a class="bm" href="{esc(url, quote=True)}">'
+                    f'<span class="dot" style="--h:{hue}">{esc(letter)}</span>'
+                    f'<span class="txt"><span class="nm">{esc(name)}</span>'
+                    f'<span class="hs">{esc(host)}</span></span></a>')
+            parts.append(f'<h2>{esc(title)}</h2><div class="grid">'
+                         + "".join(tiles) + "</div>")
+        if not self.profile:
+            empty = ("Cet écran ne garde pas de profil (keep_profile), donc "
+                     "pas de favoris." if fr else
+                     "This screen keeps no profile (keep_profile), so it "
+                     "has no bookmarks.")
+            parts.append(f'<p class="empty">{esc(empty)}</p>')
+        elif not sections:
+            empty = ("Aucun favori dans le profil de cet écran. Ce sont ceux "
+                     "de Chrome : ils arrivent quand Chrome est connecté à "
+                     "votre compte Google avec la synchronisation."
+                     if fr else
+                     "No bookmarks in this screen's profile. They are "
+                     "Chrome's own: they arrive when Chrome is signed into "
+                     "your Google account with sync on.")
+            parts.append(f'<p class="empty">{esc(empty)}</p>')
+        if skipped:
+            note = (f"{skipped} favori(s) ne s'ouvrent pas sur l'écran "
+                    "(javascript:, chrome:...)." if fr else
+                    f"{skipped} bookmark(s) cannot open on the screen "
+                    "(javascript:, chrome:...).")
+            parts.append(f'<p class="note">{esc(note)}</p>')
+        heading = "Favoris" if fr else "Bookmarks"
+        return BOOKMARKS_PAGE % {"lang": "fr" if fr else "en",
+                                 "title": heading, "body": "".join(parts)}
+
+
+# A bookmark is handed to the sender on POINTERDOWN, like a launcher tile
+# (see FOLLOW_JS in launcher.py): the sender replays a tap only once the finger
+# has lifted without dragging, so a pointerdown is already a decided tap, and
+# the click after it is swallowed. A remote's OK is a click with no
+# pointerdown and is handed over there. With no sender it is a plain link.
+BOOKMARKS_PAGE = """<!doctype html>
+<html lang="%(lang)s"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>%(title)s</title>
+<style>
+:root { color-scheme: dark; }
+body { margin: 0; background: #12161e; color: #e8ebf1;
+  font: clamp(15px, calc(1.6vmin + 9px), 21px)/1.35 system-ui, sans-serif;
+  padding: 2.5vmin 3vmin 4vmin; }
+h1 { font-size: 1.5em; margin: 0 0 .4em; font-weight: 650; }
+h2 { font-size: .8em; text-transform: uppercase; letter-spacing: .08em;
+  color: #98a2b3; margin: 1.4em 0 .6em; font-weight: 600; }
+.grid { display: grid; gap: 10px;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%%, 15em), 1fr)); }
+a.bm { display: flex; align-items: center; gap: .75em; min-height: 3.4em;
+  padding: .55em .8em; border-radius: 14px; background: #1d232e;
+  border: 1px solid #2b3240; color: inherit; text-decoration: none; }
+a.bm:focus { outline: 3px solid #7aa7ff; outline-offset: 2px; }
+a.bm.press { background: #2d3646; transform: scale(.97); }
+.dot { flex: none; width: 2.1em; height: 2.1em; border-radius: 50%%;
+  display: grid; place-items: center; font-weight: 700;
+  background: hsl(var(--h) 55%% 42%%); color: #fff; }
+.txt { display: flex; flex-direction: column; min-width: 0; }
+.nm { overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical; overflow-wrap: anywhere; }
+.hs { font-size: .78em; color: #98a2b3; white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis; }
+.empty, .note { color: #b6bfcc; max-width: 40em; }
+.note { font-size: .85em; margin-top: 1.5em; }
+</style></head><body>
+<h1>%(title)s</h1>
+%(body)s
+<script>
+(function () {
+  var handed = 0;
+  function bmOf(e) {
+    var a = e.target.closest && e.target.closest('a.bm');
+    return a && /^https?:/.test(a.href) ? a : null;
+  }
+  document.addEventListener('pointerdown', function (e) {
+    var a = bmOf(e);
+    if (!a || e.button !== 0) return;
+    a.classList.add('press');
+    setTimeout(function () { a.classList.remove('press'); }, 200);
+    if (!window.__udispFollow) return;
+    handed = Date.now();
+    window.__udispFollow(a.href);
+  });
+  document.addEventListener('click', function (e) {
+    var a = bmOf(e);
+    if (!a || !window.__udispFollow) return;
+    e.preventDefault();
+    if (Date.now() - handed < 1000) return;
+    window.__udispFollow(a.href);
+  });
+})();
+</script></body></html>
+"""
 
 
 class Downloads:
@@ -3720,8 +3965,9 @@ class HomeHint:
         self._at = None
 
 
-# The three buttons of the bar, in the order drawn.
-NAV_BUTTONS = ("back", "reload", "home")
+# The buttons of the bar, in the order drawn. The star opens the profile's
+# Chrome bookmarks (see Bookmarks).
+NAV_BUTTONS = ("back", "reload", "home", "bookmarks")
 
 # Back, reload and home on the glass, for the pages a link opens.
 #
@@ -3837,6 +4083,15 @@ class NavBar:
                 draw.polygon((tip, (tip[0] - s * 0.55, tip[1] - s * 0.15),
                               (tip[0] + s * 0.05, tip[1] + s * 0.55)),
                              fill=colour)
+            elif button["name"] == "bookmarks":
+                import math
+                points = []
+                for k in range(10):
+                    radius = s * (1.15 if k % 2 == 0 else 0.48)
+                    angle = math.pi * (k / 5.0 - 0.5)
+                    points.append((cx + radius * math.cos(angle),
+                                   cy + s * 0.08 + radius * math.sin(angle)))
+                draw.polygon(points, fill=colour)
             else:
                 draw.polygon(((cx, cy - s * 1.05), (cx - s * 1.05, cy),
                               (cx + s * 1.05, cy)), fill=colour)
@@ -5787,6 +6042,19 @@ def main():
         # site's Strict login goes with it. See Follow.
         follow = Follow(args.url)
         context.expose_binding("__udispFollow", follow)
+        # The bar's star: the profile's Chrome bookmarks, on a page of their
+        # own. Counted now so the log says whether there are any to show.
+        shelf = Bookmarks(args.profile,
+                          (args.locale or "").lower().startswith("fr"))
+        if shelf.start():
+            follow.bookmarks = shelf.origin
+            try:
+                found = shelf.count()
+            except Exception:  # noqa: BLE001 - a diagnostic only
+                found = 0
+            print(f"Bookmarks: {found} in this screen's profile"
+                  if args.profile else
+                  "Bookmarks: none, this screen keeps no profile")
         context.add_init_script(SPATNAV_JS)
         # Which requests the page could not make. Silent on a page that works.
         watch_failed_requests(context)
@@ -6048,6 +6316,8 @@ def main():
         # than from a voice: a tap opens it straight away (go_to), a voice
         # goes through the face first (open_link).
         tapped = False
+        # A tap on the bookmarks page rather than on the launcher (see Follow).
+        from_shelf = False
         capture = Screencast(page, page_w, page_h, args.capture_quality)
         if args.freeze_animations:
             capture.freeze_animations()
@@ -6468,6 +6738,11 @@ def main():
                             asked_open = body
                             tapped = True
                             continue
+                        if kind == "bookmark":
+                            asked_open = body
+                            tapped = True
+                            from_shelf = True
+                            continue
                         # The panel went dark or came back. Rendering for a
                         # screen nobody can see costs the server, the network
                         # and the board alike, so stop at the source: the
@@ -6639,7 +6914,12 @@ def main():
                     # own. Shown, the page is made shorter by its height, so
                     # the two never overlap.
                     if not parked:
-                        resumed.note(page.url)
+                        # The bookmarks page is on a port picked at each
+                        # start, so after a crash its address leads nowhere:
+                        # it is not a place worth coming back to.
+                        if shelf.origin is None or \
+                                origin_of(page.url) != shelf.origin:
+                            resumed.note(page.url)
                     if bar is not None:
                         french = (args.locale or "").lower().startswith("fr")
                         for what, name in downloads.take():
@@ -6693,6 +6973,10 @@ def main():
                         if want:
                             bar.host = urllib.parse.urlsplit(here).hostname \
                                 or ""
+                            if shelf.origin is not None and \
+                                    origin_of(here) == shelf.origin:
+                                bar.host = ("Favoris" if shelf.french
+                                            else "Bookmarks")
                     # tick() first and always, so a swipe already decided in
                     # handle() is collected rather than left to fire on a later
                     # turn behind the board's own request.
@@ -6720,7 +7004,14 @@ def main():
                             if not open_page.is_launcher:
                                 start = 0
                             first = 0 if start is None else start
-                            if nav == "reload":
+                            if nav == "bookmarks":
+                                if shelf.url is None:
+                                    print("Bar: no bookmarks page to open")
+                                else:
+                                    # A step inside the link, like a page
+                                    # of it: back returns from it.
+                                    moved = go_to(page, shelf.url)
+                            elif nav == "reload":
                                 page.reload(wait_until="commit",
                                             timeout=LOAD_TIMEOUT_S * 1000)
                                 moved = True
@@ -6786,13 +7077,14 @@ def main():
                         asked_home = False
                         asked_open = None
                         was_tapped, tapped = tapped, False
+                        shelf_tap, from_shelf = from_shelf, False
                         home_at = time.monotonic()
                         if link is not None:
                             # Asked for from inside another link, the panel's
                             # own page is not just behind the new one, so the
                             # bar is told where it starts -- or its back and
                             # home would walk into the last link.
-                            if bar is not None and \
+                            if bar is not None and not shelf_tap and \
                                     not _same_page(page.url, args.url):
                                 try:
                                     if nav_session is None:

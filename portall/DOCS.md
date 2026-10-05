@@ -588,6 +588,15 @@ address of the site. It stays inside the link: **←** stops on the link's first
 page and **⌂** never goes to the launcher -- the corner does that, and so
 does **holding ←** for a moment, since that is where the corner is.
 
+**★ opens your bookmarks**: the ones Chrome keeps in this screen's profile,
+grouped by folder the way Chrome shows them. They are there once Chrome itself
+has been signed into your Google account with sync on in this screen's
+profile. Tap one to open
+it -- signed in, as if its address had been typed -- and **←** brings you back
+to the list. The add-on's log says at each start how many it found
+(`Bookmarks: N in this screen's profile`); none means Chrome has not brought
+them into this screen's profile.
+
 It has a strip of its own, the way a browser's toolbar does: the site is shown
 below it, never under it, so a search box at the top of a page is always the
 search box and never a button of the bar. It is never shown on the screen's
