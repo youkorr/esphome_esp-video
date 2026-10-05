@@ -1802,7 +1802,7 @@ the dashboard, where it is invisible while the keys go on working.
 ahead of the `pip install` as well as the `ADD`s, so a bump refetched
 everything — at the cost of the browser download on each update.
 `present_browser()` prints the Chromium version at startup and warns below 114,
-so this is never diagnosed by guesswork again. Currently **4.39.1**.
+so this is never diagnosed by guesswork again. Currently **4.39.2**.
 
 **CORRECTED in 4.29.5: the cost was every update, and a pin removes it.**
 Asked as *"verifie addon ... si il ya pas des elements qui freine la
@@ -10845,6 +10845,39 @@ driven browser, as it does the sign-in and as Cloudflare does; not something
 this project gets around. What a household can do instead is watch it in
 the sign-in page, or put the file where the panel plays it from (the Files
 page, or a media server), which is untested here for an iPhone's HEVC.
+
+**CORRECTED -- 4.39.2: "Google refuses the driven browser" had a hole in its
+premise.** It assumed the disguise holds on every page the driven browser
+shows. Measured afterwards, with a page on 127.0.0.1 framing one on
+127.0.0.2 (another site, so its own process, which is what YouTube's player
+inside Photos is): the page said Chrome/141, the frame's request header said
+Chrome/141, and **the frame's own `navigator.userAgent` said
+HeadlessChrome/141** with different brands, and its worker's requests said
+HeadlessChrome too. `Emulation.setUserAgentOverride` is per CDP session and
+reaches only the page it was sent to. `launch_agent()` builds the reduced
+string a non-headless Chrome sends from `<binary> --version` and gives it at
+LAUNCH (`--user-agent`), per browser in `_launch` because a fallback can be
+another version; `present_browser()` then sees it already set and overrides
+nothing, so the brands are the browser's own -- consistent everywhere, no
+headless brand on Chromium (measured), unmeasured on Google Chrome, so the
+first secure page now prints them (`pages read its brands as ...`).
+`tools/checkframeagent.py`: three of its six cases fail with `--old` (the
+previous behaviour). **Whether this was Google Photos' refusal is not
+known** -- a cause found while looking is not the cause proved; the next try
+on a panel says.
+
+**And watching the video in the sign-in page froze the panel.** The same
+household then left the page without Done, and the panel stayed still --
+`hold_panel` holds a sender for the whole session, which only Done, a closed
+Chrome or SESSION_LIMIT_S (20 min) ended. Reported as *"il bloque tous je suis
+oblige de redemarer addon"*, with the log's two lines `signing in from a
+telephone: this screen's picture stops` / `stopped while its profile is in
+use`. The page now posts `/alive` every `ALIVE_S` (20 s) while a screen is
+shown, and the watcher ends a session `UNWATCHED_S` (3 min) after the last
+one: a closed tab or an app in the background (its timers stop) says
+nothing. Three minutes is the Google-app trip with room. `tools/
+checkunwatched.py` runs the real page on Playwright's clock and the real
+watcher with a stand-in session; against 4.39.1 five cases fail.
 
 ## Back, reload and home on the glass -- 4.34.0
 

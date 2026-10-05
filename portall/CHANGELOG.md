@@ -1,5 +1,20 @@
 # Changelog
 
+## 4.39.2
+
+- **A screen being signed in no longer stays frozen when you leave the
+  page.** While the Portall page signs a screen in, that screen's picture
+  stops; leaving without pressing Terminé (closing the tab or the app) kept
+  it stopped for up to 20 minutes, which looked like the add-on had hung.
+  It now ends by itself 3 minutes after nobody has the page open, and the
+  screen starts again. Google's step in the Google app still has time.
+- **Pages inside a frame from another site saw the screen's browser named
+  "HeadlessChrome".** The browser hid that word on the page itself but not
+  in a frame from another site, or in that frame's workers -- which is how
+  Google Photos plays a video, through YouTube's player. It now says the
+  same thing everywhere. Whether this is what stopped Google Photos videos
+  is not known yet: try one again after this update.
+
 ## 4.39.1
 
 - **A site you pinched on the telephone is no longer small on the screen.**

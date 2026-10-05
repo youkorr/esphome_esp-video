@@ -725,8 +725,48 @@ def forget_zoom(profile):
           "drawn at the screen's own size")
 
 
+def launch_agent(path):
+    """The user agent a non-headless copy of this browser sends, or None.
+
+    Given to the browser at LAUNCH (--user-agent), because the override set
+    through a page's CDP session stops at that page. Measured on the shipped
+    Chromium with a page on 127.0.0.1 framing one on 127.0.0.2 -- a different
+    site, so its own process, which is what YouTube's player inside Google
+    Photos is:
+
+                                   page            cross-site frame / worker
+      request header              Chrome/141      Chrome/141 / HeadlessChrome
+      navigator.userAgent         Chrome/141      HeadlessChrome/141
+      userAgentData.brands        3, Google's     2, the browser's own
+
+    So inside that frame the browser contradicted itself: the request said
+    Chrome, the frame's own script said HeadlessChrome, and the brands
+    differed from the page's. With the switch every frame and every worker
+    says the same thing, and the brands are the browser's own, which carry no
+    headless brand on the full build (measured: Chromium, Not?A_Brand).
+
+    Built from the version alone, in the reduced form every Chrome on Linux
+    sends whatever the processor: the platform token is fixed at
+    "X11; Linux x86_64" and only the major version is real. None when the
+    binary will not say its version -- the page-level override then applies
+    as before.
+    """
+    if not path:
+        return None
+    try:
+        out = subprocess.run([path, "--version"], capture_output=True,
+                             text=True, timeout=15).stdout
+    except (OSError, subprocess.SubprocessError):
+        return None
+    found = re.search(r"\b(\d+)\.\d+\.\d+\.\d+\b", out or "")
+    if not found:
+        return None
+    return ("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like "
+            f"Gecko) Chrome/{found.group(1)}.0.0.0 Safari/537.36")
+
+
 def _launch(playwright, executable, profile, view, browser_args,
-            ignore=(), env=None, locale=None, touch=False):
+            ignore=(), env=None, locale=None, touch=False, agent=None):
     """Start the browser, and fall back to Playwright's own if it will not.
 
     Preferring a system browser is only safe if being wrong about it costs
@@ -734,12 +774,22 @@ def _launch(playwright, executable, profile, view, browser_args,
     snapd behind it, a package half-installed, a binary for another
     architecture -- and the panel should not go dark over a browser that was
     only ever a preference.
+
+    `agent`, a dict, asks for launch_agent() of whichever browser does start,
+    worked out per browser because a fallback can be another version; the
+    one used is left in agent["used"].
     """
     def start(path):
+        args = browser_args
+        if agent is not None:
+            agent["used"] = launch_agent(
+                path or getattr(playwright.chromium, "executable_path", None))
+            if agent["used"]:
+                args = list(browser_args) + [f"--user-agent={agent['used']}"]
         if profile:
             os.makedirs(profile, exist_ok=True)
             return playwright.chromium.launch_persistent_context(
-                profile, args=browser_args, viewport=view,
+                profile, args=args, viewport=view,
                 device_scale_factor=1, executable_path=path,
                 ignore_default_args=list(ignore), env=env, locale=locale,
                 has_touch=touch,
@@ -747,7 +797,7 @@ def _launch(playwright, executable, profile, view, browser_args,
                 accept_downloads=False,
             )
         return playwright.chromium.launch(
-            args=browser_args, executable_path=path,
+            args=args, executable_path=path,
             ignore_default_args=list(ignore), env=env,
         ).new_context(viewport=view, device_scale_factor=1, locale=locale,
                       has_touch=touch, accept_downloads=False)
@@ -949,6 +999,21 @@ def report_drm(page):
     if answer is None:
         return
     report_drm.said = True
+    # The brands a page reads, said once from the first secure page because
+    # that is the only place they exist. With the user agent given at launch
+    # (launch_agent) no override sets them: they are the browser's own, and
+    # whether Google Chrome running headless names itself in them was not
+    # measured -- Playwright's Chromium does not. This line settles it.
+    try:
+        brands = page.evaluate(
+            "navigator.userAgentData ? navigator.userAgentData.brands"
+            ".map(b => b.brand).join(', ') : ''")
+    except Exception:  # noqa: BLE001 - a diagnostic must never cost the picture
+        brands = ""
+    if brands:
+        print(f"Browser: pages read its brands as {brands}"
+              + (" -- that names it headless" if "Headless" in brands
+                 else ""))
     if answer == "yes":
         print("Browser: Widevine DRM is available")
     else:
@@ -1208,7 +1273,8 @@ class Control:
         return out
 
 
-def present_browser(session, page, keyboard_wanted, wanted_agent):
+def present_browser(session, page, keyboard_wanted, wanted_agent,
+                    launched_as=None):
     """Name the browser, warn if it is too old, and settle what it says it is.
 
     Both answers come out of one Browser.getVersion, and it is asked through a
@@ -1228,6 +1294,10 @@ def present_browser(session, page, keyboard_wanted, wanted_agent):
     all -- which from a panel looks exactly like a keyboard that will not come
     up, and was reported as one. The replacement is built from the browser's
     own string, so the platform token stays right wherever this runs.
+
+    `launched_as` is the agent the browser was started with (launch_agent);
+    when the browser reports exactly that, it is already said everywhere and
+    nothing is overridden here.
 
     Returns the user agent that was set, or None if it was left alone.
     """
@@ -1253,6 +1323,9 @@ def present_browser(session, page, keyboard_wanted, wanted_agent):
     agent = wanted_agent
     if not agent:
         real = version.get("userAgent", "")
+        if launched_as and real == launched_as:
+            print(f"Browser: saying it is {real}, in every frame")
+            return real
         if "Headless" not in real:
             return None
         agent = real.replace("HeadlessChrome/", "Chrome/").replace("Headless", "")
@@ -5669,6 +5742,10 @@ def main():
         if audio is not None:
             ignore = ["--mute-audio"]
             launch_env = dict(os.environ, PULSE_SINK=audio.sink)
+        # The cleaned user agent goes in at launch, so frames and workers say
+        # it too (launch_agent). Not when one was given or "off" was asked:
+        # those keep the page-level override, exactly as before.
+        launch_as = None if args.user_agent else {}
         if args.profile:
             # A profile on disk, so that what somebody signs into stays signed
             # in. Cookies, local storage and the rest live here instead of in a
@@ -5684,12 +5761,13 @@ def main():
             forget_zoom(args.profile)
             context = _launch(
                 playwright, executable, args.profile, view, browser_args,
-                ignore, launch_env, args.locale, not args.no_touch,
+                ignore, launch_env, args.locale, not args.no_touch, launch_as,
             )
         else:
             context = _launch(playwright, executable, None, view, browser_args,
                               ignore, launch_env, args.locale,
-                              not args.no_touch)
+                              not args.no_touch, launch_as)
+        launched = launch_as or {}
         # Installed on the context so it is in every frame of every page,
         # including the ones a site makes for itself and the one that comes
         # back after the page is parked. It is the line that names why a video
@@ -5765,7 +5843,7 @@ def main():
         context.on("page", downloads.attach)
         user_agent = present_browser(
             context.new_cdp_session(page), page, args.keyboard != "off",
-            args.user_agent,
+            args.user_agent, launched.get("used"),
         )
         # Before any navigation: the very first request for an address is the
         # one that decides what is served for it.
