@@ -1,5 +1,22 @@
 # Changelog
 
+## 4.40.1
+
+- **The log no longer calls a stopped player an error.** A site that stops
+  its own player by emptying it (Google News does it with its podcast
+  player) was logged as `Media: error format not supported`, line after
+  line, which looks like a video the screen cannot play. It is not logged
+  any more.
+- **And a real one is no longer hidden.** A file the browser really cannot
+  play was reported only if nothing else had been logged in the 400 ms
+  before it, and a new video always announces itself just before, so the
+  one line naming the cause was often the one dropped. Each error is now
+  logged once per player.
+- **The DNS hint says less.** An address that does not resolve was always
+  blamed on Home Assistant's DNS; on a news site it is usually an advert's
+  address that no longer exists. The line now says both, and to look at the
+  DNS only if a page or a video stops at the same moment.
+
 ## 4.40.0
 
 - **Your Chrome bookmarks on the screen.** The bar above a site now has a
