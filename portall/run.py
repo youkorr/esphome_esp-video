@@ -1602,6 +1602,38 @@ def in_use(panel):
 SUPERVISOR_API = "http://supervisor"
 
 
+# Settings a screen used to be able to set for itself under advanced:, and
+# which are now set once for every screen in defaults: (4.42.0). Asked as a
+# duplication: the same names in two places of the form read as the same
+# setting asked twice.
+COMMON_ONLY = ("port", "fps", "quality", "max_rate", "keyboard",
+               "keep_profile", "locale")
+
+
+def say_dropped_exceptions(panels):
+    """Name a screen's own value the Supervisor now drops, and where it goes.
+
+    The Supervisor drops a key the schema no longer has before this add-on
+    ever sees it, and says so only in its own log, so a screen that had, say,
+    its own fps quietly takes the common one. The stored options still carry
+    it, which is the one place it can be read from.
+    """
+    for panel in panels:
+        if not isinstance(panel, dict):
+            continue
+        advanced = panel.get("advanced")
+        if not isinstance(advanced, dict):
+            continue
+        kept = {key: advanced[key] for key in COMMON_ONLY
+                if given(advanced.get(key))}
+        if kept:
+            listed = ", ".join(f"{key}: {value}" for key, value in kept.items())
+            say(f"[{panel.get('name') or panel.get('host')}] its own {listed} "
+                f"under Advanced is no longer read: these are set once for "
+                f"every screen in Common settings now. Put the value there if "
+                f"it is the one you want")
+
+
 def show_enabled_switch():
     """Write `enabled: true` into every saved screen that has no such key.
 
@@ -1635,6 +1667,7 @@ def show_enabled_switch():
                 timeout=10) as answer:
             options = json.loads(answer.read().decode())["data"]["options"]
         panels = options.get("panels") or []
+        say_dropped_exceptions(panels)
         missing = [p for p in panels if isinstance(p, dict) and "enabled" not in p]
         if not missing:
             return False

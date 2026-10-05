@@ -41,11 +41,9 @@ configuration:
             name: Mirror up/down
       advanced:
         name: 🛠️ Advanced
-        description: 'Nothing required here: every empty setting takes "Common settings".'
+        description: Nothing required here. Port, pictures per second, quality, rate, keyboard, staying
+          signed in and language are set once for every screen in "Common settings".
         fields:
-          port:
-            name: Network port
-            description: 5000 unless the screen says otherwise.
           token:
             name: 🔑 Token for this screen only
             description: 'Leave empty: the token goes on the Home Assistant link.'
@@ -56,26 +54,9 @@ configuration:
             name: 📶 The screen's ESPHome name (Wi-Fi, Bluetooth)
             description: 'Only if the log says no device has the screen''s address: the name in its YAML
               (esphome: name:). Otherwise the screen is found by itself.'
-          fps:
-            name: 🎬 Pictures per second
-          quality:
-            name: ✨ Picture quality
-            description: 1 to 95.
-          max_rate:
-            name: 📶 Maximum rate (KiB/s)
-            description: 0 = no limit.
-          keyboard:
-            name: ⌨️ On-screen keyboard
-            description: azerty, qwerty, or off for none.
           blank_after:
             name: Release the page after (seconds)
             description: Once the screen has slept this long, the server stops the page. 300 by default.
-          keep_profile:
-            name: 💾 Stay signed in to sites
-            description: Keeps cookies and sign-ins across restarts.
-          locale:
-            name: Language
-            description: For example en-GB or fr-FR.
           user_agent:
             name: Present itself as…
             description: Rarely needed.

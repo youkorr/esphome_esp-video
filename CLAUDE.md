@@ -1802,7 +1802,7 @@ the dashboard, where it is invisible while the keys go on working.
 ahead of the `pip install` as well as the `ADD`s, so a bump refetched
 everything — at the cost of the browser download on each update.
 `present_browser()` prints the Chromium version at startup and warns below 114,
-so this is never diagnosed by guesswork again. Currently **4.41.1**.
+so this is never diagnosed by guesswork again. Currently **4.42.0**.
 
 **CORRECTED in 4.29.5: the cost was every update, and a pin removes it.**
 Asked as *"verifie addon ... si il ya pas des elements qui freine la
@@ -10997,6 +10997,22 @@ hands a token back to its opener loses that -- it was invisible before.
 a download in a new window, tapped on a fake panel's glass. `--sender` an
 older copy reproduces the report (two failures). **Not tried on Google News**
 -- no route to it here.
+
+## The same settings in two places read as a duplicate -- 4.42.0
+
+**Reported as *"on a une duplication Mes écrans et Réglages communs tous les
+deux demandent le port, fps, quality, clavier, rester connecté, langue"*.**
+It was by design -- a value under a screen's `advanced:` overrode `defaults:`
+for that screen -- and the form gave both the same name, so it read as one
+setting asked twice. `port`, `fps`, `quality`, `max_rate`, `keyboard`,
+`keep_profile` and `locale` are out of the panel's `advanced:` schema; run.py
+needed no change (`regroup()` spreads whatever `advanced:` holds, and
+`load_panels()` lays shared keys under a panel's). Removing a key inside a
+list item only warns (`_nested_validate_dict`), so no saved configuration
+stops -- but the value is gone before run.py sees it, so
+`say_dropped_exceptions()` reads the STORED options from `/addons/self/info`
+(they still carry it) and names each one at start. fps, quality and max_rate
+stay per link. The translations' Advanced description says where they went.
 
 ## A link's user agent was said by the first request only -- 4.41.1
 
