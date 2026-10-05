@@ -1802,7 +1802,7 @@ the dashboard, where it is invisible while the keys go on working.
 ahead of the `pip install` as well as the `ADD`s, so a bump refetched
 everything — at the cost of the browser download on each update.
 `present_browser()` prints the Chromium version at startup and warns below 114,
-so this is never diagnosed by guesswork again. Currently **4.40.1**.
+so this is never diagnosed by guesswork again. Currently **4.40.2**.
 
 **CORRECTED in 4.29.5: the cost was every update, and a pin removes it.**
 Asked as *"verifie addon ... si il ya pas des elements qui freine la
@@ -10938,6 +10938,32 @@ that changes now and then 1-2 s is the page being still).
   was true of googlevideo.com once and is not a rule: an advert's name that
   no longer exists fails the same way. Whether sync.outbrainimg.com exists
   could not be checked from here (no external DNS).
+
+## A new tab was opened behind the panel and never shown -- 4.40.2
+
+**Reported from Google News: the list showed, an article could not be
+opened**, with the keyboard's own line as the clue: `focus is A` after the
+tap, then `0.0 pictures/s`. The tap reached the link; Google News opens
+articles with `target="_blank"`, and a panel shows ONE page. The tab loaded
+behind it, unseen. Every `target="_blank"` and `window.open()` has done that
+since the first sender; nobody had met one on a page they needed.
+
+`NewWindows` in ha_send.py, on the context's `page` event like Downloads:
+the new window's address is queued and opened in the panel's page with
+`go_to` (kind `window`, a step inside the link like a bookmark, so the bar's
+back returns to the list), and the window is closed. **Playwright hands a
+popup over after its first navigation**, so its url is usually already the
+link's; a first version waited for `framenavigated` and never saw it. One
+opened blank and sent somewhere later is caught on `framenavigated`. A
+download opened in a new window stays `about:blank` and is not opened a
+second time; one with nothing in it after 10 s is closed. A pop-up that
+hands a token back to its opener loses that -- it was invisible before.
+
+`tools/checknewwindow.py`: a list of a `target="_blank"` link, a
+`window.open()`, a window opened blank and sent somewhere 300 ms later, and
+a download in a new window, tapped on a fake panel's glass. `--sender` an
+older copy reproduces the report (two failures). **Not tried on Google News**
+-- no route to it here.
 
 ## Back, reload and home on the glass -- 4.34.0
 
