@@ -1,5 +1,5 @@
 name: Portall
-version: "4.42.1"
+version: "4.43.0"
 # Home Assistant identifies an add-on by its slug, so this one moving from
 # usb_display_panel to portall makes the Supervisor see a NEW add-on: options
 # are not carried over and /data starts empty, which means the browser
@@ -295,8 +295,12 @@ options:
     # enabled rather than on: in YAML 1.1 an `on` key reads as the
     # boolean true, which would make the key itself disappear.
     slideshow:
-      # The digital photograph frame: cycle through the pictures. Off shows the
-      # first one and nothing more.
+      # The screen saver: after `after` minutes without a touch the pictures
+      # come up full screen, with no links, over whatever the screen shows --
+      # the way a PC's lock screen or a tablet's photo frame does. A touch
+      # takes the screen back to where it was. When the screen goes dark
+      # (portall.sleep in its YAML) the slideshow stops altogether. Off shows
+      # the first picture behind the links and nothing more.
       enabled: false
       # Where those pictures are, when they are NOT on this machine: one address
       # per entry, http:// or https://. A photo server, a NAS, anything serving a
@@ -317,6 +321,16 @@ options:
       # How often the folder is looked at again, in minutes, so a photograph
       # dropped in appears without restarting the add-on.
       rescan: 60
+      # Minutes without a touch before the screen saver comes up. Make the
+      # screen's own backlight timeout (in its ESPHome YAML) longer than this,
+      # or the screen goes dark before the pictures are ever seen. 0 cycles
+      # the pictures behind the links instead, as before 4.43.0.
+      after: 2
+      # What the screen saver shows over the pictures.
+      clock: true
+      date: true
+      weather: true
+      avatar: true
   # A launcher of a panel's OWN: its links, its columns, its clock, its
   # wallpaper, everything -- independent of every other panel. One entry per
   # panel, named by the panel's name. A panel with no entry here shows the
@@ -446,6 +460,11 @@ schema:
       seconds: int(5,3600)?
       fade: int(0,10)?
       rescan: int(1,1440)?
+      after: int(0,1440)?
+      clock: bool?
+      date: bool?
+      weather: bool?
+      avatar: bool?
   launchers:
     - panel: str
       links:
@@ -488,6 +507,11 @@ schema:
       slideshow_seconds: int(5,3600)?
       slideshow_fade: int(0,10)?
       slideshow_rescan: int(1,1440)?
+      slideshow_after: int(0,1440)?
+      slideshow_clock: bool?
+      slideshow_date: bool?
+      slideshow_weather: bool?
+      slideshow_avatar: bool?
   debug:
     stats: bool?
     show_media: bool?

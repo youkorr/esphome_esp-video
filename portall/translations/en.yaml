@@ -231,10 +231,12 @@ configuration:
           dim:
             name: Darken (0 to 100)
       slideshow:
-        name: 🎞️ Slideshow
+        name: 🎞️ Slideshow and screen saver
+        description: After a few minutes without a touch, the pictures full screen with no links, over
+          whatever the screen shows. A touch takes it back to where it was.
         fields:
           enabled:
-            name: Cycle the pictures
+            name: On (the wallpaper's pictures)
           urls:
             name: Picture addresses
             description: One per line.
@@ -245,6 +247,19 @@ configuration:
             description: 0 = hard cut, lighter on the screen.
           rescan:
             name: Re-read the folder (minutes)
+          after:
+            name: ⏱️ Screen saver after (minutes)
+            description: Without a touch. Set the screen's own backlight timeout (its YAML) longer. 0
+              = the pictures change behind the links, no screen saver.
+          clock:
+            name: 🕒 Time on the screen saver
+          date:
+            name: 📅 Date on the screen saver
+          weather:
+            name: ⛅ Weather on the screen saver
+          avatar:
+            name: 😊 Avatar on the screen saver
+            description: If it is on for the page of links.
   launchers:
     name: 🧩 5 · A screen's own page of links
     description: To give a screen ITS own buttons and look, independent of the others. Add one entry per
@@ -367,6 +382,17 @@ configuration:
         name: 🎞️ Fade (seconds)
       slideshow_rescan:
         name: 🎞️ Re-read the folder (minutes)
+      slideshow_after:
+        name: ⏱️ Screen saver after (minutes)
+        description: 0 = the pictures change behind the links.
+      slideshow_clock:
+        name: 🕒 Time on the screen saver
+      slideshow_date:
+        name: 📅 Date on the screen saver
+      slideshow_weather:
+        name: ⛅ Weather on the screen saver
+      slideshow_avatar:
+        name: 😊 Avatar on the screen saver
   debug:
     name: 🐞 6 · Diagnostics
     description: 'Leave off. Only turn on to track down a problem: it fills the log.'

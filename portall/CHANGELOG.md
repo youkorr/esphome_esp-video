@@ -1,5 +1,21 @@
 # Changelog
 
+## 4.43.0
+
+- **The slideshow is a screen saver now**, as on a PC or a tablet. After a
+  few minutes without a touch (`after`, 2 by default) the pictures come up
+  full screen with no links, over whatever the screen shows. The time, the
+  date, the weather and the avatar are shown over them, each one only if
+  you leave it on. A touch takes the screen back to exactly where it was,
+  pressing nothing. It waits while something plays with its sound on. When
+  the screen goes dark it stops altogether, and a touch wakes the screen on
+  its normal page.
+- With a screen saver, the page of links keeps its first picture still
+  behind the links. `after: 0` gives the old behaviour back (the pictures
+  changing behind the links, no screen saver).
+- Set the screen's own backlight timeout (its ESPHome YAML) longer than
+  `after`, or it goes dark before the pictures are seen.
+
 ## 4.42.1
 
 - **Common settings come first on the form**, above My screens: they apply to

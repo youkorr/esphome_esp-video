@@ -60,6 +60,9 @@ FILES_HREF = "/files"
 REPORT_PATH = "/report"
 # What the page asks to find out how many pictures the folder holds now.
 SLIDES_PATH = "/slides.json"
+# The screen saver: the same server's pictures, with no links. The sender
+# shows it in a page of its own after a while without a touch.
+SAVER_PATH = "/saver"
 # A panel with a launcher of its own gets a server of its own, on a port the
 # system picks: the address is only ever handed to this add-on's own senders,
 # so any free port will do, and asking for one cannot collide with whatever
@@ -765,6 +768,28 @@ CLOCK_JS = """<script>
 })();
 </script>
 """
+
+# The screen saver's own layout: the page of links with no links, the clock
+# low on the left the way a lock screen puts it, larger, and in white with a
+# shade under it, because it sits on a photograph rather than on a card. Asked
+# for as "comme un ecran de veille", and laid out after what a PC lock screen
+# and a tablet's photo frame show: the picture, the time, the date, and the
+# weather as one small extra. The picture is neither blurred nor dimmed -- a
+# photograph frame that darkens its photographs is not one -- so the text
+# brings its own shade.
+SAVER_CSS = """ main { display: none; }
+ header { position: fixed; left: 5vw; right: 5vw; bottom: 6vh; padding: 0;
+          color: #fff; text-shadow: 0 .08em .5em rgba(0, 0, 0, .6); }
+ header::before { content: ""; position: fixed; inset: auto 0 0 0;
+                  height: 45vh; z-index: -1; pointer-events: none;
+                  background: linear-gradient(transparent, rgba(0, 0, 0, .45)); }
+ .now { align-items: flex-end; }
+ .time { font-size: clamp(56px, 14vw, 150px); font-weight: 250; }
+ .date { color: #fff; font-size: clamp(18px, 3.2vw, 32px); }
+ .wx { font-size: clamp(20px, 3.6vw, 34px); }
+ .wx .out { color: #fff; }
+"""
+
 
 # A slideshow, and it is worth being clear about what it costs before
 # reading the code: a picture that changes is a WHOLE PANEL on the wire, and a
@@ -2099,8 +2124,13 @@ def render(links, title="", subtitle="", theme="dark",
            avatar=False, avatar_at=None, voice=False,
            weather_color=FOLLOW_THEME,
            tile_background="solid", tile_size=DEFAULT_SIZE,
-           tile_text_color=FOLLOW_THEME, status=False):
+           tile_text_color=FOLLOW_THEME, status=False,
+           saver=False, saver_date=True):
     """The page, as one string.
+
+    `saver` draws the screen saver instead of the page of links: the
+    pictures alone, full screen, with the clock, the date, the weather and
+    the face only where asked for, and not one link. See SAVER_CSS.
 
     Every value is escaped. These come from a configuration file a person
     edits, so a name containing an ampersand or a stray angle bracket is a
@@ -2166,7 +2196,7 @@ def render(links, title="", subtitle="", theme="dark",
         groups.setdefault(str(link.get("group") or "").strip(), []).append(link)
 
     body = []
-    for name, entries in groups.items():
+    for name, entries in ({} if saver else groups).items():
         tiles = "".join(
             TILE % {
                 "url": html.escape(
@@ -2227,7 +2257,7 @@ def render(links, title="", subtitle="", theme="dark",
             now += (f'<span class="wx"><span class="sky" id="sky">{sky}</span>'
                     f'<span class="out" id="temp">{temp}</span></span>')
         now += "</div>"
-    if status:
+    if status and not saver:
         now = (f'<div class="st"><span class="net" id="net" hidden>'
                f'{WIFI_SVG}</span><span class="bt" id="bt" hidden>'
                f'{BLUETOOTH_SVG}</span></div>') + now
@@ -2235,7 +2265,10 @@ def render(links, title="", subtitle="", theme="dark",
     # key nobody presses unless there is a remote, and an option for it would
     # be one more thing to read past -- which this add-on has already had to
     # take five settings off the form for.
-    scripts = KEYS_JS + PRESS_JS + FOLLOW_JS + (CLOCK_JS if clock else "") + (
+    # The saver has no tile to move between, press or follow: any touch on
+    # it is the sender's, and ends it before the page could hear it.
+    scripts = ("" if saver else KEYS_JS + PRESS_JS + FOLLOW_JS) + (
+        CLOCK_JS if clock else "") + (
         WEATHER_JS % {"path": WEATHER_PATH} if weather is not None else "") + (
         STATUS_JS % {"path": STATUS_PATH} if status else "")
 
@@ -2248,6 +2281,8 @@ def render(links, title="", subtitle="", theme="dark",
     sheet = _bar(clock_size, clock_color, date_size, date_color,
                  weather_size, align, focus_color, weather_color,
                  tile_background, tile_size, tile_text_color)
+    if saver:
+        sheet += SAVER_CSS + ("" if saver_date else " .date { display: none; }\n")
 
     try:
         every, fade, rescan = float(every), float(fade), float(rescan)
@@ -2296,7 +2331,7 @@ def render(links, title="", subtitle="", theme="dark",
                if str(subtitle).strip() else "")),
         "movie": movie,
         "fade": max(0.0, fade),
-        "groups": "".join(body) or EMPTY,
+        "groups": "".join(body) or ("" if saver else EMPTY),
         "columns": grid,
         "tiles": "buttons" if buttons else "cards",
         "scheme": "dark" if dark else "light",
@@ -2312,11 +2347,13 @@ def render(links, title="", subtitle="", theme="dark",
         # Both belong to the picture and only to the picture. Left applied
         # with no wallpaper set, the dim darkened the plain colour instead --
         # a light theme came out mud grey, which is nobody's idea of light.
-        "blur": BLURS.get(str(blur).lower(), "0px") if has_wall else "0px",
+        "blur": (BLURS.get(str(blur).lower(), "0px")
+                 if has_wall and not saver else "0px"),
         # A photograph is nearly always too bright to read white text over, so
         # the dim is what makes a wallpaper usable rather than a decoration
         # somebody turns off again.
-        "brightness": f"{max(0, 100 - dim)}%" if has_wall else "100%",
+        "brightness": (f"{max(0, 100 - dim)}%" if has_wall and not saver
+                       else "100%"),
         # Cards float over a picture and sit solid on a plain colour. This is
         # Homepage's cardBlur without an option for it: over a photograph it
         # is what makes the text readable, and over a flat colour it does
@@ -2341,7 +2378,8 @@ def start(links, title="", subtitle="", theme="dark",
           weather_color=FOLLOW_THEME,
           tile_background="solid", tile_size=DEFAULT_SIZE,
           tile_text_color=FOLLOW_THEME, files_root=None, choice_file=None,
-          status=None):
+          status=None, saver_after=0, saver_clock=True, saver_date=True,
+          saver_weather=True, saver_avatar=True):
     """Serve the page for as long as the add-on runs. Returns its address.
 
     One call is one launcher: its links, its look, its weather, its
@@ -2469,37 +2507,62 @@ def start(links, title="", subtitle="", theme="dark",
         except (OSError, ValueError, KeyError, TypeError):
             pass
 
-    def page():
+    # With a screen saver the slideshow is the SAVER's, and the page of links
+    # keeps its first picture still: the pictures changing behind the tiles
+    # was a misreading of what was asked ("doit fonctionner comme un ecran de
+    # veille ... sans les link"), and a picture that changes is a whole panel
+    # on the wire every time. A delay of nought keeps it the way it was.
+    try:
+        saving = slideshow and float(saver_after) > 0
+    except (TypeError, ValueError):
+        saving = False
+
+    def page(saver=False):
         state = weather() if weather is not None else None
         # The avatar's spot is part of the page: a panel coming home finds
         # the face where it was left, drawn there from the first frame rather
         # than jumping there after a script has run.
         key = (weather_block(state) if state else None, spot["at"],
                wall_rev["n"])
-        held = cache.get("page")
+        which = "saver" if saver else "page"
+        held = cache.get(which)
         if held is None or held[0] != key:
+            shown = saver_weather if saver else True
             body = render(
                 links, title, subtitle, theme, color,
-                background, blur, dim, columns, clock,
-                state if weather is not None else None,
+                background, blur, dim, columns,
+                (saver_clock or saver_date) if saver else clock,
+                state if weather is not None and shown else None,
                 clock_size, clock_color, date_size, date_color,
                 weather_size, align,
                 # Already sifted just above, so the page does not repeat
                 # the complaint about an address that is not one.
-                motion, slideshow, every, fade, rescan, addresses,
+                motion, slideshow and (saver or not saving), every, fade,
+                rescan, addresses,
                 mirrored, shape=tiles, focus_color=focus_color,
-                avatar=avatar, avatar_at=spot["at"],
+                avatar=avatar and (saver_avatar or not saver),
+                avatar_at=spot["at"],
                 voice=voice is not None,
                 weather_color=weather_color,
                 tile_background=tile_background, tile_size=tile_size,
                 tile_text_color=tile_text_color,
-                status=status is not None).encode()
-            held = cache["page"] = (key, body)
+                status=status is not None,
+                saver=saver, saver_date=saver_date).encode()
+            if saver and not saver_clock:
+                # The clock line carries the date under it, so a saver with
+                # the date and no time keeps the line and hides the time.
+                body = body.replace(b"</style>",
+                                    b" .time { display: none; }\n</style>", 1)
+            held = cache[which] = (key, body)
         return held[1]
 
     # Once here, so a fault in the page is reported at startup rather than
     # the first time somebody comes home to it.
     page()
+    if saving:
+        page(saver=True)
+        print(f"Launcher: the slideshow is a screen saver, after "
+              f"{float(saver_after):g} min without a touch", flush=True)
     def from_folder(index):
         """One picture out of the folder, re-read each time it is asked for.
 
@@ -2633,6 +2696,9 @@ def start(links, title="", subtitle="", theme="dark",
                                 .encode(), "application/json")
                 except OSError:
                     pass  # the page went away while it was waiting
+                return
+            if self.path.split("?")[0] == SAVER_PATH:
+                self._reply(page(saver=True), "text/html; charset=utf-8")
                 return
             if self.path.split("?")[0] == SLIDES_PATH:
                 self._reply(json.dumps(
