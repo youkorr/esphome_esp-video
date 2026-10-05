@@ -1729,6 +1729,103 @@ class Follow:
         return taken
 
 
+# What counts as something being watched or listened to: a media element
+# playing with its sound on, in a frame of the page. A camera tile on a
+# dashboard plays muted -- a browser only lets a page start a video by itself
+# when it is -- so it does not keep the screen saver away; a film does.
+PLAYING_JS = """() => [...document.querySelectorAll('video, audio')].some(
+  m => !m.paused && !m.ended && m.readyState > 2 && !m.muted && m.volume > 0)"""
+
+
+class Saver:
+    """The screen saver: the launcher's pictures, full screen, with no links.
+
+    Asked for as the slideshow working "comme un ecran de veille ... sans les
+    link", and shaped after what a PC and a tablet do: after a while without
+    a touch it comes up over WHATEVER is showing -- a dashboard, a site, the
+    launcher -- and a touch takes the screen back to exactly where it was,
+    that touch pressing nothing. When the screen goes dark the saver is
+    stopped altogether, so nothing keeps changing for a screen nobody sees.
+
+    It is a page of its own in the same browser, not a navigation of the
+    panel's page: a navigation would lose what that page was showing, and a
+    second page keeps it, scrolled where it was, signed in, untouched. Its own
+    Screencast takes the first one's place while it shows. Measured on the
+    shipped Chromium: two pages in one context both stay visible and both
+    paint, so either can be put on the panel at once.
+
+    Created before NewWindows listens for pages, or it would take this one
+    for a site's new tab and close it.
+    """
+
+    # How long a start that was refused -- something playing -- waits
+    # before it is asked again.
+    RETRY_S = 20.0
+    # Sound heard this recently counts as something playing.
+    SOUND_S = 30.0
+
+    def __init__(self, context, url, after, width, height, quality):
+        self.url = url
+        self.after = after
+        self.page = context.new_page()
+        self._size = (width, height, quality)
+        self.cast = None
+        self.on = False
+        self._retry_at = 0.0
+
+    def due(self, now, idle_since):
+        return (not self.on and now - idle_since >= self.after
+                and now >= self._retry_at)
+
+    def busy(self, page, now, heard_at):
+        """Whether something is being watched or listened to on the page."""
+        if heard_at and now - heard_at < self.SOUND_S:
+            return True
+        for frame in page.frames:
+            try:
+                if frame.evaluate(PLAYING_JS):
+                    return True
+            except Exception:  # noqa: BLE001 - a frame that went away
+                continue
+        return False
+
+    def refuse(self, now):
+        if not self._retry_at:
+            # Once: a film keeps it away for as long as it plays.
+            print("Screen saver: not now, something is playing")
+        self._retry_at = now + self.RETRY_S
+
+    def show(self):
+        """Bring the saver up. Returns its Screencast, or None."""
+        try:
+            self.page.goto(self.url, wait_until="commit",
+                           timeout=LOAD_TIMEOUT_S * 1000)
+        except Exception as err:  # noqa: BLE001 - the screen stays as it is
+            print(f"Screen saver: {self.url} would not open ({err})")
+            self._retry_at = time.monotonic() + self.RETRY_S
+            return None
+        if self.cast is None:
+            self.cast = Screencast(self.page, *self._size)
+        else:
+            self.cast.resume()
+        self.on = True
+        print("Screen saver: on")
+        return self.cast
+
+    def hide(self, why):
+        """Take it down and let its page go, so nothing keeps changing."""
+        if not self.on:
+            return
+        self.on = False
+        if self.cast is not None:
+            self.cast.pause()
+        try:
+            self.page.goto("about:blank", wait_until="commit")
+        except Exception:  # noqa: BLE001 - nothing to stop any more
+            pass
+        print(f"Screen saver: off ({why})")
+
+
 class NewWindows:
     """A page a site opens in a new window, brought into the panel's own.
 
@@ -5926,6 +6023,21 @@ def main():
         "name one exactly, or 'off' to keep Playwright's whatever is installed",
     )
     parser.add_argument(
+        "--saver",
+        metavar="URL",
+        help="a screen saver page (the launcher's /saver): shown full screen "
+        "over whatever is open after --saver-after seconds without a touch, "
+        "taken down by the next touch, which presses nothing, and stopped "
+        "when the panel goes dark",
+    )
+    parser.add_argument(
+        "--saver-after",
+        type=float,
+        default=0.0,
+        metavar="SECONDS",
+        help="seconds without a touch before --saver comes up (0: never)",
+    )
+    parser.add_argument(
         "--glide",
         action="store_true",
         help="a page flicked with a finger carries on after the finger lifts "
@@ -6497,6 +6609,13 @@ def main():
         context.on("page", downloads.attach)
         # Registered after the panel's own page exists, so only the windows a
         # site opens arrive here.
+        # Before NewWindows listens, which would take it for a site's tab.
+        saver = (Saver(context, args.saver, args.saver_after, page_w, page_h,
+                       args.capture_quality)
+                 if args.saver and args.saver_after > 0 else None)
+        if saver is not None:
+            print(f"Screen saver: {args.saver} after "
+                  f"{args.saver_after:g}s without a touch")
         windows = NewWindows(page)
         context.on("page", windows)
         # One session for both: an override belongs to the session that set
@@ -6720,6 +6839,11 @@ def main():
         # A tap on the bookmarks page rather than on the launcher (see Follow).
         from_shelf = False
         capture = Screencast(page, page_w, page_h, args.capture_quality)
+        # The panel's page's own screencast. `capture` is the saver's while
+        # the screen saver shows, and this is what it goes back to.
+        main_capture = capture
+        # When the page last made a sound, which keeps the saver away.
+        heard_at = 0.0
         if args.freeze_animations:
             capture.freeze_animations()
         frame_id = 0
@@ -6771,6 +6895,11 @@ def main():
             # state as soon as a sender connects, so this is only the first
             # instant.
             awake = True
+            # The last touch, key or request, which the screen saver counts
+            # from; and whether the rest of the touch that took it down is
+            # still to be dropped.
+            idle_since = time.monotonic()
+            swallow_touch = False
             # When it went dark, and whether the page has been let go of.
             asleep_since = 0.0
             parked = False
@@ -6858,6 +6987,7 @@ def main():
                     if audio is not None and awake:
                         for block in audio.take():
                             writer.offer_audio(block)
+                            heard_at = started
 
                     free = writer.ready()
                     frame = capture.take()
@@ -6943,6 +7073,7 @@ def main():
                     if shot is not None:
                         last_shot = shot
                     elif (bar is not None and bar.shown and free
+                            and not (saver is not None and saver.on)
                             and last_shot is not None
                             and bar.look() != composed_look):
                         # A button went down or came up, or the address
@@ -6980,7 +7111,8 @@ def main():
                         # whole of it -- 1.8 ms a frame for nothing.
                         if image.mode != "RGB":
                             image = image.convert("RGB")
-                        if bar is not None and bar.shown:
+                        if (bar is not None and bar.shown
+                                and not (saver is not None and saver.on)):
                             # The page is the strip's height shorter than the
                             # panel, and the strip goes above it.
                             body = (page_w, page_h - bar.height)
@@ -7185,10 +7317,45 @@ def main():
                                 image = None
                                 if injector is not None:
                                     injector.release()
+                                idle_since = started
                                 greet_avatar(page)
                             else:
                                 asleep_since = started
+                                if saver is not None and saver.on:
+                                    # Dark is dark: nothing goes on changing
+                                    # for a screen nobody can see.
+                                    saver.hide("the screen went dark")
+                                    capture = main_capture
                                 capture.pause()
+                    if saver is not None:
+                        asked_any = bool(reports or keys or asked_home
+                                         or asked_open is not None)
+                        if saver.on and asked_any:
+                            # Back to exactly what was showing. The touch
+                            # that did it presses nothing, all of it until
+                            # the finger lifts, as on a telephone's lock
+                            # screen; a key that did it goes nowhere either.
+                            # A request -- a voice, the remote's home --
+                            # still does what it asked.
+                            saver.hide("touched")
+                            capture = main_capture
+                            # Its first frame is the page as it is now.
+                            capture.resume()
+                            previous = pending = image = None
+                            last_shot = composed_look = None
+                            swallow_touch = bool(reports)
+                            keys = []
+                        if swallow_touch:
+                            kept = []
+                            for contacts in reports:
+                                if swallow_touch:
+                                    if not contacts:
+                                        swallow_touch = False
+                                    continue
+                                kept.append(contacts)
+                            reports = kept
+                        if asked_any:
+                            idle_since = started
                     if args.show_touches and reports:
                         # With the time on them, because "the panel reacts
                         # slowly" has two very different causes and this tells
@@ -7273,6 +7440,22 @@ def main():
                             # newest true one, and asking the browser to start
                             # again would only cost an interval.
                             urgent_until = time.monotonic() + args.urgent_window
+
+                    # The screen saver, after a while with nothing touched --
+                    # unless something is being watched or listened to,
+                    # which a PC's screen saver waits for as well.
+                    if (saver is not None and awake
+                            and saver.due(started, idle_since)):
+                        if saver.busy(page, started, heard_at):
+                            saver.refuse(started)
+                        else:
+                            shown = saver.show()
+                            if shown is not None:
+                                capture.pause()
+                                capture = shown
+                                previous = pending = image = None
+                                if injector is not None:
+                                    injector.release()
 
                     loops += 1
                     now = time.monotonic()

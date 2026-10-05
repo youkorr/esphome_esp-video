@@ -670,7 +670,8 @@ LAUNCHER_OWN = (
     "weather", "weather_size", "weather_color",
     "background", "background_motion", "background_blur", "background_dim",
     "slideshow", "slideshow_urls", "slideshow_seconds", "slideshow_fade",
-    "slideshow_rescan",
+    "slideshow_rescan", "slideshow_after", "slideshow_clock",
+    "slideshow_date", "slideshow_weather", "slideshow_avatar",
 )
 
 
@@ -767,6 +768,23 @@ def follow_voice(config, links, label=""):
     return voice.Voice(route.url, route.token, asked, label).start()
 
 
+def saver_minutes(config):
+    """Minutes without a touch before the slideshow comes up as a screen saver.
+
+    Nought when there is no slideshow, or when somebody asked for the old
+    behaviour -- the pictures changing behind the links. A slideshow with no
+    delay given is a screen saver after two minutes: that is what the option
+    was asked for in the first place ("doit fonctionner comme un ecran de
+    veille"), so an install that turned the slideshow on gets it.
+    """
+    if not truthy(config.get("launcher_slideshow", False)):
+        return 0.0
+    try:
+        return max(0.0, float(config.get("launcher_slideshow_after", 2)))
+    except (TypeError, ValueError):
+        return 2.0
+
+
 def start_launcher(config, port=None, house_links=(), label=""):
     """Serve one page of links, if there are any, and say where it is.
 
@@ -828,6 +846,11 @@ def start_launcher(config, port=None, house_links=(), label=""):
         fade=config.get("launcher_slideshow_fade", 1),
         rescan=config.get("launcher_slideshow_rescan", 60),
         urls=config.get("launcher_slideshow_urls") or [],
+        saver_after=saver_minutes(config),
+        saver_clock=truthy(config.get("launcher_slideshow_clock", True)),
+        saver_date=truthy(config.get("launcher_slideshow_date", True)),
+        saver_weather=truthy(config.get("launcher_slideshow_weather", True)),
+        saver_avatar=truthy(config.get("launcher_slideshow_avatar", True)),
         port=launcher.PORT if port is None else port,
         weather=Weather(
             # The dashboard's own link is what has the address and the
@@ -948,7 +971,12 @@ _GROUPED = {
                       "urls": "launcher_slideshow_urls",
                       "seconds": "launcher_slideshow_seconds",
                       "fade": "launcher_slideshow_fade",
-                      "rescan": "launcher_slideshow_rescan"},
+                      "rescan": "launcher_slideshow_rescan",
+                      "after": "launcher_slideshow_after",
+                      "clock": "launcher_slideshow_clock",
+                      "date": "launcher_slideshow_date",
+                      "weather": "launcher_slideshow_weather",
+                      "avatar": "launcher_slideshow_avatar"},
     },
     # These two carry the same names on both sides: they are grouped for the
     # eye, not renamed.
@@ -1381,6 +1409,11 @@ def command_for(panel):
     # Where the panel was, so a sender that stops unasked -- a browser that
     # closed under it -- comes back on that page rather than on its launcher.
     argv += ["--resume", os.path.join(RESUME, profile_name(panel) + ".url")]
+    if given(panel.get("saver")) and panel.get("saver_after"):
+        # Not form fields: route_to_launcher works them out from the
+        # launcher's slideshow.
+        argv += ["--saver", str(panel["saver"]),
+                 "--saver-after", f"{float(panel['saver_after']):g}"]
     for key in (
         "host",
         "port",
@@ -1885,6 +1918,16 @@ def route_to_launcher(panels, where, own=None):
                     f"and has a token of its own, but no link carries a Home "
                     f"Assistant address to attach it to. Give the dashboard's "
                     f"link a token, or a tile opening it will ask to log in.")
+        # The screen saver, when this launcher's slideshow is one: the same
+        # server's /saver page, which the sender shows in a page of its own
+        # after a while without a touch -- over whatever is open, the way a
+        # PC's lock screen comes up over whatever was on it.
+        minutes = saver_minutes(launcher_config(_config, entry) if entry
+                                else _config)
+        base = address if address is not None else where
+        if minutes > 0 and base:
+            panel["saver"] = base.split("?")[0].rstrip("/") + "/saver"
+            panel["saver_after"] = minutes * 60
         if address is not None:
             panel["url"] = address
             panel["launcher_links"] = list(mine)

@@ -1802,7 +1802,7 @@ the dashboard, where it is invisible while the keys go on working.
 ahead of the `pip install` as well as the `ADD`s, so a bump refetched
 everything — at the cost of the browser download on each update.
 `present_browser()` prints the Chromium version at startup and warns below 114,
-so this is never diagnosed by guesswork again. Currently **4.42.1**.
+so this is never diagnosed by guesswork again. Currently **4.43.0**.
 
 **CORRECTED in 4.29.5: the cost was every update, and a pin removes it.**
 Asked as *"verifie addon ... si il ya pas des elements qui freine la
@@ -11439,6 +11439,70 @@ deeper, since that folder only holds others) and inside "the rest of the
 system" (`/usr/lib/<x>`, `/usr/share/<x>`). Not acted on until a panel's
 lines say which folder it is: a site's CacheStorage, Widevine, a downloaded
 component and Chrome's on-device model each want a different answer.
+
+## The slideshow is a screen saver over whatever is showing -- 4.43.0
+
+**Reported as having been misunderstood: *"cette option de diaporama doit
+fonctionner comme un ecran de veille tous en laissant la heure date, meteo il
+faut que la personne doit choisir et surtous sans les link est des qu'il
+passe en asleep ecran eteint tous s'arrete et si vous toucher ecran il passe
+en awake fonctionnement normal"*.** Asked when it should come up, the answer
+was to look at what a PC and a tablet do rather than to pick a number: the
+Windows lock-screen slideshow ("when my PC is inactive, show the lock screen
+instead of turning off the screen"), the Pixel Tablet's screen saver and the
+Nest Hub's ambient mode, whose clock and weather are each a toggle. All three
+come up after a while without input, over whatever was showing, and a touch
+gives back exactly that.
+
+**A second page in the same browser, never a navigation of the panel's.**
+Navigating away would lose what the page was showing -- scrolled, signed in,
+half-typed. `Saver` in ha_send.py owns `context.new_page()` and a Screencast
+of its own, which takes the loop's `capture` while it shows; `main_capture`
+is put back after. Measured on the shipped Chromium before it was built: two
+pages of one persistent context both stay visible and both paint, so either
+can be screencast at any moment. **Not measured on Google Chrome**, which this
+file already records as answering CDP differently once (4.31.4). It is
+created BEFORE `NewWindows` listens, or that would take it for a site's new
+tab and close it.
+
+- **It comes up after `after` minutes with no touch, key or remote** (2 by
+  default, `idle_since` reset by every input and by waking), and **not while
+  something plays**: `PLAYING_JS` in every frame for an unmuted, playing
+  `<video>`/`<audio>`, and page sound taken within `SOUND_S` (30 s). A refusal
+  is said once and asked again `RETRY_S` later, so a film keeps it away for
+  as long as it plays.
+- **A touch takes the screen back and presses nothing.** The touch that ends
+  it is swallowed until its release (`swallow_touch`), and the picture state
+  -- `previous`, `pending`, `image`, `last_shot` -- is reset so the next
+  picture is a whole one of the page underneath.
+- **Dark stops it altogether**: asleep hides it and sends its page to
+  `about:blank`, so nothing changes for a screen nobody sees; waking shows
+  the ordinary page.
+- **The launcher serves it at `/saver`**: `render(saver=True)` -- no tiles, no
+  status icons, no key, press or follow scripts, the clock in a corner, and
+  the date, weather and avatar each a toggle (`slideshow: clock/date/weather/
+  avatar`). It is cached apart from the launcher page. With a saver, the
+  LAUNCHER itself stops cycling (the saver is where the slideshow lives);
+  `after: 0` gives the old behaviour of the launcher cycling behind its links.
+
+The settings are inside the launcher's existing `slideshow:` group and the
+flat `slideshow_*` keys on a `launchers:` entry, so they reach saved installs
+(dicts are merged under what is stored). run.py's `saver_minutes()` turns the
+slideshow off into 0; `route_to_launcher` hands the panel its own launcher's
+`/saver` and `command_for` puts `--saver`/`--saver-after` on the line.
+
+**The ESPHome backlight timeout is the board's own and must be longer than
+`after`**, or the screen goes dark before the saver ever shows -- DOCS.md says
+so. That is the household's YAML, not something the add-on can see.
+
+`tools/checksaver.py`, three halves: the launcher page (no tiles, each
+toggle), the add-on's routing and command line, and the shipped sender
+against a fake panel -- the saver comes up after the delay and its pictures
+change, a touch gives back the site without clicking, the next touch clicks,
+dark stops the saver's page, waking shows the site, and a page playing sound
+keeps it away (asserted on the refusal line, after one run where the timing
+let it pass silently). Stable over two runs. **Not seen on a panel, and not
+on Google Chrome.**
 
 ## Repository conventions
 

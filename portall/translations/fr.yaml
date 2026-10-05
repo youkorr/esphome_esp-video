@@ -235,10 +235,12 @@ configuration:
           dim:
             name: Assombrir (0 à 100)
       slideshow:
-        name: 🎞️ Diaporama
+        name: 🎞️ Diaporama et écran de veille
+        description: Après quelques minutes sans toucher, les photos plein écran sans les liens, par-dessus
+          ce que montre l'écran. Un toucher ramène là où il était.
         fields:
           enabled:
-            name: Faire défiler les images
+            name: Activer (photos du fond d'écran)
           urls:
             name: Adresses des images
             description: Une par ligne.
@@ -249,6 +251,19 @@ configuration:
             description: 0 = coupure nette, plus léger pour l'écran.
           rescan:
             name: Relire le dossier (minutes)
+          after:
+            name: ⏱️ Écran de veille après (minutes)
+            description: Sans toucher. Réglez l'extinction de l'écran (son YAML) plus longue. 0 = les
+              photos défilent derrière les liens, sans écran de veille.
+          clock:
+            name: 🕒 Heure sur l'écran de veille
+          date:
+            name: 📅 Date sur l'écran de veille
+          weather:
+            name: ⛅ Météo sur l'écran de veille
+          avatar:
+            name: 😊 Avatar sur l'écran de veille
+            description: S'il est activé sur la page de liens.
   launchers:
     name: 🧩 5 · Page de liens propre à un écran
     description: Pour qu'un écran ait SES boutons et SON apparence, indépendants des autres. Ajoutez un
@@ -374,6 +389,17 @@ configuration:
         name: 🎞️ Fondu (secondes)
       slideshow_rescan:
         name: 🎞️ Relire le dossier (minutes)
+      slideshow_after:
+        name: ⏱️ Écran de veille après (minutes)
+        description: 0 = les photos défilent derrière les liens.
+      slideshow_clock:
+        name: 🕒 Heure sur l'écran de veille
+      slideshow_date:
+        name: 📅 Date sur l'écran de veille
+      slideshow_weather:
+        name: ⛅ Météo sur l'écran de veille
+      slideshow_avatar:
+        name: 😊 Avatar sur l'écran de veille
   debug:
     name: 🐞 6 · Diagnostic
     description: 'À laisser éteint. À allumer seulement pour chercher un problème : cela remplit le journal.'

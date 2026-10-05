@@ -557,6 +557,7 @@ launcher's:
 | `weather`, `weather_size`, `weather_color` | `launcher: weather: entity`, `size`, `color` |
 | `background`, `background_motion`, `background_blur`, `background_dim` | `launcher: background: source`, `motion`, `blur`, `dim` |
 | `slideshow`, `slideshow_urls`, `slideshow_seconds`, `slideshow_fade`, `slideshow_rescan` | `launcher: slideshow: enabled`, `urls`, `seconds`, `fade`, `rescan` |
+| `slideshow_after`, `slideshow_clock`, `slideshow_date`, `slideshow_weather`, `slideshow_avatar` | `launcher: slideshow: after`, `clock`, `date`, `weather`, `avatar` |
 
 They are written flat rather than in groups because a group inside a list
 entry is compulsory in Home Assistant's add-on options: every entry would have
@@ -1305,7 +1306,22 @@ moved under the clock.
 | a file | under `/config`, `/share` or `/media`, served by the add-on |
 | **a folder** | under the same three -- a digital photograph frame |
 
-A folder shows its first picture. Turn `launcher.slideshow.enabled` on and it cycles:
+A folder shows its first picture. Turn `launcher.slideshow.enabled` on and it
+becomes a **screen saver**, the way a PC's lock screen or a tablet's photo
+frame works:
+
+- after `after` minutes without a touch, the pictures come up **full screen,
+  with no links**, over whatever the screen is showing -- the page of links,
+  Home Assistant, a site;
+- the time, the date, the weather and the avatar are shown over them, each
+  one only if you leave it on;
+- **a touch takes the screen back to exactly where it was**, and that touch
+  presses nothing;
+- it does not come up while something is playing with its sound on (a film,
+  music); a muted camera tile does not count;
+- **when the screen goes dark** (`portall.sleep`, which the example YAMLs call
+  when the backlight turns off) **the slideshow stops altogether**; touching
+  the screen wakes it on the normal page, not on the screen saver.
 
 ```yaml
 launcher:
@@ -1316,7 +1332,22 @@ launcher:
     seconds: 30                             # how long each picture is shown
     fade: 1                                 # how long one fades into the next
     rescan: 60                              # minutes between re-reading it
+    after: 2                                # minutes without a touch
+    clock: true
+    date: true
+    weather: true
+    avatar: true
 ```
+
+**Make the screen's own backlight timeout longer than `after`**, in its ESPHome
+YAML, or it goes dark before the pictures are ever seen. `after: 0` keeps the
+old behaviour instead: the pictures change behind the links, with no screen
+saver. Behind the links, with a screen saver, the page of links keeps the
+first picture still.
+
+The screen saver is the panel's launcher's: it is offered to panels whose
+`url` is `launcher`, and a panel with its own entry under `launchers:` has
+its own (`slideshow_after`, `slideshow_clock` and so on there).
 
 `launcher.slideshow.rescan` is what makes a photograph dropped into the folder
 appear without restarting the add-on. Only pictures are used -- `.jpg`,
