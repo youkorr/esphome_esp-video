@@ -152,11 +152,16 @@ See the header of `esp32p4-panel.service` for the six commands.
 
 ## Options
 
-The form has five headings: **panels**, **links**, **launcher**, **defaults**
-and **debug**. A panel's own settings sit under `panels:`, with the three
-calibration values together under `touch:` and everything that has a default
-under `advanced:`. The tables below name each setting; the heading it lives
-under is in the example beside it.
+The form has six headings, numbered in the order it shows them:
+**1 Common settings** (`defaults:`), what every screen shares;
+**2 My screens** (`panels:`), one entry per screen; **3 Shared links**
+(`links:`); **4 Look of the page of links** (`launcher:`); **5 A screen's own
+page of links** (`launchers:`); and **6 Diagnostics** (`debug:`). Common
+settings come first because they apply to the screens listed under them. A
+screen's own settings sit under `panels:`, with the three calibration values
+together under `touch:` and the rare exceptions under `advanced:`. The tables
+below name each setting; the heading it lives under is in the example beside
+it.
 
 
 **`port`, `fps`, `quality`, `max_rate`, `keyboard`, `keep_profile` and

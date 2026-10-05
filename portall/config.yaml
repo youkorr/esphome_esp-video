@@ -1,5 +1,5 @@
 name: Portall
-version: "4.42.0"
+version: "4.42.1"
 # Home Assistant identifies an add-on by its slug, so this one moving from
 # usb_display_panel to portall makes the Supervisor see a NEW add-on: options
 # are not carried over and /data starts empty, which means the browser
@@ -61,9 +61,77 @@ ingress_port: 0
 panel_icon: mdi:account-key
 panel_title: Portall
 options:
-  # The panels first, because they are the one thing that must be filled in
-  # for anything at all to appear. Everything under them has a working
-  # default.
+  # First on the form, asked as "il aurait fallu mettre le réglage commun en
+  # tête au dessus de mes écrans": what applies to every screen is read
+  # before the screens it applies to.
+  defaults:
+    # Set once here and every panel inherits it: the one place a
+    # screen's port, picture rate, quality, keyboard, sign-ins and
+    # language are set (4.42.0 took them out of each screen's advanced:,
+    # where the same names read as the same setting asked twice).
+    #
+    # Home Assistant's own address and token are NOT here any more: they are a
+    # link, under links: below, with a token: of its own. That is where they
+    # belong -- a token belongs to an address, and this list already had one per
+    # link. See "Moving from 2.x" in the documentation.
+    port: 5000
+    # The upper bound on how often a change is acted on, and the one setting that
+    # decides whether video looks like video.
+    #
+    # It was 10, on the reasoning that a touch lifts it to thirty for two seconds
+    # anyway. That is true and it is beside the point for anything you WATCH:
+    # nobody touches the panel while a film plays, so the window closes and the
+    # picture falls back to this number. Measured on a page moving continuously
+    # with no finger on it: 9.5 pictures a second at 10, 17.8 at 20, 25.3 at 30.
+    #
+    # A still dashboard costs nothing whatever this is set to -- what is not
+    # changing is not sent. It only bites when something moves, so the cost is
+    # a camera tile or a video, which is exactly where the smoothness is wanted.
+    # Lower it to 10 or 4 if the machine running this has other work to do, or if
+    # a panel of yours only ever shows a dashboard.
+    fps: 25
+    quality: 80
+    # The most a panel is sent a second, in KiB. A busy scene in a video is
+    # sent at a lower quality to stay under it, and the quality climbs back
+    # as soon as the scene gets simpler; a dashboard never comes near it.
+    #
+    # Measured on a panel watching YouTube: up to about 2.7 MB/s the picture
+    # was perfect, and past 2.9 the ESP32-C6's link threw data away and froze
+    # for a third of a second at a time. That was with the wake word
+    # running on the panel, which shares a core with the picture's decoder;
+    # with it stopped a household asked for 3000, which is the default now.
+    # Lower it towards 2400 if a video freezes for a moment. 0 turns it off.
+    max_rate: 3000
+    # The on-screen keyboard, drawn by the browser whenever a text field takes
+    # focus -- the dashboard's search, Assist, the search box of an ordinary
+    # site. A panel has no keys, so without it those are dead ends. It takes no
+    # room when nothing is waiting for text. Set it to the layout you want the
+    # letters in, or off to leave it out.
+    keyboard: qwerty
+    # Keep the browser's profile between restarts, one directory per panel under
+    # the add-on's own storage. Without it every restart is a first visit: a site
+    # signed into is signed out again, and a consent banner comes back. With it,
+    # sign in once from the panel's keyboard and it stays signed in.
+    keep_profile: true
+    # The language the pages are asked for, as a BCP 47 tag -- fr-FR, de-DE,
+    # en-GB. It is not cosmetic: left to itself the browser sends no
+    # Accept-Language header AT ALL, so every site serves its own default
+    # language whatever the household speaks, and it reports a language tag no
+    # real browser produces.
+    locale: en-US
+    # A remote for every panel, in the iPhone's own Control Centre -- the
+    # widget built for an Apple TV drives any HomeKit accessory of the
+    # Television kind, and this makes each panel one. Turn it on, open the
+    # add-on's log, and scan the code that appears with the Home app. After
+    # that the panel is in the remote list beside any Apple TV, the pad
+    # moves between the launcher's tiles, and the TV button brings it home.
+    #
+    # Nothing is paired to the panel itself and no Bluetooth is involved: the
+    # press arrives here, where the page is rendered. Unpair from the Home
+    # app like any other accessory.
+    homekit: false
+  # The panels come right after the settings they all share, because they
+  # are the one thing that must be filled in for anything to appear.
   panels:
     - name: salon
       # Off: the add-on leaves this screen alone -- no sender, no search for
@@ -265,70 +333,6 @@ options:
   #         icon: cuisine
   launchers: []
   # What every panel inherits unless its own advanced: says otherwise.
-  defaults:
-    # Set once here and every panel inherits it. A panel may still override any
-    # of these for itself.
-    #
-    # Home Assistant's own address and token are NOT here any more: they are a
-    # link, under links: below, with a token: of its own. That is where they
-    # belong -- a token belongs to an address, and this list already had one per
-    # link. See "Moving from 2.x" in the documentation.
-    port: 5000
-    # The upper bound on how often a change is acted on, and the one setting that
-    # decides whether video looks like video.
-    #
-    # It was 10, on the reasoning that a touch lifts it to thirty for two seconds
-    # anyway. That is true and it is beside the point for anything you WATCH:
-    # nobody touches the panel while a film plays, so the window closes and the
-    # picture falls back to this number. Measured on a page moving continuously
-    # with no finger on it: 9.5 pictures a second at 10, 17.8 at 20, 25.3 at 30.
-    #
-    # A still dashboard costs nothing whatever this is set to -- what is not
-    # changing is not sent. It only bites when something moves, so the cost is
-    # a camera tile or a video, which is exactly where the smoothness is wanted.
-    # Lower it to 10 or 4 if the machine running this has other work to do, or if
-    # a panel of yours only ever shows a dashboard.
-    fps: 25
-    quality: 80
-    # The most a panel is sent a second, in KiB. A busy scene in a video is
-    # sent at a lower quality to stay under it, and the quality climbs back
-    # as soon as the scene gets simpler; a dashboard never comes near it.
-    #
-    # Measured on a panel watching YouTube: up to about 2.7 MB/s the picture
-    # was perfect, and past 2.9 the ESP32-C6's link threw data away and froze
-    # for a third of a second at a time. That was with the wake word
-    # running on the panel, which shares a core with the picture's decoder;
-    # with it stopped a household asked for 3000, which is the default now.
-    # Lower it towards 2400 if a video freezes for a moment. 0 turns it off.
-    max_rate: 3000
-    # The on-screen keyboard, drawn by the browser whenever a text field takes
-    # focus -- the dashboard's search, Assist, the search box of an ordinary
-    # site. A panel has no keys, so without it those are dead ends. It takes no
-    # room when nothing is waiting for text. Set it to the layout you want the
-    # letters in, or off to leave it out.
-    keyboard: qwerty
-    # Keep the browser's profile between restarts, one directory per panel under
-    # the add-on's own storage. Without it every restart is a first visit: a site
-    # signed into is signed out again, and a consent banner comes back. With it,
-    # sign in once from the panel's keyboard and it stays signed in.
-    keep_profile: true
-    # The language the pages are asked for, as a BCP 47 tag -- fr-FR, de-DE,
-    # en-GB. It is not cosmetic: left to itself the browser sends no
-    # Accept-Language header AT ALL, so every site serves its own default
-    # language whatever the household speaks, and it reports a language tag no
-    # real browser produces.
-    locale: en-US
-    # A remote for every panel, in the iPhone's own Control Centre -- the
-    # widget built for an Apple TV drives any HomeKit accessory of the
-    # Television kind, and this makes each panel one. Turn it on, open the
-    # add-on's log, and scan the code that appears with the Home app. After
-    # that the panel is in the remote list beside any Apple TV, the pad
-    # moves between the launcher's tiles, and the TV button brings it home.
-    #
-    # Nothing is paired to the panel itself and no Bluetooth is involved: the
-    # press arrives here, where the page is rendered. Unpair from the Home
-    # app like any other accessory.
-    homekit: false
   # All off. Turn one on only while something is already wrong: each
   # writes to the add-on's log and nothing else.
   debug:
@@ -363,6 +367,17 @@ options:
     # panel that does not react the way you expect it to -- noisy, so off.
     show_touches: false
 schema:
+  # The order the form shows them in: what anybody understands first, the
+  # network port last.
+  defaults:
+    locale: str?
+    keyboard: list(off|qwerty|azerty)?
+    keep_profile: bool?
+    fps: float?
+    quality: int(1,95)?
+    max_rate: int(0,20000)?
+    homekit: bool?
+    port: port?
   panels:
     - name: str
       enabled: bool?
@@ -384,9 +399,6 @@ schema:
         import_profile: str?
         glide: bool?
         stereo: bool?
-        stats: bool?
-        show_media: bool?
-        show_touches: bool?
   links:
     - name: str
       url: str
@@ -476,15 +488,6 @@ schema:
       slideshow_seconds: int(5,3600)?
       slideshow_fade: int(0,10)?
       slideshow_rescan: int(1,1440)?
-  defaults:
-    port: port?
-    fps: float?
-    quality: int(1,95)?
-    max_rate: int(0,20000)?
-    keyboard: list(off|qwerty|azerty)?
-    keep_profile: bool?
-    locale: str?
-    homekit: bool?
   debug:
     stats: bool?
     show_media: bool?
