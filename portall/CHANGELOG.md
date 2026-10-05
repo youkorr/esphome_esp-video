@@ -1,5 +1,13 @@
 # Changelog
 
+## 4.40.0
+
+- **Your Chrome bookmarks on the screen.** The bar above a site now has a
+  **★** after ← ⟳ ⌂. It opens a page listing the bookmarks Chrome keeps in
+  this screen's profile, folder by folder. Tap one to open it, signed in as
+  if you had typed its address, and ← brings you back to the list. The log
+  says at each start how many the screen's profile holds.
+
 ## 4.39.2
 
 - **A screen being signed in no longer stays frozen when you leave the

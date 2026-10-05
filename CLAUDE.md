@@ -1802,7 +1802,7 @@ the dashboard, where it is invisible while the keys go on working.
 ahead of the `pip install` as well as the `ADD`s, so a bump refetched
 everything — at the cost of the browser download on each update.
 `present_browser()` prints the Chromium version at startup and warns below 114,
-so this is never diagnosed by guesswork again. Currently **4.39.2**.
+so this is never diagnosed by guesswork again. Currently **4.40.0**.
 
 **CORRECTED in 4.29.5: the cost was every update, and a pin removes it.**
 Asked as *"verifie addon ... si il ya pas des elements qui freine la
@@ -10878,6 +10878,38 @@ one: a closed tab or an app in the background (its timers stop) says
 nothing. Three minutes is the Google-app trip with room. `tools/
 checkunwatched.py` runs the real page on Playwright's clock and the real
 watcher with a stand-in session; against 4.39.1 five cases fail.
+
+## The bar's star: the profile's Chrome bookmarks -- 4.40.0
+
+**Asked as *"il manque mes favoris dans le navigateur web"*,** after the
+sign-in page went to an app window in 4.39.0 -- which has no bookmarks bar,
+where the ordinary window before it had shown them (*"je ne retrouve plus
+mes favoris"*). So they were in the profile, brought by Chrome's sync while
+somebody was signed in there, and nothing on the panel could show them.
+
+`read_bookmarks()` reads `Default/Bookmarks` and `Default/AccountBookmarks`
+(Chrome's JSON: `roots` bookmark_bar / other / synced, folders and urls),
+one section per folder path, an address listed once, a bookmarklet counted
+rather than listed. `Bookmarks` serves them as a page from a server of its
+own on 127.0.0.1, one per sender -- **not** through `page.route`, because any
+Playwright route switches the browser's HTTP cache off for every page (their
+documentation says so), and that would cost every site the panel opens. The
+bar gains a fourth button, ★ (`NAV_BUTTONS`), which `go_to`s that page as a
+step inside the link. A bookmark is opened through `__udispFollow`, which
+`Follow` accepts from that origin too as kind `bookmark`: opened like a typed
+address, so a Strict login goes with it (localhost and 127.0.0.1 are two
+sites, and the check proves the cookie arrives), and NOT marked as a new
+link's start, so ← returns to the list. Its port changes at every start, so
+`Resume` does not note it. The startup line `Bookmarks: N in this screen's
+profile` is the measurement for the one thing not known here: whether the
+panel's driven Chrome -- Playwright starts it with `--disable-sync` -- keeps
+the file sync wrote (AccountBookmarks especially), or empties it.
+
+`tools/checkbookmarks.py`: reading on a made-up profile, then the shipped
+sender against a fake panel -- the count logged, the star opening the page,
+a bookmark tapped on the glass opening with its Strict cookie, ← returning.
+`--sender` an older copy: the star is not there (two failures). **Not seen on
+a panel, and not on Google Chrome.**
 
 ## Back, reload and home on the glass -- 4.34.0
 
