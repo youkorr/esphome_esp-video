@@ -10827,6 +10827,25 @@ internet 5"): Material Symbols `folder_open` and `explore` (Apache 2.0) in
 white on a 96-unit gradient badge, `_app_badge()` in logos.py, as
 `PICTURES` entries, so they win over the emoji of the same names.
 
+## Google Photos plays its videos for a person, not for the panel
+
+**Settled by the household with the controlled experiment, not by reading.**
+A video they own in Google Photos showed "Une erreur s'est produite" on the
+panel while photos worked. The log: `<movie_player>` -- YouTube's player,
+which Photos embeds -- at `t=0.0 ready=0 net=2 frames=0` for ninety seconds,
+with NO `Media: format not supported` and NO `Network:` line. So nothing ever
+reached the decoder (not the format) and nothing failed at the network level
+(not DNS). A refusal is a RESPONSE, a 403 say, which `requestfailed` never
+sees -- the log's blind spot for exactly this.
+
+Then the same video in the sign-in page's Chrome -- same binary, same
+profile, same IP, nothing driving it -- **plays**. Made into a launcher link,
+it does not: a link opens the same driven browser. So Google refuses the
+driven browser, as it does the sign-in and as Cloudflare does; not something
+this project gets around. What a household can do instead is watch it in
+the sign-in page, or put the file where the panel plays it from (the Files
+page, or a media server), which is untested here for an iPhone's HEVC.
+
 ## Back, reload and home on the glass -- 4.34.0
 
 **The sign-in page's buttons (4.33.1) answered a request nobody made.** The
