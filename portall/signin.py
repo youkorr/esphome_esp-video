@@ -32,7 +32,8 @@ Two rules this file lives under, both the add-on's own:
 - An accessory must never cost the picture. A missing Xvfb, x11vnc, websockify
   or noVNC turns the page into a sentence saying which, and the panels do not
   notice. Only the panel being signed in is stopped, and only for as long as
-  the session lasts -- SESSION_LIMIT_S at most.
+  the session lasts -- SESSION_LIMIT_S at most, and UNWATCHED_S once nobody
+  has the page open.
 - One browser per profile. Chromium locks a profile, so the panel's own
   browser is stopped first and the profile is checked to be FREE -- by asking
   /proc which processes name it -- before the plain one is started on it.
@@ -74,6 +75,16 @@ NOVNC = "/usr/share/novnc"
 # Long enough to sign into two or three sites with a telephone keyboard, short
 # enough that a panel left in the middle of it comes back by itself.
 SESSION_LIMIT_S = 20 * 60
+
+# A session whose page nobody has open ends after this. The panel's picture
+# stops for as long as a session lasts, so a telephone put away without Done
+# froze the screen for the whole of SESSION_LIMIT_S -- reported as a panel
+# that "bloque tout" until the add-on was restarted. The page says it is
+# there every ALIVE_S; a page closed, or an app sent to the background (its
+# timers stop), says nothing. Three minutes is room for Google's second step
+# in the Google app and back, which the session is deliberately kept for.
+UNWATCHED_S = 3 * 60
+ALIVE_S = 20
 
 # What the browser opens on. Google, because that is the one that refuses the
 # driven browser -- the address bar is right there for any other.
@@ -284,6 +295,8 @@ class Session:
         self.locale = locale
         self.url = url
         self.started = time.monotonic()
+        # When the page last said it was open (see UNWATCHED_S).
+        self.seen_at = self.started
         self.web_port = None
         self._processes = []
         self._browser = None
@@ -557,6 +570,10 @@ class SignIn:
             if time.monotonic() - session.started > SESSION_LIMIT_S:
                 self.finish(f"{SESSION_LIMIT_S // 60} minutes went by")
                 return
+            if time.monotonic() - session.seen_at > UNWATCHED_S:
+                self.finish(f"nobody had the page open for "
+                            f"{UNWATCHED_S // 60} minutes")
+                return
             time.sleep(1)
 
     # -- Google ----------------------------------------------------------------
@@ -657,6 +674,12 @@ class SignIn:
                                     scale, address(want) if want else None)
                 self._reply(conn, 200, "application/json",
                             json.dumps({"answer": answer}))
+            elif method == "POST" and path == "/alive":
+                session = self.session
+                if session is not None:
+                    session.seen_at = time.monotonic()
+                self._reply(conn, 200, "application/json",
+                            json.dumps({"answer": "ok" if session else "no"}))
             elif method == "POST" and path == "/nav":
                 session = self.session
                 ok = session is not None and session.navigate(
@@ -783,6 +806,7 @@ class SignIn:
             "active": html.escape(session.name) if session else "",
             "prefix": html.escape(prefix.strip("/")),
             "message": html.escape(self.message),
+            "alive_ms": ALIVE_S * 1000,
         }
 
 
@@ -950,7 +974,18 @@ PAGE = """<!doctype html>
                + 'vnc/websockify';
   var pick = document.getElementById('pick'), live = document.getElementById('live');
   var screen = document.getElementById('screen');
-  function open() { pick.hidden = true; live.hidden = false; }
+  // While the screen is shown here, say so -- a page closed or put in the
+  // background stops saying it, and the session then ends by itself rather
+  // than leaving the panel's picture stopped (UNWATCHED_S).
+  var alive = null;
+  function open() {
+    pick.hidden = true; live.hidden = false;
+    if (!alive) alive = setInterval(function () { post('alive', ''); },
+                                    %(alive_ms)d);
+  }
+  document.addEventListener('visibilitychange', function () {
+    if (alive && !document.hidden) post('alive', '');
+  });
   function connect() {
     screen.src = 'vnc/vnc.html?autoconnect=1&resize=scale&reconnect=1'
       + '&show_dot=1&path=' + encodeURIComponent(wsPath);

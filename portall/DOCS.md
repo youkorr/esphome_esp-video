@@ -2041,7 +2041,8 @@ own profile, and shows it to you:
    the Google app, or type a code it gives you), go to the Google app and
    do it. The sign-in waits for you: when you come back to Home Assistant
    and open the Portall page again, Chrome is still there, on the same
-   page, and a code can be typed into it. You have 20 minutes in all.
+   page, and a code can be typed into it. Come back within 3 minutes, and
+   20 minutes in all.
 4. Press **Terminé** (Done). Chrome closes, and the screen comes back already
    signed in.
 
@@ -2053,8 +2054,11 @@ field.
 and YouTube's cookies from its profile -- the other sites' sign-ins are kept
 -- and starts it again.
 
-If you forget Done, it ends by itself after 20 minutes, or when you close the
-Chrome window.
+While a screen is being signed in its picture stays still: that is normal, the
+screen's own browser is stopped so this one can use its profile. If you forget
+Done, it ends by itself 3 minutes after nobody has the page open any more
+(the tab closed, or Home Assistant's app put away), after 20 minutes in all,
+or when you close the Chrome window -- and the screen starts again.
 
 Nothing drives that Chrome: no debugging port, no automation flag, and the
 page sees `navigator.webdriver` as false. It needs `keep_profile` on (the
