@@ -1802,7 +1802,7 @@ the dashboard, where it is invisible while the keys go on working.
 ahead of the `pip install` as well as the `ADD`s, so a bump refetched
 everything — at the cost of the browser download on each update.
 `present_browser()` prints the Chromium version at startup and warns below 114,
-so this is never diagnosed by guesswork again. Currently **4.40.0**.
+so this is never diagnosed by guesswork again. Currently **4.40.1**.
 
 **CORRECTED in 4.29.5: the cost was every update, and a pin removes it.**
 Asked as *"verifie addon ... si il ya pas des elements qui freine la
@@ -10910,6 +10910,34 @@ sender against a fake panel -- the count logged, the star opening the page,
 a bookmark tapped on the glass opening with its Strict cookie, ← returning.
 `--sender` an older copy: the star is not there (two failures). **Not seen on
 a panel, and not on Google Chrome.**
+
+## The log said "error" for a stopped player and hid a real one -- 4.40.1
+
+**Asked as *"je voudrais que tu verifies ce probleme"* with a Google News
+log**: nine `Media: error format not supported: MEDIA_ELEMENT_ERROR: Empty
+src attribute -- <podcast-player-content>` in three seconds, then a
+`Network: ... ERR_NAME_NOT_RESOLVED` on `sync.outbrainimg.com` followed by
+the DNS hint. Nothing in the picture path was wrong (`panel wait 0%`, loop
+over 100 Hz; `worst gap` is the time between two pictures sent, so on a page
+that changes now and then 1-2 s is the page being still).
+
+- **`src = ''` is how a page stops a player, and the browser answers it with
+  code 4 and "Empty src attribute"** -- measured, three ways of emptying it.
+  CODES[4] is "format not supported", so the line read as a codec fault.
+  MEDIA_INIT now ignores that message.
+- **Writing its check found the worse fault:** the 400 ms rate limit in
+  `say()` was shared with the timeline, and a new source is announced by
+  `emptied` and fails within the same 400 ms -- so the one line naming the
+  cause of a video that cannot play was the one dropped. Errors go through
+  `sayError()` now, outside the rate limit, once per (reason, player), at
+  most twenty. `tools/checkmediaerror.py`: against 4.40.0 both cases fail.
+  A trap in that check worth keeping: in Playwright's sync API a binding
+  call is delivered only during a Playwright call, so `time.sleep` in a test
+  sees nothing -- `page.wait_for_timeout`.
+- **The DNS hint claimed too much.** "Is this machine's DNS, not the site"
+  was true of googlevideo.com once and is not a rule: an advert's name that
+  no longer exists fails the same way. Whether sync.outbrainimg.com exists
+  could not be checked from here (no external DNS).
 
 ## Back, reload and home on the glass -- 4.34.0
 

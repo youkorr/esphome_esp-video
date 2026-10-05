@@ -528,6 +528,17 @@ MEDIA_INIT_TEMPLATE = """
       catch (e) { /* nothing to do */ }
     }
   };
+  // Errors outside that rate limit, each said once per player and reason.
+  // Sharing it hid them: a new source is announced by 'emptied' and a source
+  // the browser cannot open fails within the same 400 ms, so the one line
+  // that names the cause was the one dropped -- measured, nothing at all
+  // reported for a file that could not be opened.
+  const errorsSaid = new Set();
+  const sayError = (what, key) => {
+    if (errorsSaid.has(key) || errorsSaid.size >= 20) return;
+    errorsSaid.add(key);
+    try { window.__udispMediaError(what); } catch (e) { /* never cost the page */ }
+  };
   const who = (el) => {
     // Which player this is. A YouTube search page runs a hover preview
     // alongside the real one and pauses it constantly, so a timeline that
@@ -572,9 +583,14 @@ MEDIA_INIT_TEMPLATE = """
       if (!el || (el.tagName !== 'VIDEO' && el.tagName !== 'AUDIO')) return;
       const err = el.error;
       if (!err) return;
+      // A page stopping its own player by emptying its source (src = '')
+      // raises code 4 with this message -- measured -- and it is not a
+      // failure of anything. Printed as "format not supported" it sent a
+      // reader looking for a codec, nine lines at a time on Google News.
+      if (/Empty src attribute/.test(err.message || '')) return;
       let what = CODES[err.code] || ('code ' + err.code);
       if (err.message) what += ': ' + err.message;
-      say('error ' + what + ' -- ' + state(el));
+      sayError('error ' + what + ' -- ' + state(el), what + '|' + who(el));
     } catch (e) { /* never cost the page anything */ }
   }, true);
 
@@ -920,19 +936,23 @@ def watch_failed_requests(context, limit=12):
             if len(seen) == limit:
                 print("Network: (further failures not listed)")
             print(f"Network: {host} -- {failure}")
-            # Said once, because it is the one failure whose cause is never
-            # the site. A name that does not resolve is this machine's
-            # resolver, and on a Home Assistant box that is the Supervisor's
-            # own DNS container rather than the router. It is also the failure
+            # Said once. A name that does not resolve can be this machine's
+            # resolver -- on a Home Assistant box the Supervisor's own DNS
+            # container rather than the router -- and that is the failure
             # that looks least like itself from the panel: a video whose next
             # segment cannot be fetched does not error, it simply runs its
-            # buffer down to nothing and stops.
+            # buffer down to nothing and stops (googlevideo.com, once). But a
+            # news site's advert names fail the same way when the advert's
+            # address is gone, so the line no longer says it is always the
+            # DNS -- it said so over sync.outbrainimg.com on Google News.
             if "ERR_NAME_NOT_RESOLVED" in failure and not explained:
                 explained.append(True)
                 print(
-                    "Network: a name that does not resolve is this machine's "
-                    "DNS, not the site. In Home Assistant: Settings > System "
-                    "> Network > DNS servers."
+                    "Network: a name that does not resolve is either an "
+                    "address the site no longer uses -- often an advert's "
+                    "-- or this machine's DNS. Only if a page or a video "
+                    "stops at the same moment: Home Assistant's Settings > "
+                    "System > Network > DNS servers."
                 )
         except Exception:  # noqa: BLE001 - a diagnostic must never cost a page
             pass
