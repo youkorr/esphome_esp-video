@@ -150,6 +150,40 @@ def launcher_half(browser, folder):
     check("and changes its picture by itself", len(seen) >= 2, seen)
     page.close()
 
+    # Reported as "cela remplace mon fond ecran": a wallpaper of its own
+    # and the slideshow's pictures BY ADDRESS. The addresses won over the
+    # wallpaper on the page of links; they are the saver's alone now.
+    wall = data_png((0x10, 0x10, 0x90))
+    slides = [data_png(c) for c in PICTURES]
+    both = launcher.start(links, background=wall, slideshow=True, urls=slides,
+                          every=1, fade=0, port=launcher.ANY_PORT,
+                          saver_after=2)
+    base = both.split("?")[0].rstrip("/")
+    page = browser.new_page(viewport={"width": W, "height": H})
+    page.goto(base + "/")
+    page.wait_for_timeout(300)
+    shown = page.evaluate("getComputedStyle(document.getElementById('wa'))"
+                          ".backgroundImage")
+    check("a wallpaper of its own stays behind the links",
+          wall in shown and not any(s in shown for s in slides), shown[:80])
+    page.goto(base + "/saver")
+    page.wait_for_timeout(300)
+    shown = page.evaluate("getComputedStyle(document.getElementById('wa'))"
+                          ".backgroundImage")
+    check("and the slideshow's addresses go to the saver",
+          any(s in shown for s in slides) and wall not in shown, shown[:80])
+    page.close()
+    alone = launcher.start(links, slideshow=True, urls=slides, every=1,
+                           fade=0, port=launcher.ANY_PORT, saver_after=2)
+    page = browser.new_page(viewport={"width": W, "height": H})
+    page.goto(alone.split("?")[0])
+    page.wait_for_timeout(300)
+    check("with no wallpaper of its own the page keeps the first, still",
+          slides[0] in page.evaluate(
+              "getComputedStyle(document.getElementById('wa'))"
+              ".backgroundImage"))
+    page.close()
+
     # With nought, the old behaviour: no saver, the pictures behind the
     # links.
     still = launcher.start(links, background=folder, slideshow=True,
@@ -158,6 +192,14 @@ def launcher_half(browser, folder):
     html = urllib_get(still.split("?")[0])
     check("a delay of 0 cycles the pictures behind the links as before",
           "setInterval(show" in html)
+
+
+def data_png(colour):
+    import base64
+    from PIL import Image
+    out = io.BytesIO()
+    Image.new("RGB", (8, 8), colour).save(out, "PNG")
+    return "data:image/png;base64," + base64.b64encode(out.getvalue()).decode()
 
 
 def urllib_get(url):

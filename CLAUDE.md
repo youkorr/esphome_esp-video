@@ -1802,7 +1802,7 @@ the dashboard, where it is invisible while the keys go on working.
 ahead of the `pip install` as well as the `ADD`s, so a bump refetched
 everything — at the cost of the browser download on each update.
 `present_browser()` prints the Chromium version at startup and warns below 114,
-so this is never diagnosed by guesswork again. Currently **4.43.0**.
+so this is never diagnosed by guesswork again. Currently **4.43.1**.
 
 **CORRECTED in 4.29.5: the cost was every update, and a pin removes it.**
 Asked as *"verifie addon ... si il ya pas des elements qui freine la
@@ -11503,6 +11503,14 @@ dark stops the saver's page, waking shows the site, and a page playing sound
 keeps it away (asserted on the refusal line, after one run where the timing
 let it pass silently). Stable over two runs. **Not seen on a panel, and not
 on Google Chrome.**
+
+**4.43.1: "cela remplace mon fond ecran".** With the saver confirmed working
+on a panel, its page of links showed the first slide instead of
+`background.source`. settle() let slideshow ADDRESSES win over the wallpaper
+-- right when the pictures cycled behind the links, wrong once they are the
+saver's. With a saver and a `background` given, the page of links is that
+wallpaper and only /saver gets the addresses; with no `background` it keeps
+the first address, still. checksaver.py's new case fails against 4.43.0.
 
 ## Repository conventions
 

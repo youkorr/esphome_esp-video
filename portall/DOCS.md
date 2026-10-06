@@ -1342,8 +1342,9 @@ launcher:
 **Make the screen's own backlight timeout longer than `after`**, in its ESPHome
 YAML, or it goes dark before the pictures are ever seen. `after: 0` keeps the
 old behaviour instead: the pictures change behind the links, with no screen
-saver. Behind the links, with a screen saver, the page of links keeps the
-first picture still.
+saver. With a screen saver, the page of links keeps its own wallpaper
+(`background`); the pictures of the slideshow are shown only by the screen
+saver. With no wallpaper of its own it shows the first picture, still.
 
 The screen saver is the panel's launcher's: it is offered to panels whose
 `url` is `launcher`, and a panel with its own entry under `launchers:` has
