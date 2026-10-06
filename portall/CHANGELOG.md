@@ -1,5 +1,17 @@
 # Changelog
 
+## 4.44.0
+
+- **You choose where everything goes on the screen saver.** The time, the
+  date, the weather and the avatar each get a place (9 of them: the corners,
+  the middle of each edge, the centre), a size (small to huge, the same as
+  the page of links) and a colour. They were fixed before: the time at the
+  bottom, bigger than "huge", the date and the weather beside it.
+- New defaults: the time and the date at the top left, the weather at the top
+  right, the avatar at the bottom right, all medium and white.
+- **A veil** (`shade`: none, light or strong) darkens only the corners where
+  something sits, instead of the bottom half of the screen.
+
 ## 4.43.1
 
 - **The page of links keeps its own wallpaper with the screen saver on.**

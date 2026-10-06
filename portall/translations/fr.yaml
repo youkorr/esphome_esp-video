@@ -264,6 +264,46 @@ configuration:
           avatar:
             name: 😊 Avatar sur l'écran de veille
             description: S'il est activé sur la page de liens.
+          clock_position:
+            name: '🕒 Heure : place sur l''écran de veille'
+            description: 'top_left = en haut à gauche, top = en haut au centre, top_right, left = au milieu
+              à gauche, center, right, bottom_left, bottom, bottom_right. Deux à la même place s''empilent
+              : heure, date, météo, avatar.'
+          clock_size:
+            name: '🕒 Heure : taille sur l''écran de veille'
+          clock_color:
+            name: '🕒 Heure : couleur sur l''écran de veille'
+            description: white = blanc, theme = la couleur du thème.
+          date_position:
+            name: '📅 Date : place sur l''écran de veille'
+            description: 'top_left = en haut à gauche, top = en haut au centre, top_right, left = au milieu
+              à gauche, center, right, bottom_left, bottom, bottom_right. Deux à la même place s''empilent
+              : heure, date, météo, avatar.'
+          date_size:
+            name: '📅 Date : taille sur l''écran de veille'
+          date_color:
+            name: '📅 Date : couleur sur l''écran de veille'
+            description: white = blanc, theme = la couleur du thème.
+          weather_position:
+            name: '⛅ Météo : place sur l''écran de veille'
+            description: 'top_left = en haut à gauche, top = en haut au centre, top_right, left = au milieu
+              à gauche, center, right, bottom_left, bottom, bottom_right. Deux à la même place s''empilent
+              : heure, date, météo, avatar.'
+          weather_size:
+            name: '⛅ Météo : taille sur l''écran de veille'
+          weather_color:
+            name: '⛅ Météo : couleur sur l''écran de veille'
+            description: La température ; le ciel est un emoji et garde ses couleurs.
+          avatar_position:
+            name: '😊 Avatar : place sur l''écran de veille'
+            description: 'top_left = en haut à gauche, top = en haut au centre, top_right, left = au milieu
+              à gauche, center, right, bottom_left, bottom, bottom_right. Deux à la même place s''empilent
+              : heure, date, météo, avatar.'
+          avatar_size:
+            name: '😊 Avatar : taille sur l''écran de veille'
+          shade:
+            name: 🌗 Voile sur l'écran de veille
+            description: 'Assombrit seulement les coins où il y a quelque chose : none, light ou strong.'
   launchers:
     name: 🧩 5 · Page de liens propre à un écran
     description: Pour qu'un écran ait SES boutons et SON apparence, indépendants des autres. Ajoutez un
@@ -400,6 +440,46 @@ configuration:
         name: ⛅ Météo sur l'écran de veille
       slideshow_avatar:
         name: 😊 Avatar sur l'écran de veille
+      slideshow_clock_position:
+        name: '🕒 Heure : place sur l''écran de veille'
+        description: 'top_left = en haut à gauche, top = en haut au centre, top_right, left = au milieu
+          à gauche, center, right, bottom_left, bottom, bottom_right. Deux à la même place s''empilent
+          : heure, date, météo, avatar.'
+      slideshow_clock_size:
+        name: '🕒 Heure : taille sur l''écran de veille'
+      slideshow_clock_color:
+        name: '🕒 Heure : couleur sur l''écran de veille'
+        description: white = blanc, theme = la couleur du thème.
+      slideshow_date_position:
+        name: '📅 Date : place sur l''écran de veille'
+        description: 'top_left = en haut à gauche, top = en haut au centre, top_right, left = au milieu
+          à gauche, center, right, bottom_left, bottom, bottom_right. Deux à la même place s''empilent
+          : heure, date, météo, avatar.'
+      slideshow_date_size:
+        name: '📅 Date : taille sur l''écran de veille'
+      slideshow_date_color:
+        name: '📅 Date : couleur sur l''écran de veille'
+        description: white = blanc, theme = la couleur du thème.
+      slideshow_weather_position:
+        name: '⛅ Météo : place sur l''écran de veille'
+        description: 'top_left = en haut à gauche, top = en haut au centre, top_right, left = au milieu
+          à gauche, center, right, bottom_left, bottom, bottom_right. Deux à la même place s''empilent
+          : heure, date, météo, avatar.'
+      slideshow_weather_size:
+        name: '⛅ Météo : taille sur l''écran de veille'
+      slideshow_weather_color:
+        name: '⛅ Météo : couleur sur l''écran de veille'
+        description: La température ; le ciel est un emoji et garde ses couleurs.
+      slideshow_avatar_position:
+        name: '😊 Avatar : place sur l''écran de veille'
+        description: 'top_left = en haut à gauche, top = en haut au centre, top_right, left = au milieu
+          à gauche, center, right, bottom_left, bottom, bottom_right. Deux à la même place s''empilent
+          : heure, date, météo, avatar.'
+      slideshow_avatar_size:
+        name: '😊 Avatar : taille sur l''écran de veille'
+      slideshow_shade:
+        name: 🌗 Voile sur l'écran de veille
+        description: 'Assombrit seulement les coins où il y a quelque chose : none, light ou strong.'
   debug:
     name: 🐞 6 · Diagnostic
     description: 'À laisser éteint. À allumer seulement pour chercher un problème : cela remplit le journal.'

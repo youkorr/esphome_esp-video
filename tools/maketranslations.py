@@ -55,6 +55,30 @@ def link_fields():
     )
 
 SIZES = ("Taille", "Size")
+PLACES = ("top_left = en haut à gauche, top = en haut au centre, top_right, left = au milieu à gauche, center, right, bottom_left, bottom, bottom_right. "
+          "Deux à la même place s'empilent : heure, date, météo, avatar.",
+          "top_left, top, top_right, left, center, right, bottom_left, bottom or bottom_right. "
+          "Two in the same place stack: time, date, weather, avatar.")
+
+
+def saver_look(prefix=""):
+    """The screen saver's places, sizes and colours, under a prefix or none."""
+    out = {}
+    for key, fr, en in (("clock", "🕒 Heure", "🕒 Time"), ("date", "📅 Date", "📅 Date"),
+                        ("weather", "⛅ Météo", "⛅ Weather"), ("avatar", "😊 Avatar", "😊 Avatar")):
+        out[prefix + key + "_position"] = T(f"{fr} : place sur l'écran de veille", f"{en}: place on the screen saver", *PLACES)
+        out[prefix + key + "_size"] = T(f"{fr} : taille sur l'écran de veille", f"{en}: size on the screen saver")
+        if key != "avatar":
+            out[prefix + key + "_color"] = T(f"{fr} : couleur sur l'écran de veille", f"{en}: colour on the screen saver",
+                                             "white = blanc, theme = la couleur du thème." if key != "weather"
+                                             else "La température ; le ciel est un emoji et garde ses couleurs.",
+                                             "white, or theme = the theme's own colour." if key != "weather"
+                                             else "The temperature; the sky is an emoji and keeps its colours.")
+    out[prefix + "shade"] = T("🌗 Voile sur l'écran de veille", "🌗 Veil on the screen saver",
+                              "Assombrit seulement les coins où il y a quelque chose : none, light ou strong.",
+                              "Darkens only the corners something sits in: none, light or strong.")
+    return out
+
 LOOK = dict(
     theme=T("Thème", "Theme", "Sombre (dark) ou clair (light).", "Dark or light."),
     columns=T("Tuiles par ligne", "Tiles per row",
@@ -186,7 +210,8 @@ cfg = dict(
                            date=T("📅 Date sur l'écran de veille", "📅 Date on the screen saver"),
                            weather=T("⛅ Météo sur l'écran de veille", "⛅ Weather on the screen saver"),
                            avatar=T("😊 Avatar sur l'écran de veille", "😊 Avatar on the screen saver",
-                                    "S'il est activé sur la page de liens.", "If it is on for the page of links."))),
+                                    "S'il est activé sur la page de liens.", "If it is on for the page of links."),
+                           **saver_look())),
     launchers=T("🧩 5 · Page de liens propre à un écran", "🧩 5 · A screen's own page of links",
                 "Pour qu'un écran ait SES boutons et SON apparence, indépendants des autres. Ajoutez un élément par écran concerné.",
                 "To give a screen ITS own buttons and look, independent of the others. Add one entry per screen.",
@@ -217,7 +242,8 @@ cfg = dict(
                 slideshow_clock=T("🕒 Heure sur l'écran de veille", "🕒 Time on the screen saver"),
                 slideshow_date=T("📅 Date sur l'écran de veille", "📅 Date on the screen saver"),
                 slideshow_weather=T("⛅ Météo sur l'écran de veille", "⛅ Weather on the screen saver"),
-                slideshow_avatar=T("😊 Avatar sur l'écran de veille", "😊 Avatar on the screen saver")),
+                slideshow_avatar=T("😊 Avatar sur l'écran de veille", "😊 Avatar on the screen saver"),
+                **saver_look("slideshow_")),
     debug=T("🐞 6 · Diagnostic", "🐞 6 · Diagnostics",
             "À laisser éteint. À allumer seulement pour chercher un problème : cela remplit le journal.",
             "Leave off. Only turn on to track down a problem: it fills the log.",
