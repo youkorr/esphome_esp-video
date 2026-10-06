@@ -663,6 +663,15 @@ def truthy(value):
 # without its prefix -- theme is launcher_theme, clock_size is
 # launcher_clock_size -- so an entry is the house launcher with that panel's
 # own values laid over it, and there is no second table to keep in step.
+# Where the screen saver puts the time, the date, the weather and the face,
+# and how big and what colour each is: launcher_slideshow_<key>, and
+# slideshow_<key> on a launchers: entry. launcher.saver_look() sorts the words.
+SAVER_LOOK_KEYS = (
+    "clock_position", "clock_size", "clock_color",
+    "date_position", "date_size", "date_color",
+    "weather_position", "weather_size", "weather_color",
+    "avatar_position", "avatar_size", "shade",
+)
 LAUNCHER_OWN = (
     "theme", "columns", "align", "tiles", "focus_color", "tile_background",
     "tile_size", "tile_text_color", "avatar",
@@ -672,7 +681,7 @@ LAUNCHER_OWN = (
     "slideshow", "slideshow_urls", "slideshow_seconds", "slideshow_fade",
     "slideshow_rescan", "slideshow_after", "slideshow_clock",
     "slideshow_date", "slideshow_weather", "slideshow_avatar",
-)
+) + tuple("slideshow_" + key for key in SAVER_LOOK_KEYS)
 
 
 def own_launchers(config, panels):
@@ -851,6 +860,9 @@ def start_launcher(config, port=None, house_links=(), label=""):
         saver_date=truthy(config.get("launcher_slideshow_date", True)),
         saver_weather=truthy(config.get("launcher_slideshow_weather", True)),
         saver_avatar=truthy(config.get("launcher_slideshow_avatar", True)),
+        saver_layout={key: config.get("launcher_slideshow_" + key)
+                      for key in SAVER_LOOK_KEYS
+                      if given(config.get("launcher_slideshow_" + key))},
         port=launcher.PORT if port is None else port,
         weather=Weather(
             # The dashboard's own link is what has the address and the
@@ -976,7 +988,9 @@ _GROUPED = {
                       "clock": "launcher_slideshow_clock",
                       "date": "launcher_slideshow_date",
                       "weather": "launcher_slideshow_weather",
-                      "avatar": "launcher_slideshow_avatar"},
+                      "avatar": "launcher_slideshow_avatar",
+                      **{key: "launcher_slideshow_" + key
+                         for key in SAVER_LOOK_KEYS}},
     },
     # These two carry the same names on both sides: they are grouped for the
     # eye, not renamed.

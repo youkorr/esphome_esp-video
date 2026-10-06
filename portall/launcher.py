@@ -769,26 +769,128 @@ CLOCK_JS = """<script>
 </script>
 """
 
-# The screen saver's own layout: the page of links with no links, the clock
-# low on the left the way a lock screen puts it, larger, and in white with a
-# shade under it, because it sits on a photograph rather than on a card. Asked
-# for as "comme un ecran de veille", and laid out after what a PC lock screen
-# and a tablet's photo frame show: the picture, the time, the date, and the
-# weather as one small extra. The picture is neither blurred nor dimmed -- a
-# photograph frame that darkens its photographs is not one -- so the text
-# brings its own shade.
+# The screen saver's own layout: the page of links with no links, and each
+# of the time, the date, the weather and the face in a corner of its own.
+# It was a lock screen's fixed layout first -- the time low on the left,
+# larger than "huge", the date and the weather beside it -- and that was
+# reported straight back: "tu as mis clock en huge trop grand, date, meteo en
+# bas de l'ecran sauf avatar ... il faut que l'utilisateur doit tout choisir".
+# So every one has a place out of nine, a size from the page of links' own
+# scale and a colour from its own list, and things given one place stack in
+# that order. The picture is neither blurred nor dimmed -- a photograph frame
+# that darkens its photographs is not one -- so the text brings its own shade,
+# and the veil, when asked for, darkens only the corners something sits in.
 SAVER_CSS = """ main { display: none; }
- header { position: fixed; left: 5vw; right: 5vw; bottom: 6vh; padding: 0;
-          color: #fff; text-shadow: 0 .08em .5em rgba(0, 0, 0, .6); }
- header::before { content: ""; position: fixed; inset: auto 0 0 0;
-                  height: 45vh; z-index: -1; pointer-events: none;
-                  background: linear-gradient(transparent, rgba(0, 0, 0, .45)); }
- .now { align-items: flex-end; }
- .time { font-size: clamp(56px, 14vw, 150px); font-weight: 250; }
- .date { color: #fff; font-size: clamp(18px, 3.2vw, 32px); }
- .wx { font-size: clamp(20px, 3.6vw, 34px); }
- .wx .out { color: #fff; }
+ header { padding: 0; }
+ .slot { position: fixed; z-index: 3; display: flex; flex-direction: column;
+         gap: 1.2vmin; padding: 5vmin 5vw; pointer-events: none;
+         color: #fff; text-shadow: 0 .08em .5em rgba(0, 0, 0, .6); }
+ .slot.t { top: 0; } .slot.b { bottom: 0; }
+ .slot.m { top: 50%; transform: translateY(-50%); }
+ .slot.l { left: 0; align-items: flex-start; text-align: left; }
+ .slot.r { right: 0; align-items: flex-end; text-align: right; }
+ .slot.c { left: 0; right: 0; align-items: center; text-align: center; }
+ .slot .time { font-weight: 250; }
+ .slot .wx { margin: 0; align-self: auto; }
+ .slot .wx .out { font-size: .7em; }
+ .slot #av { position: static; }
+ .veil { position: fixed; inset: 0; z-index: 2; pointer-events: none; }
 """
+
+# Where each can go on the screen saver: three rows, three columns.
+SAVER_PLACES = ("top_left", "top", "top_right", "left", "center", "right",
+                "bottom_left", "bottom", "bottom_right")
+# The face's width on the screen saver, in vmin; 26 is its size on the page
+# of links, a button's.
+AVATAR_SIZES = {"small": 18, "medium": 26, "large": 36, "huge": 46}
+# How dark the veil is under what sits on the pictures.
+SAVER_SHADES = {"none": 0.0, "light": 0.32, "strong": 0.55}
+# What the screen saver starts with: the time and the date at the top left,
+# the weather at the top right, the face at the bottom right, all in white.
+SAVER_LOOK = {
+    "clock_position": "top_left", "clock_size": "medium",
+    "clock_color": "white",
+    "date_position": "top_left", "date_size": "medium",
+    "date_color": "white",
+    "weather_position": "top_right", "weather_size": "medium",
+    "weather_color": "white",
+    "avatar_position": "bottom_right", "avatar_size": "medium",
+    "shade": "light",
+}
+
+
+def saver_look(given=None):
+    """The screen saver's places, sizes and colours, every one a known word.
+
+    Whatever is missing or unknown is the default, never a failure: these
+    come from a form, and a word nobody expected is a typo rather than a
+    reason for a panel to show nothing.
+    """
+    look = dict(SAVER_LOOK)
+    for key, value in (given or {}).items():
+        if key not in look:
+            continue
+        value = str(value or "").strip().lower()
+        if key.endswith("_position"):
+            ok = value in SAVER_PLACES
+        elif key.endswith("_color"):
+            ok = value in PALETTES or value == FOLLOW_THEME
+        elif key == "shade":
+            ok = value in SAVER_SHADES
+        else:
+            ok = value in CLOCK_SIZES
+        if ok:
+            look[key] = value
+    return look
+
+
+def _saver_slot(place):
+    row = ("t" if place.startswith("top") else
+           "b" if place.startswith("bottom") else "m")
+    col = "l" if "left" in place else "r" if "right" in place else "c"
+    return row + " " + col
+
+
+def _saver_layout(look, parts):
+    """The screen saver's corners, and the rules that size and colour them.
+
+    `parts` is [(what, markup)] in stacking order; `what` is clock, date,
+    weather or avatar, and its place is look[what + "_position"].
+    """
+    places = {}
+    for what, markup in parts:
+        places.setdefault(look[what + "_position"], []).append(markup)
+    markup = "".join(
+        f'<div class="slot {_saver_slot(place)}">{"".join(inside)}</div>'
+        for place, inside in places.items())
+
+    def tint(name):
+        return PALETTES.get(name, "var(--ink)")
+    rules = [
+        f" .slot .time {{ font-size: {CLOCK_SIZES[look['clock_size']]};"
+        f" color: {tint(look['clock_color'])}; }}",
+        f" .slot .date {{ font-size: {DATE_SIZES[look['date_size']]};"
+        f" color: {tint(look['date_color'])}; }}",
+        f" .slot .wx {{ font-size: {WEATHER_SIZES[look['weather_size']]}; }}",
+        f" .slot .wx .out {{ color: {tint(look['weather_color'])}; }}",
+    ]
+    width = AVATAR_SIZES[look["avatar_size"]]
+    # The face's box keeps the drawing's own proportions, 174 x 142.
+    rules.append(f" .slot #av {{ width: {width}vmin;"
+                 f" height: {width * 142 / 174:.2f}vmin; }}")
+    strength = SAVER_SHADES[look["shade"]]
+    if strength and places:
+        veils = []
+        for place in places:
+            x = "0%" if "left" in place else "100%" if "right" in place \
+                else "50%"
+            y = ("0%" if place.startswith("top") else
+                 "100%" if place.startswith("bottom") else "50%")
+            veils.append(f"radial-gradient(ellipse 55% 45% at {x} {y}, "
+                         f"rgba(0, 0, 0, {strength}), transparent 70%)")
+        markup = '<div class="veil"></div>' + markup
+        rules.append(f" .veil {{ background: {', '.join(veils)}; }}")
+    return markup, "\n".join(rules) + "\n"
 
 
 # A slideshow, and it is worth being clear about what it costs before
@@ -2125,7 +2227,7 @@ def render(links, title="", subtitle="", theme="dark",
            weather_color=FOLLOW_THEME,
            tile_background="solid", tile_size=DEFAULT_SIZE,
            tile_text_color=FOLLOW_THEME, status=False,
-           saver=False, saver_date=True):
+           saver=False, saver_date=True, saver_clock=True, look=None):
     """The page, as one string.
 
     `saver` draws the screen saver instead of the page of links: the
@@ -2257,6 +2359,27 @@ def render(links, title="", subtitle="", theme="dark",
             now += (f'<span class="wx"><span class="sky" id="sky">{sky}</span>'
                     f'<span class="out" id="temp">{temp}</span></span>')
         now += "</div>"
+    saver_avatar = ""
+    if saver:
+        # Every one in a place of its own -- see SAVER_CSS. The time is kept,
+        # hidden, when only the date is asked for: the clock's script fills
+        # both and needs it to be there.
+        look = saver_look(look)
+        parts = []
+        if clock:
+            parts.append(("clock", '<span class="time" id="t"'
+                          + ("" if saver_clock else " hidden") + "></span>"))
+            if saver_date:
+                parts.append(("date", '<span class="date" id="d"></span>'))
+        if weather is not None:
+            parts.append(("weather",
+                          f'<span class="wx"><span class="sky" id="sky">{sky}'
+                          f'</span><span class="out" id="temp">{temp}</span>'
+                          f'</span>'))
+        if avatar:
+            saver_avatar = avatar_html(avatar_weather(weather))
+            parts.append(("avatar", saver_avatar))
+        now, saver_rules = _saver_layout(look, parts)
     if status and not saver:
         now = (f'<div class="st"><span class="net" id="net" hidden>'
                f'{WIFI_SVG}</span><span class="bt" id="bt" hidden>'
@@ -2282,7 +2405,7 @@ def render(links, title="", subtitle="", theme="dark",
                  weather_size, align, focus_color, weather_color,
                  tile_background, tile_size, tile_text_color)
     if saver:
-        sheet += SAVER_CSS + ("" if saver_date else " .date { display: none; }\n")
+        sheet += SAVER_CSS + saver_rules
 
     try:
         every, fade, rescan = float(every), float(fade), float(rescan)
@@ -2310,7 +2433,9 @@ def render(links, title="", subtitle="", theme="dark",
     if avatar:
         sheet += AVATAR_CSS % {"place": _avatar_place(avatar_at),
                                "height": AVATAR_HEIGHT}
-        moving.append(avatar_html(avatar_weather(weather))
+        # On the screen saver the face is already in its corner.
+        moving.append(("" if saver_avatar else
+                       avatar_html(avatar_weather(weather)))
                       + AVATAR_JS % {"path": AVATAR_PATH} + FACE_JS)
         if voice:
             moving.append(AVATAR_VOICE_JS % {"path": VOICE_PATH})
@@ -2379,7 +2504,7 @@ def start(links, title="", subtitle="", theme="dark",
           tile_background="solid", tile_size=DEFAULT_SIZE,
           tile_text_color=FOLLOW_THEME, files_root=None, choice_file=None,
           status=None, saver_after=0, saver_clock=True, saver_date=True,
-          saver_weather=True, saver_avatar=True):
+          saver_weather=True, saver_avatar=True, saver_layout=None):
     """Serve the page for as long as the add-on runs. Returns its address.
 
     One call is one launcher: its links, its look, its weather, its
@@ -2557,12 +2682,8 @@ def start(links, title="", subtitle="", theme="dark",
                 tile_background=tile_background, tile_size=tile_size,
                 tile_text_color=tile_text_color,
                 status=status is not None,
-                saver=saver, saver_date=saver_date).encode()
-            if saver and not saver_clock:
-                # The clock line carries the date under it, so a saver with
-                # the date and no time keeps the line and hides the time.
-                body = body.replace(b"</style>",
-                                    b" .time { display: none; }\n</style>", 1)
+                saver=saver, saver_date=saver_date, saver_clock=saver_clock,
+                look=saver_layout).encode()
             held = cache[which] = (key, body)
         return held[1]
 

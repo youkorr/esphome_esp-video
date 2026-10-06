@@ -1,5 +1,5 @@
 name: Portall
-version: "4.43.1"
+version: "4.44.0"
 # Home Assistant identifies an add-on by its slug, so this one moving from
 # usb_display_panel to portall makes the Supervisor see a NEW add-on: options
 # are not carried over and /data starts empty, which means the browser
@@ -331,6 +331,25 @@ options:
       date: true
       weather: true
       avatar: true
+      # Where each one goes, how big it is and what colour, on the screen
+      # saver. A place is top_left, top, top_right, left, center, right,
+      # bottom_left, bottom or bottom_right; two given the same place stack
+      # in the order time, date, weather, avatar. Sizes and colours are the
+      # page of links' own lists.
+      clock_position: top_left
+      clock_size: medium
+      clock_color: white
+      date_position: top_left
+      date_size: medium
+      date_color: white
+      weather_position: top_right
+      weather_size: medium
+      weather_color: white
+      avatar_position: bottom_right
+      avatar_size: medium
+      # A veil under what sits on the pictures, only in those corners:
+      # none, light or strong.
+      shade: light
   # A launcher of a panel's OWN: its links, its columns, its clock, its
   # wallpaper, everything -- independent of every other panel. One entry per
   # panel, named by the panel's name. A panel with no entry here shows the
@@ -465,6 +484,18 @@ schema:
       date: bool?
       weather: bool?
       avatar: bool?
+      clock_position: list(top_left|top|top_right|left|center|right|bottom_left|bottom|bottom_right)?
+      clock_size: list(small|medium|large|huge)?
+      clock_color: list(theme|slate|gray|zinc|neutral|stone|red|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose|white|black)?
+      date_position: list(top_left|top|top_right|left|center|right|bottom_left|bottom|bottom_right)?
+      date_size: list(small|medium|large|huge)?
+      date_color: list(theme|slate|gray|zinc|neutral|stone|red|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose|white|black)?
+      weather_position: list(top_left|top|top_right|left|center|right|bottom_left|bottom|bottom_right)?
+      weather_size: list(small|medium|large|huge)?
+      weather_color: list(theme|slate|gray|zinc|neutral|stone|red|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose|white|black)?
+      avatar_position: list(top_left|top|top_right|left|center|right|bottom_left|bottom|bottom_right)?
+      avatar_size: list(small|medium|large|huge)?
+      shade: list(none|light|strong)?
   launchers:
     - panel: str
       links:
@@ -512,6 +543,18 @@ schema:
       slideshow_date: bool?
       slideshow_weather: bool?
       slideshow_avatar: bool?
+      slideshow_clock_position: list(top_left|top|top_right|left|center|right|bottom_left|bottom|bottom_right)?
+      slideshow_clock_size: list(small|medium|large|huge)?
+      slideshow_clock_color: list(theme|slate|gray|zinc|neutral|stone|red|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose|white|black)?
+      slideshow_date_position: list(top_left|top|top_right|left|center|right|bottom_left|bottom|bottom_right)?
+      slideshow_date_size: list(small|medium|large|huge)?
+      slideshow_date_color: list(theme|slate|gray|zinc|neutral|stone|red|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose|white|black)?
+      slideshow_weather_position: list(top_left|top|top_right|left|center|right|bottom_left|bottom|bottom_right)?
+      slideshow_weather_size: list(small|medium|large|huge)?
+      slideshow_weather_color: list(theme|slate|gray|zinc|neutral|stone|red|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose|white|black)?
+      slideshow_avatar_position: list(top_left|top|top_right|left|center|right|bottom_left|bottom|bottom_right)?
+      slideshow_avatar_size: list(small|medium|large|huge)?
+      slideshow_shade: list(none|light|strong)?
   debug:
     stats: bool?
     show_media: bool?

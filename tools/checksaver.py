@@ -136,8 +136,9 @@ def launcher_half(browser, folder):
           page.evaluate("getComputedStyle(document.getElementById('t'))"
                         ".display") != "none")
     check("and not the date it was told to leave out",
-          page.evaluate("getComputedStyle(document.getElementById('d'))"
-                        ".display") == "none")
+          page.evaluate("(() => { const d = document.getElementById('d');"
+                        " return !d || getComputedStyle(d).display == 'none';"
+                        " })()"))
     check("nor the face it was told to leave out",
           page.locator(".avatar, #avatar").count() == 0)
     seen = set()
@@ -148,6 +149,77 @@ def launcher_half(browser, folder):
             ".backgroundImage).join('|')"))
         page.wait_for_timeout(250)
     check("and changes its picture by itself", len(seen) >= 2, seen)
+    page.close()
+
+    # Reported as "tu as mis clock en huge trop grand, date, meteo en bas de
+    # l'ecran sauf avatar ... il faut que l'utilisateur doit tout choisir":
+    # each one where it is put, as big and in the colour it is given.
+    layout = {"clock_position": "bottom_right", "clock_size": "small",
+              "clock_color": "amber", "date_position": "top",
+              "date_size": "huge", "weather_position": "bottom_left",
+              "weather_color": "sky", "avatar_position": "top_left",
+              "avatar_size": "large", "shade": "strong"}
+    placed = launcher.start(links, background=folder, slideshow=True,
+                            every=1, fade=0, port=launcher.ANY_PORT,
+                            saver_after=2, avatar=True, saver_layout=layout,
+                            weather=lambda: {"condition": "sunny",
+                                             "text": "21°C"})
+    page = browser.new_page(viewport={"width": W, "height": H})
+    page.goto(placed.split("?")[0].rstrip("/") + "/saver")
+    page.wait_for_timeout(400)
+    box = lambda sel: page.evaluate(
+        f"(() => {{ const r = document.querySelector({sel!r})"
+        ".getBoundingClientRect(); return [r.left, r.top, r.right, r.bottom,"
+        " r.width, r.height]; })()")
+    t, d, wx, av = box("#t"), box("#d"), box(".wx"), box("#av")
+    check("the time goes where it is put (bottom right)",
+          t[2] > W * .8 and t[3] > H * .8, t)
+    check("the date where it is put (top, centred)",
+          d[1] < H * .25 and abs((d[0] + d[2]) / 2 - W / 2) < W * .05, d)
+    check("the weather where it is put (bottom left)",
+          wx[4] > 20 and wx[0] < W * .15 and wx[3] > H * .8, wx)
+    check("the face where it is put (top left)",
+          av[0] < W * .15 and av[1] < H * .15, av)
+    style = lambda sel, prop: page.evaluate(
+        f"getComputedStyle(document.querySelector({sel!r})).{prop}")
+    # small is clamp(22px, 5vw, 40px): 40 px at 800 wide; huge date 28.8.
+    check("the time at the size it is given",
+          style("#t", "fontSize") == "40px", style("#t", "fontSize"))
+    check("the date at the size it is given",
+          style("#d", "fontSize") == "28.8px", style("#d", "fontSize"))
+    check("the face at the size it is given (36vmin)",
+          abs(av[4] - 0.36 * min(W, H)) < 2, av)
+    check("the time in the colour it is given",
+          style("#t", "color") == "rgb(245, 158, 11)", style("#t", "color"))
+    check("the temperature in the colour it is given",
+          style(".wx .out", "color") == "rgb(14, 165, 233)")
+    check("the date in white when nothing is said",
+          style("#d", "color") == "rgb(255, 255, 255)")
+    check("a strong veil under each corner used, and nowhere else",
+          style(".veil", "backgroundImage").count("radial-gradient") == 4
+          and "0.55" in style(".veil", "backgroundImage"))
+    page.close()
+    # Nothing said: the time and the date top left, the weather top right,
+    # the face bottom right, the time at the page of links' medium -- not
+    # the lock screen's huge one it used to be.
+    plain = launcher.start(links, background=folder, slideshow=True, every=1,
+                           fade=0, port=launcher.ANY_PORT, saver_after=2,
+                           avatar=True, saver_layout={"clock_position": "nope"},
+                           weather=lambda: {"condition": "sunny",
+                                            "text": "21°C"})
+    page = browser.new_page(viewport={"width": W, "height": H})
+    page.goto(plain.split("?")[0].rstrip("/") + "/saver")
+    page.wait_for_timeout(400)
+    t, d, wx, av = box("#t"), box("#d"), box(".wx"), box("#av")
+    check("by default the time and the date top left, one above the other",
+          t[0] < W * .1 and t[1] < H * .2 and d[1] >= t[3] - 2, (t, d))
+    check("the weather top right",
+          wx[4] > 20 and wx[2] > W * .85 and wx[1] < H * .2, wx)
+    check("the face bottom right", av[2] > W * .85 and av[3] > H * .85, av)
+    check("the time at medium (clamp(34px, 8vw, 68px) is 64px here)",
+          style("#t", "fontSize") == "64px", style("#t", "fontSize"))
+    check("and a word nobody expected is the default, never a failure",
+          t[0] < W * .1)
     page.close()
 
     # Reported as "cela remplace mon fond ecran": a wallpaper of its own
@@ -233,6 +305,38 @@ def addon_half():
     run.route_to_launcher(panels, "http://127.0.0.1:8099/")
     check("a delay of 0 hands nothing",
           "--saver" not in run.command_for(dict(panels[0])))
+
+    # The places, sizes and colours reach the page from the form -- the
+    # house's grouped keys and a launchers: entry's flat ones alike.
+    import launcher
+    seen = []
+    real = launcher.start
+    launcher.start = lambda *a, **k: seen.append(k) or "http://x/"
+    try:
+        house = run.regroup({
+            "links": [{"name": "Site", "url": "http://x/"}],
+            "launcher": {"slideshow": {"enabled": True,
+                                       "clock_position": "bottom",
+                                       "clock_size": "small",
+                                       "shade": "none"}},
+        })
+        run.start_launcher(house, port=launcher.ANY_PORT)
+        own = run.launcher_config(house, {
+            "panel": "salon", "links": [{"name": "Site", "url": "http://x/"}],
+            "slideshow_avatar_position": "top", "slideshow_clock_size": "huge"})
+        run.start_launcher(own, port=launcher.ANY_PORT)
+    finally:
+        launcher.start = real
+    check("the house's places reach the page",
+          seen and seen[0].get("saver_layout") == {
+              "clock_position": "bottom", "clock_size": "small",
+              "shade": "none"}, seen and seen[0].get("saver_layout"))
+    got = launcher.saver_look(seen[1].get("saver_layout")) if len(seen) > 1 \
+        else {}
+    check("and a screen's own launcher lays its own over them",
+          got.get("avatar_position") == "top"
+          and got.get("clock_size") == "huge"
+          and got.get("clock_position") == "bottom", got)
 
 
 def sender_half(folder):

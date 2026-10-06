@@ -260,6 +260,42 @@ configuration:
           avatar:
             name: 😊 Avatar on the screen saver
             description: If it is on for the page of links.
+          clock_position:
+            name: '🕒 Time: place on the screen saver'
+            description: 'top_left, top, top_right, left, center, right, bottom_left, bottom or bottom_right.
+              Two in the same place stack: time, date, weather, avatar.'
+          clock_size:
+            name: '🕒 Time: size on the screen saver'
+          clock_color:
+            name: '🕒 Time: colour on the screen saver'
+            description: white, or theme = the theme's own colour.
+          date_position:
+            name: '📅 Date: place on the screen saver'
+            description: 'top_left, top, top_right, left, center, right, bottom_left, bottom or bottom_right.
+              Two in the same place stack: time, date, weather, avatar.'
+          date_size:
+            name: '📅 Date: size on the screen saver'
+          date_color:
+            name: '📅 Date: colour on the screen saver'
+            description: white, or theme = the theme's own colour.
+          weather_position:
+            name: '⛅ Weather: place on the screen saver'
+            description: 'top_left, top, top_right, left, center, right, bottom_left, bottom or bottom_right.
+              Two in the same place stack: time, date, weather, avatar.'
+          weather_size:
+            name: '⛅ Weather: size on the screen saver'
+          weather_color:
+            name: '⛅ Weather: colour on the screen saver'
+            description: The temperature; the sky is an emoji and keeps its colours.
+          avatar_position:
+            name: '😊 Avatar: place on the screen saver'
+            description: 'top_left, top, top_right, left, center, right, bottom_left, bottom or bottom_right.
+              Two in the same place stack: time, date, weather, avatar.'
+          avatar_size:
+            name: '😊 Avatar: size on the screen saver'
+          shade:
+            name: 🌗 Veil on the screen saver
+            description: 'Darkens only the corners something sits in: none, light or strong.'
   launchers:
     name: 🧩 5 · A screen's own page of links
     description: To give a screen ITS own buttons and look, independent of the others. Add one entry per
@@ -393,6 +429,42 @@ configuration:
         name: ⛅ Weather on the screen saver
       slideshow_avatar:
         name: 😊 Avatar on the screen saver
+      slideshow_clock_position:
+        name: '🕒 Time: place on the screen saver'
+        description: 'top_left, top, top_right, left, center, right, bottom_left, bottom or bottom_right.
+          Two in the same place stack: time, date, weather, avatar.'
+      slideshow_clock_size:
+        name: '🕒 Time: size on the screen saver'
+      slideshow_clock_color:
+        name: '🕒 Time: colour on the screen saver'
+        description: white, or theme = the theme's own colour.
+      slideshow_date_position:
+        name: '📅 Date: place on the screen saver'
+        description: 'top_left, top, top_right, left, center, right, bottom_left, bottom or bottom_right.
+          Two in the same place stack: time, date, weather, avatar.'
+      slideshow_date_size:
+        name: '📅 Date: size on the screen saver'
+      slideshow_date_color:
+        name: '📅 Date: colour on the screen saver'
+        description: white, or theme = the theme's own colour.
+      slideshow_weather_position:
+        name: '⛅ Weather: place on the screen saver'
+        description: 'top_left, top, top_right, left, center, right, bottom_left, bottom or bottom_right.
+          Two in the same place stack: time, date, weather, avatar.'
+      slideshow_weather_size:
+        name: '⛅ Weather: size on the screen saver'
+      slideshow_weather_color:
+        name: '⛅ Weather: colour on the screen saver'
+        description: The temperature; the sky is an emoji and keeps its colours.
+      slideshow_avatar_position:
+        name: '😊 Avatar: place on the screen saver'
+        description: 'top_left, top, top_right, left, center, right, bottom_left, bottom or bottom_right.
+          Two in the same place stack: time, date, weather, avatar.'
+      slideshow_avatar_size:
+        name: '😊 Avatar: size on the screen saver'
+      slideshow_shade:
+        name: 🌗 Veil on the screen saver
+        description: 'Darkens only the corners something sits in: none, light or strong.'
   debug:
     name: 🐞 6 · Diagnostics
     description: 'Leave off. Only turn on to track down a problem: it fills the log.'

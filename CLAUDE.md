@@ -1802,7 +1802,7 @@ the dashboard, where it is invisible while the keys go on working.
 ahead of the `pip install` as well as the `ADD`s, so a bump refetched
 everything — at the cost of the browser download on each update.
 `present_browser()` prints the Chromium version at startup and warns below 114,
-so this is never diagnosed by guesswork again. Currently **4.43.1**.
+so this is never diagnosed by guesswork again. Currently **4.44.0**.
 
 **CORRECTED in 4.29.5: the cost was every update, and a pin removes it.**
 Asked as *"verifie addon ... si il ya pas des elements qui freine la
@@ -11511,6 +11511,26 @@ on a panel, its page of links showed the first slide instead of
 saver's. With a saver and a `background` given, the page of links is that
 wallpaper and only /saver gets the addresses; with no `background` it keeps
 the first address, still. checksaver.py's new case fails against 4.43.0.
+
+**4.44.0: every one in a place of its own.** Reported as *"tu as mis clock en
+huge trop grand, date, meteo en bas de l'ecran sauf avatar ... il faut que
+l'utilisateur doit tout choisir"*, with *"fait moi un brouillon"* first: a
+mock-up page with the proposed settings was shown and approved before any
+code. SAVER_CSS was a lock screen's fixed layout (time low left at
+clamp(56px,14vw,150px), larger than "huge"); now `_saver_layout()` puts each
+of time, date, weather and avatar in one of nine `.slot`s (fixed, flex
+column, so things given one place stack), sized from the page of links'
+CLOCK_SIZES/DATE_SIZES/WEATHER_SIZES and AVATAR_SIZES (vmin), coloured from
+PALETTES, and draws a veil only under the corners used. `saver_look()` turns
+any unknown word into the default. The avatar's markup goes INTO its slot
+(`#av` static there; `.slot #av` out-ranks AVATAR_CSS's `#av`). Twelve keys in
+the slideshow group (`launcher_slideshow_<key>`, `SAVER_LOOK_KEYS` in run.py;
+`slideshow_<key>` on a launchers: entry), added to the group's defaults so
+saved installs get them. checksaver.py reads the boxes, font sizes and
+colours in a browser, and the form-to-page path through regroup() and
+launcher_config(). A first fixture fed weather as Home Assistant's raw state
+rather than Weather's {"condition", "text"}, so `.wx` was empty and the
+position cases passed on a zero-width box; they assert a width now.
 
 ## Repository conventions
 

@@ -1339,6 +1339,22 @@ launcher:
     avatar: true
 ```
 
+**Where each one goes, how big and what colour** is yours to choose, beside
+those four switches:
+
+| setting | what it takes | default |
+|---|---|---|
+| `clock_position`, `date_position`, `weather_position`, `avatar_position` | `top_left`, `top`, `top_right`, `left`, `center`, `right`, `bottom_left`, `bottom`, `bottom_right` | time and date `top_left`, weather `top_right`, avatar `bottom_right` |
+| `clock_size`, `date_size`, `weather_size`, `avatar_size` | `small`, `medium`, `large`, `huge` -- the page of links' own sizes | `medium` |
+| `clock_color`, `date_color`, `weather_color` | the same colours as the page of links (`white`, `amber`, `sky`…; `theme` follows the theme) | `white` |
+| `shade` | `none`, `light`, `strong`: a veil only under the corners something sits in | `light` |
+
+Two given the same place stack in the order time, date, weather, avatar. The
+weather's colour is the temperature's; the sky is an emoji and keeps its own.
+On a screen's own launcher (`launchers:`) the same settings are flat:
+`slideshow_clock_position`, `slideshow_avatar_size`, `slideshow_shade` and so
+on.
+
 **Make the screen's own backlight timeout longer than `after`**, in its ESPHome
 YAML, or it goes dark before the pictures are ever seen. `after: 0` keeps the
 old behaviour instead: the pictures change behind the links, with no screen
