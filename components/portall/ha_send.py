@@ -6893,20 +6893,41 @@ def main():
                 print(f"Sharp: the still picture could not be read ({err})",
                       flush=True)
                 return None
-            for q, colour in ((quality, 0), (quality - 10, 0),
-                              (quality - 20, 0), (quality, 2)):
+            # Full colour only on a width the board can lay out: its decoder
+            # rounds a 4:4:4 picture's rows up to 8 pixels and a 4:2:0 one's
+            # to 16 (ESP-IDF's jpeg_parse_marker.c, mcux = hi * 8), and the
+            # board steps through the decoded rows 16 at a time whatever was
+            # sent. On a width that is not a multiple of 16 -- a Waveshare
+            # 7B drawn portrait, 600 wide -- every row would land 8 pixels
+            # off the one before it. The capture is still lossless and at
+            # the panel's own quality, which is most of the gain.
+            if picture.width % 16 == 0:
+                tries = ((quality, 0), (quality - 10, 0), (quality - 20, 0),
+                         (quality, 2))
+            else:
+                tries = ((quality, 2), (quality - 10, 2), (quality - 20, 2))
+                if "width" not in refine_said:
+                    refine_said.add("width")
+                    print(f"Sharp: {picture.width} pixels wide is not a "
+                          f"multiple of 16, so the finished picture keeps "
+                          f"the colour halved; the panel lays out a full-"
+                          f"colour one 8 pixels off per row at this width",
+                          flush=True)
+            for q, colour in tries:
                 buffer = io.BytesIO()
                 picture.save(buffer, format="JPEG",
                              quality=max(1, min(95, q)), subsampling=colour)
                 payload = buffer.getvalue()
                 if len(payload) <= args.refine_bytes:
-                    if (q, colour) != (quality, 0) and "fit" not in refine_said:
+                    if (q, colour) != tries[0] and "fit" not in refine_said:
                         refine_said.add("fit")
                         print(f"Sharp: the finished picture weighs more than "
                               f"--refine-bytes ({args.refine_bytes}) at "
-                              f"quality {quality} in full colour, so it goes "
-                              f"at {q}" + ("" if colour == 0 else
-                                           " with the colour halved"),
+                              f"quality {quality}"
+                              + (" in full colour" if tries[0][1] == 0 else "")
+                              + f", so it goes at {q}"
+                              + ("" if colour == tries[0][1] else
+                                 " with the colour halved"),
                               flush=True)
                     return payload
             if "big" not in refine_said:

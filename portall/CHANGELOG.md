@@ -1,5 +1,15 @@
 # Changelog
 
+## 4.45.1
+
+- **A screen whose width is not a multiple of 16** (a Waveshare 7B drawn
+  portrait, 600 wide) gets the sharp picture with the colour halved. Its
+  decoder lays out a full-colour picture on rows the board does not expect,
+  and it would have come out slanted. Every other screen is unchanged.
+- `tools/test444.py` in the repository shows whether a screen draws full
+  colour: a test card under a grey band (as always) and a green band (full
+  colour), in turn. See *A sharp picture once the screen is still*.
+
 ## 4.45.0
 
 - **Sharp icons, text and photos on a still screen.** Half a second after the

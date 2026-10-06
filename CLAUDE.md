@@ -1802,7 +1802,7 @@ the dashboard, where it is invisible while the keys go on working.
 ahead of the `pip install` as well as the `ADD`s, so a bump refetched
 everything — at the cost of the browser download on each update.
 `present_browser()` prints the Chromium version at startup and warns below 114,
-so this is never diagnosed by guesswork again. Currently **4.45.0**.
+so this is never diagnosed by guesswork again. Currently **4.45.1**.
 
 **CORRECTED in 4.29.5: the cost was every update, and a pin removes it.**
 Asked as *"verifie addon ... si il ya pas des elements qui freine la
@@ -11592,6 +11592,32 @@ cases fail. A tap on a launcher tile measured the same either side of it
 checkkeyboard and checkbookmarks each failed once while two suites ran at
 once on this container and passed alone, new and old sender alike -- run the
 browser checks one at a time. **Not seen on a panel.**
+
+**4.45.1: a 4:4:4 picture's rows are 8-aligned, and the board steps 16.**
+Asked as *"je pense que nous pouvons tester?"* about the decoder taking full
+colour. Read in ESP-IDF v5.5.5 before any test: `jpeg_decode.c` maps sampling
+0x11 to YUV444 and allows it into RGB565 on every P4 revision (only 444 into
+YUV422/420 is refused below v3.0), so the decoder should take it. But
+`jpeg_parse_marker.c` rounds the picture to `mcux = hi * 8` -- 8 pixels for
+4:4:4, 16 for 4:2:0 -- and `portall.cpp` takes the decoded stride as the
+width rounded to 16 whatever was sent (`padded_w`, `x_pad`, the PPA's input).
+At a width that is a multiple of 16 the two agree; at 600 (a Waveshare 7B
+drawn portrait) every row would land 8 pixels off. The sender now keeps the
+finished picture 4:2:0 at such a width and says so once; `checksharp.py`'s
+600-wide case fails against 4.45.0. The board half -- `padded_w` from
+`jpeg_decoder_get_info()`'s `sample_method` -- is identified, not written.
+Also: the `--refine-bytes 9000` case passed only because of how one browser
+drew the text; with chromium-1194 nothing fits 9000, which is right, so it
+asserts the cap is never exceeded rather than that something fits.
+
+`tools/test444.py` is the test a household runs: stdlib plus Pillow, from
+Windows, sends a test card alternately 4:2:0 under a grey band and 4:4:4 under
+a green band, at one quality so the colour is the only difference. A refusal
+is a green band that never appears and `JPEG decode failed` in the board's
+log. Checked against a fake panel reading the sampling factors back: (2,2)
+then (1,1). Only one sender reaches a panel (`accept()` serves one client at a
+time), so the screen is switched off in the add-on first. **Not run on a
+panel.**
 
 ## Repository conventions
 
