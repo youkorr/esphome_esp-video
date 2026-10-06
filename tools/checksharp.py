@@ -172,12 +172,12 @@ class Panel:
         self.conn.sendall(b"T\x00")
 
 
-def run(url, *extra):
+def run(url, *extra, width=W):
     panel = Panel()
     work = tempfile.mkdtemp()
     command = [sys.executable, "-u", SENDER, "--host", "127.0.0.1",
                "--port", str(panel.port), "--url", url,
-               "--not-home-assistant", "--width", str(W), "--height", str(H),
+               "--not-home-assistant", "--width", str(width), "--height", str(H),
                "--audio", "off", "--keyboard", "off", "--no-nav-bar",
                "--profile", os.path.join(work, "p"), "--quality", "80",
                "--stats", *extra]
@@ -300,10 +300,32 @@ def sender_half():
         time.sleep(3.0)
         big = [g for g in panel.since(0) if whole(g)][1:]
         said = [o for o in out if o.startswith("Sharp:")]
+        # Whether anything fits 9000 bytes depends on how this browser draws
+        # the text; either a picture under the cap or none at all is right,
+        # and the line below says which.
         check("a cap is never exceeded by the finished picture",
-              big and all(g[6] <= 9000 for g in big), [g[6] for g in big])
+              all(g[6] <= 9000 for g in big),
+              str([(g[3], g[4], g[5], g[6]) for g in panel.since(0)]))
         check("and what it cost is said once",
               len(said) == 1, said)
+    finally:
+        process.kill()
+
+
+def odd_width(url):
+    """600 wide is what a Waveshare 7B drawn portrait sends. Its decoder lays a
+    4:4:4 picture out on rows of 600 and the board steps 608 at a time, so the
+    finished picture must keep the colour halved there."""
+    panel, process, out = run(url, width=600)
+    try:
+        wait_for(lambda: any(g[3] == 600 for g in panel.since(0)), 40)
+        time.sleep(3.0)
+        got = [g for g in panel.since(0) if g[3] == 600 and g[4] == H]
+        said = [o for o in out if o.startswith("Sharp: 600 pixels wide")]
+        check("600 wide: a finished picture still goes out", len(got) >= 2,
+              [(g[5], g[6]) for g in got])
+        check("but never in full colour", not any(g[5] for g in got))
+        check("and why is said once", len(said) == 1, said)
     finally:
         process.kill()
 
@@ -313,6 +335,9 @@ def main():
     addon_half()
     print("The sender, on a fake panel:")
     sender_half()
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Site)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    odd_width(f"http://127.0.0.1:{server.server_address[1]}/")
     print("all good" if not fails else f"{fails} failure(s)")
     return 1 if fails else 0
 

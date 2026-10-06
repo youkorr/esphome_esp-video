@@ -1099,6 +1099,24 @@ its YAML. If a screen ever stops showing the sharp picture (it is JPEG in full
 colour, which the ESP32-P4's decoder accepts but which has not been seen on
 every panel), turn **`sharp`** off in that screen's *Advanced*.
 
+**To see for yourself whether a screen draws full colour**, `tools/test444.py`
+in this repository sends a test card to it in turn as 4:2:0, under a grey
+band, and 4:4:4, under a green band. A screen that refuses full colour never
+shows the green band, and its own log says `JPEG decode failed`. Switch the
+screen off in the add-on first (only one sender reaches a screen at a time),
+then from any computer with Python:
+
+    pip install pillow
+    python test444.py --host 192.168.1.11 --width 800 --height 1280
+
+with the `width` and `height` of the `portall:` block in that screen's YAML.
+The thin red and yellow lines are what to look at: grey-ish in 4:2:0, their own
+colour in 4:4:4.
+
+A screen whose width is not a multiple of 16 -- a Waveshare 7B drawn portrait,
+600 wide -- gets the sharp picture with the colour halved: its decoder lays a
+full-colour picture out 8 pixels off per row there.
+
 `icon` takes a **name from the list below, in French or in English** --
 `cuisine` or `kitchen`, `serrure` or `lock`, `reglages` or `settings` -- or
 anything you type yourself: an emoji, a letter, two letters. The
