@@ -1802,7 +1802,7 @@ the dashboard, where it is invisible while the keys go on working.
 ahead of the `pip install` as well as the `ADD`s, so a bump refetched
 everything — at the cost of the browser download on each update.
 `present_browser()` prints the Chromium version at startup and warns below 114,
-so this is never diagnosed by guesswork again. Currently **4.46.0**.
+so this is never diagnosed by guesswork again. Currently **4.46.1**.
 
 **CORRECTED in 4.29.5: the cost was every update, and a pin removes it.**
 Asked as *"verifie addon ... si il ya pas des elements qui freine la
@@ -11681,6 +11681,54 @@ and the shipped sender at quality 95 on a page of buttons -- dithered for a
 panel that says nothing (bands 1.67 -> 0.53 through RGB565), not for one
 that says 24, not with `--no-dither`, not at 80. Against 4.45.1 four cases
 fail. `checkcodegen.py --show` now prints `set_color_depth`.
+
+## The finished picture was the slowdown, in 16 bits and 24 alike -- 4.46.1
+
+**Reported as *"depuis le 24 bits je ressent des ralentissement ... meme en
+16 bit meme probleme"*.** 24 bits was the suspect because it was the newest
+thing on the board; the same in 16 bits says it is something both share, and
+that is the add-on's finished picture (4.45.0) and its dither (4.46.0).
+Measured with the shipped sender, a fake panel, 800x1280, quality 95, a tap
+every 0.6 to 1.4 s:
+
+| | finished picture as shipped | `--no-refine` |
+|---|---|---|
+| worst turn of the loop | **95-277 ms** | 14-16 ms |
+| link on a nearly still page | **135-167 KiB/s** | 8-10 KiB/s |
+| worst tap to colour on the panel | **461 ms** | 173 ms |
+
+Split, per finished picture: `captureScreenshot` 50-110 ms, PNG decode 17,
+the float dither **55 ms**, encodes 5-8 each and up to six of them -- all in
+the loop -- and a WHOLE panel of 160-290 KiB on the link and through the
+board's decoder after every pause. A remote pressed about once a second kept
+landing in the half-second pause.
+
+- **Only the tiles sent soft since the last finished picture are sent
+  again.** `soft` is a mask of TILE squares, marked from every rectangle sent
+  and cleared by a finished picture; `tile_rectangles()` is the second half
+  of `changed_rectangles()` split out (300 random cases give the same
+  rectangles as before), and the same rect_cost rule decides between pieces
+  and a whole. The lossless capture is still the whole page, so its composed
+  picture is kept (`refined_image`) and encoded whole only when a panel needs
+  everything again with nothing new -- and if that whole one is over
+  --refine-bytes, the soft whole goes and is finished again in pieces. Per
+  rectangle, full colour only where its width is a multiple of 16.
+- **`REFINE_AFTER_INPUT_S = 1.5`** after the last touch, key or request, as
+  well as 0.5 s after the last change: the capture holds the loop for what
+  the browser takes, and a hand still for 1.5 s is not about to press.
+- **The dither in whole numbers**, the grid made once per size: 55 -> 5 ms,
+  and pixel for pixel what 4.46.0 produced (checked on a random 800x1280
+  picture). A first integer version rounded differently and read 0.75 on
+  checkdepth's bands against 0.53 -- the ruler caught it.
+
+After: worst turn 14-16 ms with taps every 0.6-1.4 s (the finished picture
+waits), 50 ms and 17 KiB/s with taps every 2-3 s (it goes, in pieces). And
+**an anchored edit swallowed 20 KB of constants again** -- `replace` up to the
+next blank pair, from the dither's `def`, took PUMP_MS through BROWSER_ARGS
+with it; `HomeHint`'s NameError at import is what showed it, and the
+module-level names diffed against `git show HEAD:` confirmed nothing else
+went. checksharp gained "only where it changed" and "not within 1.5 s of the
+tap". **Not seen on a panel.**
 
 ## Repository conventions
 

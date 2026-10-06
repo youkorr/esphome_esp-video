@@ -161,6 +161,13 @@ FULL_REDRAW_SECONDS = 30.0
 # the 45/s window a touch opens. Motion keeps all of that, because speed is
 # what matters while things move; a still screen gets one finished picture.
 REFINE_AFTER_S = 0.5
+# And this long after the last touch, key or remote press. Capturing a still
+# picture holds the loop for the time the browser takes to hand it over -- 50
+# to 110 ms measured -- and a press landing in it waits that long. Somebody
+# moving through tiles with a remote presses about once a second, which kept
+# landing in the half-second pause; a hand still for longer than this is not
+# about to press.
+REFINE_AFTER_INPUT_S = 1.5
 # The lowest quality at which a dither still survives the JPEG. Measured on a
 # launcher page of buttons over a blurred wallpaper, through the encode, a
 # decode and the board's RGB565: the bands' ripple went from 1.7-2.1 levels
@@ -169,6 +176,9 @@ REFINE_AFTER_S = 0.5
 # colour halved, or below 90, the JPEG smooths the dither away and it is only
 # bytes.
 DITHER_MIN_QUALITY = 90
+
+
+_DITHER_GRIDS = {}
 
 
 def dither_565(picture):
@@ -182,17 +192,32 @@ def dither_565(picture):
     a fine pattern the eye averages back into the gradient. Laid on the
     panel's own pixels, after the strip and the turn, so its grid is the
     glass's.
+
+    In whole numbers, with the pattern made once per size: in floating point
+    it cost 55 ms a picture at 800x1280, in the loop, after every pause --
+    part of what made 4.46 feel slower.
     """
     import numpy as np  # noqa: PLC0415 -- imported where used, like the rest
     from PIL import Image  # noqa: PLC0415
 
-    bayer = (np.array([[0, 8, 2, 10], [12, 4, 14, 6],
-                       [3, 11, 1, 9], [15, 7, 13, 5]]) + 0.5) / 16 - 0.5
     width, height = picture.size
-    grid = np.tile(bayer, (height // 4 + 1, width // 4 + 1))[:height, :width]
-    pixels = np.asarray(picture, dtype=np.float32)
-    pixels = pixels + grid[..., None] * np.array([8, 4, 8], dtype=np.float32)
-    return Image.fromarray(np.clip(pixels + 0.5, 0, 255).astype(np.uint8))
+    grid = _DITHER_GRIDS.get((width, height))
+    if grid is None:
+        # (n + 0.5) / 16 - 0.5 of a step, rounded to the nearest: exactly
+        # what the floating-point version added, -4..+4 for red and blue and
+        # -2..+1 for green.
+        bayer = np.array([[0, 8, 2, 10], [12, 4, 14, 6],
+                          [3, 11, 1, 9], [15, 7, 13, 5]], dtype=np.int16)
+        tiled = np.tile(bayer, (height // 4 + 1, width // 4 + 1))[:height, :width]
+        grid = np.empty((height, width, 3), dtype=np.int16)
+        grid[..., 0] = grid[..., 2] = (2 * tiled - 13) // 4
+        grid[..., 1] = (2 * tiled - 11) // 8
+        _DITHER_GRIDS.clear()
+        _DITHER_GRIDS[(width, height)] = grid
+    pixels = np.asarray(picture, dtype=np.uint8).astype(np.int16)
+    pixels += grid
+    np.clip(pixels, 0, 255, out=pixels)
+    return Image.fromarray(pixels.astype(np.uint8))
 # How long to let the browser run between looks. Short, because this is
 # what bounds how stale a change can be before it is even noticed; not
 # zero, because each look is a round trip into the browser.
@@ -2567,17 +2592,28 @@ def changed_rectangles(previous, current, tile=TILE):
     # 9.3 ms against 0.6 ms for a 1024x600 frame. Asking a three-dimensional
     # slice whether it holds anything answers the same question for nothing.
     differing = previous != current
+    mask = np.zeros((tiles_y, tiles_x), dtype=bool)
+    for ty in range(tiles_y):
+        row = differing[ty * tile:min(ty * tile + tile, height)]
+        for tx in range(tiles_x):
+            mask[ty, tx] = bool(row[:, tx * tile:min(tx * tile + tile, width)].any())
+    return tile_rectangles(mask, width, height, tile)
 
+
+def tile_rectangles(mask, width, height, tile=TILE):
+    """The rectangles covering the tiles marked in `mask`, merged the way
+    changed_rectangles() merges them. Its second half, so the finished
+    picture (refine_picture) can cover exactly the tiles sent soft since the
+    last one, with the same shapes the board already takes."""
+    tiles_y, tiles_x = mask.shape
     rectangles = []
     for ty in range(tiles_y):
         top = ty * tile
         bottom = min(top + tile, height)
-        row = differing[top:bottom]
         run_start = None
         for tx in range(tiles_x):
             left = tx * tile
-            right = min(left + tile, width)
-            differs = bool(row[:, left:right].any())
+            differs = bool(mask[ty, tx])
             if differs and run_start is None:
                 run_start = left
             elif not differs and run_start is not None:
@@ -6914,15 +6950,30 @@ def main():
         # say anything was 16.
         panel_depth = 16
 
-        def refine_picture(quality):
-            """The finished picture, encoded whole: its bytes, or None.
+        def refine_picture(quality, soft):
+            """The finished picture: (rectangles, picture) or None.
 
-            Captured without loss and encoded once, in full colour (4:4:4),
-            at the panel's own quality -- not the one motion pushed down to.
+            Captured without loss and encoded in full colour (4:4:4) at the
+            panel's own quality -- not the one motion pushed down to -- but
+            only where the panel was sent something soft since the last one,
+            `soft` being that mask of tiles. Everything else on the glass is
+            already sharp, and resending it cost a whole panel after every
+            pause: 160 to 290 KiB on the link, a whole decode on the board, and
+            a loop held for up to 277 ms -- the slowdown reported after 4.46.
             A picture over --refine-bytes would be dropped by the board, so it
             is tried lower, then with the colour halved, and left out if it
             still does not fit. Each refusal is said once.
+
+            The rectangles are (x, y, w, h, payload); the picture is the whole
+            of what the panel now shows, kept for a panel that needs it all
+            again.
             """
+            rectangles = tile_rectangles(soft, send_w, send_h)
+            if not rectangles:
+                return None
+            covered = sum(w * h for _, _, w, h in rectangles)
+            if covered / (send_w * send_h) + rect_cost * len(rectangles) > 1.0:
+                rectangles = [(0, 0, send_w, send_h)]
             data = capture.screenshot()
             if data is None:
                 if "shot" not in refine_said:
@@ -6941,40 +6992,43 @@ def main():
             # rounds a 4:4:4 picture's rows up to 8 pixels and a 4:2:0 one's
             # to 16 (ESP-IDF's jpeg_parse_marker.c, mcux = hi * 8), and the
             # board steps through the decoded rows 16 at a time whatever was
-            # sent. On a width that is not a multiple of 16 -- a Waveshare
-            # 7B drawn portrait, 600 wide -- every row would land 8 pixels
-            # off the one before it. The capture is still lossless and at
-            # the panel's own quality, which is most of the gain.
-            dither_tries = ()
-            if picture.width % 16 == 0:
-                tries = ((quality, 0), (quality - 10, 0), (quality - 20, 0),
-                         (quality, 2))
-                # A panel drawing in 16 bits shows a dark gradient -- a
-                # button, a blurred wallpaper -- as bands, one per step of its
-                # 32 levels of red and blue. A dither hides them, and it only
-                # survives the JPEG at a high quality in full colour, so it is
-                # tried first and only there; past that, the plain ladder.
-                if (panel_depth == 16 and not args.no_dither
-                        and quality >= DITHER_MIN_QUALITY):
-                    dither_tries = tuple(sorted({quality, DITHER_MIN_QUALITY},
-                                                reverse=True))
-            else:
-                tries = ((quality, 2), (quality - 10, 2), (quality - 20, 2))
-                if "width" not in refine_said:
-                    refine_said.add("width")
-                    print(f"Sharp: {picture.width} pixels wide is not a "
-                          f"multiple of 16, so the finished picture keeps "
-                          f"the colour halved; the panel lays out a full-"
-                          f"colour one 8 pixels off per row at this width",
-                          flush=True)
-            if dither_tries:
-                dithered = dither_565(picture)
-                for q in dither_tries:
+            # sent. A rectangle whose width is not a multiple of 16 -- the
+            # panel's own edge on a Waveshare 7B drawn portrait, 600 wide --
+            # would land 8 pixels off per row, so it keeps the colour halved.
+            # The capture is still lossless and at the panel's own quality,
+            # which is most of the gain.
+            if any(w % 16 for _, _, w, _ in rectangles) \
+                    and "width" not in refine_said:
+                refine_said.add("width")
+                print(f"Sharp: {send_w} pixels wide is not a multiple of 16, "
+                      f"so the finished picture keeps the colour halved at "
+                      f"that edge; the panel lays out a full-colour one 8 "
+                      f"pixels off per row there", flush=True)
+            full = any(w % 16 == 0 for _, _, w, _ in rectangles)
+
+            def encode(source, q, halve):
+                out, total = [], 0
+                for x, y, w, h in rectangles:
                     buffer = io.BytesIO()
-                    dithered.save(buffer, format="JPEG", quality=min(95, q),
-                                  subsampling=0)
+                    source.crop((x, y, x + w, y + h)).save(
+                        buffer, format="JPEG", quality=max(1, min(95, q)),
+                        subsampling=2 if halve or w % 16 else 0)
                     payload = buffer.getvalue()
-                    if len(payload) <= args.refine_bytes:
+                    out.append((x, y, w, h, payload))
+                    total += len(payload)
+                return out, total
+
+            # A panel drawing in 16 bits shows a dark gradient -- a button, a
+            # blurred wallpaper -- as bands, one per step of its 32 levels of
+            # red and blue. A dither hides them, and it only survives the JPEG
+            # at a high quality in full colour, so it is tried first and only
+            # there; past that, the plain ladder.
+            if (full and panel_depth == 16 and not args.no_dither
+                    and quality >= DITHER_MIN_QUALITY):
+                dithered = dither_565(picture)
+                for q in sorted({quality, DITHER_MIN_QUALITY}, reverse=True):
+                    out, total = encode(dithered, q, False)
+                    if total <= args.refine_bytes:
                         if "dither" not in refine_said:
                             refine_said.add("dither")
                             print("Sharp: this panel draws in 16 bits, so the "
@@ -6982,30 +7036,32 @@ def main():
                                   "bands in its gradients; color_depth: 24 "
                                   "on the board's display removes them "
                                   "altogether", flush=True)
-                        return payload
+                        return out, dithered
                 if "undithered" not in refine_said:
                     refine_said.add("undithered")
                     print(f"Sharp: dithered, the finished picture weighs more "
                           f"than --refine-bytes ({args.refine_bytes}), so it "
                           f"goes without; raise max_frame_bytes on the board "
                           f"and this with it", flush=True)
-            for q, colour in tries:
-                buffer = io.BytesIO()
-                picture.save(buffer, format="JPEG",
-                             quality=max(1, min(95, q)), subsampling=colour)
-                payload = buffer.getvalue()
-                if len(payload) <= args.refine_bytes:
-                    if (q, colour) != tries[0] and "fit" not in refine_said:
+            tries = ((quality, False), (quality - 10, False),
+                     (quality - 20, False), (quality, True))
+            if not full:
+                tries = ((quality, True), (quality - 10, True),
+                         (quality - 20, True))
+            for q, halve in tries:
+                out, total = encode(picture, q, halve)
+                if total <= args.refine_bytes:
+                    if (q, halve) != tries[0] and "fit" not in refine_said:
                         refine_said.add("fit")
                         print(f"Sharp: the finished picture weighs more than "
                               f"--refine-bytes ({args.refine_bytes}) at "
                               f"quality {quality}"
-                              + (" in full colour" if tries[0][1] == 0 else "")
+                              + (" in full colour" if not tries[0][1] else "")
                               + f", so it goes at {q}"
-                              + ("" if colour == tries[0][1] else
+                              + ("" if halve == tries[0][1] else
                                  " with the colour halved"),
                               flush=True)
-                    return payload
+                    return out, picture
             if "big" not in refine_said:
                 refine_said.add("big")
                 print(f"Sharp: even halved, the finished picture is over "
@@ -7112,7 +7168,16 @@ def main():
         # same still screen again every half second.
         changes = 0
         refined_for = None
+        # The whole of what the panel shows once finished, and its JPEG, made
+        # only when a panel needs everything again (a reconnection, the
+        # thirty-second redraw) with nothing new to show.
+        refined_image = None
         refined_payload = None
+        # The tiles sent soft since the last finished picture: only those are
+        # sent again sharp. Everything else on the glass already is.
+        soft = None
+        # The last touch, key or request, whatever the screen saver does.
+        last_input = 0.0
         # When something last changed on the panel, which is what "still"
         # is measured from.
         last_change = 0.0
@@ -7390,7 +7455,22 @@ def main():
                     if want_send and not free:
                         want_send = False
                     if (want_send and shot is None
-                            and refined_payload is not None
+                            and refined_image is not None
+                            and refined_for == changes):
+                        if refined_payload is None:
+                            buffer = io.BytesIO()
+                            refined_image.save(
+                                buffer, format="JPEG",
+                                quality=max(1, min(95, send_quality)),
+                                subsampling=0 if send_w % 16 == 0 else 2)
+                            refined_payload = buffer.getvalue()
+                        if len(refined_payload) > args.refine_bytes:
+                            # Finished in pieces, it may not fit whole: the
+                            # board would drop it. The soft picture goes, and
+                            # is finished again in pieces.
+                            refined_image = refined_payload = None
+                    if (want_send and shot is None
+                            and refined_image is not None
                             and refined_for == changes):
                         # A whole panel owed and nothing new to show: the
                         # finished picture again, not the soft frame it
@@ -7464,6 +7544,13 @@ def main():
                             home_written = home_pending
                             home_pending = None
                         if rectangles:
+                            if soft is None:
+                                soft = np.zeros(((send_h + TILE - 1) // TILE,
+                                                 (send_w + TILE - 1) // TILE),
+                                                dtype=bool)
+                            for x, y, w, h in rectangles:
+                                soft[y // TILE:(y + h + TILE - 1) // TILE,
+                                     x // TILE:(x + w + TILE - 1) // TILE] = True
                             if pictures:
                                 worst_gap = max(worst_gap, started - last_sent)
                             previous = current
@@ -7478,29 +7565,42 @@ def main():
                     elif (not args.no_refine and awake and free
                             and image is not None and previous is not None
                             and pending is None and refined_for != changes
+                            and soft is not None and soft.any()
                             and started - last_change >= REFINE_AFTER_S
+                            and started - last_input >= REFINE_AFTER_INPUT_S
                             and not (injector is not None
                                      and injector.pressing)
                             and rate.allows(started)):
-                        # Still for half a second: the finished picture. Asked
-                        # once per picture whatever comes of it, so a browser
-                        # that refuses is not asked on every turn.
+                        # Still for half a second, and no hand on the panel
+                        # for longer: the finished picture, where the panel
+                        # was sent something soft. Asked once per picture
+                        # whatever comes of it, so a browser that refuses is
+                        # not asked on every turn.
                         refined_for = changes
-                        refined_payload = refine_picture(send_quality)
-                        if refined_payload is not None:
-                            writer.offer([build_header(send_w, send_h,
-                                                       len(refined_payload),
-                                                       frame_id)
-                                          + refined_payload])
+                        finished = refine_picture(send_quality, soft)
+                        if finished is not None:
+                            pieces, refined_image = finished
+                            refined_payload = None
+                            blobs = []
+                            weight = 0
+                            for x, y, w, h, payload in pieces:
+                                blobs.append(build_header(w, h, len(payload),
+                                                          frame_id, x, y)
+                                             + payload)
+                                weight += len(payload)
+                                rectangles_sent += 1
+                            writer.offer(blobs)
                             frame_id = (frame_id + 1) & 0x3FF
-                            bytes_sent += len(refined_payload)
-                            rectangles_sent += 1
+                            bytes_sent += weight
                             sharpened += 1
-                            rate.spend(len(refined_payload), started)
+                            rate.spend(weight, started)
+                            soft[:] = False
                             # The next scene starts at the panel's quality
                             # rather than where the last motion left it.
                             rate.settle()
-                            last_full = last_sent = started
+                            last_sent = started
+                            if pieces[0][2:4] == (send_w, send_h):
+                                last_full = started
                     elif started - last_sent >= HEARTBEAT_S and free:
                         writer.offer([build_heartbeat()])
                         last_sent = started
@@ -7623,6 +7723,8 @@ def main():
                                     saver.hide("the screen went dark")
                                     capture = main_capture
                                 capture.pause()
+                    if reports or keys or asked_home or asked_open is not None:
+                        last_input = started
                     if saver is not None:
                         asked_any = bool(reports or keys or asked_home
                                          or asked_open is not None)
