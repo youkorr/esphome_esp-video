@@ -101,6 +101,11 @@ configuration:
             name: 🔊 Stereo sound
             description: 'Twice the data. Needs the board updated, and num_channels: 2 on the Bluetooth
               speaker.'
+          sharp:
+            name: ✨ Sharp picture when still
+            description: 'On when empty. Half a second after the last change, the screen is sent a lossless
+              picture in full colour: icons, text and photos sharp. Turn off only if the screen does not
+              show it.'
   links:
     name: 🔗 3 · Shared links
     description: The tiles of the page of links, for every screen without its own (see 5).

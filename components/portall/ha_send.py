@@ -139,6 +139,28 @@ MIN_RECT =  64
 # the board was busy, the socket hiccuped -- would otherwise stay wrong on the
 # panel forever, because nothing would ever mark that area as changed again.
 FULL_REDRAW_SECONDS = 30.0
+
+# The finishing picture: once the page has shown nothing new for this long,
+# it is captured again WITHOUT loss and the whole panel is sent once more in
+# full colour at the panel's own quality. See refine_picture() in main().
+#
+# Reported as icons and photographs that are not sharp, with quality already
+# at 95 -- because quality was never what blurred them. Every picture went
+# through two JPEGs, and both halve the COLOUR's resolution (4:2:0):
+# Chromium's screencast does, whatever its quality -- measured on the shipped
+# build, quality 90 and 100 alike come out with the luma sampled 2x2 -- and so
+# did Pillow's encode here, by default. Coloured text and the edges of an
+# icon are exactly what colour at half resolution smears. Measured on white,
+# red and yellow text over blue at 800 px: 23.0 dB as it was, 29.3 with full
+# colour at both ends.
+#
+# And the byte rate lowers the quality during motion (RateControl), so the
+# last picture of a fade or of a page opening after a touch stayed at that
+# lowered quality for as long as nothing moved -- simulated with the shipped
+# RateControl: 77 after a slideshow fade at 25/s, 58 after a page change in
+# the 45/s window a touch opens. Motion keeps all of that, because speed is
+# what matters while things move; a still screen gets one finished picture.
+REFINE_AFTER_S = 0.5
 # How long to let the browser run between looks. Short, because this is
 # what bounds how stale a change can be before it is even noticed; not
 # zero, because each look is a round trip into the browser.
@@ -2770,6 +2792,21 @@ class RateControl:
         elif ratio < self.CLIMB_BELOW and self.current < wanted:
             self.current += 1
 
+    def spend(self, size, now):
+        """Count a picture against the budget without judging the quality by it.
+
+        The finishing picture of a still screen: it is meant to be heavy, and
+        it must not teach the next motion to start lower.
+        """
+        if self.rate <= 0:
+            return
+        self.credit = self._credit(now) - size
+        self.credit_at = now
+
+    def settle(self):
+        """Forget the quality motion pushed down to; the next scene is new."""
+        self.current = None
+
     def take_range(self):
         """The quality range used since the last call, or None if unchanged."""
         low, high = self.low, self.high
@@ -3705,6 +3742,23 @@ class Screencast:
 
     def stop(self):
         self.pause()
+
+    def screenshot(self):
+        """The page as it stands, without loss, or None.
+
+        A PNG asked for once, when the page has stopped changing -- not the
+        per-frame capture this class exists to avoid, which fell over under
+        load. optimizeForSpeed is a newer field; a browser that refuses it is
+        asked again without.
+        """
+        for options in ({"format": "png", "optimizeForSpeed": True},
+                        {"format": "png"}):
+            try:
+                got = self._session.send("Page.captureScreenshot", options)
+                return base64.b64decode(got["data"])
+            except Exception:  # noqa: BLE001 - asked again, then given up
+                continue
+        return None
 
 
 
@@ -5929,7 +5983,9 @@ def main():
         "receives, and this one is what it is made from, so keeping it above "
         "--quality leaves the second encode something to work with. PNG is "
         "the honest answer and costs the server about eight times as much "
-        "CPU for a picture the panel cannot tell apart",
+        "CPU. Whatever this says, Chromium's JPEG halves the colour's "
+        "resolution; the finished picture sent once the page is still (see "
+        "--no-refine) is what puts it back",
     )
     parser.add_argument(
         "--no-token",
@@ -6043,6 +6099,24 @@ def main():
         help="a page flicked with a finger carries on after the finger lifts "
         "and slows down, as on a telephone or a tablet; a finger that lands "
         "on it stops it",
+    )
+    parser.add_argument(
+        "--no-refine",
+        action="store_true",
+        help="do not send the finished picture: by default, once the page has "
+        "shown nothing new for half a second, it is captured again without "
+        "loss and sent once more, whole and in full colour, so icons, text "
+        "and photographs are sharp on a still screen",
+    )
+    parser.add_argument(
+        "--refine-bytes",
+        type=int,
+        default=290000,
+        help="the most the finished picture may weigh. The board drops any "
+        "picture over its own max_frame_bytes, so this has to stay under it; "
+        "every example panel here uses 300000 or more. A picture that will "
+        "not fit is sent at a lower quality, then with the colour halved, and "
+        "not at all if it still does not fit",
     )
     parser.add_argument(
         "--stereo",
@@ -6763,6 +6837,86 @@ def main():
             last_shot = composed_look = None
             if restart:
                 capture.restart()
+        def compose(picture):
+            """The panel's picture from one of the page's: the strip, the turn.
+
+            One place for it, because the screencast's frames and the finished
+            picture must come out laid the same way, or the finished one would
+            land a strip's height off.
+            """
+            nonlocal composed_look
+            # A JPEG frame already arrives as RGB, and convert() to the mode
+            # a picture is already in still copies the whole of it -- 1.8 ms
+            # a frame for nothing.
+            if picture.mode != "RGB":
+                picture = picture.convert("RGB")
+            if (bar is not None and bar.shown
+                    and not (saver is not None and saver.on)):
+                # The page is the strip's height shorter than the panel, and
+                # the strip goes above it.
+                body = (page_w, page_h - bar.height)
+                if picture.size != body:
+                    picture = picture.resize(body, Image.BILINEAR)
+                whole = Image.new("RGB", (page_w, page_h))
+                whole.paste(bar.picture(), (0, 0))
+                whole.paste(picture, (0, bar.height))
+                picture = whole
+                composed_look = bar.look()
+            if transpose is not None:
+                picture = picture.transpose(transpose)
+            if picture.size != (send_w, send_h):
+                picture = picture.resize((send_w, send_h), Image.BILINEAR)
+            return picture
+
+        refine_said = set()
+
+        def refine_picture(quality):
+            """The finished picture, encoded whole: its bytes, or None.
+
+            Captured without loss and encoded once, in full colour (4:4:4),
+            at the panel's own quality -- not the one motion pushed down to.
+            A picture over --refine-bytes would be dropped by the board, so it
+            is tried lower, then with the colour halved, and left out if it
+            still does not fit. Each refusal is said once.
+            """
+            data = capture.screenshot()
+            if data is None:
+                if "shot" not in refine_said:
+                    refine_said.add("shot")
+                    print("Sharp: the browser would not hand over a still "
+                          "picture, so the panel keeps the moving ones",
+                          flush=True)
+                return None
+            try:
+                picture = compose(Image.open(io.BytesIO(data)))
+            except Exception as err:  # noqa: BLE001 - an accessory
+                print(f"Sharp: the still picture could not be read ({err})",
+                      flush=True)
+                return None
+            for q, colour in ((quality, 0), (quality - 10, 0),
+                              (quality - 20, 0), (quality, 2)):
+                buffer = io.BytesIO()
+                picture.save(buffer, format="JPEG",
+                             quality=max(1, min(95, q)), subsampling=colour)
+                payload = buffer.getvalue()
+                if len(payload) <= args.refine_bytes:
+                    if (q, colour) != (quality, 0) and "fit" not in refine_said:
+                        refine_said.add("fit")
+                        print(f"Sharp: the finished picture weighs more than "
+                              f"--refine-bytes ({args.refine_bytes}) at "
+                              f"quality {quality} in full colour, so it goes "
+                              f"at {q}" + ("" if colour == 0 else
+                                           " with the colour halved"),
+                              flush=True)
+                    return payload
+            if "big" not in refine_said:
+                refine_said.add("big")
+                print(f"Sharp: even halved, the finished picture is over "
+                      f"--refine-bytes ({args.refine_bytes}); raise "
+                      f"max_frame_bytes on the board and this with it",
+                      flush=True)
+            return None
+
         # Asked for the page's history the first time the bar is pressed.
         nav_session = None
         # History entries a link was opened from, when that was another link.
@@ -6852,6 +7006,19 @@ def main():
         # until something on the page moves.
         image = None
         current = None
+        # The finished picture: which state of the panel it finishes, and its
+        # bytes, so a whole panel owed again -- the thirty-second redraw, a
+        # reconnection -- goes out sharp rather than as the soft frame. The
+        # state is a count of pictures that actually CHANGED something, not
+        # the frame object: a browser hands over an identical frame now and
+        # then (a capture can cause one), and counting those would finish the
+        # same still screen again every half second.
+        changes = 0
+        refined_for = None
+        refined_payload = None
+        # When something last changed on the panel, which is what "still"
+        # is measured from.
+        last_change = 0.0
         # How often each tile has been in a rectangle, for --show-changes.
         heat = np.zeros(
             ((send_h + TILE - 1) // TILE, (send_w + TILE - 1) // TILE),
@@ -6889,6 +7056,7 @@ def main():
             loops = 0
             pending = None
             fulls = 0
+            sharpened = 0
             last_send = 0.0
             last_sent = time.monotonic()
             # Assumed awake until the panel says otherwise; it announces its
@@ -7105,30 +7273,7 @@ def main():
                         capture.request()
 
                     if shot is not None:
-                        image = Image.open(io.BytesIO(shot))
-                        # A JPEG frame already arrives as RGB, and convert()
-                        # to the mode a picture is already in still copies the
-                        # whole of it -- 1.8 ms a frame for nothing.
-                        if image.mode != "RGB":
-                            image = image.convert("RGB")
-                        if (bar is not None and bar.shown
-                                and not (saver is not None and saver.on)):
-                            # The page is the strip's height shorter than the
-                            # panel, and the strip goes above it.
-                            body = (page_w, page_h - bar.height)
-                            if image.size != body:
-                                image = image.resize(body, Image.BILINEAR)
-                            whole = Image.new("RGB", (page_w, page_h))
-                            whole.paste(bar.picture(), (0, 0))
-                            whole.paste(image, (0, bar.height))
-                            image = whole
-                            composed_look = bar.look()
-                        if transpose is not None:
-                            image = image.transpose(transpose)
-                        if image.size != (send_w, send_h):
-                            image = image.resize(
-                                (send_w, send_h), Image.BILINEAR
-                            )
+                        image = compose(Image.open(io.BytesIO(shot)))
                         current = np.asarray(image)
 
                     stale = started - last_full >= FULL_REDRAW_SECONDS
@@ -7146,6 +7291,24 @@ def main():
                     # diffed against the last one actually SENT -- so a skipped
                     # frame costs nothing but itself.
                     if want_send and not free:
+                        want_send = False
+                    if (want_send and shot is None
+                            and refined_payload is not None
+                            and refined_for == changes):
+                        # A whole panel owed and nothing new to show: the
+                        # finished picture again, not the soft frame it
+                        # replaced -- or every thirty-second redraw would
+                        # blur a still screen and sharpen it half a second
+                        # later.
+                        writer.offer([build_header(send_w, send_h,
+                                                   len(refined_payload),
+                                                   frame_id)
+                                      + refined_payload])
+                        bytes_sent += len(refined_payload)
+                        rectangles_sent += 1
+                        frame_id = (frame_id + 1) & 0x3FF
+                        previous = current
+                        last_full = last_sent = started
                         want_send = False
                     if want_send:
                         # Everything, when there is nothing to compare against
@@ -7207,12 +7370,40 @@ def main():
                             if pictures:
                                 worst_gap = max(worst_gap, started - last_sent)
                             previous = current
+                            last_change = started
+                            changes += 1
                             pictures += 1
                             # One identifier per picture, so the board's rate
                             # limit decides about the picture and not about each
                             # of its rectangles.
                             frame_id = (frame_id + 1) & 0x3FF
                         last_sent = started
+                    elif (not args.no_refine and awake and free
+                            and image is not None and previous is not None
+                            and pending is None and refined_for != changes
+                            and started - last_change >= REFINE_AFTER_S
+                            and not (injector is not None
+                                     and injector.pressing)
+                            and rate.allows(started)):
+                        # Still for half a second: the finished picture. Asked
+                        # once per picture whatever comes of it, so a browser
+                        # that refuses is not asked on every turn.
+                        refined_for = changes
+                        refined_payload = refine_picture(send_quality)
+                        if refined_payload is not None:
+                            writer.offer([build_header(send_w, send_h,
+                                                       len(refined_payload),
+                                                       frame_id)
+                                          + refined_payload])
+                            frame_id = (frame_id + 1) & 0x3FF
+                            bytes_sent += len(refined_payload)
+                            rectangles_sent += 1
+                            sharpened += 1
+                            rate.spend(len(refined_payload), started)
+                            # The next scene starts at the panel's quality
+                            # rather than where the last motion left it.
+                            rate.settle()
+                            last_full = last_sent = started
                     elif started - last_sent >= HEARTBEAT_S and free:
                         writer.offer([build_heartbeat()])
                         last_sent = started
@@ -7836,6 +8027,10 @@ def main():
                             # Pictures that waited for the byte budget: the
                             # quality was at its floor and still too heavy.
                             line += f", {held} held"
+                        if sharpened:
+                            # Finished pictures sent once the page was still.
+                            line += f", {sharpened} sharp"
+                            sharpened = 0
                         sound, lost = writer.take_audio()
                         if sound or lost:
                             line += (f", sound {sound / elapsed:.0f}/s"

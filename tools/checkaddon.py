@@ -253,6 +253,9 @@ def check_reaches_sender(folder):
         # sender exists. tools/checkpanels.py checks a switched-off panel
         # gets no sender and keeps its profile.
         "enabled",
+        # On unless false, so it emits a flag only when turned OFF
+        # (--no-refine). tools/checksharp.py runs command_for both ways.
+        "sharp",
     }
 
     def leaves(spec, path=()):

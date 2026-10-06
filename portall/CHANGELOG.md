@@ -1,5 +1,19 @@
 # Changelog
 
+## 4.45.0
+
+- **Sharp icons, text and photos on a still screen.** Half a second after the
+  last change, the screen is sent the page once more, captured without loss
+  and in full colour, at your `quality`. Before, every picture had its colour
+  at half resolution -- the browser does that whatever the quality, even at
+  100 -- and the quality lowered by `max_rate` during motion stayed on the
+  last picture. Motion is unchanged; a still screen gets one sharp picture,
+  then nothing. A `quality` raised to 95 to fight this may no longer be
+  needed: try 80 again, which keeps motion lighter.
+- The screen's `max_frame_bytes` must hold it: every example uses 300000 or
+  more. A screen left at 131072 gets it lighter and the log says so once.
+- `sharp` in a screen's *Advanced* turns it off, should a screen not show it.
+
 ## 4.44.0
 
 - **You choose where everything goes on the screen saver.** The time, the
