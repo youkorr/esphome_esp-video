@@ -1,5 +1,12 @@
 # Changelog
 
+## 4.43.1
+
+- **The page of links keeps its own wallpaper with the screen saver on.**
+  The slideshow's pictures by address used to replace it; they are now shown
+  only by the screen saver. A page of links with no wallpaper of its own
+  still shows the first picture, still.
+
 ## 4.43.0
 
 - **The slideshow is a screen saver now**, as on a PC or a tablet. After a

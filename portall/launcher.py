@@ -2397,6 +2397,16 @@ def start(links, title="", subtitle="", theme="dark",
     mime, mirrored = "application/octet-stream", False
     configured = (background, urls, motion)
 
+    # With a screen saver the slideshow is the SAVER's, and the page of links
+    # keeps its first picture still: the pictures changing behind the tiles
+    # was a misreading of what was asked ("doit fonctionner comme un ecran de
+    # veille ... sans les link"), and a picture that changes is a whole panel
+    # on the wire every time. A delay of nought keeps it the way it was.
+    try:
+        saving = slideshow and float(saver_after) > 0
+    except (TypeError, ValueError):
+        saving = False
+
     def settle(chosen):
         nonlocal kind, where, files, picture, mime, mirrored, addresses
         nonlocal background, urls, motion
@@ -2407,13 +2417,21 @@ def start(links, title="", subtitle="", theme="dark",
         picture, mime = None, "application/octet-stream"
         mirrored = False
         addresses = _addresses(urls)
+        # With a screen saver, the slideshow's addresses are the saver's and
+        # the page of links keeps its own wallpaper -- "cela remplace mon fond
+        # ecran" was the addresses winning over it here, as they did when
+        # the slideshow ran behind the tiles. Only a launcher given no
+        # wallpaper of its own still shows the first of them, still.
+        own_wall = saving and bool(str(background or "").strip())
         if addresses:
             print(f"Launcher: {len(addresses)} picture(s) by address"
-                  + (f", one every {every}s with a {fade}s fade" if slideshow
-                     else ", showing the first")
+                  + (", for the screen saver" if saving
+                     else f", one every {every}s with a {fade}s fade"
+                     if slideshow else ", showing the first")
                   + ". They are fetched by the panel's own browser, so the "
                     "machine serving them has to be reachable from here.",
                   flush=True)
+        if addresses and not own_wall:
             kind, where, files = "urls", None, addresses
         else:
             kind, where, files = _wallpaper(background)
@@ -2507,16 +2525,6 @@ def start(links, title="", subtitle="", theme="dark",
         except (OSError, ValueError, KeyError, TypeError):
             pass
 
-    # With a screen saver the slideshow is the SAVER's, and the page of links
-    # keeps its first picture still: the pictures changing behind the tiles
-    # was a misreading of what was asked ("doit fonctionner comme un ecran de
-    # veille ... sans les link"), and a picture that changes is a whole panel
-    # on the wire every time. A delay of nought keeps it the way it was.
-    try:
-        saving = slideshow and float(saver_after) > 0
-    except (TypeError, ValueError):
-        saving = False
-
     def page(saver=False):
         state = weather() if weather is not None else None
         # The avatar's spot is part of the page: a panel coming home finds
@@ -2538,7 +2546,9 @@ def start(links, title="", subtitle="", theme="dark",
                 # Already sifted just above, so the page does not repeat
                 # the complaint about an address that is not one.
                 motion, slideshow and (saver or not saving), every, fade,
-                rescan, addresses,
+                # The saver takes the slideshow's addresses; the page of
+                # links only when they are its wallpaper (settle() says).
+                rescan, addresses if saver or kind == "urls" else (),
                 mirrored, shape=tiles, focus_color=focus_color,
                 avatar=avatar and (saver_avatar or not saver),
                 avatar_at=spot["at"],
