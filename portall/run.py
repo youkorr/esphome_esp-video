@@ -1501,6 +1501,11 @@ def command_for(panel):
         value = panel.get(key)
         if value is True or str(value).lower() in ("true", "yes", "1"):
             argv.append(f"--{key.replace('_', '-')}")
+    # The finished picture is on unless a panel says otherwise, so the switch
+    # turns it OFF: a board that will not decode a full-colour JPEG loses the
+    # sharpening and keeps every picture it had.
+    if str(panel.get("sharp", "")).strip().lower() in ("false", "no", "0"):
+        argv.append("--no-refine")
     # Not named after the option, because it is wider than the option: it
     # opens the sender's stdin to whatever started it -- the HomeKit
     # accessory, and a link asked for by voice. `control` is not a form

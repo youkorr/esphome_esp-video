@@ -102,6 +102,11 @@ configuration:
             name: 🔊 Son en stéréo
             description: 'Le double de données. Carte à jour obligatoire, et num_channels: 2 sur l''enceinte
               Bluetooth.'
+          sharp:
+            name: ✨ Image nette à l'arrêt
+            description: 'Activé si vide. Une demi-seconde après le dernier changement, l''écran reçoit
+              une image sans perte, en couleurs pleines : icônes, texte et photos nets. Désactivez seulement
+              si l''écran ne l''affiche pas.'
   links:
     name: 🔗 3 · Liens communs
     description: Les tuiles de la page de liens, pour tous les écrans qui n'ont pas la leur (voir 5).

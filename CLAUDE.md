@@ -1802,7 +1802,7 @@ the dashboard, where it is invisible while the keys go on working.
 ahead of the `pip install` as well as the `ADD`s, so a bump refetched
 everything — at the cost of the browser download on each update.
 `present_browser()` prints the Chromium version at startup and warns below 114,
-so this is never diagnosed by guesswork again. Currently **4.44.0**.
+so this is never diagnosed by guesswork again. Currently **4.45.0**.
 
 **CORRECTED in 4.29.5: the cost was every update, and a pin removes it.**
 Asked as *"verifie addon ... si il ya pas des elements qui freine la
@@ -11531,6 +11531,67 @@ colours in a browser, and the form-to-page path through regroup() and
 launcher_config(). A first fixture fed weather as Home Assistant's raw state
 rather than Weather's {"condition", "text"}, so `.wx` was empty and the
 position cases passed on a zero-width box; they assert a width now.
+
+## A still screen is finished: one lossless, full-colour picture -- 4.45.0
+
+**Reported as *"dans le display que ce soit fond ecran, button etc et ecran
+de veille l'image n'est pas nette"*, with quality already raised to 95, 30
+fps and max_rate 3000 because it looked like the connection.** It was not.
+Three causes, measured before anything was built:
+
+- **Colour at half resolution, twice.** Chromium's screencast is 4:2:0 at
+  ANY quality -- read off the frames' own sampling factors at 90 and 100 on
+  the shipped build -- and Pillow's encode in the sender was 4:2:0 by
+  default. Coloured text and icon edges are what that smears: on white, red
+  and yellow text over blue, 23.0 dB as shipped against 29.3 with full colour
+  at both ends. No `--quality` can reach the capture's half.
+- **The byte rate's quality stayed on the last picture.** RateControl lowers
+  the quality during motion and only climbs back on later pictures, and a
+  still page sends none. Simulated with the shipped class: 77 after a 1 s
+  fade at 25/s, 58 after a page change in the 45/s window a touch opens. The
+  30 s redraw re-encoded at that lowered quality, one step up each time.
+- Two JPEG generations (capture 90, send 80).
+
+`REFINE_AFTER_S` (0.5) after the last picture that CHANGED something, with
+the writer free, nothing pending and no finger down, `refine_picture()` asks
+`Page.captureScreenshot` for a PNG (`Screencast.screenshot()`, through the
+shown page's own session, so the saver is finished too), lays it out with
+`compose()` -- the one function the screencast frames now go through as well,
+so strip and turn cannot drift -- and sends the whole panel at the PANEL's
+quality in 4:4:4. `rate.spend()` counts its bytes without judging the
+quality, and `rate.settle()` lets the next motion start at the panel's
+quality. `previous` stays the screencast picture, so the next frame's diff is
+JPEG against JPEG and only what really changed goes out.
+
+Two things that are faults if missing:
+
+- **"Finished" is a count of pictures that CHANGED something (`changes`),
+  not the frame object.** A browser hands over identical frames now and then
+  (a capture can cause one); keyed on the object, the same still screen was
+  finished again every half second.
+- **A whole panel owed again -- the 30 s redraw, a reconnection -- resends the
+  finished bytes** while `refined_for == changes`, or every redraw would blur
+  a still screen and sharpen it 0.5 s later.
+
+`--refine-bytes` (290000) because the board drops a picture over its
+`max_frame_bytes` and the sender cannot know that number: the picture is
+tried 10 and 20 lower, then 4:2:0, then left out, and the cost is said once.
+`sharp: false` in a panel's advanced is `--no-refine` (checkaddon's ITS_OWN),
+because the ESP32-P4's decoder accepting 4:4:4 is Espressif's documentation
+(`jpeg.rst` lists YUV444 among decodable inputs), **not seen on a panel**.
+The capture costs 50-90 ms of the loop at 800x1280 (measured), once per
+settle; a touch landing in it waits that long.
+
+`tools/checksharp.py` (15 cases): on a fake panel keeping every JPEG and its
+sampling, against a lossless reference of the page -- text and icon 29.9 dB
+before, 37.9 after; nothing more sent over 3 s of stillness; a tap goes out
+4:2:0 and is finished again; a reconnection gets the 4:4:4 bytes; --stats
+counts `sharp`; the cap is held and said once. Against 4.44.0 the sharpness
+cases fail. A tap on a launcher tile measured the same either side of it
+(`checklinkspeed.py --tap`: 69-79 ms, 62-89 at HEAD on the same machine).
+checkkeyboard and checkbookmarks each failed once while two suites ran at
+once on this container and passed alone, new and old sender alike -- run the
+browser checks one at a time. **Not seen on a panel.**
 
 ## Repository conventions
 

@@ -203,7 +203,7 @@ Assistant dashboard to appear; without one it does neither.
 | `rotate` | Turns the picture, for a panel not mounted upright |
 | `touch_rotate`, `touch_mirror_x`, `touch_mirror_y` | From `--calibrate` |
 | `fps` | Upper bound on how often a change is acted on. 25 by default; the one setting that decides whether video looks like video. See below |
-| `quality` | JPEG quality, 1..95 |
+| `quality` | JPEG quality, 1..95. A still screen is sent once more at this quality in full colour, whatever happened while it moved -- see *A sharp picture once the screen is still* |
 | `max_rate` | The most a panel is sent a second, in KiB. 3000 by default; a busy video scene is sent a little softer to stay under it. `0` turns it off. See below |
 | `keyboard` | The on-screen keyboard's layout, or `off`. See below |
 | `blank_after` | Seconds dark before a sleeping panel's page is let go of, 300 by default. **Per panel only** -- it is not the same thing as the timer that turns your backlight off, see below |
@@ -1066,6 +1066,38 @@ link: lowering it would cost every scene what only the heaviest ones need.
 
 Set it lower on a link if a video still stutters, higher if a panel has a
 faster link, or `0` to turn it off.
+
+### A sharp picture once the screen is still
+
+**Icons, text and photographs were softer than the screen can show, and
+`quality: 95` did not fix it, because quality was not the cause.** Every
+picture was compressed twice -- once by the browser that draws the page, once
+by the add-on -- and both halve the resolution of the COLOUR (the brightness
+keeps its own). The browser does that whatever its quality, even at 100, and
+coloured text and the edges of an icon are exactly what colour at half
+resolution smears. And during motion `max_rate` lowers the quality; the last
+picture of a fade or of a page that just opened kept that lower quality for
+as long as nothing moved.
+
+So **half a second after the last change, the screen is sent the page once
+more, captured without loss and in full colour, at your `quality`**. Motion is
+exactly as before -- speed is what matters while things move -- and a still
+screen gets one sharp picture, then nothing at all, as before. Measured on
+coloured text and an icon over blue: 29.9 dB before, 37.9 after -- the closer
+to the page, the higher.
+
+What it costs: one whole screen after each change settles (around 100 KiB at
+800x1280, more for a photograph), and the server spends about 50 to 90 ms
+taking the picture. With `stats` on, a line ends in `2 sharp` -- the number
+sent.
+
+**The screen's `max_frame_bytes` must hold it.** The board drops any picture
+over it; this one is kept under 290000 bytes, and every example screen here
+uses 300000 or 400000. A screen left at the 131072 of a bare `portall:` gets
+the picture lighter and says so in the log once -- raise `max_frame_bytes` in
+its YAML. If a screen ever stops showing the sharp picture (it is JPEG in full
+colour, which the ESP32-P4's decoder accepts but which has not been seen on
+every panel), turn **`sharp`** off in that screen's *Advanced*.
 
 `icon` takes a **name from the list below, in French or in English** --
 `cuisine` or `kitchen`, `serrure` or `lock`, `reglages` or `settings` -- or
