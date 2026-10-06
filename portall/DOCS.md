@@ -1086,10 +1086,18 @@ screen gets one sharp picture, then nothing at all, as before. Measured on
 coloured text and an icon over blue: 29.9 dB before, 37.9 after -- the closer
 to the page, the higher.
 
-What it costs: one whole screen after each change settles (around 100 KiB at
-800x1280, more for a photograph), and the server spends about 50 to 90 ms
-taking the picture. With `stats` on, a line ends in `2 sharp` -- the number
-sent.
+What it costs: only the part of the screen that changed since the last sharp
+picture is sent again -- a button, a clock, a card, not the whole screen --
+and it waits until nobody has touched the screen or pressed the remote for 1.5
+seconds, so a press never lands while it is being taken. The server spends 50
+to 100 ms taking the picture. With `stats` on, a line ends in `2 sharp` -- the
+number sent.
+
+Until 4.46.1 it was the WHOLE screen after every pause, 160 to 290 KiB each
+time, and with the dither of 4.46 it held the add-on for up to a quarter of a
+second: on a screen being used, that was felt as everything slowing down.
+Measured on a page tapped every one to three seconds: 135 to 167 KiB/s on the
+link and a loop held up to 277 ms before, 10 to 17 KiB/s and 50 ms now.
 
 **The screen's `max_frame_bytes` must hold it.** The board drops any picture
 over it; this one is kept under 290000 bytes, and every example screen here

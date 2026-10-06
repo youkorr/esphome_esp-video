@@ -263,9 +263,20 @@ def sender_half():
         panel.tap()
         ok = wait_for(lambda: any(not g[5] for g in panel.since(mark)), 5)
         check("a change goes out as before, colour halved", ok)
-        ok = wait_for(lambda: any(whole(g) and g[5]
-                                  for g in panel.since(mark)), 5)
+        ok = wait_for(lambda: any(g[5] for g in panel.since(mark)), 5)
         check("and is finished again once it stops", ok)
+        sharp = [g for g in panel.since(mark) if g[5]]
+        # Only where it changed: everything else on the glass is already
+        # sharp, and sending it all again after every pause was the slowdown
+        # reported after 4.46 -- a whole panel on the link and the board each
+        # time a hand stopped.
+        check("and only where it changed, not the whole panel",
+              sharp and not any(whole(g) for g in sharp),
+              [(g[3], g[4], g[6]) for g in sharp])
+        check("and not while a hand may still be at the panel "
+              "(1.5 s after the tap)",
+              sharp and sharp[0][0] - mark >= 1.4,
+              sharp and round(sharp[0][0] - mark, 2))
 
         # A panel that comes back is owed a whole picture: the finished one.
         time.sleep(1.0)

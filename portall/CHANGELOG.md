@@ -1,5 +1,19 @@
 # Changelog
 
+## 4.46.1
+
+- **The slowdowns since 4.45 are gone.** The sharp picture sent when the
+  screen stops moving was the whole screen every time -- 160 to 290 KiB after
+  each pause, and the add-on held for up to a quarter of a second while it was
+  made, in 16 bits as in 24. Now only what changed since the last sharp
+  picture is sent again, it waits until nobody has touched the screen or the
+  remote for 1.5 s, and the dither is ten times faster (5 ms instead of 55).
+  Measured: 10 to 17 KiB/s instead of 135 to 167 on a screen tapped every
+  one to three seconds, and the loop held 50 ms at most instead of 277.
+- If you raised `quality` to 95 to fight a blurred picture, 80 is enough
+  again: the sharp picture already uses your `quality`, and moving pictures
+  at 95 are heavy for the panel.
+
 ## 4.46.0
 
 - **No more lines across the buttons and the wallpaper.** They are the screen
