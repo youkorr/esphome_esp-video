@@ -262,8 +262,12 @@ def parse_messages(buffer):
       of the mixer behind its speaker, so nothing on the panel has to convert
       it. Sent once, when a sender connects.
 
+      b"C", then 16 or 24: the colour depth the panel draws in. Sent once,
+      when a sender connects. A board that never says it draws in 16, which
+      is what every panel did before it could say anything else.
+
     Returns ("touch", contacts), ("awake", bool), ("home", True), ("key",
-    name) and ("rate", hertz) pairs, and
+    name), ("rate", hertz) and ("depth", bits) pairs, and
     whatever tail is still short of a whole message so the caller can hand it
     back next time.
     """
@@ -286,6 +290,10 @@ def parse_messages(buffer):
                 break
             messages.append(("rate", buffer[at + 1] * 1000 + buffer[at + 2] * 50))
             at += 3
+            continue
+        if kind == ord("C"):
+            messages.append(("depth", 24 if buffer[at + 1] == 24 else 16))
+            at += 2
             continue
         if kind == ord("K"):
             if len(buffer) - at < 5:

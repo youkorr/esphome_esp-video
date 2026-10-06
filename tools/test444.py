@@ -4,10 +4,14 @@
 The add-on's finished picture (4.45.0) is a JPEG whose colour is kept at full
 resolution. Espressif's driver says the ESP32-P4's decoder takes one -- read
 in ESP-IDF v5.5.5: jpeg_decode.c recognises sampling 0x11 as YUV444 and
-allows it into RGB565 on every revision -- but no panel here has shown one.
-A picture the board cannot decode is dropped, and a dropped picture leaves
-the old one on the glass, so from the add-on alone a refusal looks exactly
-like success. This makes the answer visible.
+allows it into RGB565 on every revision -- and a Guition 800x1280 showed the
+green band with nothing wrong. A picture the board cannot decode is dropped,
+and a dropped picture leaves the old one on the glass, so from the add-on
+alone a refusal looks exactly like success. This makes the answer visible.
+
+The card is the panel's own geometry (the portall: block's width and height),
+so a screen used in landscape through the add-on's rotate: shows it in
+portrait: the add-on turns the page, and this sends straight.
 
 It sends the same test card twice in turn, a few seconds each:
 

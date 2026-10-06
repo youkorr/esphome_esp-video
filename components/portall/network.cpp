@@ -274,6 +274,18 @@ void Portall::send_queued_messages_(int client) {
   }
 #endif
 
+  /* 'C', then 16 or 24: the colour depth this panel draws in. Two bytes, and
+     neither is a letter a sender's parser looks for, so one that predates it
+     skips it a byte at a time. A sender that never hears it takes 16, which
+     is what every panel before this drew in -- so only a 24-bit panel has
+     anything to say, but saying it either way costs two bytes once. */
+  if (this->depth_pending_) {
+    this->depth_pending_ = false;
+    const uint8_t message[2] = {'C', (uint8_t) (this->bytes_per_pixel_ * 8)};
+    if (::send(client, message, sizeof(message), MSG_DONTWAIT) < 0)
+      this->depth_pending_ = true;
+  }
+
   /* 'H' again, and this is the message the comment above says the sender still
      understands -- so a panel flashed with this and an add-on built any time
      in the last several releases already agree about it. Nothing on the sender
@@ -412,6 +424,7 @@ void Portall::run_network_task() {
       ::inet_ntoa_r(peer.sin_addr, peer_text, sizeof(peer_text));
       ESP_LOGI(TAG, "Sender connected from %s", peer_text);
       this->net_client_seen_ = true;
+      this->depth_pending_ = true;
 #ifdef USE_SPEAKER
       // Before anything else it could be sent: the rate this panel wants the
       // page's sound at, so the sender captures at it from the start.

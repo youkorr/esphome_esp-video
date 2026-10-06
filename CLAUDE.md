@@ -1802,7 +1802,7 @@ the dashboard, where it is invisible while the keys go on working.
 ahead of the `pip install` as well as the `ADD`s, so a bump refetched
 everything — at the cost of the browser download on each update.
 `present_browser()` prints the Chromium version at startup and warns below 114,
-so this is never diagnosed by guesswork again. Currently **4.45.1**.
+so this is never diagnosed by guesswork again. Currently **4.46.0**.
 
 **CORRECTED in 4.29.5: the cost was every update, and a pin removes it.**
 Asked as *"verifie addon ... si il ya pas des elements qui freine la
@@ -11616,8 +11616,71 @@ a green band, at one quality so the colour is the only difference. A refusal
 is a green band that never appears and `JPEG decode failed` in the board's
 log. Checked against a fake panel reading the sampling factors back: (2,2)
 then (1,1). Only one sender reaches a panel (`accept()` serves one client at a
-time), so the screen is switched off in the add-on first. **Not run on a
-panel.**
+time), so the screen is switched off in the add-on first. **Run on the
+household's Guition 800x1280: the green band shows, "aucun probleme"** --
+4:4:4 decodes on a P4. The card came out portrait, which is right: it is the
+`portall:` block's own geometry, and that screen is landscape only through the
+add-on's `rotate:`.
+
+## Lines across the gradients were 16 bits, not the JPEG -- 4.46.0
+
+**Reported after 4.45 as *"je ne vois pas d'amelioration"*, then with a
+photograph: *"les tuiles ont des traits et cela arrive aussi au fond
+ecran"*.** Horizontal bands across every button and across the blurred
+wallpaper. Not compression and not blur: the decoder wrote RGB565 and the
+display was `pixel_mode: 16`, so red and blue have 32 levels and a button's
+shading (white 8% to black 14% over a dark card) or a dimmed blurred photo is
+a few flat bands. The finished picture of 4.45 arrived more faithful and the
+board then threw that away -- which is why it "changed nothing". The fine
+grid over the whole photograph is the camera catching the subpixels.
+
+The first answer given in chat blamed `blur: md` on the wallpaper (a real,
+deliberate 10 px blur) and asked for a log; the photograph was the evidence,
+and zooming into it is what found the bands. **Ask for the photograph first
+when the complaint is about how a screen looks.**
+
+**24 bits: the board follows the display.** ESPHome's mipi_dsi has
+`color_depth: 16|24` (the frame buffer) beside `pixel_mode` (the DSI link),
+read in 2026.10.0-dev. Its `draw_pixels_at` copies only a picture in its own
+depth and converts anything else one pixel at a time through
+`Display::draw_pixels_at` -- far too slow -- so portall cannot pick its depth
+independently. `display_depth()` in `__init__.py` reads the named display's
+`color_depth` from the full config at codegen and emits `set_color_depth(24)`;
+nothing to set on `portall:` (the pair-of-constants rule). At 24:
+`bytes_per_pixel_` 3, buffers sized with it, `JPEG_DECODE_OUT_FORMAT_RGB888`,
+`PPA_SRM_COLOR_MODE_RGB888` in and out, `COLOR_BITNESS_888` to the display.
+The element order stays `JPEG_DEC_RGB_ELEMENT_ORDER_BGR`: in ESP-IDF v5.5.5's
+`jpeg_decode.c` BGR is the default scramble (BYTE2_1_0) for both formats, the
+little-endian layout esp_lcd's frame buffers read; RGB is the swap. Canvas
+mode is refused at 24 (`_depth_fits`): the canvas is RGB565 and its paths
+were not touched. Read off the codegen at 2026.10.0-dev:
+`udisp->set_color_depth(24);` with the display at 24, nothing at 16, and the
+canvas example refused. **Not compiled by ESP-IDF, not flashed**: red and blue
+swapped would be the visible failure, and the element order is where to look.
+
+**The board says its depth**: `'C'` + 16 or 24 on accepting a sender. Neither
+byte is a letter a sender looks for, so a sender from before it skips it (the
+check runs 49a525b's parser over it). A board that never says is 16, which is
+what every board before it was.
+
+**16 bits: the sender dithers the finished picture.** A 4x4 Bayer of one
+RGB565 step (8 for red and blue, 4 for green), laid after `compose()` so its
+grid is the glass's. Simulated through JPEG, a decode and RGB565 truncation
+on the real launcher (buttons over a blurred dimmed photo, rendered in the
+shipped Chromium): ripple 1.7-2.1 levels plain, 0.6-0.8 dithered at q95 4:4:4
+(24 bits reads 0.3-0.5), at 274 KiB against 161. At q90 4:4:4 the buttons keep
+most of it and the wallpaper about a third; with the colour halved, or below
+90, the JPEG smooths it away and it is only bytes. So `DITHER_MIN_QUALITY =
+90`, dithered tries first (the panel's quality, then 90), then the plain
+ladder, and `--no-dither` to compare. Only the still picture: motion is sent
+at lower qualities where it would not survive.
+
+`tools/checkdepth.py`: the component's reading of the display (24, 24bit,
+16, absent, another display's), the canvas refusal, the message both ways,
+and the shipped sender at quality 95 on a page of buttons -- dithered for a
+panel that says nothing (bands 1.67 -> 0.53 through RGB565), not for one
+that says 24, not with `--no-dither`, not at 80. Against 4.45.1 four cases
+fail. `checkcodegen.py --show` now prints `set_color_depth`.
 
 ## Repository conventions
 
