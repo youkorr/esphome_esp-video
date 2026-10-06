@@ -161,6 +161,38 @@ FULL_REDRAW_SECONDS = 30.0
 # the 45/s window a touch opens. Motion keeps all of that, because speed is
 # what matters while things move; a still screen gets one finished picture.
 REFINE_AFTER_S = 0.5
+# The lowest quality at which a dither still survives the JPEG. Measured on a
+# launcher page of buttons over a blurred wallpaper, through the encode, a
+# decode and the board's RGB565: the bands' ripple went from 1.7-2.1 levels
+# to 0.6-0.8 at 95 in full colour (0.5 is what a 24-bit panel shows), and at
+# 90 the buttons kept most of that and the wallpaper about a third. With the
+# colour halved, or below 90, the JPEG smooths the dither away and it is only
+# bytes.
+DITHER_MIN_QUALITY = 90
+
+
+def dither_565(picture):
+    """The picture with an ordered dither of one RGB565 step added.
+
+    A 16-bit panel keeps 32 levels of red and blue and 64 of green, so a
+    gradient spanning a dozen levels -- a button's shading, a dimmed and
+    blurred photograph -- is drawn as a few flat bands with a step at each
+    edge. A 4x4 Bayer pattern of one step's amplitude (8 for red and blue, 4
+    for green) makes the panel's rounding fall on either side of each edge in
+    a fine pattern the eye averages back into the gradient. Laid on the
+    panel's own pixels, after the strip and the turn, so its grid is the
+    glass's.
+    """
+    import numpy as np  # noqa: PLC0415 -- imported where used, like the rest
+    from PIL import Image  # noqa: PLC0415
+
+    bayer = (np.array([[0, 8, 2, 10], [12, 4, 14, 6],
+                       [3, 11, 1, 9], [15, 7, 13, 5]]) + 0.5) / 16 - 0.5
+    width, height = picture.size
+    grid = np.tile(bayer, (height // 4 + 1, width // 4 + 1))[:height, :width]
+    pixels = np.asarray(picture, dtype=np.float32)
+    pixels = pixels + grid[..., None] * np.array([8, 4, 8], dtype=np.float32)
+    return Image.fromarray(np.clip(pixels + 0.5, 0, 255).astype(np.uint8))
 # How long to let the browser run between looks. Short, because this is
 # what bounds how stale a change can be before it is even noticed; not
 # zero, because each look is a round trip into the browser.
@@ -6109,6 +6141,14 @@ def main():
         "and photographs are sharp on a still screen",
     )
     parser.add_argument(
+        "--no-dither",
+        action="store_true",
+        help="do not dither the finished picture for a panel drawing in 16 "
+        "bits. By default it is, to hide the bands a 16-bit panel draws in a "
+        "dark gradient; a panel whose display has color_depth: 24 says so "
+        "and is never dithered",
+    )
+    parser.add_argument(
         "--refine-bytes",
         type=int,
         default=290000,
@@ -6869,6 +6909,10 @@ def main():
             return picture
 
         refine_said = set()
+        # The colour depth the panel draws in: 16 until the board says 24
+        # ('C' on the return channel), because every panel before it could
+        # say anything was 16.
+        panel_depth = 16
 
         def refine_picture(quality):
             """The finished picture, encoded whole: its bytes, or None.
@@ -6901,9 +6945,19 @@ def main():
             # 7B drawn portrait, 600 wide -- every row would land 8 pixels
             # off the one before it. The capture is still lossless and at
             # the panel's own quality, which is most of the gain.
+            dither_tries = ()
             if picture.width % 16 == 0:
                 tries = ((quality, 0), (quality - 10, 0), (quality - 20, 0),
                          (quality, 2))
+                # A panel drawing in 16 bits shows a dark gradient -- a
+                # button, a blurred wallpaper -- as bands, one per step of its
+                # 32 levels of red and blue. A dither hides them, and it only
+                # survives the JPEG at a high quality in full colour, so it is
+                # tried first and only there; past that, the plain ladder.
+                if (panel_depth == 16 and not args.no_dither
+                        and quality >= DITHER_MIN_QUALITY):
+                    dither_tries = tuple(sorted({quality, DITHER_MIN_QUALITY},
+                                                reverse=True))
             else:
                 tries = ((quality, 2), (quality - 10, 2), (quality - 20, 2))
                 if "width" not in refine_said:
@@ -6913,6 +6967,28 @@ def main():
                           f"the colour halved; the panel lays out a full-"
                           f"colour one 8 pixels off per row at this width",
                           flush=True)
+            if dither_tries:
+                dithered = dither_565(picture)
+                for q in dither_tries:
+                    buffer = io.BytesIO()
+                    dithered.save(buffer, format="JPEG", quality=min(95, q),
+                                  subsampling=0)
+                    payload = buffer.getvalue()
+                    if len(payload) <= args.refine_bytes:
+                        if "dither" not in refine_said:
+                            refine_said.add("dither")
+                            print("Sharp: this panel draws in 16 bits, so the "
+                                  "finished picture is dithered to hide the "
+                                  "bands in its gradients; color_depth: 24 "
+                                  "on the board's display removes them "
+                                  "altogether", flush=True)
+                        return payload
+                if "undithered" not in refine_said:
+                    refine_said.add("undithered")
+                    print(f"Sharp: dithered, the finished picture weighs more "
+                          f"than --refine-bytes ({args.refine_bytes}), so it "
+                          f"goes without; raise max_frame_bytes on the board "
+                          f"and this with it", flush=True)
             for q, colour in tries:
                 buffer = io.BytesIO()
                 picture.save(buffer, format="JPEG",
@@ -7458,6 +7534,14 @@ def main():
                                     print(f"Audio: volume {round(body * 100)}%"
                                           if body > 0 else "Audio: muted")
                                 audio.gain = body
+                            continue
+                        if kind == "depth":
+                            # The board's colour depth, sent the moment it
+                            # accepts this connection: whether a finished
+                            # picture is worth dithering.
+                            if body != panel_depth:
+                                print(f"Panel: draws in {body} bits")
+                            panel_depth = body
                             continue
                         if kind == "rate":
                             # The board asking for the page's sound at the

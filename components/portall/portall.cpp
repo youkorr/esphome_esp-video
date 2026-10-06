@@ -177,10 +177,11 @@ void Portall::setup() {
   // reports back how much it really took, which is what the size check wants.
   jpeg_decode_memory_alloc_cfg_t out_cfg = {};
   out_cfg.buffer_direction = JPEG_DEC_ALLOC_OUTPUT_BUFFER;
-  const size_t out_wanted = (size_t) this->padded_width_ * this->padded_height_ * 2;
+  const size_t out_wanted = (size_t) this->padded_width_ * this->padded_height_ * this->bytes_per_pixel_;
   this->rgb_buffer_ = (uint8_t *) jpeg_alloc_decoder_mem(out_wanted, &out_cfg, &this->rgb_buffer_len_);
   if (this->rgb_buffer_ == nullptr) {
-    ESP_LOGE(TAG, "Could not allocate the %u byte RGB565 buffer", (unsigned) out_wanted);
+    ESP_LOGE(TAG, "Could not allocate the %u byte %s buffer", (unsigned) out_wanted,
+             this->bytes_per_pixel_ == 3 ? "RGB888" : "RGB565");
     this->mark_failed(LOG_STR("RGB buffer allocation failed"));
     return;
   }
@@ -302,7 +303,8 @@ bool Portall::allocate_rotation_() {
 
   // The accelerator writes this by DMA, so it wants a whole number of cache
   // lines starting on one.
-  this->rot_buffer_len_ = ((size_t) this->out_width_ * this->out_height_ * 2 + 63) & ~(size_t) 63;
+  this->rot_buffer_len_ =
+      ((size_t) this->out_width_ * this->out_height_ * this->bytes_per_pixel_ + 63) & ~(size_t) 63;
   this->rot_buffer_ = (uint8_t *) heap_caps_aligned_alloc(64, this->rot_buffer_len_, MALLOC_CAP_SPIRAM);
   if (this->rot_buffer_ == nullptr) {
     ESP_LOGE(TAG, "Could not allocate the %u byte rotation buffer", (unsigned) this->rot_buffer_len_);
@@ -398,7 +400,10 @@ bool Portall::rotate_(const Frame &frame, uint16_t padded_width, uint16_t padded
   srm.in.block_h = frame.height;
   srm.in.block_offset_x = 0;
   srm.in.block_offset_y = 0;
-  srm.in.srm_cm = PPA_SRM_COLOR_MODE_RGB565;
+  // The same format in and out: the accelerator only turns and scales here.
+  const ppa_srm_color_mode_t mode =
+      this->bytes_per_pixel_ == 3 ? PPA_SRM_COLOR_MODE_RGB888 : PPA_SRM_COLOR_MODE_RGB565;
+  srm.in.srm_cm = mode;
 
   srm.out.buffer = this->rot_buffer_;
   srm.out.buffer_size = this->rot_buffer_len_;
@@ -406,7 +411,7 @@ bool Portall::rotate_(const Frame &frame, uint16_t padded_width, uint16_t padded
   srm.out.pic_h = out_h;
   srm.out.block_offset_x = 0;
   srm.out.block_offset_y = 0;
-  srm.out.srm_cm = PPA_SRM_COLOR_MODE_RGB565;
+  srm.out.srm_cm = mode;
 
   srm.rotation_angle = angle;
   srm.scale_x = (float) this->width_ / (float) this->render_width_;
@@ -666,8 +671,16 @@ void Portall::decode_task(void *param) { static_cast<Portall *>(param)->run_deco
 
 void Portall::run_decode_task() {
   jpeg_decode_cfg_t decode_cfg = {};
-  decode_cfg.output_format = JPEG_DECODE_OUT_FORMAT_RGB565;
+  // RGB888 when the display is drawn in 24 bits. BGR element order for both:
+  // it puts the lowest-addressed byte at blue, which is the little-endian
+  // layout esp_lcd's RGB565 and RGB888 frame buffers both read.
+  decode_cfg.output_format =
+      this->bytes_per_pixel_ == 3 ? JPEG_DECODE_OUT_FORMAT_RGB888 : JPEG_DECODE_OUT_FORMAT_RGB565;
   decode_cfg.rgb_order = JPEG_DEC_RGB_ELEMENT_ORDER_BGR;
+  // What the decoder writes is what the display is told it is, so mipi_dsi
+  // copies it as it stands rather than converting pixel by pixel.
+  const display::ColorBitness bitness =
+      this->bytes_per_pixel_ == 3 ? display::COLOR_BITNESS_888 : display::COLOR_BITNESS_565;
 
   bool canvas_mode = false;
 #ifdef USE_LVGL
@@ -832,8 +845,8 @@ void Portall::run_decode_task() {
         this->copy_to_canvas_(pixels, dst_x, dst_y, dst_w, dst_h, dst_w + x_pad);
       } else
 #endif
-        this->display_->draw_pixels_at(dst_x, dst_y, dst_w, dst_h, pixels, display::COLOR_ORDER_RGB,
-                                       display::COLOR_BITNESS_565, false, 0, 0, x_pad);
+        this->display_->draw_pixels_at(dst_x, dst_y, dst_w, dst_h, pixels, display::COLOR_ORDER_RGB, bitness, false,
+                                       0, 0, x_pad);
       this->draw_us_ += micros() - start;
 #ifdef USE_LVGL
       if (this->canvas_ != nullptr)
@@ -1384,6 +1397,9 @@ void Portall::dump_config() {
   // power. What a dump is for is recognising your own board in it.
   ESP_LOGCONFIG(TAG, "Portall:");
   ESP_LOGCONFIG(TAG, "  Resolution: %ux%u", (unsigned) this->width_, (unsigned) this->height_);
+  ESP_LOGCONFIG(TAG, "  Colour: %s", this->bytes_per_pixel_ == 3
+                                          ? "24 bits (RGB888), as the display's color_depth says"
+                                          : "16 bits (RGB565); color_depth: 24 on the display draws 16 million");
   if (this->scaling_) {
     ESP_LOGCONFIG(TAG, "  Sender draws %ux%u, scaled up by the pixel-processing accelerator",
                   (unsigned) this->render_width_, (unsigned) this->render_height_);

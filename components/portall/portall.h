@@ -125,6 +125,10 @@ class Portall : public Component
   // much of the panel is being redrawn, so it is measured rather than
   // assumed -- the stats line reports the time spent in the accelerator.
   void set_ppa_burst(uint16_t bytes) { this->ppa_burst_ = bytes; }
+  /* 16 or 24, read at codegen off the display's own `color_depth:` so the two
+   * cannot disagree. At 24 the decoder writes RGB888 and the display is drawn
+   * in 16 million colours; at 16, RGB565, where a dark gradient shows as bands. */
+  void set_color_depth(uint8_t bits) { this->bytes_per_pixel_ = bits == 24 ? 3 : 2; }
   /// TCP port to accept frames on, in addition to the USB interface. Zero
   /// leaves the board USB-only.
   void set_port(uint16_t port) { this->port_ = port; }
@@ -480,6 +484,9 @@ class Portall : public Component
   /* Set when a sender is accepted: the first thing it is told is the rate
      this panel wants its sound at. Same one-way latch as the two above. */
   volatile bool rate_pending_{false};
+  /* Set when a sender is accepted too: the colour depth this panel draws in,
+     so the sender knows whether a still picture is worth dithering. */
+  volatile bool depth_pending_{false};
 
   /* Keys meet the network task the way contacts do: the action plays on
      ESPHome's loop and the socket is written from the network task, so they
@@ -504,7 +511,10 @@ class Portall : public Component
   size_t header_len_{0};
 
   jpeg_decoder_handle_t jpeg_{nullptr};
-  // Decoded RGB565, handed to the display. The decoder writes whole 16x16
+  // 2 for RGB565, 3 for RGB888: what one decoded pixel takes in every buffer
+  // below, and what the display is drawn with.
+  uint8_t bytes_per_pixel_{2};
+  // Decoded pixels, handed to the display. The decoder writes whole 16x16
   // minimum coded units, so this is sized for the resolution rounded up to a
   // multiple of 16 on both axes, not for the resolution itself.
   uint8_t *rgb_buffer_{nullptr};

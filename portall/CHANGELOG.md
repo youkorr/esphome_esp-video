@@ -1,5 +1,18 @@
 # Changelog
 
+## 4.46.0
+
+- **No more lines across the buttons and the wallpaper.** They are the screen
+  drawing in 16 bits, where a dark gradient shows as bands. Two answers:
+  - **24 bits** removes them: `pixel_mode: 24` and `color_depth: 24` on the
+    screen's `display:` in its ESPHome YAML, then flash. Portall follows the
+    display by itself.
+  - **16 bits** hides them: the add-on now dithers the sharp still picture
+    when your `quality` is 90 or more.
+  See *Lines across the buttons and the wallpaper* in the documentation.
+- The screen needs flashing for 24 bits. A screen not flashed again is
+  treated as 16 bits, as before.
+
 ## 4.45.1
 
 - **A screen whose width is not a multiple of 16** (a Waveshare 7B drawn

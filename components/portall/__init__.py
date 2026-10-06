@@ -787,7 +787,48 @@ def _video_keeps_lvgl_paused(config):
     return config
 
 
-FINAL_VALIDATE_SCHEMA = _video_keeps_lvgl_paused
+def display_depth(full_config, display_id):
+    """16 or 24: the colour depth of the display portall draws on.
+
+    Read off that display's own `color_depth:` rather than asked for again,
+    so the two cannot disagree -- and they must not: mipi_dsi copies a picture
+    straight in only when it is in the display's own depth, and converts
+    anything else one pixel at a time (Display::draw_pixels_at), which at a
+    panel's size is far too slow to show anything moving. A display that has
+    no such option is 16, which is what this component drew in before.
+    """
+    wanted = getattr(display_id, "id", display_id)
+    for block in full_config.get("display") or []:
+        if getattr(block.get(CONF_ID), "id", None) != wanted:
+            continue
+        depth = str(block.get("color_depth", "16")).lower().removesuffix("bit")
+        return 24 if depth == "24" else 16
+    return 16
+
+
+def _depth_fits(config):
+    """Refuse 24 bits where the picture is not drawn by this component.
+
+    In canvas mode the decoder writes into an LVGL canvas, which holds RGB565;
+    drawing it in 24 bits there is not written, so it is refused rather than
+    shown in the wrong colours.
+    """
+    depth = display_depth(fv.full_config.get(), config[CONF_DISPLAY_ID])
+    if depth == 24 and CONF_CANVAS in config:
+        raise cv.Invalid(
+            f"{CONF_CANVAS}: draws in 16 bits, and the display has "
+            "color_depth: 24. Give the display color_depth: 16, or leave "
+            f"{CONF_CANVAS}: out"
+        )
+    return config
+
+
+def _final_validate(config):
+    config = _video_keeps_lvgl_paused(config)
+    return _depth_fits(config)
+
+
+FINAL_VALIDATE_SCHEMA = _final_validate
 
 
 async def to_code(config):
@@ -803,6 +844,8 @@ async def to_code(config):
     cg.add(var.set_max_frame_bytes(config[CONF_MAX_FRAME_BYTES]))
     cg.add(var.set_rotation(config[CONF_ROTATION]))
     cg.add(var.set_ppa_burst(config[CONF_PPA_BURST]))
+    if display_depth(CORE.config, config[CONF_DISPLAY_ID]) == 24:
+        cg.add(var.set_color_depth(24))
     cg.add(var.set_max_fps(config[CONF_MAX_FPS]))
     if CONF_CANVAS in config:
         # Imported here, so only a board that asked for a canvas -- and so has

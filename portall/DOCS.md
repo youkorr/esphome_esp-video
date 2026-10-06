@@ -1097,7 +1097,8 @@ uses 300000 or 400000. A screen left at the 131072 of a bare `portall:` gets
 the picture lighter and says so in the log once -- raise `max_frame_bytes` in
 its YAML. If a screen ever stops showing the sharp picture (it is JPEG in full
 colour, which the ESP32-P4's decoder accepts but which has not been seen on
-every panel), turn **`sharp`** off in that screen's *Advanced*.
+every panel -- it has been seen on a Guition 800x1280), turn **`sharp`** off
+in that screen's *Advanced*.
 
 **To see for yourself whether a screen draws full colour**, `tools/test444.py`
 in this repository sends a test card to it in turn as 4:2:0, under a grey
@@ -1116,6 +1117,34 @@ colour in 4:4:4.
 A screen whose width is not a multiple of 16 -- a Waveshare 7B drawn portrait,
 600 wide -- gets the sharp picture with the colour halved: its decoder lays a
 full-colour picture out 8 pixels off per row there.
+
+**Lines across the buttons and the wallpaper: 16 or 24 bits.** A screen whose
+display is drawn in 16 bits (`pixel_mode: 16`, the default) has 32 levels of
+red and blue, so a dark gradient -- a button's shading, a dimmed and blurred
+wallpaper -- shows as horizontal bands. That is the screen, not the picture
+sent to it, and no `quality` changes it. Two answers:
+
+- **24 bits, which removes them.** In the screen's own YAML, on its display:
+
+      display:
+        - platform: mipi_dsi
+          ...
+          pixel_mode: 24
+          color_depth: 24
+
+  and flash it. Portall reads the display's `color_depth` and draws in 16
+  million colours; nothing to set on `portall:` or in the add-on. It costs
+  about half as much memory again for the pictures (some 2 MiB more at
+  800x1280) and is refused with `canvas:`. The log line `Colour: 24 bits` at
+  boot says it took; the add-on's log says `Panel: draws in 24 bits`.
+- **16 bits, which hides them.** The add-on dithers the sharp picture -- a
+  fine pattern the eye averages back into the gradient -- on any screen that
+  has not said it draws in 24 bits. Measured on a page of buttons over a dark
+  gradient: the bands' ripple went from 1.7 to 0.5. It only survives the JPEG
+  at a `quality` of 90 or more, so below that nothing is dithered, and it
+  makes the sharp picture heavier (about 270 KiB for a launcher with a
+  wallpaper, against 160). The log says it once: `this panel draws in 16
+  bits, so the finished picture is dithered`.
 
 `icon` takes a **name from the list below, in French or in English** --
 `cuisine` or `kitchen`, `serrure` or `lock`, `reglages` or `settings` -- or
