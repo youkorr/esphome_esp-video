@@ -248,11 +248,11 @@ http_request:
 # Enable Home Assistant API
 api:
   encryption:
-    key: "bVPsAjfqeBGHbkcWA/EDvrdTgwIMuiAxUqBvIn7uWBI="
+    key: ""
 
 ota:
   - platform: esphome
-    password: "ef0f5b5140fae6d1ee441d1b21bcad83"
+    password: "
 
 wifi:
   ssid: !secret wifi_ssid
@@ -261,7 +261,7 @@ wifi:
   # Enable fallback hotspot (captive portal) in case wifi connection fails
   ap:
     ssid: "Tab10 Fallback Hotspot"
-    password: "nu3OUSShbUED"
+    password: ""
 
 captive_portal:
 
