@@ -1,0 +1,73 @@
+# OV02C10 on an ESP32-P4, viewable in a browser.
+#
+# The camera is esp_video_camera, which is a camera::Camera -- which is the
+# whole reason esp32_camera_web_server works here with nothing to wire up. It
+# finds its camera through camera::Camera::instance(), so a component that is
+# not one is invisible to it, and all it can say is "Setup Failed".
+#
+# Checked with `esphome config`. The board itself is not verified here.
+
+substitutions:
+  name: p4-ov02c10
+
+esphome:
+  name: ${name}
+
+external_components:
+  # esp_video_camera with the OV02C10 in its sensor table. Drop this once
+  # esphome/esphome#16944 is merged.
+  - source:
+      type: git
+      url: https://github.com/youkorr/esphome
+      ref: esp_video_camera-lvgl
+    components: [esp_video_camera]
+    refresh: 0s
+
+esp32:
+  board: esp32-p4-evboard
+  framework:
+    type: esp-idf
+    # Not optional with a camera. At DEBUG or VERBOSE, esp_video's image tuning
+    # prints several lines per frame from its own task, and the frame rate
+    # collapses. A different setting from 'logger: level:' below.
+    log_level: ERROR
+
+logger:
+  level: DEBUG
+
+# The frames are copied into PSRAM; the component refuses to validate without it.
+psram:
+  mode: hex
+  speed: 200MHz
+
+i2c:
+  - id: i2c_bus
+    sda: GPIO7
+    scl: GPIO8
+    frequency: 400kHz
+
+esp_video_camera:
+  id: tab10_cam
+  name: Camera
+  i2c_id: i2c_bus
+  device: jpeg
+  sensor_model: ov02c10
+  # 1288x728 is this driver's own boot format, and the other it offers is
+  # 1920x1080. A MIPI sensor cannot be resized at runtime, so this picks the
+  # Kconfig format the firmware is built with.
+  resolution: 1288x728
+  # V4L2 semantics: 1 to 100, higher is better. Not the same scale as
+  # esp_cam_sensor's jpeg_quality, where 15 was a good value -- here 15 would
+  # be close to unreadable.
+  jpeg_quality: 80
+  max_framerate: 30
+  # The sensor's own clock. Leave enable_xclk off if the board generates it.
+  enable_xclk: true
+  xclk_pin: GPIO36
+  xclk_frequency: 24000000
+
+esp32_camera_web_server:
+  - port: 8080
+    mode: stream
+  - port: 8081
+    mode: snapshot
