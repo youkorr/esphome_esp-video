@@ -2,25 +2,7 @@ substitutions:
 
   name: Tab10
   friendly_name: Tab10
-  #audio_pop_delay: 1s
 
-
-
-  #camera
-   
-  #frigate1: rtsp://Tapoone:Tapoone132@192.168.1.56:554/stream1 
-
-  #frigate: "http://192.168.1.38:8123/local/llmvision/frigate1.jpg"
-
-  #wallpaper: "http://192.168.1.38:8123/local/llmvision/abstrac.png"
-  #mediaplayer
-  #media_player_entity: "media_player.tab10_esp32_p4_media_player"
-
-
-
-
-  
-    # URLs des stations de radio"
 
 
   power_icon:        "\U0000e909"
