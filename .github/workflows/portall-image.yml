@@ -1,0 +1,108 @@
+# Builds the Portall add-on's image and publishes it on ghcr.io, so that a
+# Home Assistant box DOWNLOADS the add-on instead of building it.
+#
+# Building on the box is what filled a household's disk: every update left
+# the superseded layers in Docker's build cache, which nothing prunes but an
+# asked-for Supervisor repair -- 12 GB of it, measured with `docker system df`.
+# A pulled image leaves no build cache, and the Supervisor removes the old
+# version itself after an update.
+#
+# One image per architecture, named the way config.yaml's `image:` asks for
+# it: ghcr.io/<owner>/<arch>-portall:<version>. Each is built on a runner of
+# its own architecture -- no emulation, so the aarch64 one takes minutes, not
+# an hour.
+#
+# A published version is NEVER rebuilt. A box may already have pulled it, and
+# the same version must mean the same image everywhere; a change to anything
+# the image carries needs a new version (tools/checkaddon.py says when).
+#
+# The order that matters: the Supervisor reads config.yaml from main and pulls
+# the version it names. So a release is pushed to the working branch first,
+# this workflow publishes it, and only then is it merged into main -- an
+# update offered before its image exists fails to download (the running
+# version keeps running, but it is an error on somebody's screen).
+name: Portall add-on image
+
+on:
+  push:
+    branches:
+      - main
+      - "claude/**"
+    paths:
+      - "portall/**"
+      - "components/portall/ha_send.py"
+      - "components/portall/udisp_send.py"
+      - ".github/workflows/portall-image.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  image:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+            platform: linux/amd64
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+            platform: linux/arm64
+    runs-on: ${{ matrix.runner }}
+    env:
+      IMAGE: ghcr.io/${{ github.repository_owner }}/${{ matrix.arch }}-portall
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Read the version
+        id: version
+        run: |
+          version=$(sed -n 's/^version: *"\{0,1\}\([^"]*\)"\{0,1\} *$/\1/p' portall/config.yaml | head -n 1)
+          test -n "$version"
+          echo "Version $version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to ghcr.io
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Is this version already published?
+        id: published
+        run: |
+          if docker manifest inspect "$IMAGE:${{ steps.version.outputs.version }}" > /dev/null 2>&1; then
+            echo "$IMAGE:${{ steps.version.outputs.version }} is already published; a version is never rebuilt."
+            echo "yes=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build and publish
+        if: steps.published.outputs.yes != 'true'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          docker buildx create --use --name portall
+          # BRANCH is this very commit: the Dockerfile fetches the two senders
+          # from the repository by address, and they must be the ones that
+          # go with this config.yaml, not whatever main holds.
+          #
+          # The cache lives beside the image. Without it every release would
+          # rebuild the browser's layers and every box would download them
+          # again; with it, an update downloads only what changed.
+          #
+          # org.opencontainers.image.source links the package to this public
+          # repository, which is what makes it public: a box pulls it with no
+          # account at all.
+          docker buildx build portall \
+            --file portall/Dockerfile \
+            --platform "${{ matrix.platform }}" \
+            --build-arg "BRANCH=${{ github.sha }}" \
+            --label "io.hass.version=$VERSION" \
+            --label "io.hass.arch=${{ matrix.arch }}" \
+            --label "io.hass.type=addon" \
+            --label "org.opencontainers.image.source=https://github.com/${{ github.repository }}" \
+            --provenance=false \
+            --cache-from "type=registry,ref=$IMAGE:buildcache" \
+            --cache-to "type=registry,ref=$IMAGE:buildcache,mode=max" \
+            --tag "$IMAGE:$VERSION" \
+            --push

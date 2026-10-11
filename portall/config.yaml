@@ -1,5 +1,5 @@
 name: Portall
-version: "4.46.1"
+version: "4.47.0"
 # Home Assistant identifies an add-on by its slug, so this one moving from
 # usb_display_panel to portall makes the Supervisor see a NEW add-on: options
 # are not carried over and /data starts empty, which means the browser
@@ -20,6 +20,13 @@ description: Home Assistant, and any web page, on an ESP32-P4 panel over Wi-Fi -
 arch:
   - amd64
   - aarch64
+# Downloaded ready-built rather than built on the box. The image is made by
+# .github/workflows/portall-image.yml, one per architecture; {arch} is filled
+# in by the Supervisor. Building here left every superseded layer in Docker's
+# build cache -- 12 GB on one household's server -- and a pulled image leaves
+# none. The Supervisor pulls BEFORE it stops the running version, so an image
+# that is not there yet costs an error message, never the add-on.
+image: "ghcr.io/youkorr/{arch}-portall"
 startup: application
 # The weather on the launcher is read through the Supervisor, which hands every
 # add-on its own credential for exactly this. Without this line that route is

@@ -150,13 +150,14 @@ RUN (apt-get update \
 # Bump this with the version in config.yaml. It sits AFTER the browsers and
 # BEFORE the senders: an update refetches the two senders below and copies the
 # add-on's own files, and reuses everything above -- see the note on the pin.
-ARG BUNDLE=4.46.1
+ARG BUNDLE=4.47.0
 RUN echo "${BUNDLE}" > /app/BUNDLE
 
-# Fetched rather than copied: a Home Assistant add-on builds with its own folder
-# as the context and cannot reach the components directory beside it. Rebuilding
-# the add-on is what picks up a newer sender, which is the same thing an update
-# would do anyway.
+# Fetched rather than copied: the add-on builds with its own folder as the
+# context and cannot reach the components directory beside it. The workflow
+# that publishes the image passes the commit it builds as BRANCH, so the
+# senders are the ones that go with this config.yaml; main is only the default
+# for somebody building by hand.
 ARG BRANCH=main
 ARG RAW=https://raw.githubusercontent.com/youkorr/esphome_esp-video/${BRANCH}/components/portall
 
