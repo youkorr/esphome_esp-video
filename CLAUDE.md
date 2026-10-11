@@ -6697,6 +6697,35 @@ one was measured at, and 60 would have turned the cache off for precisely the
 page this exists to show. **A fixture built from convenient sizes measures the
 fixture.** The first table is true and it is not about the user's case.
 
+**CORRECTED by the add-on's own Disk lines: the cap is per cache, so it holds
+a profile to about 310 MB of caches, not 150.** The salon profile at 755 MB,
+2026-10-12, from 4.47.0's pulled image:
+
+| | |
+|---|---|
+| `Default/Cache` | 158 MB |
+| `Default/Service Worker/CacheStorage` | 156 MB |
+| `Default/Code Cache` | 154 MB |
+| `Default/IndexedDB` | 51 MB |
+| `Default/Extensions` | 48 MB |
+| `optimization_guide_model_store` | 48 MB |
+
+The HTTP cache and the code cache EACH sit at the number, which is what the
+first table already showed (each column follows the switch on its own) and
+"an eighth" read as one total. Both have stopped growing. What has not is the
+sites' own storage, CacheStorage and IndexedDB, which no switch here caps.
+
+Two of the rows are not the panel's browser at all. **Playwright passes
+`--disable-extensions`** (read in its `coreBundle.js`), so the driven browser
+never loads `Default/Extensions`: they were put there by the sign-in page's
+plain Chrome on the same profile, by Chrome sync. That Chrome carries none of
+the sender's flags either, so it may be what fetched the model. And
+**Playwright passes its own `--disable-features=`** in the same list, so the
+command line has two of them whatever the paragraph below says; which one
+Chrome keeps is still not established. Recorded, not acted on: the household
+asked for points 3 (the model) and 4 (naming the extensions) once they are
+home.
+
 **`--disable-features` is ONE flag now and that is deliberate.** The ML
 accessories -- 46 MB of `optimization_guide_model_store` in every profile,
 for a browser whose whole job is to paint a dashboard -- go in beside
