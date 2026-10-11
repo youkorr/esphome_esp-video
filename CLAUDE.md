@@ -11440,6 +11440,23 @@ system" (`/usr/lib/<x>`, `/usr/share/<x>`). Not acted on until a panel's
 lines say which folder it is: a site's CacheStorage, Widevine, a downloaded
 component and Chrome's on-device model each want a different answer.
 
+**And the biggest cost was outside the container, where `Disk:` cannot look:
+12.08 GB of Docker build cache on the household's server, 9.655 GB of it
+reclaimable** (`docker system df`, 323 entries, 2026-10-12). The add-on is
+built on the server at every update, and the Supervisor's `buildx build`
+leaves each superseded layer in BuildKit's cache; the only thing that prunes
+it is `DockerAPI.repair()` (`images.prune_builds()`, read in the Supervisor's
+tree), which runs on an asked-for repair and never on an update. The
+household ran `docker builder prune -f` from the SSH add-on: 9.655 GB
+reclaimed, 23 entries and 2.426 GB left, none reclaimable -- the current
+build's own layers, which the next update reuses. Some of it may have been
+another locally built add-on's; nothing here says how much.
+
+It comes back with every update. The lasting answer is an image built by
+GitHub Actions and pulled (`image:` in config.yaml): no build on the server,
+so no build cache, and the Supervisor removes the old version itself
+(`cleanup_old_images`). Proposed, not built.
+
 ## The slideshow is a screen saver over whatever is showing -- 4.43.0
 
 **Reported as having been misunderstood: *"cette option de diaporama doit
