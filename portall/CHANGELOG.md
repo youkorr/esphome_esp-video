@@ -1,5 +1,18 @@
 # Changelog
 
+## 4.47.0
+
+- **The add-on is now downloaded ready-built** instead of being built on
+  your Home Assistant server. Updates are quicker, and they no longer leave
+  the old version's pieces behind: every build kept the previous one's
+  layers in Docker's build cache, which nothing clears by itself -- 12 GB on
+  one server.
+- This update downloads the whole add-on once: about 650 MB (790 MB on a
+  Raspberry Pi or another arm64 box). Later updates download only what
+  changed.
+- What earlier versions left behind is still on the disk. See *Leftovers of
+  versions built on the server* in the documentation to clear it.
+
 ## 4.46.1
 
 - **The slowdowns since 4.45 are gone.** The sharp picture sent when the

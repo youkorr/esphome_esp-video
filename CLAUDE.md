@@ -1802,7 +1802,7 @@ the dashboard, where it is invisible while the keys go on working.
 ahead of the `pip install` as well as the `ADD`s, so a bump refetched
 everything — at the cost of the browser download on each update.
 `present_browser()` prints the Chromium version at startup and warns below 114,
-so this is never diagnosed by guesswork again. Currently **4.46.1**.
+so this is never diagnosed by guesswork again. Currently **4.47.0**.
 
 **CORRECTED in 4.29.5: the cost was every update, and a pin removes it.**
 Asked as *"verifie addon ... si il ya pas des elements qui freine la
@@ -11452,10 +11452,69 @@ reclaimed, 23 entries and 2.426 GB left, none reclaimable -- the current
 build's own layers, which the next update reuses. Some of it may have been
 another locally built add-on's; nothing here says how much.
 
-It comes back with every update. The lasting answer is an image built by
-GitHub Actions and pulled (`image:` in config.yaml): no build on the server,
-so no build cache, and the Supervisor removes the old version itself
-(`cleanup_old_images`). Proposed, not built.
+It came back with every update, so since **4.47.0** the add-on is not built
+on the server at all -- see below.
+
+### Pulled, not built -- 4.47.0
+
+Asked for once the build cache was measured. `image: "ghcr.io/youkorr/
+{arch}-portall"` in config.yaml, and `.github/workflows/portall-image.yml`
+builds it, one runner per architecture (`ubuntu-24.04` and
+`ubuntu-24.04-arm`, native, no emulation), with plain `docker buildx` rather
+than third-party actions. What was read in the Supervisor's tree before it
+was written, because it decides whether this can break a household:
+
+- **`App.update` pulls BEFORE it stops the running version**
+  (`apps/app.py`: `instance.update(...)`, then `self.stop()`), so an image
+  that is not there costs an error notification and the old version keeps
+  running. Then `instance.cleanup(old_image=...)` removes the locally built
+  image.
+- **`need_build` is `ATTR_IMAGE not in data`**, and `_image()` fills
+  `{arch}` from the add-on's own arch list. The address was run through the
+  Supervisor's own `docker_image` validator: accepted; a tag or an uppercase
+  registry is refused.
+- **The package must be public**, or every box's pull fails. GitHub's docs
+  say a package published with GITHUB_TOKEN inherits the repository's
+  visibility; `org.opencontainers.image.source` links it. Checked after the
+  first build with an ANONYMOUS pull from here (ghcr.io answers this
+  container), not trusted.
+
+Three rules the workflow carries, each a fault if missing:
+
+- **A published version is never rebuilt.** A box may already have it; the
+  same version must be the same image. A change without a bump is therefore
+  never published -- the version bump trap above, now strict, and
+  `tools/checkaddon.py` still says when.
+- **`BRANCH=<commit>`**: the Dockerfile ADDs both senders by URL, and on a
+  branch build `main` would have handed it the wrong ones.
+- **A registry cache (`<image>:buildcache`, mode=max)**: without it every
+  release rebuilds the browser's layers with new digests and every box
+  downloads them again.
+
+**The order of a release changes**: push to the working branch, wait for
+*Portall add-on image* to be green on BOTH architectures, check the pull,
+THEN merge into main -- the Supervisor offers what main's config.yaml names,
+and an update offered before its image exists fails on somebody's screen.
+
+**Published and checked, not yet pulled by a box.** Both images built in
+about two minutes on GitHub's runners, and an ANONYMOUS token from ghcr.io
+fetched both manifests (HTTP 200): 651 MB compressed for amd64, 785 for
+aarch64. The layers themselves could not be fetched from here (the blobs
+redirect to a host this container's proxy refuses), so `tools/checkimage.py`
+runs in the workflow against the image pulled back from ghcr.io: every
+module imports, PulseAudio, Xvfb, x11vnc, websockify, xdotool, pyhap and
+the colour emoji font are there, and the browser STARTS -- amd64 Google
+Chrome 155 with H.264, 442 MB, /usr 1220 MB, the household's own `Disk:`
+figures to within a few percent; aarch64 Debian's Chromium 154, also with
+H.264. A check, not a build, is what would have caught the Dockerfile's
+`; true` installs failing in silence.
+
+Seen there and left alone: on aarch64 Playwright's own Chromium (644 MB)
+is installed beside a Debian Chromium that starts and decodes H.264, so it
+is a spare there as it was on amd64 before 4.37.4; and launcher.py lines
+993 and 1780 raise `SyntaxWarning: invalid escape sequence` under 3.12 (a
+regex in a non-raw string), harmless today and an error in some later
+Python.
 
 ## The slideshow is a screen saver over whatever is showing -- 4.43.0
 
