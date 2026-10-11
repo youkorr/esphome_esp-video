@@ -33,6 +33,7 @@ on:
       - "components/portall/ha_send.py"
       - "components/portall/udisp_send.py"
       - ".github/workflows/portall-image.yml"
+      - "tools/checkimage.py"
   workflow_dispatch:
 
 permissions:
@@ -106,3 +107,15 @@ jobs:
             --cache-to "type=registry,ref=$IMAGE:buildcache,mode=max" \
             --tag "$IMAGE:$VERSION" \
             --push
+
+      # Every time, built here or not: pulled back from ghcr.io, so what is
+      # checked is what a Home Assistant box downloads. The Dockerfile lets
+      # most installs fail without failing the build, so a build can succeed
+      # with the browser or the sound server missing; this is what says so.
+      - name: Check what the published image carries
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          docker run --rm --platform "${{ matrix.platform }}" \
+            -v "$PWD/tools/checkimage.py:/checkimage.py:ro" \
+            "$IMAGE:$VERSION" python /checkimage.py
