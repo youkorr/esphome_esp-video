@@ -137,8 +137,9 @@ Settings -> Add-ons -> Add-on store -> the three dots -> Repositories, and add:
 Then install **ESP32-P4 Panel**, fill in the panels in its Configuration tab
 and start it. It will start with Home Assistant from then on.
 
-The first build downloads a browser, so give it several minutes and about
-1.5 GB of disk.
+The add-on is downloaded ready-built -- about 650 MB the first time (790 MB
+on a Raspberry Pi or another arm64 box), about 1.7 GB on the disk once
+unpacked -- so give it a few minutes.
 
 ## With Docker
 
@@ -1855,6 +1856,22 @@ installed: it changes only with an update. Its data is what grows: each
 screen's browser profile (bounded, see below) and what was downloaded from
 it, which the Files page can delete. Home Assistant's own folders -- config,
 share, media -- are not counted.
+
+**Leftovers of versions built on the server.** Up to 4.46, the add-on was
+built on your Home Assistant server at each update, and Docker kept every
+previous build's pieces in its build cache: 12 GB on one server. Since 4.47
+it is downloaded ready-built and leaves nothing behind, but what earlier
+versions left is still there. To see it and clear it you need a terminal
+that has Docker -- the *Advanced SSH & Web Terminal* add-on with protection
+mode off:
+
+```
+docker system df
+docker builder prune -f
+```
+
+The first shows the line *Build Cache*; the second removes only that cache,
+not your add-ons and not their data.
 
 **One browser on an amd64 machine.** Where Google Chrome installs, which is
 every amd64 Home Assistant, Playwright's own Chromium (about 410 MB) is not
