@@ -2736,6 +2736,31 @@ Things to get right, known before writing a line:
 Nothing is written. The first step is the seam, because it costs nothing on
 a panel and makes the rest testable.
 
+**Searched before starting, asked as *"regarde si d'autres personnes ont
+travaille dessus"* (2026-10-12), and nobody has published it.** No ESP32-S3 or
+P4 project drives a Bluetooth dongle through ESP-IDF's USB Host Library. The
+only other one known is p1ngb4ck's ESPHome fork, on his own modified
+`usb_host`, which no search found. What exists is close and is not this:
+
+- **BTstack** has an HCI-over-USB transport for libusb on a PC and an STM32
+  USB host port, but on ESP32 only VHCI and UART. Its STM32 port is the
+  nearest reference for sending HCI over a host's control endpoint. Licence:
+  BlueKitchen's, commercial for closed products.
+- **USB Host Shield 2.0** (BTD, PS4BT, BTHID, SPP) is its own small Bluetooth
+  host on its own USB host chip, the MAX3421E. pink0D's `btd_vhci` ports
+  those classes onto a classic ESP32's internal radio. Both are **GPL-2.0**,
+  so they may be read and never copied into this MIT code. They do no A2DP.
+- **Teensy's USBHost_t36** has Bluetooth for PS3/PS4 controllers on its own
+  USB host. mbed's BlueUSB is the same idea, years older.
+- **TinyUSB's host has no Bluetooth class** (it has one for device mode
+  only), but its custom class driver hook would take one.
+- No report anywhere of a P4 playing A2DP through a dongle. arduino-esp32
+  lists Classic as unsupported on a P4.
+
+So there is no code to reuse, and nobody has gone ahead whose results this
+should wait for. Linux's btusb, already read, remains the best reference for
+the transport.
+
 
 ## The panel as a launcher
 
