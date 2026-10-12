@@ -11863,6 +11863,47 @@ module-level names diffed against `git show HEAD:` confirmed nothing else
 went. checksharp gained "only where it changed" and "not within 1.5 s of the
 tap". **Not seen on a panel.**
 
+## The ESP32-S31: one line between Portall and it, and an IDF version
+
+**Asked as *"oui verifie"*, after the S31 came up as the one chip with Wi-Fi,
+Bluetooth Classic, a JPEG decoder and a PPA in one package** (mass production
+2026-07-27; no MIPI-DSI, parallel RGB only). Nobody here owns one, so this is
+validation and reading, never a build.
+
+- **ESPHome 2026.10.0-dev knows it**: `VARIANT_ESP32S31`, its GPIOs (26-28 and
+  30-32 flash, 29 and 41 absent), octal PSRAM, and `mipi_rgb` accepts it.
+- **Portall refuses it on one line**: `only_on_variant(supported=[P4])` in
+  `__init__.py`. With S31 added -- in a scratch copy only, nothing committed --
+  a panel of `mipi_rgb` 1024x600, `gt911`, `port: 5000`, `usb: false` passes
+  `esphome config` and the codegen: `set_display`, `set_port`,
+  `set_touchscreen` emitted, `CONFIG_LWIP_TCP_WND_DEFAULT=512000`.
+- **ESP-IDF 5.5.5, ESPHome's default for every channel, has no esp32s31 at
+  all** (`components/soc/` read at the tag); v6.1 does. So a S31 YAML needs
+  `framework: version: 6.1.0`, which validates with a "not the recommended
+  version" warning. Whether ESPHome builds S31 cleanly on 6.1 is not known.
+- **The C++ portall calls is source-compatible from 5.5.5 to 6.1**, header by
+  header (`jpeg_decode.h`, `jpeg_types.h`, `ppa.h`, `ppa_types.h`,
+  `esp_cache.h`): every identifier exists; the colour enums moved to FourCC
+  values but keep their names; `jpeg_decode_engine_cfg_t` and
+  `ppa_client_config_t` gained a `flags` field, which portall's `= {}`
+  zeroes; `srm_cm` is still in the union.
+- **v6.1's soc_caps for esp32s31**: `SOC_JPEG_DECODE_SUPPORTED`,
+  `SOC_PPA_SUPPORTED`, `SOC_DMA2D_SUPPORTED`, `SOC_LCD_RGB_SUPPORTED`,
+  `SOC_WIFI_SUPPORTED`, `SOC_BT_CLASSIC_SUPPORTED`, `SOC_BLE_SUPPORTED`, and
+  `SOC_USB_OTG_PERIPH_NUM 1` where a P4 has 2.
+- **What changes for a panel**: native Wi-Fi, so ESPHome's high-performance
+  `CONFIG_ESP_WIFI_*` (AMPDU, 512 dynamic RX buffers, BA window 32) reach the
+  radio -- on a P4 they do not exist -- and there is no esp-hosted SDIO hop to
+  drop packets. `mipi_rgb` takes RGB565 straight into the panel
+  (`esp_lcd_panel_draw_bitmap`) and has no 24-bit mode, so a S31 panel is 16
+  bits and gets the sender's dither. Bluetooth Classic is the chip's own, so
+  portall_bt's USB transport is not needed there; its Bluedroid side (A2DP,
+  HID, keys, descriptor) would run on the internal controller instead.
+- **Not known**: the S31 JPEG decoder's speed, whether octal PSRAM keeps up
+  with an RGB panel refreshing from it while the decoder writes, and what
+  inbound TCP rate the native radio sustains. The first board's own
+  `@ N fps, N us/draw` line is what settles it.
+
 ## Repository conventions
 
 - Work on branch `claude/esphome-pr-outdated-mdq36w`, then merge into `main`
