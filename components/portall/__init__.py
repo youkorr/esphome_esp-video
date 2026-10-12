@@ -234,6 +234,7 @@ async def portall_set_volume_to_code(config, action_id, template_arg, args):
 
 CONF_DISPLAY_ID = "display_id"
 CONF_FRAME_BUFFERS = "frame_buffers"
+CONF_DECODE_BUFFERS = "decode_buffers"
 CONF_MAX_FRAME_BYTES = "max_frame_bytes"
 CONF_MANUFACTURER = "manufacturer"
 CONF_PRODUCT = "product"
@@ -683,6 +684,13 @@ CONFIG_SCHEMA = cv.All(
             # uses six; four is enough to keep the decoder fed and costs less
             # PSRAM.
             cv.Optional(CONF_FRAME_BUFFERS, default=4): cv.int_range(min=2, max=8),
+            # Pictures decoded and not yet drawn. Two lets the JPEG engine
+            # decode the next picture while the display is still copying this
+            # one -- Espressif's usb_extend_screen does the same -- at the cost
+            # of one more decoded panel of PSRAM (2000 KiB at 800x1280 in 16
+            # bits). One is the board as it was: decode, then draw. Canvas mode
+            # has its own pair and ignores this.
+            cv.Optional(CONF_DECODE_BUFFERS, default=2): cv.int_range(min=1, max=2),
             # Upper bound on one compressed frame. A 1024x600 JPEG of a desktop
             # is tens of kilobytes; 128 KB leaves room for a busy screen.
             cv.Optional(CONF_MAX_FRAME_BYTES, default=131072): cv.int_range(
@@ -841,6 +849,7 @@ async def to_code(config):
     if (render_w := config.get(CONF_RENDER_WIDTH)) is not None:
         cg.add(var.set_render_resolution(render_w, config[CONF_RENDER_HEIGHT]))
     cg.add(var.set_frame_buffers(config[CONF_FRAME_BUFFERS]))
+    cg.add(var.set_decode_buffers(config[CONF_DECODE_BUFFERS]))
     cg.add(var.set_max_frame_bytes(config[CONF_MAX_FRAME_BYTES]))
     cg.add(var.set_rotation(config[CONF_ROTATION]))
     cg.add(var.set_ppa_burst(config[CONF_PPA_BURST]))

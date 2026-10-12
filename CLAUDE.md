@@ -2223,6 +2223,9 @@ Sources: espressif/esp-iot-solution `examples/usb/device/usb_extend_screen`
 (`main/app_lcd.c`, `main/app_vendor.c`, `main/Kconfig.projbuild`, README);
 espressif/esp-idf v5.5.5 `components/esp_lcd/dsi/esp_lcd_panel_dpi.c`.
 
+**BOTH STEPS BUILT** -- see **Decode and draw overlap** near the end of this
+file. Zero copy into a hidden frame buffer is still not.
+
 ### Portall inside an LVGL canvas, which is Rob's suggestion
 
 *"If the usb-display could work in an lvgl canvas that would give more
@@ -11947,6 +11950,93 @@ validation and reading, never a build.
   with an RGB panel refreshing from it while the decoder writes, and what
   inbound TCP rate the native radio sustains. The first board's own
   `@ N fps, N us/draw` line is what settles it.
+
+## Decode and draw overlap: a second decode buffer and a draw task
+
+**Asked as *"Ok etape 2 je le testerai des que je serai present"*,** after the
+reading under **The idle cores are not the boost; the overlap is**. Both steps
+went into one flash, as proposed, so the first stats line says what it bought.
+
+- **`decode_buffers:` on `portall:`, 2 by default, 1 the board as it was.**
+  Espressif's `CONFIG_EXAMPLE_LCD_BUF_COUNT` is the same knob. One more
+  decoded panel of PSRAM at boot -- 1800 KiB at 720x1280, 2000 at 800x1280 in
+  16 bits, 3000 in 24 -- which is the first time free PSRAM moves, and for a
+  reason. Canvas mode ignores it: it has its own pair and LVGL's pace.
+- **`pipeline.cpp`**: `start_pipeline_()` takes the second buffer from
+  `jpeg_alloc_decoder_mem` and starts `udisp_draw` (priority 2, core 1, the
+  decoder's own, so neither goes above micro_wake_word's 3);
+  `take_decode_buffer_()`, `give_back_()`, `hand_over_()`. In `portall.cpp`
+  the plain-mode draw is `draw_decoded_()` (rotate_ now reads the buffer it is
+  handed), the counting `note_drawn_()`, and the five-second line
+  `report_stats_()`, called by whichever task finishes pictures. With no
+  second buffer every one of them runs on the decoder exactly as before.
+- **Ownership in one line per state**: a decode buffer is in `spare_queue_`,
+  held by the decoder, in `draw_queue_`, or held by the draw task -- never two.
+  Two buffers and queues of two, so no send can find its queue full. A
+  compressed frame goes back to the socket as soon as it is DECODED, which is
+  earlier than before.
+- **Why it can overlap, read in v5.5.5**: the JPEG engine takes one TX and one
+  RX channel of the 2D-DMA, the display's copy (`esp_async_fbcpy`) one of each,
+  the accelerator one of each, and a P4 has 3 TX and 2 RX (4 and 3 from v3.0,
+  `soc_caps.h`). The draw task runs the accelerator and the copy one after the
+  other, so at most two at once. And mipi_dsi's `draw_pixels_at` returns only
+  after the DPI driver's `on_color_trans_done`, which `async_fbcpy_done_cb`
+  gives when the copy is finished -- so a buffer is free after it, not before.
+- **The stats line**: `N us/decode` always, which us/draw never counted; with
+  two buffers also `decoder waited N ms/s for the display`. Near zero the
+  decode or the network sets the pace; near a second the display does.
+- **The risk is memory, not threads**: the decoder writing, the copy reading
+  and writing and the DSI scanout all share PSRAM's bandwidth, the thing the
+  `ppa_burst:` measurement was about. A panel that flickers with this and not
+  without is the scanout starved, and `decode_buffers: 1` is the way back.
+
+**What to expect, worked out rather than measured.** The 7B's own log has a
+rotated whole 1024x600 at 14.9 ms in the PPA and ~4 ms of copy; with a decode
+of ~6 ms (Espressif's table scaled) that is 25 ms one after the other against
+19 overlapped, 40 pictures a second against 52. Unrotated 800x1280 is a decode
+of ~10 ms against a copy of ~2-3: 12.5 ms against 10, a quarter. **The gain is
+largest where the board turns the picture**, and smallest exactly where the
+decode dominates -- which the new `us/decode` figure will say on the first line.
+
+**`tools/checkpipeline.py` builds the SHIPPED `portall.cpp` and `pipeline.cpp`
+with g++ and runs them**: ESPHome's own headers (staged, because
+`core/color.h` includes `"defines.h"` by a relative name, so no include path
+can put a quiet one in front of the installed one, which switches on LVGL),
+stand-ins in `tools/pipetest/stub/` for the JPEG engine, the accelerator and
+the display that each take a set time and write and read a picture number,
+and FreeRTOS queues and tasks on real threads (`tools/pipetest/rtos.cpp`).
+This is the first time `portall.cpp` itself has been compiled by anything in
+this repository -- `checkcanvas.py` lifts functions out of it -- and it
+compiles with and without canvas mode against LVGL 9.5.0, no warning of ours.
+
+| fake engines | `decode_buffers: 1` | 2 | the arithmetic |
+|---|---|---|---|
+| decode 10 ms, draw 8 | 54.3 pictures/s | 96 | 56 / 100 |
+| decode 4, draw 12 (the display slower) | 61.0 | 81.2 | 62 / 83 |
+| turned: decode 10, accelerator 12, draw 3 | 39.1 | 64.6 | 40 / 67 |
+
+With one buffer the decoder and the display are busy at the same time for
+**0 ms**, with two for 480 ms over sixty pictures -- the mechanism measured,
+not only the outcome, and `decode_buffers: 1` is the shipped reproduction of
+the old board. Every picture drawn once and in order, rectangles of one
+picture and failed decodes mixed in, each where it was sent; no buffer read
+while being written; the stats line reading 5139 us/decode and `decoder waited
+564 ms/s` where the arithmetic says 580.
+
+**And the check checks itself, which caught its own ruler first.** A copy of
+`pipeline.cpp` that hands a buffer back BEFORE drawing it must fail the torn
+case. Against the first fixtures it did not: with the decode slower than the
+draw, the early buffer is never written in time to be caught. Only a display
+slower than the decoder can tear, so that case exists and is the one the
+broken copy now fails. A torn-buffer check run only where tearing cannot
+happen was proving nothing -- this file's oldest lesson about rulers.
+
+**Not compiled by ESP-IDF, not flashed.** Not known: the real decode time (the
+new figure says it), whether PSRAM bandwidth leaves the scanout enough, and
+the rate. The board's own `@ N fps, N us/decode, N us/draw ..., decoder
+waited N ms/s` beside the same page with `decode_buffers: 1` is the
+measurement. `codegen` at 2026.10.0-dev: `set_decode_buffers(2)`;
+`decode_buffers: 3` refused.
 
 ## Repository conventions
 

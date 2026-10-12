@@ -15,10 +15,10 @@
 #endif
 #ifdef USE_LVGL
 #include <lvgl.h>
-#include <atomic>
 #include <functional>
 #endif
 
+#include <atomic>
 #include <cstdint>
 
 /* What a PCM payload carries, and what the USB audio class is configured for:
@@ -110,6 +110,12 @@ class Portall : public Component
     this->render_height_ = height;
   }
   void set_frame_buffers(uint8_t count) { this->frame_buffer_count_ = count; }
+  /// How many pictures may be decoded and not yet drawn: 2 lets the JPEG
+  /// engine decode the next picture while the display is still copying this
+  /// one, which is what Espressif's own usb_extend_screen does; 1 is the board
+  /// as it was, decode then draw then decode. The second costs one decoded
+  /// panel of PSRAM, taken at boot.
+  void set_decode_buffers(uint8_t count) { this->decode_buffers_ = count; }
   void set_max_frame_bytes(size_t bytes) { this->max_frame_bytes_ = bytes; }
   /// Also enforced here, not only advertised: a host that ignores the figure
   /// otherwise spends this board's whole budget on frames it cannot draw.
@@ -292,8 +298,37 @@ class Portall : public Component
   // pixel-processing accelerator. Nothing here touches the CPU: it is a DMA
   // engine that reads one buffer and writes the other, and it does the turn
   // and the scale in the same pass. The name predates the scaling.
-  bool rotate_(const Frame &frame, uint16_t padded_width, uint16_t padded_height);
+  bool rotate_(const Frame &frame, const uint8_t *decoded, uint16_t padded_width, uint16_t padded_height);
   bool allocate_rotation_();
+
+  // The decode and the draw, overlapped -- pipeline.cpp. A decoded picture
+  // waiting for the display: the rectangle as it was sent, and which of the
+  // decode buffers holds it.
+  struct Drawing {
+    Frame frame;
+    uint8_t *pixels{nullptr};
+    uint16_t padded_width{0};
+    uint16_t padded_height{0};
+  };
+  // Takes the second decode buffer and starts the draw task. False leaves the
+  // board decoding and drawing one after the other, on the decode task, as it
+  // always did -- canvas mode, decode_buffers: 1, or no PSRAM for it.
+  bool start_pipeline_();
+  static void draw_task(void *param);
+  void run_draw_task();
+  // A decode buffer nothing is reading. Waits for the display when both are
+  // taken, which is the pipeline's flow control.
+  uint8_t *take_decode_buffer_();
+  // A buffer whose decode failed, back to the free ones.
+  void give_back_(uint8_t *buffer);
+  // A decoded picture to the draw task, or drawn here when there is none.
+  void hand_over_(const Frame &frame, uint8_t *decoded, uint16_t padded_width, uint16_t padded_height);
+  // Plain mode's draw: turn or scale it if asked, then onto the display.
+  void draw_decoded_(const Frame &frame, const uint8_t *decoded, uint16_t padded_width, uint16_t padded_height);
+  // Counts a picture drawn, whichever way it was drawn.
+  void note_drawn_(const Frame &frame, uint16_t x, uint16_t y, uint16_t w, uint16_t h);
+  // The five-second line. Called by whichever task finishes a picture.
+  void report_stats_();
   /// Where a rectangle sent for the unrotated panel lands once the panel is
   /// turned. Also swaps the size on a quarter turn.
   void place_(const Frame &frame, uint16_t &x, uint16_t &y, uint16_t &w, uint16_t &h) const;
@@ -438,7 +473,8 @@ class Portall : public Component
   uint8_t frame_buffer_count_{4};
   size_t max_frame_bytes_{128 * 1024};
   uint32_t min_frame_interval_ms_{0};
-  uint32_t last_draw_ms_{0};
+  // Written by whichever task draws, read by the decoder's rate limit.
+  std::atomic<uint32_t> last_draw_ms_{0};
   // The picture the rate limiter last let through and the one it last turned
   // away, so a picture split into several rectangles is not half drawn. The
   // protocol's identifier is ten bits, so 0xFFFF is a value no frame has.
@@ -521,6 +557,15 @@ class Portall : public Component
   size_t rgb_buffer_len_{0};
   uint16_t padded_width_{0};
   uint16_t padded_height_{0};
+  // The second decode buffer and the queues between the two tasks, when the
+  // pipeline runs. spare_queue_ holds the decode buffers nothing is reading;
+  // draw_queue_ the decoded pictures waiting for the display, in the order
+  // they arrived. Two of each, so neither send can ever find its queue full.
+  uint8_t decode_buffers_{2};
+  bool pipelined_{false};
+  uint8_t *rgb_spare_{nullptr};
+  QueueHandle_t spare_queue_{nullptr};
+  QueueHandle_t draw_queue_{nullptr};
 
   // Rotation, for a panel that is not mounted the way the host sends its
   // frames. Null client means none was asked for and nothing is allocated.
@@ -614,6 +659,16 @@ class Portall : public Component
   uint32_t draw_us_{0};
   // Of draw_us_, the part spent inside the accelerator itself.
   uint32_t ppa_us_{0};
+  // The JPEG engine's time, which us/draw never counted: nothing said how a
+  // picture's time split between decoding it and drawing it, so nothing said
+  // whether overlapping the two could buy anything. Written by the decoder and
+  // read by the draw task, hence atomic.
+  std::atomic<uint32_t> decode_us_{0};
+  std::atomic<uint32_t> frames_decoded_{0};
+  // How long the decoder stood waiting for a free decode buffer: near a second
+  // a second is the display setting the pace, near zero the decode or the
+  // network.
+  std::atomic<uint32_t> decode_waited_us_{0};
   uint32_t stats_since_ms_{0};
   // The last frame rate reported, so a steady stream is not restated every five
   // seconds for as long as it runs.
