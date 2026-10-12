@@ -11,6 +11,7 @@
 #endif
 
 #include <cmath>
+#include <cstdio>
 #include <cstring>
 
 extern "C" {
@@ -264,6 +265,9 @@ void Portall::setup() {
   // runs on.
   xTaskCreatePinnedToCore(tusb_device_task, "usbd", 4096, nullptr, 5, nullptr, 1);
 #endif  // CONFIG_USB_DISPLAY_DEVICE
+  // The draw task and the second decode buffer, before the decoder starts so
+  // it never sees half a pipeline. See pipeline.cpp.
+  this->pipelined_ = this->start_pipeline_();
   // Priority 2 for the decoder: above ESPHome's loop (1), BELOW
   // micro_wake_word's inference (3). It was 4, and during a video it is busy
   // most of the time -- 30 whole panels a second at ~20 ms each is 60% of core
@@ -357,7 +361,7 @@ void Portall::place_(const Frame &frame, uint16_t &x, uint16_t &y, uint16_t &w, 
   }
 }
 
-bool Portall::rotate_(const Frame &frame, uint16_t padded_width, uint16_t padded_height) {
+bool Portall::rotate_(const Frame &frame, const uint8_t *decoded, uint16_t padded_width, uint16_t padded_height) {
   ppa_srm_rotation_angle_t angle;
   // The accelerator turns counter-clockwise; the configuration is clockwise,
   // the way a panel's mounting is described.
@@ -393,7 +397,7 @@ bool Portall::rotate_(const Frame &frame, uint16_t padded_width, uint16_t padded
   // The decoded rectangle sits at the top left of a buffer rounded up to whole
   // 16x16 units, so read it as a block out of the larger picture rather than
   // rotating the padding along with it.
-  srm.in.buffer = this->rgb_buffer_;
+  srm.in.buffer = decoded;
   srm.in.pic_w = padded_width;
   srm.in.pic_h = padded_height;
   srm.in.block_w = frame.width;
@@ -677,10 +681,6 @@ void Portall::run_decode_task() {
   decode_cfg.output_format =
       this->bytes_per_pixel_ == 3 ? JPEG_DECODE_OUT_FORMAT_RGB888 : JPEG_DECODE_OUT_FORMAT_RGB565;
   decode_cfg.rgb_order = JPEG_DEC_RGB_ELEMENT_ORDER_BGR;
-  // What the decoder writes is what the display is told it is, so mipi_dsi
-  // copies it as it stands rather than converting pixel by pixel.
-  const display::ColorBitness bitness =
-      this->bytes_per_pixel_ == 3 ? display::COLOR_BITNESS_888 : display::COLOR_BITNESS_565;
 
   bool canvas_mode = false;
 #ifdef USE_LVGL
@@ -787,41 +787,45 @@ void Portall::run_decode_task() {
       }
     }
 #endif
+    // Plain mode decodes into whichever buffer the display is not reading.
+    // With one buffer that is always the same one, and it is free: the draw
+    // that read it ran on this task and finished before this line.
+    if (!canvas_mode)
+      decode_into = this->take_decode_buffer_();
     uint32_t out_size = 0;
+    const uint32_t decode_started = micros();
     esp_err_t err = jpeg_decoder_process(this->jpeg_, &decode_cfg, frame->data, frame->received, decode_into,
                                          decode_room, &out_size);
-    if (err == ESP_OK) {
+    this->decode_us_ += micros() - decode_started;
+    this->frames_decoded_++;
+    if (err != ESP_OK) {
+      this->frames_dropped_++;
+      this->dropped_decode_++;
+      // Every frame failing looks exactly like no frame arriving, because the
+      // statistics below only run once something has been drawn. Say it once.
+      if (!this->logged_decode_error_) {
+        this->logged_decode_error_ = true;
+        ESP_LOGE(TAG, "JPEG decode failed: %s (%u bytes in, %ux%u into a %u byte buffer)", esp_err_to_name(err),
+                 (unsigned) frame->received, (unsigned) frame->width, (unsigned) frame->height,
+                 (unsigned) this->rgb_buffer_len_);
+      }
+      if (!canvas_mode)
+        this->give_back_(decode_into);
+    }
 #ifdef USE_LVGL
+    else if (canvas_mode) {
       // Before the clock starts: the wait is LVGL's time, not the copy's.
       // Not in video mode, where LVGL is paused and draws nothing to wait for.
-      if (this->canvas_ != nullptr && !video)
+      if (!video)
         this->canvas_wait_(frame->id);
-#endif
-      uint32_t start = micros();
-      // The decoded rows are padded_w wide even when fewer pixels are wanted;
-      // x_pad tells the display to skip the difference at the end of each line.
-      // When the width is already a multiple of 16 there is no padding, and
-      // this stays on mipi_dsi's single-transfer path instead of one DMA per
-      // line. The rotated buffer never has any.
+      const uint32_t start = micros();
       uint16_t dst_x, dst_y, dst_w, dst_h;
       this->place_(*frame, dst_x, dst_y, dst_w, dst_h);
-
+      // Canvas mode refuses rotation and render sizes, so what was decoded is
+      // drawn as it stands; the accelerator, when there is one, is video
+      // mode's own, inside video_draw_().
       const uint8_t *pixels = this->rgb_buffer_;
-      int x_pad = padded_w - frame->width;
-      if (this->ppa_client_ != nullptr && !canvas_mode) {
-        // Drawing the unrotated buffer instead would be worse than dropping the
-        // frame: after a quarter turn the axes are swapped, so it would go to
-        // the panel at the wrong shape and in the wrong place.
-        if (!this->rotate_(*frame, padded_w, padded_h)) {
-          this->frames_dropped_++;
-          this->dropped_rotate_++;
-          xQueueSend(this->empty_queue_, &frame, 0);
-          continue;
-        }
-        pixels = this->rot_buffer_;
-        x_pad = 0;
-      }
-#ifdef USE_LVGL
+      const int x_pad = padded_w - frame->width;
       if (video) {
         // Kept in the canvas as well, so LVGL has the newest picture when it
         // resumes, then sent to the display the way plain mode sends it.
@@ -839,99 +843,144 @@ void Portall::run_decode_task() {
       } else if (direct) {
         // Already where LVGL will read it; the loop does the rest.
         this->canvas_publish_();
-      } else if (this->canvas_ != nullptr) {
+      } else {
         // Into LVGL's buffer, not onto the panel: LVGL owns the display in
         // this mode and composes the canvas with whatever else is on screen.
         this->copy_to_canvas_(pixels, dst_x, dst_y, dst_w, dst_h, dst_w + x_pad);
-      } else
-#endif
-        this->display_->draw_pixels_at(dst_x, dst_y, dst_w, dst_h, pixels, display::COLOR_ORDER_RGB, bitness, false,
-                                       0, 0, x_pad);
+      }
       this->draw_us_ += micros() - start;
-#ifdef USE_LVGL
-      if (this->canvas_ != nullptr)
-        this->video_note_(direct);
+      this->video_note_(direct);
+      this->note_drawn_(*frame, dst_x, dst_y, dst_w, dst_h);
+    }
 #endif
-      this->frames_drawn_++;
-      this->last_draw_ms_ = millis();
-      this->last_frame_w_ = frame->width;
-      this->last_frame_h_ = frame->height;
-      if (!this->logged_first_frame_) {
-        this->logged_first_frame_ = true;
-        ESP_LOGI(TAG, "First frame from the host: %u bytes compressed, %ux%u at %u,%u, drawn as %ux%u at %u,%u",
-                 (unsigned) frame->received, (unsigned) frame->width, (unsigned) frame->height, (unsigned) frame->x,
-                 (unsigned) frame->y, (unsigned) dst_w, (unsigned) dst_h, (unsigned) dst_x, (unsigned) dst_y);
-      }
-    } else {
-      this->frames_dropped_++;
-      this->dropped_decode_++;
-      // Every frame failing looks exactly like no frame arriving, because the
-      // statistics below only run once something has been drawn. Say it once.
-      if (!this->logged_decode_error_) {
-        this->logged_decode_error_ = true;
-        ESP_LOGE(TAG, "JPEG decode failed: %s (%u bytes in, %ux%u into a %u byte buffer)", esp_err_to_name(err),
-                 (unsigned) frame->received, (unsigned) frame->width, (unsigned) frame->height,
-                 (unsigned) this->rgb_buffer_len_);
-      }
+    else {
+      // To the draw task, which draws it while this one decodes the next --
+      // or drawn right here when there is no draw task.
+      this->hand_over_(*frame, decode_into, padded_w, padded_h);
     }
 
+    // The compressed picture is finished with as soon as it is decoded,
+    // whichever task draws it: the socket may fill this buffer again now.
     xQueueSend(this->empty_queue_, &frame, 0);
 
-    uint32_t elapsed = millis() - this->stats_since_ms_;
-    if (elapsed >= STATS_INTERVAL_MS && this->frames_drawn_ > 0) {
-      const float fps = this->frames_drawn_ * 1000.0f / elapsed;
-      // A steady stream says the same thing every five seconds forever, which
-      // buries anything worth reading. Report the first measurement, then only
-      // when the rate has actually moved -- or when frames start or stop being
-      // lost, which is a change of state rather than a running commentary. A
-      // host sending faster than this can draw loses frames continuously and
-      // perfectly normally; saying so every five seconds is noise.
-      const bool dropping = this->frames_dropped_ > 0;
-      if (!this->logged_stats_ || dropping != this->was_dropping_ ||
-          fabsf(fps - this->last_fps_) >= STATS_FPS_EPSILON) {
-        ESP_LOGD(TAG,
-                 "%ux%u @ %.1f fps, %u us/draw (%u in the PPA at %u-byte bursts), "
-                 "%u dropped (%u no buffer, %u too soon, %u decode, %u rotate)",
-                 (unsigned) this->last_frame_w_, (unsigned) this->last_frame_h_, fps,
-                 (unsigned) (this->draw_us_ / this->frames_drawn_),
-                 (unsigned) (this->ppa_us_ / this->frames_drawn_), (unsigned) this->ppa_burst_,
-                 (unsigned) this->frames_dropped_,
-                 (unsigned) this->dropped_no_buffer_, (unsigned) this->dropped_too_soon_, (unsigned) this->dropped_decode_,
-                 (unsigned) this->dropped_rotate_);
-#ifdef USE_LVGL
-        // The canvas's own cost, beside the copy the line above counts: how
-        // long the decoder stood waiting for LVGL to draw what it was given.
-        // Near a second a second is LVGL, not the network, setting the rate.
-        // And how many pictures went into the canvas without a copy: every
-        // whole one, when the two buffers could be had. None at all means the
-        // mode is copying, and the boot log says why.
-        if (this->canvas_ != nullptr)
-          ESP_LOGD(TAG,
-                   "  waited %u ms/s for LVGL to draw the canvas, %u whole pictures decoded straight into it, "
-                   "%u drawn directly with LVGL paused",
-                   (unsigned) (this->canvas_wait_ms_ * 1000 / elapsed), (unsigned) this->canvas_swaps_.load(),
-                   (unsigned) this->video_drawn_);
-#endif
-        this->logged_stats_ = true;
-        this->last_fps_ = fps;
-      }
-      this->was_dropping_ = dropping;
-      this->stats_since_ms_ = millis();
-      this->frames_drawn_ = 0;
-      this->frames_dropped_ = 0;
-      this->dropped_no_buffer_ = 0;
-      this->dropped_too_soon_ = 0;
-      this->dropped_decode_ = 0;
-      this->dropped_rotate_ = 0;
-      this->draw_us_ = 0;
-      this->ppa_us_ = 0;
-#ifdef USE_LVGL
-      this->canvas_wait_ms_ = 0;
-      this->canvas_swaps_.store(0);
-      this->video_drawn_ = 0;
-#endif
-    }
+    // With a draw task the line is that task's: it is what finishes pictures.
+    if (!this->pipelined_)
+      this->report_stats_();
   }
+}
+
+void Portall::draw_decoded_(const Frame &frame, const uint8_t *decoded, uint16_t padded_width,
+                            uint16_t padded_height) {
+  // What the decoder writes is what the display is told it is, so mipi_dsi
+  // copies it as it stands rather than converting pixel by pixel.
+  const display::ColorBitness bitness =
+      this->bytes_per_pixel_ == 3 ? display::COLOR_BITNESS_888 : display::COLOR_BITNESS_565;
+  const uint32_t start = micros();
+  // The decoded rows are padded_width wide even when fewer pixels are wanted;
+  // x_pad tells the display to skip the difference at the end of each line.
+  // When the width is already a multiple of 16 there is no padding, and this
+  // stays on mipi_dsi's single-transfer path instead of one DMA per line. The
+  // rotated buffer never has any.
+  uint16_t dst_x, dst_y, dst_w, dst_h;
+  this->place_(frame, dst_x, dst_y, dst_w, dst_h);
+
+  const uint8_t *pixels = decoded;
+  int x_pad = padded_width - frame.width;
+  if (this->ppa_client_ != nullptr) {
+    // Drawing the unrotated buffer instead would be worse than dropping the
+    // frame: after a quarter turn the axes are swapped, so it would go to the
+    // panel at the wrong shape and in the wrong place.
+    if (!this->rotate_(frame, decoded, padded_width, padded_height)) {
+      this->frames_dropped_++;
+      this->dropped_rotate_++;
+      return;
+    }
+    pixels = this->rot_buffer_;
+    x_pad = 0;
+  }
+  this->display_->draw_pixels_at(dst_x, dst_y, dst_w, dst_h, pixels, display::COLOR_ORDER_RGB, bitness, false, 0, 0,
+                                 x_pad);
+  this->draw_us_ += micros() - start;
+  this->note_drawn_(frame, dst_x, dst_y, dst_w, dst_h);
+}
+
+void Portall::note_drawn_(const Frame &frame, uint16_t x, uint16_t y, uint16_t w, uint16_t h) {
+  this->frames_drawn_++;
+  this->last_draw_ms_ = millis();
+  this->last_frame_w_ = frame.width;
+  this->last_frame_h_ = frame.height;
+  if (!this->logged_first_frame_) {
+    this->logged_first_frame_ = true;
+    ESP_LOGI(TAG, "First frame from the host: %u bytes compressed, %ux%u at %u,%u, drawn as %ux%u at %u,%u",
+             (unsigned) frame.received, (unsigned) frame.width, (unsigned) frame.height, (unsigned) frame.x,
+             (unsigned) frame.y, (unsigned) w, (unsigned) h, (unsigned) x, (unsigned) y);
+  }
+}
+
+void Portall::report_stats_() {
+  const uint32_t elapsed = millis() - this->stats_since_ms_;
+  if (elapsed < STATS_INTERVAL_MS || this->frames_drawn_ == 0)
+    return;
+  const float fps = this->frames_drawn_ * 1000.0f / elapsed;
+  // A steady stream says the same thing every five seconds forever, which
+  // buries anything worth reading. Report the first measurement, then only
+  // when the rate has actually moved -- or when frames start or stop being
+  // lost, which is a change of state rather than a running commentary. A host
+  // sending faster than this can draw loses frames continuously and perfectly
+  // normally; saying so every five seconds is noise.
+  const bool dropping = this->frames_dropped_ > 0;
+  // Taken whatever is printed, so a window that says nothing does not leave
+  // its decodes to be divided into the next one's.
+  const uint32_t decoded = this->frames_decoded_.exchange(0);
+  const uint32_t decode_us = this->decode_us_.exchange(0);
+  const uint32_t waited_us = this->decode_waited_us_.exchange(0);
+  if (!this->logged_stats_ || dropping != this->was_dropping_ || fabsf(fps - this->last_fps_) >= STATS_FPS_EPSILON) {
+    // The decode beside the draw, so the line says how a picture's time
+    // splits -- and with the two overlapped, how long the decoder stood
+    // waiting for the display, which says which of them sets the rate.
+    char waited[56] = "";
+    if (this->pipelined_)
+      snprintf(waited, sizeof(waited), ", decoder waited %u ms/s for the display", (unsigned) (waited_us / elapsed));
+    ESP_LOGD(TAG,
+             "%ux%u @ %.1f fps, %u us/decode, %u us/draw (%u in the PPA at %u-byte bursts)%s, "
+             "%u dropped (%u no buffer, %u too soon, %u decode, %u rotate)",
+             (unsigned) this->last_frame_w_, (unsigned) this->last_frame_h_, fps,
+             (unsigned) (decoded > 0 ? decode_us / decoded : 0), (unsigned) (this->draw_us_ / this->frames_drawn_),
+             (unsigned) (this->ppa_us_ / this->frames_drawn_), (unsigned) this->ppa_burst_, waited,
+             (unsigned) this->frames_dropped_, (unsigned) this->dropped_no_buffer_,
+             (unsigned) this->dropped_too_soon_, (unsigned) this->dropped_decode_, (unsigned) this->dropped_rotate_);
+#ifdef USE_LVGL
+    // The canvas's own cost, beside the copy the line above counts: how
+    // long the decoder stood waiting for LVGL to draw what it was given.
+    // Near a second a second is LVGL, not the network, setting the rate.
+    // And how many pictures went into the canvas without a copy: every
+    // whole one, when the two buffers could be had. None at all means the
+    // mode is copying, and the boot log says why.
+    if (this->canvas_ != nullptr)
+      ESP_LOGD(TAG,
+               "  waited %u ms/s for LVGL to draw the canvas, %u whole pictures decoded straight into it, "
+               "%u drawn directly with LVGL paused",
+               (unsigned) (this->canvas_wait_ms_ * 1000 / elapsed), (unsigned) this->canvas_swaps_.load(),
+               (unsigned) this->video_drawn_);
+#endif
+    this->logged_stats_ = true;
+    this->last_fps_ = fps;
+  }
+  this->was_dropping_ = dropping;
+  this->stats_since_ms_ = millis();
+  this->frames_drawn_ = 0;
+  this->frames_dropped_ = 0;
+  this->dropped_no_buffer_ = 0;
+  this->dropped_too_soon_ = 0;
+  this->dropped_decode_ = 0;
+  this->dropped_rotate_ = 0;
+  this->draw_us_ = 0;
+  this->ppa_us_ = 0;
+#ifdef USE_LVGL
+  this->canvas_wait_ms_ = 0;
+  this->canvas_swaps_.store(0);
+  this->video_drawn_ = 0;
+#endif
 }
 
 void Portall::reset_stream_() {
@@ -1435,8 +1484,22 @@ void Portall::dump_config() {
 #endif
   ESP_LOGCONFIG(TAG, "  Frame buffers: %u x %u bytes", (unsigned) this->frame_buffer_count_,
                 (unsigned) this->max_frame_bytes_);
-  ESP_LOGCONFIG(TAG, "  Decoded buffer: %u bytes (%ux%u, rounded up to whole 16x16 units)",
-                (unsigned) this->rgb_buffer_len_, (unsigned) this->padded_width_, (unsigned) this->padded_height_);
+  ESP_LOGCONFIG(TAG, "  Decoded buffers: %u x %u bytes (%ux%u, rounded up to whole 16x16 units)",
+                this->pipelined_ ? 2u : 1u, (unsigned) this->rgb_buffer_len_, (unsigned) this->padded_width_,
+                (unsigned) this->padded_height_);
+  // Which of the two ways a picture goes through, and when it is the slower
+  // one, why -- the stats line's "decoder waited" only appears with the first.
+  const char *how = "the next picture is decoded while the display copies this one";
+  if (!this->pipelined_) {
+    how = this->decode_buffers_ < 2
+              ? "decoded, then drawn, one after the other (decode_buffers: 1)"
+              : "decoded, then drawn, one after the other: no external RAM for a second buffer";
+#ifdef USE_LVGL
+    if (this->canvas_ != nullptr)
+      how = "decoded, then drawn, one after the other (canvas mode keeps its own pair)";
+#endif
+  }
+  ESP_LOGCONFIG(TAG, "    %s", how);
   if (this->rotation_ != 0) {
     ESP_LOGCONFIG(TAG, "  Rotation: %u degrees, drawn as %ux%u (pixel-processing accelerator)",
                   (unsigned) this->rotation_, (unsigned) this->out_width_, (unsigned) this->out_height_);
