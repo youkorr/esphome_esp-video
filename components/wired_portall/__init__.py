@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2024-2026 youkorr
+# Part of Portall: https://github.com/youkorr/esphome_esp-video
 """A copy of portall under its own name, to experiment on.
 
 portall is what people are running. This exists so the work on a panel as a

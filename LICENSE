@@ -9,6 +9,13 @@ lvgl_camera_display.*, the *_custom_formats.h sensor tables, the build helpers
 and the __init__.py files) — is licensed under the MIT License (reproduced
 below).
 
+That original code includes Portall: the components portall, portall_bt,
+wired_portall, usb_display, usb_display_tusb and cherryusb_patch, the
+stand-alone usb_bluetooth/ folder (which carries a copy of this licence), and
+the Home Assistant add-on in portall/. Each of their source files names its
+licence and its copyright in an SPDX header; the few parts inside them that
+belong to somebody else are named in that header and in the NOTICE file.
+
 This repository ALSO bundles ("vendors") substantial third-party source code
 that is NOT licensed under MIT and is NOT relicensed by this file. Each such
 component remains governed by the license of its original copyright owner. In

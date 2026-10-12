@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2024-2026 youkorr
+# usb_bluetooth, from Portall: https://github.com/youkorr/esphome_esp-video
 """binary_sensor: - platform: usb_bluetooth -- one button of any input device.
 
 ON while a key is pressed, for a moment, whichever device pressed it: a

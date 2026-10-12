@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2024-2026 youkorr
+# Part of Portall: https://github.com/youkorr/esphome_esp-video
 """Keep one ha_send.py running per panel, for as long as this container lives.
 
 A panel is a long-lived thing: it should come up when the machine does, come

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2024-2026 youkorr
+// usb_bluetooth, from Portall: https://github.com/youkorr/esphome_esp-video
 /* A HID report descriptor, walked, so a device says where its own buttons are.
  *
  * WHY THIS FILE HAD TO BE WRITTEN, and it is the correction of a shipped

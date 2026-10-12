@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2024-2026 youkorr
+// Part of Portall: https://github.com/youkorr/esphome_esp-video
 /* The touch screen, sent back to whoever is driving the picture.
  *
  * There are two ends it can go to, and they are independent. Over the cable it

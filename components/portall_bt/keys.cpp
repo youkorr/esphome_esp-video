@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2024-2026 youkorr
+// Part of Portall: https://github.com/youkorr/esphome_esp-video
 /* What a Bluetooth input device's button MEANS, in one place.
  *
  * WHY THIS FILE EXISTS. The first version of this feature asked a household to

@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2024-2026 youkorr
+# usb_bluetooth, from Portall: https://github.com/youkorr/esphome_esp-video
 # An ESP-IDF component that compiles nothing and exists to run one edit.
 #
 # See patch.cmake for what it changes and why. The timing is the only subtle

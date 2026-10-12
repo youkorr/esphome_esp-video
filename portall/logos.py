@@ -1,3 +1,11 @@
+# SPDX-License-Identifier: MIT AND CC0-1.0 AND Apache-2.0
+# Copyright (c) 2024-2026 youkorr -- the code, and the squares of the two app badges.
+# Not ours, and not licensed by this file: the service marks' path data
+# is from simple-icons (CC0-1.0); MATERIAL_FOLDER_OPEN and MATERIAL_EXPLORE
+# are Google's Material Symbols (Apache-2.0); the Immich and Reolink
+# pictures are from home-assistant/brands. Every mark remains the trademark
+# of its owner, used only to say which service a tile opens.
+# Part of Portall: https://github.com/youkorr/esphome_esp-video
 """The service logos the launcher can draw, and the words that reach them.
 
 Homepage fetches these from an icon repository. This page cannot: a container

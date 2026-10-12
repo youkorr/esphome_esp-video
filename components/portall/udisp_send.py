@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2024-2026 youkorr
+# Part of Portall: https://github.com/youkorr/esphome_esp-video
 """Send a region of this computer's screen to an ESPHome portall board.
 
 The board speaks Espressif's udisp protocol over a USB vendor interface: a

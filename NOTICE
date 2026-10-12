@@ -86,3 +86,70 @@ own license. See LICENSES/Apache-2.0.txt for the full Apache License 2.0 text.
    The udisp wire format the panel speaks is Espressif's, from their
    usb_extend_screen example (Apache-2.0); portall's implementation of both
    ends is original.
+
+--------------------------------------------------------------------------
+6. Portall's own code, and what inside it is somebody else's
+--------------------------------------------------------------------------
+   Original, MIT, Copyright (c) 2024-2026 youkorr -- and every source file
+   says so in an SPDX header of its own, so the notice travels with a file
+   that is copied on its own:
+
+     - components/portall, portall_bt, wired_portall, usb_display,
+       usb_display_tusb, cherryusb_patch
+     - usb_bluetooth/ (the stand-alone copy of portall_bt; it carries its own
+       LICENSE, because it is installed and copied as a folder of its own)
+     - portall/ (the Home Assistant add-on), and tools/rtlfw.py
+
+   The exceptions, each named in the header of the file that holds it:
+
+     - components/usb_display_tusb/usb_descriptors.h -- the touch screen HID
+       report descriptor (FINGER_USAGE, TUD_HID_REPORT_DESC_TOUCH_SCREEN) is
+       from Espressif's usb_extend_screen example, Copyright (c) Jerzy
+       Kasenbreg and Koji KITAYAMA, MIT. Kept as it is because Espressif's
+       Windows driver is the other end and expects that shape.
+     - portall/logos.py -- the service marks' SVG path data is from
+       simple-icons (section 4, CC0-1.0); MATERIAL_FOLDER_OPEN and
+       MATERIAL_EXPLORE are Google's Material Symbols, Apache-2.0
+       (https://github.com/google/material-design-icons); the Immich and
+       Reolink pictures are Home Assistant's own icons for those integrations,
+       from https://github.com/home-assistant/brands. Every mark remains the
+       trademark of its owner and is used only to say which service a tile
+       opens.
+
+--------------------------------------------------------------------------
+7. Realtek Bluetooth firmware
+--------------------------------------------------------------------------
+   Files  : components/portall_bt/firmware/rtl8761bu_fw.bin,
+            rtl8761bu_config.bin, and the same two in
+            usb_bluetooth/components/usb_bluetooth/firmware/
+   Source : linux-firmware, rtl_bt/ (byte-for-byte identical, by sha256)
+   License: Realtek's own, which permits redistribution in binary form
+            without modification. LICENCE.rtlwifi_firmware.txt sits beside
+            the files and must go with them. They are not MIT, and nothing in
+            this repository modifies them.
+
+--------------------------------------------------------------------------
+8. Read, not copied
+--------------------------------------------------------------------------
+   Written here after reading these, so that nobody has to guess where a
+   number came from. None of their code is in this repository.
+
+     - Linux drivers/bluetooth/btrtl.c, btbcm.c, btusb.c and
+       drivers/hid/hid-nvidia-shield.c (GPL-2.0): the Realtek firmware format
+       and download, vendor opcodes, a reset delay, and HID usage numbers.
+       The table of ROM identifiers in portall_bt.cpp lists the values
+       Realtek chips report about themselves, reproduced as data.
+     - bluepad32's uni_hid_parser_android.c (Apache-2.0, Ricardo Quesada):
+       Android's button numbering convention, which keys.cpp follows.
+     - The USB HID 1.11 specification and the Bluetooth Core Specification's
+       assigned numbers.
+     - CherryUSB (Apache-2.0) is downloaded at build time, not vendored;
+       cherryusb_patch changes one constant in that downloaded copy.
+
+--------------------------------------------------------------------------
+9. Stand-in headers for the tests
+--------------------------------------------------------------------------
+   tools/btstub/ and tools/pipetest/stub/ let the C++ be compiled and run on
+   a workstation. Their declarations follow ESP-IDF v5.5.5 (Apache-2.0) and
+   ESPHome (C++ under GPLv3) closely enough to compile against, and keep
+   their origins' licences; they are not part of any firmware.

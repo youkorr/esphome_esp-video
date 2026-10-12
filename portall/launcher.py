@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2024-2026 youkorr
+# Part of Portall: https://github.com/youkorr/esphome_esp-video
 """The page a panel comes home to, built from the add-on's own settings.
 
 A panel pointed at a page of links is a launcher, and the point of putting the

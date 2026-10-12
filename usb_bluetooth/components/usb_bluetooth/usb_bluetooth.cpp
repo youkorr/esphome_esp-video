@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2024-2026 youkorr
+// usb_bluetooth, from Portall: https://github.com/youkorr/esphome_esp-video
 #include "usb_bluetooth.h"
 
 #ifdef USE_ESP32
