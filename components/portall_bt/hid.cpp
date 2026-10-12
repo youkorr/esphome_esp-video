@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2024-2026 youkorr
+// Part of Portall: https://github.com/youkorr/esphome_esp-video
 /* Bluetooth Classic HID host, and the memory that makes it usable.
  *
  * A gamepad and a remote control are the SAME feature, which is worth saying

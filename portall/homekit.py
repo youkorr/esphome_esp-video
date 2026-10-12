@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2024-2026 youkorr
+# Part of Portall: https://github.com/youkorr/esphome_esp-video
 """A HomeKit television per panel, so a telephone is the remote.
 
 The ask this answers, in the household's own words: pair it, unpair it, and

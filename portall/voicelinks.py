@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2024-2026 youkorr
+# Part of Portall: https://github.com/youkorr/esphome_esp-video
 """Open a launcher link by voice: "ouvre Jellyfin", "lance YouTube".
 
 It is the idea of every Python "Jarvis" -- hear a sentence, open a page --

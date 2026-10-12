@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2024-2026 youkorr
+# usb_bluetooth, from Portall: https://github.com/youkorr/esphome_esp-video
 """text_sensor: - platform: usb_bluetooth -- what this board has paired.
 
 ONE BLOCK, BOTH KINDS, which is the "all in one place" this exists for:

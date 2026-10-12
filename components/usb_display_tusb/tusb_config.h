@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2024-2026 youkorr
+// Part of Portall: https://github.com/youkorr/esphome_esp-video
 /* TinyUSB configuration for the USB extended-screen device.
  *
  * The picture goes over a vendor interface, because USB has no "display" class

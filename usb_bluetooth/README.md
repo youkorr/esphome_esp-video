@@ -163,5 +163,17 @@ added. It has been checked with `esphome config` and the codegen on ESPHome
 2026.10.0-dev, and its C++ with the repository's g++ harness against
 stand-in headers: `portall_bt`'s whole test suite run against this copy,
 plus a test of the keys, all passing (the tests live in the main repository's
-`tools/`, not in this folder). It has
-**not** been compiled by ESP-IDF or flashed as it stands.
+`tools/`, not in this folder). It has since been flashed and used on an
+M5Stack Tab5 by the household it was written for.
+
+## Licence
+
+MIT, Copyright (c) 2024-2026 youkorr -- see [LICENSE](LICENSE). Every source
+file carries the same in an SPDX header, so a file copied on its own still
+says where it came from. If you reuse this code, keep those headers and the
+licence text, and a link back to
+[youkorr/esphome_esp-video](https://github.com/youkorr/esphome_esp-video) is
+appreciated.
+
+The Realtek firmware in `components/usb_bluetooth/firmware/` is not MIT: it is
+Realtek's, unmodified, under the licence beside it.

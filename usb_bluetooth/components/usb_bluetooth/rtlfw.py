@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2024-2026 youkorr
+# usb_bluetooth, from Portall: https://github.com/youkorr/esphome_esp-video
 """Turn Realtek's two firmware files into the bytes a dongle is sent.
 
 A Realtek Bluetooth controller runs a ROM that answers HCI and does very

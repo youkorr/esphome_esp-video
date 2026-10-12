@@ -1,5 +1,12 @@
 # Changelog
 
+## 4.47.1
+
+- Nothing changes in how the add-on works. Every file of the add-on now
+  carries its copyright and its licence (MIT) at the top, so a file copied
+  on its own still says where it came from. The parts that are somebody
+  else's -- a few logos and icons -- say so in the same place.
+
 ## 4.47.0
 
 - **The add-on is now downloaded ready-built** instead of being built on

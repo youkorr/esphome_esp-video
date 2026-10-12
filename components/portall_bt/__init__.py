@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2024-2026 youkorr
+# Part of Portall: https://github.com/youkorr/esphome_esp-video
 """Host a USB Bluetooth dongle on the ESP32-P4, and report what answers.
 
 The ESP32-C6 that gives these panels their radio is BLE only -- no Bluetooth

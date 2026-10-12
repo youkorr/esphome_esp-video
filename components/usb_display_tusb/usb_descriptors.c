@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2024-2026 youkorr
+// Part of Portall: https://github.com/youkorr/esphome_esp-video
 /* Device, configuration and string descriptors for the extended screen.
  *
  * A vendor interface with a bulk IN/OUT pair carries the picture: the PC

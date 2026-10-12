@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2024-2026 youkorr
+# Part of Portall: https://github.com/youkorr/esphome_esp-video
 """The panel's voice assistant, as Home Assistant sees it, for the avatar.
 
 A panel running ESPHome's voice_assistant appears in Home Assistant as an

@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2024-2026 youkorr
+# usb_bluetooth, from Portall: https://github.com/youkorr/esphome_esp-video
 """switch: - platform: usb_bluetooth -- Bluetooth off and on.
 
 WHAT OFF ACTUALLY DOES, because the word promises more than this delivers:

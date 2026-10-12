@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2024-2026 youkorr
+// Part of Portall: https://github.com/youkorr/esphome_esp-video
 /* The same screen, fed over the network instead of the cable.
  *
  * Everything below the transport is shared with the USB path: the bytes go to

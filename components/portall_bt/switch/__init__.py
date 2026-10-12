@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2024-2026 youkorr
+# Part of Portall: https://github.com/youkorr/esphome_esp-video
 """switch: - platform: portall_bt -- Bluetooth off and on.
 
 WHAT OFF ACTUALLY DOES, because the word promises more than this delivers:

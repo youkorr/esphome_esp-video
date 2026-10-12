@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2024-2026 youkorr
+# Part of Portall: https://github.com/youkorr/esphome_esp-video
 """Sign a panel's browser into a site, from a telephone.
 
 WHY THIS EXISTS. Google refuses to sign in a browser it can tell is being

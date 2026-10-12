@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2024-2026 youkorr
+# Part of Portall: https://github.com/youkorr/esphome_esp-video
 """speaker: - platform: portall_bt -- the panel's sound, over Bluetooth.
 
 The A2DP source underneath this has worked since it paired with a car

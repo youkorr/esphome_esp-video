@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2024-2026 youkorr
+# Part of Portall: https://github.com/youkorr/esphome_esp-video
 # One line on a Windows PC, and the panel becomes a screen.
 #
 #   irm https://raw.githubusercontent.com/youkorr/esphome_esp-video/main/components/wired_portall/windows/setup.ps1 | iex

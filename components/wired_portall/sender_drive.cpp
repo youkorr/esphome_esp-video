@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2024-2026 youkorr
+// Part of Portall: https://github.com/youkorr/esphome_esp-video
 /* The read-only drive that hands the PC its half of the job.
  *
  * USB defines no display class, so a program has to run on the PC for any of

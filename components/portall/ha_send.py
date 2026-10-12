@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2024-2026 youkorr
+# Part of Portall: https://github.com/youkorr/esphome_esp-video
 """Put a web page on an ESPHome portall panel, over Wi-Fi.
 
 The panel is not running a browser. A machine that is on anyway -- the Home

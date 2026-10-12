@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2024-2026 youkorr
+// Part of Portall: https://github.com/youkorr/esphome_esp-video
 /* A2DP source: the panel sends its sound to a Bluetooth speaker.
  *
  * This is the half of the Bluetooth work the ESP32-C6 can never do. A2DP is

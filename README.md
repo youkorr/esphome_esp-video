@@ -590,7 +590,10 @@ lvgl:
 
 The **original ESPHome integration code** in this repository (the Python
 configuration/codegen and the C++ glue) is released under the
-[MIT License](LICENSE), Copyright (c) 2024-2026 youkorr.
+[MIT License](LICENSE), Copyright (c) 2024-2026 youkorr. That includes
+Portall -- its ESPHome components, the stand-alone `usb_bluetooth` folder and
+the Home Assistant add-on -- and every one of its source files says so in an
+SPDX header of its own.
 
 This repository also **bundles third-party source code** that keeps its own
 license and is **not** relicensed as MIT:
@@ -599,6 +602,13 @@ license and is **not** relicensed as MIT:
   sources — **Apache-2.0** (Copyright © Espressif Systems (Shanghai) CO LTD).
 - **ESPHome** — the external-component framework these build on — **MIT/GPLv3**
   (a compiled firmware is a combined work subject to ESPHome's terms).
+- **Realtek** Bluetooth firmware (`rtl8761bu_*.bin`, carried for Portall's
+  Bluetooth components) — Realtek's own licence, beside the files.
+- A few service marks and icons in Portall's add-on (simple-icons, CC0;
+  Google's Material Symbols, Apache-2.0; Home Assistant's brand icons), each
+  named in `portall/logos.py`, and a touch screen HID report descriptor from
+  Espressif's `usb_extend_screen` example (MIT), named in
+  `components/usb_display_tusb/usb_descriptors.h`.
 
 See [NOTICE](NOTICE) for the full breakdown and
 [LICENSES/Apache-2.0.txt](LICENSES/Apache-2.0.txt) for the Apache-2.0 text.

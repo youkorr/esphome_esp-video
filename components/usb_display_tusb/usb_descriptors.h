@@ -1,3 +1,9 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2024-2026 youkorr
+// The touch screen report descriptor (FINGER_USAGE,
+// TUD_HID_REPORT_DESC_TOUCH_SCREEN) is from Espressif's usb_extend_screen
+// example: Copyright (c) Jerzy Kasenbreg and Koji KITAYAMA, MIT.
+// Part of Portall: https://github.com/youkorr/esphome_esp-video
 #pragma once
 
 #include "sdkconfig.h"

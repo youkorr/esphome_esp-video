@@ -1802,7 +1802,7 @@ the dashboard, where it is invisible while the keys go on working.
 ahead of the `pip install` as well as the `ADD`s, so a bump refetched
 everything — at the cost of the browser download on each update.
 `present_browser()` prints the Chromium version at startup and warns below 114,
-so this is never diagnosed by guesswork again. Currently **4.47.0**.
+so this is never diagnosed by guesswork again. Currently **4.47.1**.
 
 **CORRECTED in 4.29.5: the cost was every update, and a pin removes it.**
 Asked as *"verifie addon ... si il ya pas des elements qui freine la
@@ -12045,3 +12045,14 @@ measurement. `codegen` at 2026.10.0-dev: `set_decode_buffers(2)`;
   shape of `main`'s history.
 - Commit subjects are imperative and say what the change *does for the user*,
   not which file moved.
+- **Every original source file starts with an SPDX header**, three comment
+  lines: `SPDX-License-Identifier: MIT`, `Copyright (c) 2024-2026 youkorr`,
+  and `Part of Portall: https://github.com/youkorr/esphome_esp-video` (in
+  `usb_bluetooth/`: `usb_bluetooth, from Portall: ...`), after a shebang if
+  there is one. Put it on every new file. Added when somebody asked to reuse
+  `usb_bluetooth` in an ESPHome fork: MIT only asks that the notice go with a
+  copy, and a file with no notice in it loses it the first time it is copied
+  on its own. **Never stamp it over somebody else's work**: a file holding
+  some names it in the same header and in NOTICE (`usb_descriptors.h`'s touch
+  descriptor, `logos.py`'s marks), and the Realtek blobs and the stand-ins in
+  `tools/btstub` and `tools/pipetest/stub` carry no such header at all.

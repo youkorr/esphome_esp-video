@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2024-2026 youkorr
+# usb_bluetooth, from Portall: https://github.com/youkorr/esphome_esp-video
 """Host a USB Bluetooth dongle on an ESP32-P4, as a Bluetooth CLASSIC host.
 
 The ESP32-P4 has no radio, and the ESP32-C6 beside it on most P4 boards is

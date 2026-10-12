@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2024-2026 youkorr
+// Part of Portall: https://github.com/youkorr/esphome_esp-video
 /* The speaker, as a USB Audio Class device.
  *
  * The host sees a sound card and sends it audio; it lands here and goes to an

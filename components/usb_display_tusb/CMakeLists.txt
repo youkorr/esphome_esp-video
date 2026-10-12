@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2024-2026 youkorr
+# Part of Portall: https://github.com/youkorr/esphome_esp-video
 # USB descriptors for the extended-screen device.
 #
 # TinyUSB reads tusb_config.h and the descriptor callbacks from the application,

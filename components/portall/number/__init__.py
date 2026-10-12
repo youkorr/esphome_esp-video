@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2024-2026 youkorr
+# Part of Portall: https://github.com/youkorr/esphome_esp-video
 """How loudly this board plays the sound it is sent.
 
 It governs both ways in: the USB audio class and the network, which share one

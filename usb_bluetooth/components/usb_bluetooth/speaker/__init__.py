@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2024-2026 youkorr
+# usb_bluetooth, from Portall: https://github.com/youkorr/esphome_esp-video
 """speaker: - platform: usb_bluetooth -- ESPHome's sound, over Bluetooth.
 
 An ordinary ESPHome speaker, so anything that plays into a speaker plays into
