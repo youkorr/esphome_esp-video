@@ -2179,6 +2179,50 @@ principle, a large piece of work, and not the same path as the speaker:
   microphone) and see whether voice packets arrive on the isochronous
   endpoint. That settles unknown 1 before a line of the rest is written.
 
+### The idle cores are not the boost; the overlap is
+
+**Asked as *"la psram ne monte pas ... les 360 MHz ne pas utiliser ce qui bien
+dommage cela pourrait etre un boost"*, then *"regarde sur internet"* what the
+projects this one stands on do.** The CPU staying idle is the design: the
+decode is the JPEG engine's and the write is DMA2D's, and Espressif's own
+table (`jpeg.rst`, v5.5.5) says only the header parse touches the CPU --
+1280x720 at 109 fps, so about 10 ms for an 800x1280 picture. What is lost is
+that the two engines take turns.
+
+- **Espressif's `usb_extend_screen`**, where the udisp protocol comes from,
+  now supports the S31 and claims **1024x600 at 60 fps on a P4** and 800x480
+  at 60 on a S31 -- whole pictures only (it drops any rectangle not at 0,0).
+  How, read in `main/app_lcd.c`: `CONFIG_EXAMPLE_LCD_BUF_COUNT` decode buffers
+  (default 2, range 1-3) used in turn, and `esp_lcd_panel_draw_bitmap` from
+  the one just decoded. In ESP-IDF's DSI driver (`esp_lcd_panel_dpi.c`,
+  v5.5.5) a draw with DMA2D is ASYNCHRONOUS -- it starts the copy and
+  returns -- so the next decode runs while the last picture is copied.
+- **ESPHome's `mipi_dsi`** has `num_fbs = 1` and waits on `io_lock_` after
+  every draw, so through it the two are serial: decode, then copy, then the
+  next decode.
+- **The same driver copies nothing at all** when the buffer handed to it lies
+  inside one of the panel's frame buffers: a cache write-back and a switch of
+  the buffer shown. That is the zero-copy, tear-free route
+  (`esp_lvgl_adapter`'s dummy draw is the same shape: get a free buffer, fill
+  it, `flush_buf()`), and it needs 2 or 3 frame buffers -- an ESPHome change.
+- **The board half of 4.45.1 is in that file too**:
+  `app_lcd_get_jpeg_output_layout()` takes the padded size from
+  `jpeg_decoder_get_info()`'s `sample_method` -- 8x8 for 4:4:4, 16x8 for
+  4:2:2, 16x16 for 4:2:0 -- which is what portall's fixed `padded_w` lacks.
+
+Two steps, NOT built, said in that order to the household: first the decode
+time in the board's stats line (`us/draw` counts only the PPA and the write,
+so nothing says today how a picture's time splits); then, if the decode is a
+real share, a second decode buffer and the draw from a task of its own, so
+picture N+1 decodes while N is copied -- no ESPHome change, one more
+panel-sized buffer at boot (2000 KiB at 800x1280 in 16 bits, 3000 in 24),
+which is also the first time PSRAM would "move". Zero copy into a hidden frame
+buffer is the step after, and only for whole pictures with no rotation.
+
+Sources: espressif/esp-iot-solution `examples/usb/device/usb_extend_screen`
+(`main/app_lcd.c`, `main/app_vendor.c`, `main/Kconfig.projbuild`, README);
+espressif/esp-idf v5.5.5 `components/esp_lcd/dsi/esp_lcd_panel_dpi.c`.
+
 ### Portall inside an LVGL canvas, which is Rob's suggestion
 
 *"If the usb-display could work in an lvgl canvas that would give more
