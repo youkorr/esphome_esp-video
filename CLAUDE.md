@@ -10702,6 +10702,23 @@ Not built: the whole transport is written against CherryUSB's blocking urbs
 ESP-IDF's transfers are asynchronous and do not time out, so it is a rewrite
 rather than a rename, and nothing here can run it.
 
+**Decided to STAY on CherryUSB, on hardware evidence.** The household runs the
+dongle on all four ESP32-P4 boards it owns -- Guition 10" and 4", Waveshare
+7B, M5Stack Tab5 -- with the Broadcom and the Realtek (firmware loaded), the
+UGREEN and the Shield. The question came from p1ngb4ck's fork, whose
+usb_bluetooth is a transport on its own modified `usb_host` with the profiles
+in separate bt_*/ble_* components, and no CherryUSB. Stock `usb_host`
+(2026.10.0-dev) would carry it too: `USBClient(0, 0)` accepts any device
+(`usb_host_client.cpp`), with control, bulk and interrupt transfers and
+packets up to 1024. Not taken, because the port re-risks a transport that
+cost nine faults, cannot be compiled here, and buys only `usb_host` or
+`usb_uart` beside the dongle, which nobody has asked for. Revisit when a
+household does. CherryUSB is pinned (`CHERRYUSB_VERSION = "1.6.1"`): a bump
+must re-check that `cherryusb_patch` still finds its line, because a patch
+that matches nothing does nothing and the dongle stops enumerating. The
+upstream fix (the altsetting constant behind `#ifndef`) is still not
+reported.
+
 ## A tapped link froze the launcher for the whole of the site's load -- 4.31.2
 
 **Reported as links taking so long that people think the add-on is broken.**

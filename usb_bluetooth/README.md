@@ -127,7 +127,7 @@ correctly. One that is not says so in the log, with the report's shape.
 
 ## Dongles and devices proved
 
-On M5Stack Tab5, Guition 10" and Waveshare 7B boards:
+On M5Stack Tab5, Guition 10" and 4", and Waveshare 7B boards:
 
 - **Broadcom BCM20702A1** (Bluetooth 4.0) — works as it comes.
 - **TP-Link UB500, Realtek RTL8761BU** — needs its firmware, which is built in
@@ -163,8 +163,8 @@ added. It has been checked with `esphome config` and the codegen on ESPHome
 2026.10.0-dev, and its C++ with the repository's g++ harness against
 stand-in headers: `portall_bt`'s whole test suite run against this copy,
 plus a test of the keys, all passing (the tests live in the main repository's
-`tools/`, not in this folder). It has since been flashed and used on an
-M5Stack Tab5 by the household it was written for.
+`tools/`, not in this folder). It has since been flashed and used by the household it was written for,
+on all four of those boards.
 
 ## Licence
 
