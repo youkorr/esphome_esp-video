@@ -10714,8 +10714,11 @@ packets up to 1024. Not taken, because the port re-risks a transport that
 cost nine faults, cannot be compiled here, and buys only `usb_host` or
 `usb_uart` beside the dongle, which nobody has asked for. Revisit when a
 household does. CherryUSB is pinned (`CHERRYUSB_VERSION = "1.6.1"`): a bump
-must re-check that `cherryusb_patch` still finds its line, because a patch
-that matches nothing does nothing and the dongle stops enumerating. The
+must re-check that `cherryusb_patch` still finds its line: one that matches
+nothing changes nothing, the build still succeeds with only a CMake WARNING
+among hundreds of lines, and the dongle stops enumerating (`Interface
+altsetting num 2 overflow`). The build log's `raised
+CONFIG_USBHOST_MAX_INTF_ALTSETTINGS to 8` is the line to look for. The
 upstream fix (the altsetting constant behind `#ifndef`) is still not
 reported.
 
