@@ -153,3 +153,10 @@ own license. See LICENSES/Apache-2.0.txt for the full Apache License 2.0 text.
    a workstation. Their declarations follow ESP-IDF v5.5.5 (Apache-2.0) and
    ESPHome (C++ under GPLv3) closely enough to compile against, and keep
    their origins' licences; they are not part of any firmware.
+
+   tools/btstub/usb/ is ESP-IDF v5.5.5's USB Host Library declarations
+   (components/usb/include/usb/, Apache-2.0, Espressif), copied as they are
+   there for what portall_bt's own USB layer calls. tools/idfusbtest/
+   fakehost.cpp carries ESP-IDF's usb_parse_next_descriptor() as it is in
+   components/usb/usb_helpers.c (Apache-2.0), and says so in its header.
+   Neither is part of any firmware: on a board the library is ESP-IDF's.

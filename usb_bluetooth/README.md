@@ -48,6 +48,7 @@ and a media player sounding through Bluetooth, is in
 | option | default | |
 |---|---|---|
 | `controller` | `high_speed` | `high_speed` or `full_speed`: the P4 OTG peripheral the dongle's socket is on. |
+| `transport` | `cherryusb` | `idf` uses this component's own USB layer on ESP-IDF's USB Host Library instead of CherryUSB: nothing downloaded, nothing patched. **Never yet run on a board**; remove the line to go back. |
 | `host_stack` | `none` | `bluedroid` brings ESP-IDF's Classic host into the build. `none` only enumerates the dongle and runs an inquiry. |
 | `audio` | `false` | A2DP source and AVRCP. |
 | `hid` | `false` | HID host, up to four input devices at once. |
@@ -143,11 +144,13 @@ On M5Stack Tab5, Guition 10" and 4", and Waveshare 7B boards:
   which pulls it in. This component runs its own USB host stack (CherryUSB)
   and `usb_host` installs ESP-IDF's on the high-speed controller, so the two
   would own the same hardware; the build refuses it, the way
-  esphome/esphome#16944 refuses a USB camera beside `usb_host`.
+  esphome/esphome#16944 refuses a USB camera beside `usb_host`. With
+  `transport: idf` both are ESP-IDF's library, and it is still refused: this
+  component installs the library itself, and a second install fails.
 - **The C6's own Bluetooth cannot be used at the same time.** `esp32_ble`
   (`bluetooth_proxy`, `esp32_ble_tracker`, ...) attaches the C6 to the same
   Bluedroid; the build refuses both.
-- **CherryUSB is patched at build time.** Its ESP port fixes
+- **CherryUSB is patched at build time** (with the default `transport`). Its ESP port fixes
   `CONFIG_USBHOST_MAX_INTF_ALTSETTINGS` at 2 and a dongle's SCO interface has
   six, so nothing would enumerate. `components/usb_bluetooth/cherryusb_patch`
   raises it in the downloaded copy. SCO (a headset's microphone) is not
@@ -164,7 +167,10 @@ added. It has been checked with `esphome config` and the codegen on ESPHome
 stand-in headers: `portall_bt`'s whole test suite run against this copy,
 plus a test of the keys, all passing (the tests live in the main repository's
 `tools/`, not in this folder). It has since been flashed and used by the household it was written for,
-on all four of those boards.
+on all four of those boards -- through CherryUSB. `transport: idf` has not:
+it has run only on a workstation, against a stand-in for ESP-IDF's USB Host
+Library with a simulated Broadcom and Realtek dongle behind it
+(`tools/checkidfusb.py --copy` in the main repository).
 
 ## Licence
 

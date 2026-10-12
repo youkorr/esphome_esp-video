@@ -8,7 +8,8 @@ edited and nothing compares them -- so this runs the SAME checks on it:
 tools/checkbt.py's syntax passes and its whole tools/bttest suite, renamed on
 the fly, plus tools/usbbttest/, which is what only the copy has (the key
 binary_sensor; the speakers list and the per-slot Forget are in both now, so
-their tests live in tools/bttest).
+their tests live in tools/bttest), and tools/checkidfusb.py --copy, which runs
+the copy's own USB layer the way it runs portall_bt's.
 
 The rename is the one the copy was made with: PortallBT -> UsbBluetooth,
 portall_bt -> usb_bluetooth, and a single key sink -> listeners.
@@ -100,7 +101,15 @@ def main() -> int:
                 shutil.copyfile(source, tests / source.name)
         script = tmp / "check.py"
         script.write_text(checker(tests))
-        return subprocess.run([sys.executable, str(script)]).returncode
+        failed = subprocess.run([sys.executable, str(script)]).returncode
+    # And the copy's own USB layer (`transport: idf`), run against the stand-in
+    # library with the same harness renamed. The mutants are left to the
+    # original: the two files are the same code under the rename.
+    print("\nusb_bluetooth's own USB layer:")
+    layer = subprocess.run(
+        [sys.executable, str(ROOT / "tools" / "checkidfusb.py"), "--copy", "--no-mutants"]
+    ).returncode
+    return 1 if failed or layer else 0
 
 
 if __name__ == "__main__":

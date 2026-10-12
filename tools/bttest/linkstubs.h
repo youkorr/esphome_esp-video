@@ -53,24 +53,34 @@ static bool called_before(const char *first, const char *second) {
 
 // Stubs for everything the component calls and this test does not: it is
 // linked, not run, apart from the two length functions.
+// tools/idfusbtest/ links portall_bt's own USB layer and real threads in
+// their place, and says so with these two defines.
+#ifndef HCI_USB_IDF
 int usbh_submit_urb(struct usbh_urb *) { return -1; }
 int usbh_set_interface(struct usbh_hubport *, uint8_t, uint8_t) { return 0; }
 int usbh_control_transfer(struct usbh_hubport *, struct usb_setup_packet *, uint8_t *) { return 0; }
 int usbh_initialize(uint8_t, uintptr_t, usbh_event_handler_t) { return 0; }
 struct usbh_hubport *usbh_find_hubport(uint8_t, uint8_t, uint8_t) { return nullptr; }
+#endif
+#ifndef BT_HARNESS_REAL_RTOS
 int xTaskCreate(void (*)(void *), const char *, unsigned, void *, unsigned, TaskHandle_t *) { return 1; }
 void vTaskDelete(TaskHandle_t) {}
 unsigned xTaskGetTickCount(void) { return 0; }
 void vTaskDelay(unsigned) {}
+#endif
 // The microsecond clock a speaker stamps its played-frame reports with.
 int64_t g_now_us = 0;
 int64_t esp_timer_get_time(void) { return g_now_us; }
 esp_bluedroid_status_t esp_bluedroid_get_status(void) { return ESP_BLUEDROID_STATUS_ENABLED; }
+#ifndef BT_HARNESS_OWNS_HOST
 esp_err_t esp_bluedroid_enable(void) { return ESP_OK; }
+#endif
 esp_err_t esp_bluedroid_disable(void) { return ESP_OK; }
 esp_err_t esp_bluedroid_init(void) { return ESP_OK; }
 esp_err_t esp_bluedroid_deinit(void) { return ESP_OK; }
+#ifndef BT_HARNESS_OWNS_HOST
 esp_err_t esp_bluedroid_attach_hci_driver(const esp_bluedroid_hci_driver_operations_t *) { return ESP_OK; }
+#endif
 esp_err_t esp_bluedroid_detach_hci_driver(void) { return ESP_OK; }
 const uint8_t *esp_bt_dev_get_address(void) { return nullptr; }
 
