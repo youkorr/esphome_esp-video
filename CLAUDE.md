@@ -6726,6 +6726,29 @@ Chrome keeps is still not established. Recorded, not acted on: the household
 asked for points 3 (the model) and 4 (naming the extensions) once they are
 home.
 
+**Two profile sizes in one log are both right.** `sweep_profiles()` prints
+718 MB and `disk_report()` 755 MB for the same profile a minute apart: the
+first adds up file sizes (`os.path.getsize`), the second the blocks they
+occupy, and a cache is thousands of small files each rounded up to a block.
+The second is what the disk loses.
+
+**Found in the same log and not yet fixed**, all at the add-on's start or stop:
+
+- `homekit.py` says `is waiting to be paired ... enter <code>` and prints the
+  QR code at EVERY start, paired or not. pyhap loads the pairings in
+  `add_accessory()` and its own `async_start` prints the setup message only
+  `if not self.state.paired` (read in HAP-python 5.0.0), so ours is the one
+  that lies to a paired household -- and prints the code twice to one that is
+  not. `self._driver.state.paired` is there to ask.
+- `Error: write EPIPE` from Node, at `Stopping`: Playwright's driver writing
+  to the sender that SIGTERM already took down. Harmless; the container is
+  stopping.
+- `Task was destroyed but it is pending! ... Zeroconf._async_broadcast_service`:
+  pyhap's mDNS announcement cut off by the stop. Harmless.
+- `SyntaxWarning: invalid escape sequence` at launcher.py 993 (`\(`) and 1780
+  (`\/`), JavaScript regexes in non-raw Python strings. Output is right today;
+  a later Python makes them errors.
+
 **`--disable-features` is ONE flag now and that is deliberate.** The ML
 accessories -- 46 MB of `optimization_guide_model_store` in every profile,
 for a browser whose whole job is to paint a dashboard -- go in beside
@@ -11414,6 +11437,11 @@ read, a renamed sensor counts, an unknown address shows nothing and says so,
 a panel not on the launcher is not looked for, and the icons' box is read in
 the browser at the top left above the clock. **Not run against a real Home
 Assistant**: the diagnostics' shape and the template are read in its source.
+
+**Confirmed on a real Home Assistant**, from the add-on's own log at 4.47.0:
+`[salon] Wi-Fi and Bluetooth icons: from the ESPHome device "Tab10" (48
+entities)`. So the config-entry route and `config_entry_id()` in the template
+API answer as read. The icons themselves were not seen: that panel was off.
 
 ## The add-on measures its own room on disk -- 4.37.3
 
