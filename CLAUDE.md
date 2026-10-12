@@ -2658,6 +2658,84 @@ running that touches the display (read: nothing in its loop). The stats
 line ends `N drawn directly with LVGL paused`; the log says when LVGL is
 paused and resumed. The bar LVGL draws is frozen while a video plays.
 
+### Our own USB under the Bluetooth: ESP-IDF's host library, not CherryUSB
+
+**Wanted, and not yet started: *"il faudra y penser meme si cela prend du
+temps a le realiser"*.** It came out of the question *"creer notre propre USB
+Bluetooth ?"*. Writing a USB host for the P4's DWC2 controller from scratch was
+answered no: thousands of lines of the most timing-sensitive code in the
+project, with nobody to maintain it alongside us. A dongle of our own was
+answered no too: only the ESP32-S31 has both Classic and USB, nothing
+Espressif ships turns one into a dongle, and a ten-euro dongle already works.
+What "our own" realistically means is our transport on **ESP-IDF's own USB
+Host Library**. It is part of the ESP-IDF we already build with and is
+maintained by Espressif; it is the shape of the household's own
+esphome/esphome#16944. It retires the CherryUSB download, `cherryusb_patch`
+and the pinned 1.6.1. The library claims any alternate setting
+(`usb_host_interface_claim(client, dev, intf, alt)`), so the six SCO settings
+need no patch.
+
+**Why it is affordable: the CherryUSB surface is small.** `portall_bt.cpp`
+calls nine of its functions and nothing else: `usbh_initialize`,
+`usbh_find_hubport`, `usbh_hubport`, `usbh_set_interface`,
+`usbh_control_transfer`, `usbh_int_urb_fill`, `usbh_bulk_urb_fill`,
+`usbh_submit_urb`, `usbh_urb`. Everything above them stays as it is:
+Bluedroid's HCI glue, the framing by HCI length, the Realtek download, A2DP,
+HID, keys and pairing. ESPHome's own `usb_host` uses every library call this
+needs, which is how their names were checked (2026.10.0-dev, `usb_host_
+client.cpp`): `usb_host_install`, `usb_host_client_register`,
+`usb_host_device_open`, `usb_host_get_active_config_descriptor`,
+`usb_host_interface_claim`, `usb_host_transfer_alloc`,
+`usb_host_transfer_submit`, `usb_host_transfer_submit_control`,
+`usb_host_endpoint_halt`, `usb_host_endpoint_flush`,
+`usb_host_lib_handle_events`, `usb_host_client_handle_events`.
+
+The plan, in steps that can each be flashed and undone:
+
+1. **A seam, with no change of behaviour.** The nine calls move behind a small
+   transport interface: open, send a command, send ACL, read an event, read
+   ACL, close. CherryUSB is the only implementation. The g++ suite in
+   `tools/bttest` must pass unchanged, and a flash on one board must read the
+   same as before.
+2. **`transport: idf` beside `transport: cherryusb`**, the default staying
+   CherryUSB, so a household goes back with one line. The IDF backend turns
+   the library's callbacks into the blocking calls the code above expects:
+   each transfer gets a semaphore and a timeout. An IN transfer that will
+   never complete is cancelled with halt + flush. The library does not time
+   transfers out, and that is the trap in this step.
+3. **A stand-in `usb_host.h` in `tools/btstub`** that records calls and plays
+   back events. It covers multi-packet events, a 16-byte event that fills a
+   packet exactly, a disconnect mid-frame, and the Realtek 256-byte commands.
+   Every fault in the CherryUSB history above becomes a case run against the
+   new backend.
+4. **Both dongles on all four boards** (Guition 10" and 4", Waveshare 7B,
+   Tab5), with logs compared line for line against CherryUSB. Only then does
+   the default flip, CherryUSB is kept one release, and `cherryusb_patch`
+   goes.
+
+Things to get right, known before writing a line:
+
+- **One packet per interrupt transfer.** Ask for exactly the endpoint's
+  packet size. A larger transfer completes on a short packet, so an event of
+  exactly 16 bytes would have the next event appended in the same buffer.
+  The length framing would cope, but one packet per transfer is what the
+  probe was proved with.
+- **The DATA0/DATA1 toggle is the library's**, kept per pipe. The "one, miss,
+  one, miss" fault cannot recur, and nothing should try to manage the toggle.
+- **The control buffer holds 8 + 256 bytes**, for a Realtek fragment. The
+  same truncation as `g_hci_cmd` would otherwise be invisible.
+- **`controller:` maps onto `usb_host_config_t.peripheral_map`** in v5.5,
+  high speed or full speed as now.
+- **Beside ESPHome's `usb_host`.** It installs the library itself, so this
+  backend must not install a second time. `usb_host_install` refuses a second
+  install, and then registering a client is enough. That is what would let
+  `_refuse_beside_usb_host` go, and `usb_uart` sit beside the dongle. Whether
+  ESPHome's own client then takes the dongle too (`USBClient(0, 0)` accepts
+  any device) is the case to test.
+
+Nothing is written. The first step is the seam, because it costs nothing on
+a panel and makes the rest testable.
+
 
 ## The panel as a launcher
 
