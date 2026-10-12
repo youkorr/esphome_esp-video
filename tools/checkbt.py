@@ -103,6 +103,21 @@ CONFIGURATIONS = [
             "-DUSE_TEXT_SENSOR",
         ],
     ),
+    # And two for `transport: idf`, which swaps CherryUSB for the component's
+    # own layer on ESP-IDF's USB Host Library. Behind HCI_USB_IDF idf_usb.cpp
+    # is an empty file and portall_bt.cpp includes CherryUSB's header instead,
+    # so every pass above says ok about the other half. The layer is RUN by
+    # tools/checkidfusb.py; this only proves both halves compile both ways.
+    ("transport: idf", ["-DHCI_USB_IDF"]),
+    (
+        "transport: idf, everything at once",
+        [
+            "-DHCI_USB_IDF",
+            "-DCONFIG_BT_BLUEDROID_ENABLED=1",
+            "-DCONFIG_BT_HID_HOST_ENABLED=1",
+            "-DCONFIG_BT_A2DP_ENABLE=1",
+        ],
+    ),
 ]
 
 

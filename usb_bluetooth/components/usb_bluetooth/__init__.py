@@ -45,6 +45,7 @@ configure step. The real fix is four lines upstream in CherryUSB.
 THE VERSION IS PINNED: `usbh_initialize` grew a third parameter in 1.6.0.
 """
 
+import logging
 import os
 
 import esphome.automation as automation
@@ -62,6 +63,7 @@ CODEOWNERS = ["@youkorr"]
 DEPENDENCIES = ["esp32"]
 
 CONF_CONTROLLER = "controller"
+CONF_TRANSPORT = "transport"
 CONF_INQUIRY_SECONDS = "inquiry_seconds"
 CONF_HOST_STACK = "host_stack"
 CONF_HID = "hid"
@@ -113,6 +115,31 @@ CONTROLLERS = {"high_speed": True, "full_speed": False}
 
 # See the module docstring: 1.6.0 changed usbh_initialize's signature.
 CHERRYUSB_VERSION = "1.6.1"
+
+_LOGGER = logging.getLogger(__name__)
+
+# What carries the dongle's USB. CherryUSB is the one every board runs and the
+# default; `idf` is this component's own layer on ESP-IDF's USB Host Library
+# (idf_usb.h says what it is and why it answers to CherryUSB's names). A plain
+# string rather than cv.enum, for the reason _wants() records: a key that
+# reads as truthy whatever it maps to.
+TRANSPORTS = ("cherryusb", "idf")
+
+# ESP-IDF 6 took the USB Host Library out of ESP-IDF and into the component
+# registry. ESPHome's own usb_host asks for this same version there.
+IDF_USB_COMPONENT = "1.4.1"
+
+
+def _transport(value):
+    value = cv.one_of(*TRANSPORTS, lower=True)(value)
+    if value == "idf":
+        _LOGGER.warning(
+            "usb_bluetooth: `transport: idf` is the component's own USB layer on ESP-IDF's "
+            "USB Host Library. It has never run on a board; CherryUSB is what every "
+            "board so far runs. Remove the line to go back."
+        )
+    return value
+
 
 usb_bluetooth_ns = cg.esphome_ns.namespace("usb_bluetooth")
 UsbBluetooth = usb_bluetooth_ns.class_("UsbBluetooth", cg.Component)
@@ -418,6 +445,8 @@ CONFIG_SCHEMA = cv.All(
             cv.Optional(CONF_CONTROLLER, default="high_speed"): cv.enum(
                 CONTROLLERS, lower=True, space="_"
             ),
+            # Which USB host carries the dongle. See TRANSPORTS.
+            cv.Optional(CONF_TRANSPORT, default="cherryusb"): _transport,
             # How long to listen for Bluetooth Classic devices once the dongle
             # has answered. 0 turns it off. The specification's own ceiling is
             # 61 seconds and the C++ clamps to it.
@@ -468,6 +497,50 @@ CONFIG_SCHEMA = cv.All(
     esp32.only_on_variant(supported=[esp32.VARIANT_ESP32P4]),
     _validate_hid,
 )
+
+
+def _use_cherryusb():
+    """CherryUSB, the transport every board so far runs."""
+    # Fetched from Espressif's component registry at build time rather than
+    # carried here: ESPHome writes this into src/idf_component.yml and the IDF
+    # component manager downloads it. Nothing for the user to install.
+    esp32.add_idf_component(name="cherry-embedded/cherryusb", ref=CHERRYUSB_VERSION)
+
+    # And a component that compiles nothing, whose whole job is to raise one
+    # constant in what was just downloaded. See the docstring, and
+    # cherryusb_patch/patch.cmake beside this file, which says it at length in
+    # the one place somebody debugging this would look.
+    esp32.add_idf_component(
+        name="cherryusb_patch",
+        path=os.path.join(os.path.dirname(__file__), "cherryusb_patch"),
+    )
+
+    # CherryUSB's own CMakeLists force-enables every host class driver it
+    # supports on IDF, so there is nothing to select per class here. These
+    # three are what turn the stack on at all, and DWC2_ESP is the controller
+    # driver for this chip's USB IP.
+    esp32.add_idf_sdkconfig_option("CONFIG_CHERRYUSB", True)
+    esp32.add_idf_sdkconfig_option("CONFIG_CHERRYUSB_HOST", True)
+    esp32.add_idf_sdkconfig_option("CONFIG_CHERRYUSB_HOST_DWC2_ESP", True)
+
+
+def _use_idf_usb():
+    """This component's own USB layer, on ESP-IDF's USB Host Library.
+
+    Nothing is downloaded and nothing is patched on ESP-IDF 5: the library is
+    part of it, and ESPHome does not exclude it. ESP-IDF 6 moved it into the
+    component registry as espressif/usb, which is where ESPHome's own usb_host
+    takes it from too.
+    """
+    cg.add_define("HCI_USB_IDF")
+    idf = esp32.idf_version() if hasattr(esp32, "idf_version") else None
+    if idf is not None and idf >= cv.Version(6, 0, 0):
+        esp32.add_idf_component(name="espressif/usb", ref=IDF_USB_COMPONENT)
+    # Each device's control buffer, which also bounds the configuration
+    # descriptor the library will read at all. Its default is 256, and a dongle
+    # with six SCO settings, a vendor interface and a DFU interface can carry
+    # more than that. ESPHome's own usb_host sets the same 1024.
+    esp32.add_idf_sdkconfig_option("CONFIG_USB_HOST_CONTROL_TRANSFER_MAX_SIZE", 1024)
 
 
 async def to_code(config):
@@ -543,27 +616,10 @@ async def to_code(config):
         cg.add(var.add_media_volume_trigger(trigger))
         await automation.build_automation(trigger, [(cg.float_, "volume")], conf)
 
-    # Fetched from Espressif's component registry at build time rather than
-    # carried here: ESPHome writes this into src/idf_component.yml and the IDF
-    # component manager downloads it. Nothing for the user to install.
-    esp32.add_idf_component(name="cherry-embedded/cherryusb", ref=CHERRYUSB_VERSION)
-
-    # And a component that compiles nothing, whose whole job is to raise one
-    # constant in what was just downloaded. See the docstring, and
-    # cherryusb_patch/patch.cmake beside this file, which says it at length in
-    # the one place somebody debugging this would look.
-    esp32.add_idf_component(
-        name="cherryusb_patch",
-        path=os.path.join(os.path.dirname(__file__), "cherryusb_patch"),
-    )
-
-    # CherryUSB's own CMakeLists force-enables every host class driver it
-    # supports on IDF, so there is nothing to select per class here. These
-    # three are what turn the stack on at all, and DWC2_ESP is the controller
-    # driver for this chip's USB IP.
-    esp32.add_idf_sdkconfig_option("CONFIG_CHERRYUSB", True)
-    esp32.add_idf_sdkconfig_option("CONFIG_CHERRYUSB_HOST", True)
-    esp32.add_idf_sdkconfig_option("CONFIG_CHERRYUSB_HOST_DWC2_ESP", True)
+    if config[CONF_TRANSPORT] == "idf":
+        _use_idf_usb()
+    else:
+        _use_cherryusb()
 
     if _wants(config, CONF_HOST_STACK):
         # Read out of ESP-IDF's own Kconfig rather than assumed, because every

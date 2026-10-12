@@ -15,7 +15,15 @@
 // that dependency present. usbh_core.h pulls CherryUSB's own usb_config.h,
 // which is where ESP_USB_HS0_BASE and ESP_USB_FS0_BASE are defined, so the
 // register addresses are never repeated here.
+//
+// `transport: idf` swaps it for this component's own layer on ESP-IDF's USB
+// Host Library, which answers to the same nine calls so that nothing below
+// changes. See idf_usb.h.
+#ifdef HCI_USB_IDF
+#include "idf_usb.h"
+#else
 #include "usbh_core.h"
+#endif
 
 // Only present when host_stack: bluedroid put CONFIG_BT_ENABLED in the
 // sdkconfig. See __init__.py for why that configuration is possible on a chip
@@ -820,8 +828,10 @@ void PortallBT::report_(uint8_t hub_index, uint8_t hub_port) {
   // USBH_EVENT_INTERFACE_UNSUPPORTED and `continue`s, leaving `ret` untouched,
   // so enumeration still succeeded and the device stays exactly where it is.
   // Four red lines that mean nothing are worth one line that says so.
+#ifndef HCI_USB_IDF
   ESP_LOGI(TAG, "  the \"Do not support Class\" lines above are CherryUSB's and are expected:");
   ESP_LOGI(TAG, "  no class driver is registered for this, and none is wanted -- it is driven here");
+#endif
 
   if (hci_interface < 0) {
     return;
@@ -1800,6 +1810,10 @@ void PortallBT::dump_config() {
   ESP_LOGCONFIG(TAG, "Portall Bluetooth:");
   ESP_LOGCONFIG(TAG, "  Controller: %s", this->high_speed_ ? "high-speed" : "full-speed");
   ESP_LOGCONFIG(TAG, "  USB host: %s", this->started_ ? "running" : "NOT running");
+#ifdef HCI_USB_IDF
+  ESP_LOGCONFIG(TAG, "  USB driver: portall_bt's own, on ESP-IDF's USB Host Library (transport: idf,"
+                     " never yet run on a board)");
+#endif
   if (this->high_speed_) {
     // Worth saying on every boot rather than in documentation nobody reads:
     // this is the controller portall puts in device mode, so the two cannot

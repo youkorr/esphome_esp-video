@@ -2733,8 +2733,8 @@ Things to get right, known before writing a line:
   ESPHome's own client then takes the dongle too (`USBClient(0, 0)` accepts
   any device) is the case to test.
 
-Nothing is written. The first step is the seam, because it costs nothing on
-a panel and makes the rest testable.
+**SUPERSEDED: steps 1 to 3 are built, step 4 is not** -- see the next
+subsection. The seam turned out to be unnecessary.
 
 **Searched before starting, asked as *"regarde si d'autres personnes ont
 travaille dessus"* (2026-10-12), and nobody has published it.** No ESP32-S3 or
@@ -2760,6 +2760,76 @@ only other one known is p1ngb4ck's ESPHome fork, on his own modified
 So there is no code to reuse, and nobody has gone ahead whose results this
 should wait for. Linux's btusb, already read, remains the best reference for
 the transport.
+
+### BUILT, not activated: `transport: idf`
+
+**Asked as *"commence a cree notre propre pilote qui ne depend pas de usb host
+n'y cherry usb ... mais ne l'active pas"*.** `components/portall_bt/idf_usb.h`
+and `idf_usb.cpp`, mirrored into `usb_bluetooth/`. `transport: cherryusb`
+stays the default and its build is unchanged: the codegen of
+`usb_bluetooth/example/tab5-lvgl-bluetooth.yaml` at 2026.10.0-dev is identical
+to HEAD's, statements, sdkconfig, IDF components and defines, apart from the
+config echo naming the new key. `transport: idf` defines `HCI_USB_IDF`, adds
+`CONFIG_USB_HOST_CONTROL_TRANSFER_MAX_SIZE` 1024 and no CherryUSB component,
+and warns at validation that it has never run on a board.
+
+**The layer answers to CherryUSB's names**, so the seam of step 1 was never
+needed: the same nine calls with the same structs (`usbh_hubport`, `usbh_urb`,
+`usbh_int_urb_fill` ...) over `usb/usb_host.h`, and `portall_bt.cpp` changes
+by an `#ifdef` around one include and two log lines. The probe, the HCI glue,
+the Realtek download and both reader tasks are the code four boards run.
+
+What the library does that CherryUSB did not, each read in ESP-IDF v5.5.5's
+`components/usb` and each a rule in the layer:
+
+- **It never times a transfer out** (`timeout_ms` is "not supported yet"), so
+  the timeout is the layer's -- and an IN read that times out LEAVES its
+  transfer in flight; the next read collects it. Cancelling it would throw
+  away the packet that arrives a moment later, which is the half of an event
+  that desynchronises the stream the readers were rewritten twice to protect.
+  An OUT that times out is cancelled: halt, flush (it comes back CANCELED),
+  clear.
+- **An error halts the endpoint until `usb_host_endpoint_clear()`**, so the
+  next transfer on it clears first. CANCELED maps to `-USB_ERR_IO`, not
+  SHUTDOWN, which the readers take as the dongle gone for good.
+- **Claiming an interface sends nothing**, so SET_INTERFACE goes out after it,
+  and answers 8 as CherryUSB's does. A control transfer's
+  `actual_num_bytes` counts the setup packet, as CherryUSB's does too.
+- **An IN transfer is whole packets**; a read is rounded up to one.
+- **Unplugging completes transfers NO_DEVICE, then DEV_GONE.** A completion
+  nobody collected is drained when the next dongle opens, or its semaphore
+  answers the new dongle's first read.
+- `peripheral_map` 0 is the high-speed controller, bit 1 the full-speed one;
+  ESP-IDF 6 moves the library to the registry as `espressif/usb` (1.4.1,
+  ESPHome's own pin). Task names are `bt_usb_lib`/`bt_usb_client`: FreeRTOS
+  keeps 15 characters, and the copy's rename made both `usb_bluetooth_u`.
+
+**`tools/checkidfusb.py`** builds the layer with g++ against
+`tools/btstub/usb/` (the library's declarations, copied) and links it to
+`tools/idfusbtest/fakehost.cpp`, which plays the library and a dongle with
+real threads, callbacks from the client task, halts, flushes and unplugs.
+portall_bt's SHIPPED probe and Bluedroid transport run on top: six scenarios,
+62 cases -- a Broadcom end to end (vendor class, a 254-byte name in sixteen
+packets, an inquiry's 257-byte result), a Realtek taking its 120 fragments,
+an answer 700 ms late, a halted endpoint, ACL both ways through Bluedroid's
+transport, and the layer's own promises. Four runs in four pass, and so does
+`--copy` on `usb_bluetooth/`, which `checkusbbt.py` now runs. Then four copies
+of the layer, each with one rule taken out, must each fail something.
+
+**The ruler was wrong first, as usual.** The drain mutant passed every case:
+the fake filled a transfer's data the moment it was submitted when an event
+was already queued, so a stale semaphore read the right bytes by luck. The
+real symptom is a fresh dongle's first read answering AT ONCE, so that is
+what the case asserts now, before anything is queued.
+
+**Still refused beside ESPHome's `usb_host`**: this layer installs the library
+itself and a second install fails. Registering as a second client when the
+library is already installed is step 2's last bullet above and is not built.
+
+**What is NOT known, and is the whole of step 4**: whether the real library
+behaves as the stand-in does. Not compiled by ESP-IDF, not flashed. The first
+log says it in its first lines: `using ESP-IDF's USB Host Library through
+portall_bt's own layer`, then the same probe lines CherryUSB gives.
 
 
 ## The panel as a launcher
