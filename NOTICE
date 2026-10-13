@@ -145,6 +145,11 @@ own license. See LICENSES/Apache-2.0.txt for the full Apache License 2.0 text.
        assigned numbers.
      - CherryUSB (Apache-2.0) is downloaded at build time, not vendored;
        cherryusb_patch changes one constant in that downloaded copy.
+     - ESP-IDF's USB Host Library (Apache-2.0, Espressif), which the
+       optional `transport: idf` calls instead of CherryUSB, is part of
+       ESP-IDF 5.5 or downloaded as espressif/usb on ESP-IDF 6, not
+       vendored. The layer over it, idf_usb.h and idf_usb.cpp in
+       portall_bt and usb_bluetooth, is this repository's own, under MIT.
 
 --------------------------------------------------------------------------
 9. Stand-in headers for the tests

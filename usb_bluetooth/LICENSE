@@ -17,6 +17,10 @@ What is NOT covered by this licence:
   - CherryUSB (Apache-2.0) is downloaded when a firmware is built, not
     carried here; cherryusb_patch changes one constant in that downloaded
     copy.
+  - With `transport: idf`, the USB layer in idf_usb.h and idf_usb.cpp is
+    this component's own and is MIT like the rest; the USB Host Library it
+    calls is Espressif's (Apache-2.0), part of ESP-IDF 5.5 or downloaded as
+    espressif/usb on ESP-IDF 6, and is not carried here.
   - The component builds on ESPHome (Python under MIT, C++ under GPLv3) and
     ESP-IDF (Apache-2.0). A firmware compiled with it is a combined work and
     is, as a whole, subject to their terms as well.
