@@ -93,3 +93,21 @@ inline const uint8_t KBD_DESC[] = {
     0x81, 0x00,        //   Input (Data,Array,Abs)
     0xC0,              // End Collection
 };
+/* A television remote's media keys: one Consumer Control report, id 3, whose
+   field is an ARRAY of two 16-bit usages -- whichever two keys are down, 0 for
+   none. That is the usual shape of a remote's Play, Home and Back, and the
+   one the decode used to throw away with every other array. */
+inline const uint8_t REMOTE_DESC[] = {
+    0x05, 0x0C,        // Usage Page (Consumer)
+    0x09, 0x01,        // Usage (Consumer Control)
+    0xA1, 0x01,        // Collection (Application)
+    0x85, 0x03,        //   Report ID (3)
+    0x15, 0x00,        //   Logical Minimum (0)
+    0x26, 0xFF, 0x03,  //   Logical Maximum (1023)
+    0x19, 0x00,        //   Usage Minimum (Unassigned)
+    0x2A, 0xFF, 0x03,  //   Usage Maximum (1023)
+    0x75, 0x10,        //   Report Size (16)
+    0x95, 0x02,        //   Report Count (2)
+    0x81, 0x00,        //   Input (Data,Array,Abs)
+    0xC0,              // End Collection
+};

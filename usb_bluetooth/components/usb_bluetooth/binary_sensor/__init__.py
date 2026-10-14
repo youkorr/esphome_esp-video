@@ -86,13 +86,29 @@ KEYS = {
     "0": 0x27,
 }
 
+# The transport buttons, on HID's Consumer page (HID Usage Tables, section 15).
+# A car's steering wheel and a headset arrive as these through AVRCP, a
+# remote's media row and a Shield through HID -- so one sensor can be a Play
+# button on an LVGL media page whatever is pressing it.
+PAGE_CONSUMER = 0x0C
+MEDIA_KEYS = {
+    "play_pause": 0xCD,
+    "play": 0xB0,
+    "pause": 0xB1,
+    "stop": 0xB7,
+    "next_track": 0xB5,
+    "previous_track": 0xB6,
+    "fast_forward": 0xB3,
+    "rewind": 0xB4,
+}
+
 CONFIG_SCHEMA = (
     binary_sensor.binary_sensor_schema(UsbBluetoothKey)
     .extend(
         {
             cv.GenerateID(CONF_USB_BLUETOOTH_ID): cv.use_id(UsbBluetooth),
             cv.Required(CONF_KEY): cv.All(
-                cv.ensure_list(cv.one_of(*KEYS, lower=True, string=True)),
+                cv.ensure_list(cv.one_of(*KEYS, *MEDIA_KEYS, lower=True, string=True)),
                 cv.Length(min=1),
             ),
             cv.Optional(
@@ -110,6 +126,9 @@ async def to_code(config):
     parent = await cg.get_variable(config[CONF_USB_BLUETOOTH_ID])
     cg.add(var.set_parent(parent))
     for key in config[CONF_KEY]:
-        cg.add(var.add_usage(PAGE_KEYBOARD, KEYS[key]))
+        if key in MEDIA_KEYS:
+            cg.add(var.add_usage(PAGE_CONSUMER, MEDIA_KEYS[key]))
+        else:
+            cg.add(var.add_usage(PAGE_KEYBOARD, KEYS[key]))
     cg.add(var.set_home("home" in config[CONF_KEY]))
     cg.add(var.set_hold(config[CONF_HOLD].total_milliseconds))

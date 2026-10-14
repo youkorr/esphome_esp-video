@@ -762,12 +762,44 @@ same socket the touches use, and the add-on replays it into the browser.
 | Back / Exit | Escape -- back *within* the page |
 | **Menu** | **leaves the link and goes back to your launcher** |
 | page up / page down | PageUp / PageDown |
-| play, pause, next, previous, volume | nothing here -- those stay media keys |
+| **play, pause, stop** | **pauses or plays whatever is playing on the page** |
+| **next, previous** | the site's own next and previous -- or ten seconds forward and back |
+| volume | nothing here -- it is the speaker's own |
 
 Menu is the one worth knowing about: before it existed, once a link was open
 the only way back was the corner gesture on the glass, which is no use to
 somebody sitting down with a remote in their hand. It is the same destination
 the corner reaches -- the panel's own `url:`.
+
+**Play and pause work from every remote there is**: a car's steering wheel and
+a headset's button (AVRCP), a television remote's or a keyboard's media keys
+and a Shield (HID), the iPhone's Control Centre remote, and `remote: true`'s
+play button in Home Assistant. The add-on asks the page's **own player**
+first -- the same way a laptop's media keys reach YouTube, Spotify's web player
+or Jellyfin -- so "next" on a page with a playlist is that page's next item.
+Where a page has no player of its own, it pauses the video or the sound itself,
+and "next" becomes ten seconds forward. The log says which it did:
+
+```
+Media: play/pause -> pause, through the site's own player
+```
+
+An automation can do it too, with `portall.key: pause` (or `play`,
+`play_pause`, `stop`, `next_track`, `previous_track`) in the panel's YAML --
+the film stops when the doorbell rings.
+
+**A key wakes a dark panel and presses nothing**, exactly like the tap that
+wakes it: the screen lights up and the page is left alone. And for a remote to
+keep the screen on while you use it, give the panel's `portall:` block the same
+lines its touch screen has in `on_touch:`:
+
+```yaml
+portall:
+  # ...
+  on_key:
+    - light.turn_on: backlight
+    - script.execute: screen_timeout
+```
 
 **A Bluetooth keyboard sends everything**, not only those: letters, Tab,
 Backspace and the rest go straight into whatever the page has focused, which
@@ -783,6 +815,7 @@ with `hid: true`:
 | B | Escape |
 | Back | Escape |
 | Home | leaves the link, back to the panel's own `url:` |
+| play / pause, next, previous | the video on the page -- see above |
 | everything else | nothing yet -- see below |
 
 **Nothing in that table is a guess about your controller.** Every HID device
@@ -813,8 +846,8 @@ Send that line saying which button it was and it can be given one.
 
 ### A telephone is a remote too, and it needs no Bluetooth at all
 
-`remote: true` on the panel's own `portall:` block puts seven buttons in Home
-Assistant -- up, down, left, right, OK, back and home:
+`remote: true` on the panel's own `portall:` block puts eight buttons in Home
+Assistant -- up, down, left, right, OK, back, home and play pause:
 
 ```yaml
 portall:
@@ -927,7 +960,7 @@ Two things to know:
   same way. The launcher still binds to `127.0.0.1` only and is reachable
   from nowhere else; the one consequence is that **port 8099 must be free**
   on the Home Assistant machine.
-- **It is not the same as the seven buttons** above. Those are entities in
+- **It is not the same as the eight buttons** above. Those are entities in
   Home Assistant, so they work from any telephone, a dashboard card, an
   automation or a voice command. This is the iPhone's own remote, with a pad
   under the thumb and no app to open. Turn on either, or both.

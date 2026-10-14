@@ -58,6 +58,12 @@ static PortallBT *fresh() {
     // The page is checked here rather than collected: every key this component
     // produces is on HID's Keyboard/Keypad page, and one that was not would be
     // a fault the usage alone could not show.
+    //
+    // The one exception is the Consumer page, which carries the transport
+    // buttons -- play, pause, next -- to whatever plays on the page. Those are
+    // kept apart so a test can say no transport button ever moved a tile.
+    if (page == 0x0C)
+      return;
     if (page != 0x07)
       failures++;
     g_sent.push_back(usage);

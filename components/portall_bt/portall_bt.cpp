@@ -1432,7 +1432,8 @@ static void hci_event_task(void *arg) {
   }
 
   g_link.up = false;
-  ESP_LOGW(TAG, "the dongle stopped answering; Bluedroid has no controller now");
+  ESP_LOGW(TAG, "the dongle stopped answering; Bluedroid has no controller now, and only a restart "
+                "of the panel gives it one again");
   vTaskDelete(nullptr);
 }
 
@@ -1506,7 +1507,20 @@ void PortallBT::start_host_stack_(struct usbh_hubport *hport, uint8_t intf,
                                   struct usb_endpoint_descriptor *events,
                                   struct usb_endpoint_descriptor *acl_in,
                                   struct usb_endpoint_descriptor *acl_out) {
-  if (!this->host_stack_ || this->stack_up_) {
+  if (!this->host_stack_) {
+    return;
+  }
+  if (this->stack_up_) {
+    /* A DONGLE PLUGGED IN AFTER BLUEDROID WAS STARTED ON ONE BEFORE IT -- the
+       same dongle pulled out and put back, or another. The probe above has
+       just answered for it, so from the log it looks like a dongle that works,
+       and it is one Bluedroid will never use: the stack was attached to the
+       controller that went away and cannot be handed a second while it runs.
+       It used to return here in silence, which read as Bluetooth working
+       while every speaker and controller stayed away for good. */
+    ESP_LOGE(TAG, "this dongle arrived after Bluetooth was already started on the one before it, "
+                  "and Bluedroid cannot take a second controller while it runs -- restart the panel "
+                  "to use it");
     return;
   }
 #ifdef CONFIG_BT_BLUEDROID_ENABLED

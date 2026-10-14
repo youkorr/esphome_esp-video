@@ -560,6 +560,14 @@ portall:
   max_frame_bytes: 400000
   speaker_id: portall_mixing_input #portall_resampler #portall_mixing_input
   sample_rate: 44100
+  # A remote, a gamepad or a keyboard through portall_bt's keys:, and the
+  # remote: buttons in Home Assistant: what on_touch does for a finger. Without
+  # it the screen went dark under somebody navigating from the sofa, because
+  # only a touch restarted the timeout. A key on a dark panel lights it and is
+  # not passed to the page, like the tap that wakes it.
+  on_key:
+    - light.turn_on: backlight
+    - script.execute: screen_timeout
   #on_audio_start:
     #- switch.turn_on: audio_amplifier
 

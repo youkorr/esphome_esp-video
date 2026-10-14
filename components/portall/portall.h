@@ -19,6 +19,7 @@
 #ifdef USE_LVGL
 #include <lvgl.h>
 #include <functional>
+#include <vector>
 #endif
 
 #include <atomic>
@@ -265,7 +266,26 @@ class Portall : public Component
   /// out means nothing can be left held down by a message that went missing.
   void send_key(uint16_t usage_page, uint16_t usage);
 
+  /// The same two, for a key somebody PRESSED -- a remote, a gamepad, a
+  /// keyboard or a button in Home Assistant -- rather than one a YAML asked
+  /// for. Two things differ, and both are the touch's rules:
+  ///
+  ///  - on_key: runs first, so a YAML can light the screen and restart its
+  ///    timeout the way on_touch does. Without it a household driving the
+  ///    launcher from the sofa watched the screen go dark under the remote,
+  ///    because only a finger ever restarted the timer.
+  ///  - on a DARK panel the key goes no further. It is the key that wakes the
+  ///    panel, and it must not also act on a page nobody could see -- the
+  ///    same reason the tap that wakes a panel presses nothing.
+  void press_key(uint16_t usage_page, uint16_t usage);
+  void press_home();
+  void add_on_key_trigger(Trigger<> *trigger) { this->key_triggers_.push_back(trigger); }
+
  protected:
+  /// Runs on_key and says whether the press may go on to the page.
+  bool note_press_();
+  std::vector<Trigger<> *> key_triggers_;
+
   /// One frame in flight: a compressed frame being filled by USB, or a full one
   /// waiting to be decoded.
   struct Frame {
@@ -763,10 +783,10 @@ class RemoteButton final : public button::Button, public Parented<Portall> {
  protected:
   void press_action() override {
     if (this->home_) {
-      this->parent_->ask_home();
+      this->parent_->press_home();
       return;
     }
-    this->parent_->send_key(this->page_, this->usage_);
+    this->parent_->press_key(this->page_, this->usage_);
   }
 
   uint16_t page_{0};

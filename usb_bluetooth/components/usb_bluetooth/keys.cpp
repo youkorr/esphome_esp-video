@@ -51,6 +51,7 @@
 
 #include "esphome/core/log.h"
 
+#include <cstdio>
 #include <cstring>
 
 #ifdef CONFIG_BT_BLUEDROID_ENABLED
@@ -83,9 +84,9 @@ constexpr uint16_t KEY_PAGE_DOWN = 0x4E;
  * Read out of esp_avrc_api.h rather than recalled: SELECT is 0x00 and the four
  * arrows are 0x01..0x04, which is why a real remote needs no per-device work
  * at all. The media transport commands -- play, pause, next, previous -- are
- * deliberately NOT here: they already reach the YAML through on_media_key and
- * mean what they say, and bending "next track" into "next tile" is exactly the
- * invention this file was written to remove. */
+ * deliberately NOT here: bending "next track" into "next tile" is exactly the
+ * invention this file was written to remove. They have a table of their own
+ * below, AVRC_MEDIA, and go to the page as what they are. */
 struct AvrcNav {
   uint8_t code;
   uint16_t usage;
@@ -104,6 +105,47 @@ constexpr AvrcNav AVRC_NAV[] = {
     {ESP_AVRC_PT_CMD_PAGE_DOWN, KEY_PAGE_DOWN},
 #endif
 };
+
+/* The transport buttons, as the Consumer-page usages that mean the same
+   thing -- so a car's steering wheel, a headset's button and a remote's Play
+   key all arrive at the sender as one vocabulary, and the sender pauses what
+   is playing on the page. The usages are the HID Usage Tables', section 15:
+   Play 0xB0, Pause 0xB1, Fast Forward 0xB3, Rewind 0xB4, Scan Next Track
+   0xB5, Scan Previous Track 0xB6, Stop 0xB7. */
+constexpr uint16_t CONSUMER_PLAY = 0xB0;
+constexpr uint16_t CONSUMER_PAUSE = 0xB1;
+constexpr uint16_t CONSUMER_FAST_FORWARD = 0xB3;
+constexpr uint16_t CONSUMER_REWIND = 0xB4;
+constexpr uint16_t CONSUMER_NEXT = 0xB5;
+constexpr uint16_t CONSUMER_PREVIOUS = 0xB6;
+constexpr uint16_t CONSUMER_STOP = 0xB7;
+constexpr uint16_t CONSUMER_PLAY_PAUSE = 0xCD;
+
+constexpr AvrcNav AVRC_MEDIA[] = {
+#ifdef CONFIG_BT_BLUEDROID_ENABLED
+    {ESP_AVRC_PT_CMD_PLAY, CONSUMER_PLAY},
+    {ESP_AVRC_PT_CMD_PAUSE, CONSUMER_PAUSE},
+    {ESP_AVRC_PT_CMD_STOP, CONSUMER_STOP},
+    {ESP_AVRC_PT_CMD_FORWARD, CONSUMER_NEXT},
+    {ESP_AVRC_PT_CMD_BACKWARD, CONSUMER_PREVIOUS},
+    {ESP_AVRC_PT_CMD_FAST_FORWARD, CONSUMER_FAST_FORWARD},
+    {ESP_AVRC_PT_CMD_REWIND, CONSUMER_REWIND},
+#endif
+};
+
+const char *media_name(uint16_t usage) {
+  switch (usage) {
+    case CONSUMER_PLAY: return "play";
+    case CONSUMER_PAUSE: return "pause";
+    case CONSUMER_FAST_FORWARD: return "fast forward";
+    case CONSUMER_REWIND: return "rewind";
+    case CONSUMER_NEXT: return "next";
+    case CONSUMER_PREVIOUS: return "previous";
+    case CONSUMER_STOP: return "stop";
+    case CONSUMER_PLAY_PAUSE: return "play/pause";
+    default: return "";
+  }
+}
 
 const char *usage_name(uint16_t usage) {
   switch (usage) {
@@ -136,6 +178,19 @@ const char *usage_name(uint16_t usage) {
 constexpr uint16_t PAGE_DESKTOP = 0x01;
 constexpr uint16_t PAGE_BUTTON = 0x09;
 constexpr uint16_t PAGE_CONSUMER = 0x0C;
+/* Where a device says how full its battery is, in the HID Usage Tables' own
+   words: Generic Device Controls' Battery Strength, or the Battery System
+   page's Absolute State Of Charge and Remaining Capacity. */
+constexpr uint16_t PAGE_DEVICE_CONTROLS = 0x06;
+constexpr uint16_t DC_BATTERY_STRENGTH = 0x20;
+constexpr uint16_t PAGE_BATTERY_SYSTEM = 0x85;
+constexpr uint16_t BAT_ABSOLUTE_CHARGE = 0x65;
+constexpr uint16_t BAT_REMAINING_CAPACITY = 0x66;
+
+bool is_battery(uint16_t page, uint16_t usage) {
+  return (page == PAGE_DEVICE_CONTROLS && usage == DC_BATTERY_STRENGTH) ||
+         (page == PAGE_BATTERY_SYSTEM && (usage == BAT_ABSOLUTE_CHARGE || usage == BAT_REMAINING_CAPACITY));
+}
 
 constexpr uint16_t DESKTOP_HAT = 0x39;
 constexpr uint16_t DESKTOP_DPAD_UP = 0x90;
@@ -188,6 +243,53 @@ int axis_index(uint16_t page, uint16_t usage) {
    asked them to do. */
 constexpr uint16_t CONSUMER_HOME = 0x223;
 constexpr uint16_t CONSUMER_BACK = 0x224;
+
+/* EVERY CONSUMER-PAGE BUTTON THIS KNOWS, in one table, because a remote puts
+   nearly everything that is not a letter here: Home and Back, the transport
+   keys, and on many television remotes the arrows themselves (Menu Up, Down,
+   Left, Right and Menu Pick, 0x42..0x45 and 0x41, with Menu Escape at 0x46).
+   All of it the HID Usage Tables' own meanings; nothing here is a reading of
+   one device.
+
+   A device may declare these one bit each -- the Shield does -- or as an
+   ARRAY, one field holding whichever usage is down, which is what a remote's
+   media keys nearly always are. Both read this table. Its index is the bit a
+   device's `consumer_bits` keeps for it, so it must stay under 32 entries. */
+enum class ConsumerDoes : uint8_t { KEY, MEDIA, HOME };
+struct ConsumerKey {
+  uint16_t usage;
+  ConsumerDoes does;
+  uint16_t key;  ///< for KEY: the keyboard usage it becomes
+  const char *name;
+};
+
+constexpr ConsumerKey CONSUMER_KEYS[] = {
+    {0x041, ConsumerDoes::KEY, KEY_ENTER, "ok"},
+    {0x042, ConsumerDoes::KEY, KEY_UP, "up"},
+    {0x043, ConsumerDoes::KEY, KEY_DOWN, "down"},
+    {0x044, ConsumerDoes::KEY, KEY_LEFT, "left"},
+    {0x045, ConsumerDoes::KEY, KEY_RIGHT, "right"},
+    {0x046, ConsumerDoes::KEY, KEY_ESCAPE, "back"},
+    {CONSUMER_PLAY, ConsumerDoes::MEDIA, 0, "play"},
+    {CONSUMER_PAUSE, ConsumerDoes::MEDIA, 0, "pause"},
+    {CONSUMER_FAST_FORWARD, ConsumerDoes::MEDIA, 0, "fast forward"},
+    {CONSUMER_REWIND, ConsumerDoes::MEDIA, 0, "rewind"},
+    {CONSUMER_NEXT, ConsumerDoes::MEDIA, 0, "next"},
+    {CONSUMER_PREVIOUS, ConsumerDoes::MEDIA, 0, "previous"},
+    {CONSUMER_STOP, ConsumerDoes::MEDIA, 0, "stop"},
+    {CONSUMER_PLAY_PAUSE, ConsumerDoes::MEDIA, 0, "play/pause"},
+    {CONSUMER_HOME, ConsumerDoes::HOME, 0, "home"},
+    {CONSUMER_BACK, ConsumerDoes::KEY, KEY_ESCAPE, "back"},
+};
+static_assert(sizeof(CONSUMER_KEYS) / sizeof(CONSUMER_KEYS[0]) <= 32,
+              "consumer_bits keeps one bit per entry");
+
+int consumer_index(uint16_t usage) {
+  for (size_t i = 0; i < sizeof(CONSUMER_KEYS) / sizeof(CONSUMER_KEYS[0]); i++)
+    if (CONSUMER_KEYS[i].usage == usage)
+      return (int) i;
+  return -1;
+}
 
 /* bluepad32's Android button numbering, which is a convention rather than a
    rule: 3 and 6 are skipped because Android's own mapping has no C or Z. */
@@ -256,6 +358,101 @@ void UsbBluetooth::feed_avrc_key(uint8_t code) {
     this->key_sink_(PAGE_KEYBOARD, entry.usage);
     return;
   }
+  /* A car's steering wheel and a headset's button: the video on the panel
+     pauses, the way the music on a telephone would. On the Consumer page,
+     never the keyboard one, so no transport button can ever move a tile. */
+  for (const auto &entry : AVRC_MEDIA) {
+    if (entry.code != code)
+      continue;
+    ESP_LOGI(TAG, "speaker: %s", media_name(entry.usage));
+    this->key_sink_(PAGE_CONSUMER, entry.usage);
+    return;
+  }
+}
+
+void UsbBluetooth::press_consumer_(uint8_t index, const char *who) {
+  const ConsumerKey &k = CONSUMER_KEYS[index];
+  switch (k.does) {
+    case ConsumerDoes::HOME:
+      /* Home LEAVES the link, which is the one thing a remote most needs and
+         the one thing no button could do two releases ago. Same sink AVRCP's
+         Menu uses, for the same reason: there is one notion of home. */
+      if (this->home_sink_) {
+        ESP_LOGI(TAG, "%s: home", who);
+        this->home_sink_();
+      }
+      return;
+    case ConsumerDoes::KEY:
+      ESP_LOGI(TAG, "%s: %s", who, k.name);
+      this->key_sink_(PAGE_KEYBOARD, k.key);
+      return;
+    case ConsumerDoes::MEDIA:
+      ESP_LOGI(TAG, "%s: %s", who, k.name);
+      this->key_sink_(PAGE_CONSUMER, k.usage);
+      return;
+  }
+}
+
+void UsbBluetooth::note_battery_(int32_t value, int32_t logical_min, int32_t logical_max) {
+  /* The device's own range, from its own descriptor: a battery declared as
+     0..100 and one declared as 0..255 are the same battery said twice. Out
+     of range is a device saying it does not know, and is left as unknown.
+     Rounded to five, so a level that flickers between two readings does not
+     republish the device's entity every time it is asked. */
+  if (logical_max <= logical_min || value < logical_min || value > logical_max)
+    return;
+  const int32_t pct = (int32_t) (((int64_t) (value - logical_min) * 100) / (logical_max - logical_min));
+  const int8_t rounded = (int8_t) (((pct + 2) / 5) * 5);
+  InputDevice &d = this->dev_();
+  if (rounded == d.battery)
+    return;
+  const bool first = d.battery < 0;
+  const bool low = rounded <= 20 && (first || d.battery > 20);
+  d.battery = rounded;
+  if (first || low || rounded % 20 == 0) {
+    char text[18];
+    snprintf(text, sizeof(text), "%02X:%02X:%02X:%02X:%02X:%02X", d.addr[0], d.addr[1], d.addr[2],
+             d.addr[3], d.addr[4], d.addr[5]);
+    if (low)
+      ESP_LOGW(TAG, "input device %s: battery %d%% -- low", text, (int) rounded);
+    else
+      ESP_LOGI(TAG, "input device %s: battery %d%%", text, (int) rounded);
+  }
+}
+
+void UsbBluetooth::say_consumer_once_(uint16_t usage) {
+  /* A Consumer button this has no meaning for names itself once, the way an
+     unmapped gamepad button does -- a remote's volume or a keyboard's
+     calculator key pressed in silence reads exactly like a remote that is not
+     connected. */
+  InputDevice &d = this->dev_();
+  for (uint8_t i = 0; i < d.said_consumer_count; i++)
+    if (d.said_consumer[i] == usage)
+      return;
+  if (d.said_consumer_count < sizeof(d.said_consumer) / sizeof(d.said_consumer[0]))
+    d.said_consumer[d.said_consumer_count++] = usage;
+  ESP_LOGI(TAG, "button: Consumer usage %#05x is pressed and has no meaning in a page", (unsigned) usage);
+}
+
+void UsbBluetooth::note_consumer_array_(const uint16_t *now, uint8_t count) {
+  /* An ARRAY lists what is down in this report, so a press is a usage that is
+     here and was not in the last one -- the keyboard's rule, for the same
+     reason: a button held is in every report until it is let go. */
+  InputDevice &d = this->dev_();
+  for (uint8_t i = 0; i < count; i++) {
+    bool was = false;
+    for (uint16_t held : d.consumer_held)
+      was = was || held == now[i];
+    if (was)
+      continue;
+    const int index = consumer_index(now[i]);
+    if (index < 0)
+      this->say_consumer_once_(now[i]);
+    else
+      this->press_consumer_((uint8_t) index, "remote");
+  }
+  memset(d.consumer_held, 0, sizeof(d.consumer_held));
+  memcpy(d.consumer_held, now, count * sizeof(now[0]));
 }
 
 void UsbBluetooth::feed_hid_keys(const uint8_t *data, uint16_t len) {
@@ -271,6 +468,15 @@ void UsbBluetooth::feed_hid_keys(const uint8_t *data, uint16_t len) {
                     "platform: usb_bluetooth and a key: is configured, so nothing "
                     "is decoded");
     }
+    /* Its battery is still worth knowing: the device's entity says it
+       whether or not its buttons go anywhere. */
+    InputDevice &d = this->dev_();
+    if (d.map != nullptr && d.map->ready()) {
+      d.map->decode(data, len, [&](const HidField &f, int32_t value) {
+        if (!f.array && is_battery(f.usage_page, f.usage))
+          this->note_battery_(value, f.logical_min, f.logical_max);
+      });
+    }
     return;
   }
   /* THE DESCRIPTOR FIRST, whenever there is one, because it is the only
@@ -280,6 +486,9 @@ void UsbBluetooth::feed_hid_keys(const uint8_t *data, uint16_t len) {
   if (d.map != nullptr && d.map->ready()) {
     uint8_t keys_now[6] = {};
     uint8_t key_count = 0;
+    uint16_t consumer_now[4] = {};
+    uint8_t consumer_count = 0;
+    bool saw_consumer = false;
     bool decoded = d.map->decode(
         data, len, [&](const HidField &f, int32_t value) {
           /* A keyboard's keycodes arrive as an ARRAY, several instances of
@@ -294,12 +503,30 @@ void UsbBluetooth::feed_hid_keys(const uint8_t *data, uint16_t len) {
             }
             return;
           }
+          /* And a remote's media keys, which are an array too. They used to
+             be dropped by the line below with every other array, so a remote
+             declaring its Home, Back and Play this way -- most of them --
+             reached the page as nothing at all. */
+          if (f.array && f.usage_page == PAGE_CONSUMER) {
+            saw_consumer = true;
+            if (value >= f.logical_min && value <= f.logical_max) {
+              const uint16_t usage = (uint16_t)(f.usage + (value - f.logical_min));
+              if (usage != 0 && consumer_count < 4)
+                consumer_now[consumer_count++] = usage;
+            }
+            return;
+          }
           if (f.array)
             return;
           this->feed_hid_usage(f.usage_page, f.usage, value, f.logical_min, f.logical_max);
         });
     if (decoded) {
       this->note_keyboard_keys_(keys_now);
+      /* Only a report that CARRIES the array says what is held: a gamepad's
+         own report arriving between two of the remote's must not read as
+         every media key let go, or a key still held would be pressed again. */
+      if (saw_consumer)
+        this->note_consumer_array_(consumer_now, consumer_count);
       return;
     }
     /* A report the descriptor has no fields for is not a failure of this
@@ -349,7 +576,7 @@ void UsbBluetooth::note_keyboard_keys_(const uint8_t *now) {
 }
 
 void UsbBluetooth::feed_hid_descriptor(const uint8_t *desc, uint16_t len, uint16_t vendor,
-                                    uint16_t product) {
+                                    uint16_t product, uint16_t declared) {
   /* Every arrival resets what is REMEMBERED about the device's buttons -- a
      controller that hung up and came back is not still holding whatever it
      was holding, and a stale hat position would swallow the first press. */
@@ -376,13 +603,28 @@ void UsbBluetooth::feed_hid_descriptor(const uint8_t *desc, uint16_t len, uint16
   if (!map->parse(desc, len)) {
     ESP_LOGW(TAG,
              "input device %04x:%04x sent a %u-byte report descriptor this "
-             "could not read, so its buttons reach on_hid_report and go no "
+             "could not read%s, so its buttons reach on_hid_report and go no "
              "further",
-             (unsigned) vendor, (unsigned) product, (unsigned) len);
+             (unsigned) vendor, (unsigned) product,
+             (unsigned) (declared > len ? declared : len),
+             declared > len ? " -- it was longer than this keeps" : "");
     this->say_descriptor_(desc, len);
     return;
   }
-  if (map->truncated()) {
+  if (declared > len) {
+    /* CUT BEFORE IT ARRIVED. The staging buffer between Bluedroid's task and
+       this one holds MAX_DESC bytes, and a longer descriptor used to be cut
+       there and then reported here as though the device had sent exactly
+       that much -- "described itself: 512 bytes" about a device that sent
+       700, with every report described past the cut silently undecoded. Both
+       numbers, for the reason the field cap below gives them both. */
+    ESP_LOGW(TAG,
+             "input device %04x:%04x described itself in %u bytes, and only the "
+             "first %u were kept -- %u fields read from those, and any buttons "
+             "described after them are not decoded",
+             (unsigned) vendor, (unsigned) product, (unsigned) declared, (unsigned) len,
+             (unsigned) map->field_count());
+  } else if (map->truncated()) {
     /* Named with BOTH numbers, because a limit that only says it was reached
        leaves the next person guessing at what to raise it to -- which is
        exactly what the line this replaces did, at the cost of a round. */
@@ -427,6 +669,10 @@ void UsbBluetooth::say_descriptor_(const uint8_t *desc, uint16_t len) {
 
 void UsbBluetooth::feed_hid_usage(uint16_t page, uint16_t usage, int32_t value,
                                int32_t logical_min, int32_t logical_max) {
+  if (is_battery(page, usage)) {
+    this->note_battery_(value, logical_min, logical_max);
+    return;
+  }
   if (!this->key_sink_)
     return;
   /* Everything below belongs to ONE device -- which hat position, which
@@ -586,27 +832,23 @@ void UsbBluetooth::feed_hid_usage(uint16_t page, uint16_t usage, int32_t value,
     return;
   }
 
-  if (page == PAGE_CONSUMER && (usage == CONSUMER_HOME || usage == CONSUMER_BACK)) {
-    const uint8_t mask = (uint8_t)(usage == CONSUMER_HOME ? 0x10 : 0x20);
+  /* A Consumer button declared one bit each -- the Shield's Home and Back,
+     and a media row on some controllers. Each is its own edge. */
+  if (page == PAGE_CONSUMER) {
+    const int index = consumer_index(usage);
     const bool down = value != 0;
-    const bool was = (d.consumer & mask) != 0;
+    if (index < 0) {
+      if (down)
+        this->say_consumer_once_(usage);
+      return;
+    }
+    const uint32_t mask = (uint32_t) 1 << index;
+    const bool was = (d.consumer_bits & mask) != 0;
     if (down == was)
       return;
-    d.consumer = (uint8_t)(down ? (d.consumer | mask) : (d.consumer & ~mask));
-    if (!down)
-      return;
-    if (usage == CONSUMER_BACK) {
-      ESP_LOGI(TAG, "gamepad: back");
-      this->key_sink_(PAGE_KEYBOARD, KEY_ESCAPE);
-      return;
-    }
-    /* Home LEAVES the link, which is the one thing a remote most needs and
-       the one thing no button could do two releases ago. Same sink AVRCP's
-       Menu uses, for the same reason: there is one notion of home. */
-    if (this->home_sink_) {
-      ESP_LOGI(TAG, "gamepad: home");
-      this->home_sink_();
-    }
+    d.consumer_bits = down ? (d.consumer_bits | mask) : (d.consumer_bits & ~mask);
+    if (down)
+      this->press_consumer_((uint8_t) index, "gamepad");
     return;
   }
 }

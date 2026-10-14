@@ -388,6 +388,10 @@ void PortallBT::reset_decode_(InputDevice &d) {
   d.buttons = 0;
   d.said = 0;
   d.consumer = 0;
+  d.consumer_bits = 0;
+  memset(d.consumer_held, 0, sizeof(d.consumer_held));
+  // A device that has just come back has not said how full it is yet.
+  d.battery = -1;
   memset(d.axis, 0, sizeof(d.axis));
   memset(d.axis_dir, 0, sizeof(d.axis_dir));
   /* Not live until centred again: a controller that has just come back has
@@ -555,19 +559,14 @@ void PortallBT::on_hid_closed(int handle) {
 }
 
 void PortallBT::on_hid_report(const uint8_t *data, uint16_t len, uint8_t handle) {
-  const uint8_t next = (uint8_t) ((this->report_head_ + 1) % REPORTS);
-  if (next == this->report_tail_) {
-    // Full. Drop the OLDEST -- see the queue's own comment in the header: the
-    // last report of a press is the release, and a release that never arrives
-    // leaves a button held down for ever.
-    this->report_tail_ = (uint8_t) ((this->report_tail_ + 1) % REPORTS);
-    this->reports_lost_++;
-  }
-  HidReport &slot = this->reports_[this->report_head_];
-  slot.handle = handle;
-  slot.len = (uint8_t) (len > sizeof(slot.data) ? sizeof(slot.data) : len);
-  memcpy(slot.data, data, slot.len);
-  this->report_head_ = next;
+  // When full this loses the OLDEST -- see NewestRing in the header: the last
+  // report of a press is the release, and a release that never arrives leaves
+  // a button held down for ever.
+  HidReport report{};
+  report.handle = handle;
+  report.len = (uint8_t) (len > sizeof(report.data) ? sizeof(report.data) : len);
+  memcpy(report.data, data, report.len);
+  this->reports_.push(report);
 }
 
 void PortallBT::on_hid_descriptor(const uint8_t *desc, uint16_t len, uint16_t vendor,
@@ -582,6 +581,7 @@ void PortallBT::on_hid_descriptor(const uint8_t *desc, uint16_t len, uint16_t ve
     return;  // Cannot happen with one descriptor per connected device.
   PendingDesc &p = this->pending_desc_[this->pending_desc_head_];
   p.len = len > MAX_DESC ? MAX_DESC : len;
+  p.declared = len;
   memcpy(p.bytes, desc, p.len);
   p.vendor = vendor;
   p.product = product;
@@ -595,12 +595,12 @@ void PortallBT::drain_reports_() {
     const int8_t slot = this->route_(p.handle);
     if (slot >= 0) {
       this->cur_input_ = (uint8_t) slot;
-      this->feed_hid_descriptor(p.bytes, p.len, p.vendor, p.product);
+      this->feed_hid_descriptor(p.bytes, p.len, p.vendor, p.product, p.declared);
     }
     this->pending_desc_tail_ = (uint8_t) ((this->pending_desc_tail_ + 1) % MAX_INPUTS);
   }
-  while (this->report_tail_ != this->report_head_) {
-    const HidReport &slot = this->reports_[this->report_tail_];
+  HidReport slot{};
+  while (this->reports_.pop(slot)) {
     /* WHICH DEVICE SENT THIS, before a byte of it is decoded. Everything
        keys.cpp reads -- the map, the hat, the buttons, the six keycodes still
        held -- belongs to one device, and reading a second controller's report
@@ -668,12 +668,11 @@ void PortallBT::drain_reports_() {
        not pretend to be. */
     if (routed >= 0)
       this->feed_hid_keys(slot.data, slot.len);
-    this->report_tail_ = (uint8_t) ((this->report_tail_ + 1) % REPORTS);
   }
-  if (this->reports_lost_ != 0) {
+  const uint32_t lost = this->reports_.take_lost();
+  if (lost != 0) {
     ESP_LOGW(TAG, "%u input report(s) dropped -- the loop is not keeping up with the device",
-             (unsigned) this->reports_lost_);
-    this->reports_lost_ = 0;
+             (unsigned) lost);
   }
 }
 
@@ -1257,22 +1256,27 @@ void PortallBT::note_remote_name(const uint8_t *addr, const char *name) {
 #ifdef CONFIG_BT_BLUEDROID_ENABLED
   if (addr == nullptr || name == nullptr)
     return;
-  // Which slot this belongs to is decided by the ADDRESS, not by which event
-  // carried it: a pairing and a name request can both arrive for either role,
-  // and a device this panel does not remember has no slot to go in.
-  char *slot = nullptr;
+  // Which places this belongs in is decided by the ADDRESS, not by which
+  // event carried it: a pairing and a name request can both arrive for either
+  // role, and a device this panel does not remember has nowhere to go.
+  //
+  // EVERY place the address is, not the first one found. The speaker playing
+  // is in two: `sink_name_`, which its own entity reads, and its row in the
+  // list of remembered speakers. Writing only the first left that row nameless
+  // the moment another speaker was chosen -- a list on a screen with one bare
+  // address in it, the one that had just been playing.
+  char *places[3] = {nullptr, nullptr, nullptr};
+  uint8_t count = 0;
   const int8_t input = this->slot_for_addr_(addr);
   if (input >= 0)
-    slot = this->inputs_[input].name;
-  else if (this->remembered_.has_sink &&
-           memcmp(addr, this->remembered_.sink, 6) == 0)
-    slot = this->sink_name_;
-  // A remembered speaker keeps its own name too, for its row on a screen.
+    places[count++] = this->inputs_[input].name;
+  if (this->remembered_.has_sink && memcmp(addr, this->remembered_.sink, 6) == 0)
+    places[count++] = this->sink_name_;
   const int8_t sink = this->sink_slot_(addr);
-  if (slot == nullptr && sink < 0)
+  if (sink >= 0)
+    places[count++] = this->sink_names_[sink];
+  if (count == 0)
     return;
-  if (slot == nullptr)
-    slot = this->sink_names_[sink];
 
   // The printable run, and no further. A device does not have to terminate a
   // fixed-width field -- a TP-Link dongle padded its own with something else
@@ -1285,8 +1289,10 @@ void PortallBT::note_remote_name(const uint8_t *addr, const char *name) {
       break;
     take++;
   }
-  memcpy(slot, name, take);
-  slot[take] = '\0';
+  for (uint8_t i = 0; i < count; i++) {
+    memcpy(places[i], name, take);
+    places[i][take] = '\0';
+  }
 #else
   (void) addr;
   (void) name;
@@ -1306,18 +1312,26 @@ void PortallBT::ask_remote_name_(const uint8_t *addr) {
 #endif
 }
 
-std::string PortallBT::describe_device_(const uint8_t *addr, const char *name, bool open) const {
+std::string PortallBT::describe_device_(const uint8_t *addr, const char *name, bool open,
+                                        int8_t battery) const {
 #ifdef CONFIG_BT_BLUEDROID_ENABLED
   char text[18];
   say_addr(text, addr);
   std::string out = name[0] != '\0' ? std::string(name) + " (" + text + ")" : std::string(text);
   if (this->bt_off_)
     return out + " (Bluetooth off)";
-  return out + (open ? " connected" : " paired, away");
+  if (!open)
+    return out + " paired, away";
+  // Its battery, where the device reports one -- a controller left on the
+  // sofa says it is nearly flat before it stops answering.
+  if (battery >= 0)
+    return out + " connected, battery " + std::to_string((int) battery) + "%";
+  return out + " connected";
 #else
   (void) addr;
   (void) name;
   (void) open;
+  (void) battery;
   return "none";
 #endif
 }
@@ -1327,7 +1341,7 @@ std::string PortallBT::describe_input(uint8_t slot) const {
   if (slot >= MAX_INPUTS || !this->inputs_[slot].used)
     return "none";
   const InputDevice &d = this->inputs_[slot];
-  return this->describe_device_(d.addr, d.name, d.open);
+  return this->describe_device_(d.addr, d.name, d.open, d.battery);
 #else
   (void) slot;
   return "none";
@@ -1340,8 +1354,8 @@ std::string PortallBT::describe_role(bool speaker) const {
   // card is looking for -- "Orange TV remote" rather than A4:C1:38:9E:22:07.
   // The address stays beside it: two remotes of the same model are the same
   // name, and it is the address that a pair or forget action works on.
-  auto one_device = [this](const uint8_t *addr, const char *name, bool open) {
-    return this->describe_device_(addr, name, open);
+  auto one_device = [this](const uint8_t *addr, const char *name, bool open, int8_t battery = -1) {
+    return this->describe_device_(addr, name, open, battery);
   };
 
   if (speaker) {
@@ -1361,7 +1375,7 @@ std::string PortallBT::describe_role(bool speaker) const {
     if (!d.used || !d.remembered)
       continue;
     total++;
-    const std::string entry = one_device(d.addr, d.name, d.open);
+    const std::string entry = one_device(d.addr, d.name, d.open, d.battery);
     if (out.size() + entry.size() + 2 > 200)
       continue;
     if (!out.empty())

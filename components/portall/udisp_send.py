@@ -226,6 +226,26 @@ BROWSER_KEYS = {
     (0x07, 0x4E): "PageDown",
 }
 
+# What a transport button does to whatever plays on the page. Page 0x0C is
+# HID's Consumer page and these are its own usages (HID Usage Tables, section
+# 15): a car's steering wheel and a headset arrive here through AVRCP on the
+# board, a remote's media row and a Shield through HID, all as one vocabulary.
+#
+# NOT browser keys, and that is measured: Playwright refuses "MediaPlayPause"
+# outright ("Unknown key"), so a press sent that way was an exception and
+# nothing else. The names are the Media Session API's actions, which is what
+# the sender asks the page's own player to do before it touches an element.
+MEDIA_ACTIONS = {
+    (0x0C, 0xCD): "playpause",
+    (0x0C, 0xB0): "play",
+    (0x0C, 0xB1): "pause",
+    (0x0C, 0xB7): "stop",
+    (0x0C, 0xB5): "nexttrack",
+    (0x0C, 0xB6): "previoustrack",
+    (0x0C, 0xB3): "seekforward",
+    (0x0C, 0xB4): "seekbackward",
+}
+
 
 _unknown_keys = set()
 
@@ -269,8 +289,11 @@ def parse_messages(buffer):
       when a sender connects. A board that never says it draws in 16, which
       is what every panel did before it could say anything else.
 
+    A b"K" on the Consumer page whose usage is in MEDIA_ACTIONS is a
+    transport button rather than a key, and comes out as ("media", action).
+
     Returns ("touch", contacts), ("awake", bool), ("home", True), ("key",
-    name), ("rate", hertz) and ("depth", bits) pairs, and
+    name), ("media", action), ("rate", hertz) and ("depth", bits) pairs, and
     whatever tail is still short of a whole message so the caller can hand it
     back next time.
     """
@@ -308,6 +331,11 @@ def parse_messages(buffer):
             # knows what the table holds -- and says so once, because a button
             # that does nothing is exactly the silence this project keeps
             # having to break.
+            action = MEDIA_ACTIONS.get((page, usage))
+            if action is not None:
+                messages.append(("media", action))
+                at += 5
+                continue
             name = BROWSER_KEYS.get((page, usage))
             if name is None:
                 if (page, usage) not in _unknown_keys:

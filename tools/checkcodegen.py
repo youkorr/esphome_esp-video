@@ -59,7 +59,7 @@ THEIRS = {"GUITION_ PORTAL.yaml"}
 # main.cpp. Deliberately not everything -- a generated main.cpp is thousands
 # of lines and the interesting ones are the joins.
 INTERESTING = re.compile(
-    r"->set_parent\(|->set_\w*(speaker|sink|id|slot)\(|set_key_sink|set_home_sink|set_sample_rate|set_color_depth|set_decode_buffers|set_canvas|set_canvas_rotation|set_lvgl_pause|canvas_set_draw_buf", re.I
+    r"->set_parent\(|->set_\w*(speaker|sink|id|slot)\(|set_key_sink|set_home_sink|add_on_key_trigger|set_inquiry_seconds|set_speaker_follows|set_usage|set_sample_rate|set_color_depth|set_decode_buffers|set_canvas|set_canvas_rotation|set_lvgl_pause|canvas_set_draw_buf", re.I
 )
 
 
@@ -91,7 +91,7 @@ def check(path, show, sdkconfig=None):
         )
         staged = GIT_SOURCE.sub(
             lambda m: f"{m.group(1)}- source:\n{m.group(1)}    type: local\n"
-                      f"{m.group(1)}    path: {ROOT / 'components'}\n",
+                      f"{m.group(1)}    path: {ROOT / (m.group(3) or 'components').strip()}\n",
             text,
         )
         target = tmp / pathlib.Path(path).name

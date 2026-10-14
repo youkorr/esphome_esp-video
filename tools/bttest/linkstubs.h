@@ -25,13 +25,15 @@ static std::vector<std::string> g_calls;
 /// knows a page HAPPENED cannot tell four devices being asked at once from
 /// each taking its turn, which is the whole of what the reconnection does.
 static std::vector<std::string> g_hid_connects;
+/// And every address a SPEAKER was asked for, for the same reason.
+static std::vector<std::string> g_a2dp_connects;
 static esp_err_t g_discovery_result = ESP_OK;
 /// How many devices the stack's own NVS claims to remember.
 static int g_bonded = 0;
 
 static void note_call(const char *what) { g_calls.push_back(what); }
 
-static bool called(const char *what) {
+[[maybe_unused]] static bool called(const char *what) {
   for (const std::string &one : g_calls)
     if (one == what)
       return true;
@@ -39,7 +41,7 @@ static bool called(const char *what) {
 }
 
 /// Did `first` happen before `second`? Both must have happened.
-static bool called_before(const char *first, const char *second) {
+[[maybe_unused]] static bool called_before(const char *first, const char *second) {
   size_t a = g_calls.size();
   size_t b = g_calls.size();
   for (size_t i = 0; i < g_calls.size(); i++) {
@@ -154,7 +156,14 @@ esp_err_t esp_a2d_register_callback(esp_a2d_cb_t) { return ESP_OK; }
 esp_err_t esp_a2d_source_register_data_callback(esp_a2d_source_data_cb_t) { return ESP_OK; }
 esp_err_t esp_a2d_source_init(void) { return ESP_OK; }
 esp_err_t esp_a2d_source_deinit(void) { return ESP_OK; }
-esp_err_t esp_a2d_source_connect(esp_bd_addr_t) { note_call("esp_a2d_source_connect"); return ESP_OK; }
+esp_err_t esp_a2d_source_connect(esp_bd_addr_t addr) {
+  note_call("esp_a2d_source_connect");
+  char text[18];
+  snprintf(text, sizeof(text), "%02X:%02X:%02X:%02X:%02X:%02X", addr[0], addr[1], addr[2],
+           addr[3], addr[4], addr[5]);
+  g_a2dp_connects.push_back(text);
+  return ESP_OK;
+}
 esp_err_t esp_a2d_source_disconnect(esp_bd_addr_t) { note_call("esp_a2d_source_disconnect"); return ESP_OK; }
 /// Which media controls were asked for, so a test can see a stream being
 /// started and suspended rather than guessing from a flag.

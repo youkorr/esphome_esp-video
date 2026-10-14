@@ -270,11 +270,7 @@ static void start_avrcp() {
 // ---------------------------------------------------------------------------
 
 void UsbBluetooth::on_media_key(uint8_t code, bool pressed) {
-  const uint8_t next = (uint8_t) ((this->key_head_ + 1) % MEDIA_KEYS);
-  if (next == this->key_tail_)
-    this->key_tail_ = (uint8_t) ((this->key_tail_ + 1) % MEDIA_KEYS);
-  this->keys_[this->key_head_] = MediaKey{code, pressed};
-  this->key_head_ = next;
+  this->keys_.push(MediaKey{code, pressed});
 }
 
 void UsbBluetooth::on_media_volume(float fraction) {
@@ -284,9 +280,8 @@ void UsbBluetooth::on_media_volume(float fraction) {
 
 void UsbBluetooth::drain_media_() {
 #if defined(CONFIG_BT_BLUEDROID_ENABLED) && defined(CONFIG_BT_A2DP_ENABLE)
-  while (this->key_tail_ != this->key_head_) {
-    const MediaKey key = this->keys_[this->key_tail_];
-    this->key_tail_ = (uint8_t) ((this->key_tail_ + 1) % MEDIA_KEYS);
+  MediaKey key{};
+  while (this->keys_.pop(key)) {
     const char *name = key_name(key.code);
     ESP_LOGI(TAG, "button %02x%s%s %s", key.code, name[0] != '\0' ? " " : "", name,
              key.pressed ? "pressed" : "released");
@@ -546,6 +541,14 @@ void UsbBluetooth::on_a2dp_open(const uint8_t *addr) {
   ESP_LOGI(TAG, "speaker %02X:%02X:%02X:%02X:%02X:%02X is connected", addr[0], addr[1], addr[2], addr[3],
            addr[4], addr[5]);
   this->a2dp_open_ = true;
+  /* A remembered speaker other than the one last playing answered: the sound
+     has followed it. Said, because a panel whose sound moved to the headset
+     on its own should say why rather than leave somebody looking at the car. */
+  if (this->remembered_.has_sink && memcmp(addr, this->remembered_.sink, 6) != 0 &&
+      this->sink_slot_(addr) >= 0) {
+    ESP_LOGI(TAG, "  the speaker last playing is away, so the sound follows this one");
+  }
+  this->sink_turn_ = 0;
   /* START THE QUIET CLOCK HERE, or the first thing this does to a speaker is
    * hang up on it. `pcm_fed_at_` begins at zero and millis() is already two
    * minutes in by the time anybody pairs, so "nothing fed for ten seconds"
@@ -617,6 +620,8 @@ void UsbBluetooth::on_a2dp_closed(bool abnormal, const uint8_t *addr) {
   if (was_connected) {
     this->reconnect_backoff_ms_ = 2000;
     this->reconnect_due_ms_ = millis() + 2000;
+    // The one just lost is the first asked for again.
+    this->sink_turn_ = 0;
   }
 }
 
@@ -712,9 +717,30 @@ void UsbBluetooth::a2dp_reconnect_() {
   for (uint8_t b : this->sink_want_)
     if (b != 0)
       return;
+  /* THE SOUND FOLLOWS WHICHEVER SPEAKER IS SWITCHED ON. A panel may remember
+   * a car receiver, a headset and a kitchen speaker, and paging only the one
+   * last playing meant that with the car gone, the headset switched on beside
+   * the panel was never asked -- the sound went nowhere until somebody pressed
+   * Use on its row. So each page goes to the next remembered speaker in turn,
+   * the one last playing first, and whichever answers becomes the speaker.
+   *
+   * ONE page per tick, on the same backoff, so following costs no more radio
+   * time than paging one speaker did: an inquiry is what takes the Wi-Fi
+   * down, and a page by address is the gentle thing this already did. */
+  const uint8_t *target = this->remembered_.sink;
+  const uint8_t count = this->remembered_sinks_.count;
+  if (this->speaker_follows_ && count > 1) {
+    const int8_t first = this->sink_slot_(this->remembered_.sink);
+    const uint8_t at = (uint8_t) (((first < 0 ? 0 : first) + this->sink_turn_) % count);
+    target = this->remembered_sinks_.addr[at];
+    this->sink_turn_ = (uint8_t) ((this->sink_turn_ + 1) % count);
+  }
   this->on_a2dp_busy();
-  ESP_LOGD(TAG, "asking the speaker to connect (no scan, by address)");
-  esp_a2d_source_connect(this->remembered_.sink);
+  ESP_LOGD(TAG, "asking the speaker %02X:%02X:%02X:%02X:%02X:%02X to connect (no scan, by address)",
+           target[0], target[1], target[2], target[3], target[4], target[5]);
+  esp_bd_addr_t page;
+  memcpy(page, target, 6);
+  esp_a2d_source_connect(page);
 #endif
 }
 
