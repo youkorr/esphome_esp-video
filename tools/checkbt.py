@@ -178,6 +178,10 @@ def run_tests() -> bool:
             [
                 "g++",
                 "-std=gnu++17",
+                # queues.cpp races a producer thread against the loop's drain,
+                # because a race is the one fault stepping through code cannot
+                # show.
+                "-pthread",
                 "-Wall",
                 "-Wextra",
                 "-Wno-unused-parameter",

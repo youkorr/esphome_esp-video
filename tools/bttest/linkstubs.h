@@ -31,7 +31,7 @@ static int g_bonded = 0;
 
 static void note_call(const char *what) { g_calls.push_back(what); }
 
-static bool called(const char *what) {
+[[maybe_unused]] static bool called(const char *what) {
   for (const std::string &one : g_calls)
     if (one == what)
       return true;
@@ -39,7 +39,7 @@ static bool called(const char *what) {
 }
 
 /// Did `first` happen before `second`? Both must have happened.
-static bool called_before(const char *first, const char *second) {
+[[maybe_unused]] static bool called_before(const char *first, const char *second) {
   size_t a = g_calls.size();
   size_t b = g_calls.size();
   for (size_t i = 0; i < g_calls.size(); i++) {

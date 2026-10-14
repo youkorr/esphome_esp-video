@@ -352,7 +352,7 @@ void PortallBT::note_keyboard_keys_(const uint8_t *now) {
 }
 
 void PortallBT::feed_hid_descriptor(const uint8_t *desc, uint16_t len, uint16_t vendor,
-                                    uint16_t product) {
+                                    uint16_t product, uint16_t declared) {
   /* Every arrival resets what is REMEMBERED about the device's buttons -- a
      controller that hung up and came back is not still holding whatever it
      was holding, and a stale hat position would swallow the first press. */
@@ -379,13 +379,28 @@ void PortallBT::feed_hid_descriptor(const uint8_t *desc, uint16_t len, uint16_t 
   if (!map->parse(desc, len)) {
     ESP_LOGW(TAG,
              "input device %04x:%04x sent a %u-byte report descriptor this "
-             "could not read, so its buttons reach on_hid_report and go no "
+             "could not read%s, so its buttons reach on_hid_report and go no "
              "further",
-             (unsigned) vendor, (unsigned) product, (unsigned) len);
+             (unsigned) vendor, (unsigned) product,
+             (unsigned) (declared > len ? declared : len),
+             declared > len ? " -- it was longer than this keeps" : "");
     this->say_descriptor_(desc, len);
     return;
   }
-  if (map->truncated()) {
+  if (declared > len) {
+    /* CUT BEFORE IT ARRIVED. The staging buffer between Bluedroid's task and
+       this one holds MAX_DESC bytes, and a longer descriptor used to be cut
+       there and then reported here as though the device had sent exactly
+       that much -- "described itself: 512 bytes" about a device that sent
+       700, with every report described past the cut silently undecoded. Both
+       numbers, for the reason the field cap below gives them both. */
+    ESP_LOGW(TAG,
+             "input device %04x:%04x described itself in %u bytes, and only the "
+             "first %u were kept -- %u fields read from those, and any buttons "
+             "described after them are not decoded",
+             (unsigned) vendor, (unsigned) product, (unsigned) declared, (unsigned) len,
+             (unsigned) map->field_count());
+  } else if (map->truncated()) {
     /* Named with BOTH numbers, because a limit that only says it was reached
        leaves the next person guessing at what to raise it to -- which is
        exactly what the line this replaces did, at the cost of a round. */

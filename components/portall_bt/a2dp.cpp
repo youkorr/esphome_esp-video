@@ -270,11 +270,7 @@ static void start_avrcp() {
 // ---------------------------------------------------------------------------
 
 void PortallBT::on_media_key(uint8_t code, bool pressed) {
-  const uint8_t next = (uint8_t) ((this->key_head_ + 1) % MEDIA_KEYS);
-  if (next == this->key_tail_)
-    this->key_tail_ = (uint8_t) ((this->key_tail_ + 1) % MEDIA_KEYS);
-  this->keys_[this->key_head_] = MediaKey{code, pressed};
-  this->key_head_ = next;
+  this->keys_.push(MediaKey{code, pressed});
 }
 
 void PortallBT::on_media_volume(float fraction) {
@@ -284,9 +280,8 @@ void PortallBT::on_media_volume(float fraction) {
 
 void PortallBT::drain_media_() {
 #if defined(CONFIG_BT_BLUEDROID_ENABLED) && defined(CONFIG_BT_A2DP_ENABLE)
-  while (this->key_tail_ != this->key_head_) {
-    const MediaKey key = this->keys_[this->key_tail_];
-    this->key_tail_ = (uint8_t) ((this->key_tail_ + 1) % MEDIA_KEYS);
+  MediaKey key{};
+  while (this->keys_.pop(key)) {
     const char *name = key_name(key.code);
     ESP_LOGI(TAG, "button %02x%s%s %s", key.code, name[0] != '\0' ? " " : "", name,
              key.pressed ? "pressed" : "released");

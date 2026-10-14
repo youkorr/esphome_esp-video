@@ -232,6 +232,29 @@ void Portall::send_key(uint16_t usage_page, uint16_t usage) {
   }
 }
 
+bool Portall::note_press_() {
+  /* Whether the panel was dark is asked BEFORE on_key runs, because on_key is
+     where a YAML lights the screen -- and lighting it calls portall.wake, which
+     would otherwise make the very key that woke the panel look like one
+     pressed on a lit screen, and send it on to a page that was not yet drawn. */
+  const bool dark = this->asleep_;
+  for (auto *trigger : this->key_triggers_)
+    trigger->trigger();
+  if (dark)
+    ESP_LOGD(TAG, "A key on a dark panel: it wakes the panel and goes no further");
+  return !dark;
+}
+
+void Portall::press_key(uint16_t usage_page, uint16_t usage) {
+  if (this->note_press_())
+    this->send_key(usage_page, usage);
+}
+
+void Portall::press_home() {
+  if (this->note_press_())
+    this->ask_home();
+}
+
 void Portall::set_awake(bool awake) {
   if (this->asleep_ != !awake) {
     this->asleep_ = !awake;

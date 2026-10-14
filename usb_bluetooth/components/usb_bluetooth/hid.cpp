@@ -555,19 +555,14 @@ void UsbBluetooth::on_hid_closed(int handle) {
 }
 
 void UsbBluetooth::on_hid_report(const uint8_t *data, uint16_t len, uint8_t handle) {
-  const uint8_t next = (uint8_t) ((this->report_head_ + 1) % REPORTS);
-  if (next == this->report_tail_) {
-    // Full. Drop the OLDEST -- see the queue's own comment in the header: the
-    // last report of a press is the release, and a release that never arrives
-    // leaves a button held down for ever.
-    this->report_tail_ = (uint8_t) ((this->report_tail_ + 1) % REPORTS);
-    this->reports_lost_++;
-  }
-  HidReport &slot = this->reports_[this->report_head_];
-  slot.handle = handle;
-  slot.len = (uint8_t) (len > sizeof(slot.data) ? sizeof(slot.data) : len);
-  memcpy(slot.data, data, slot.len);
-  this->report_head_ = next;
+  // When full this loses the OLDEST -- see NewestRing in the header: the last
+  // report of a press is the release, and a release that never arrives leaves
+  // a button held down for ever.
+  HidReport report{};
+  report.handle = handle;
+  report.len = (uint8_t) (len > sizeof(report.data) ? sizeof(report.data) : len);
+  memcpy(report.data, data, report.len);
+  this->reports_.push(report);
 }
 
 void UsbBluetooth::on_hid_descriptor(const uint8_t *desc, uint16_t len, uint16_t vendor,
@@ -582,6 +577,7 @@ void UsbBluetooth::on_hid_descriptor(const uint8_t *desc, uint16_t len, uint16_t
     return;  // Cannot happen with one descriptor per connected device.
   PendingDesc &p = this->pending_desc_[this->pending_desc_head_];
   p.len = len > MAX_DESC ? MAX_DESC : len;
+  p.declared = len;
   memcpy(p.bytes, desc, p.len);
   p.vendor = vendor;
   p.product = product;
@@ -595,12 +591,12 @@ void UsbBluetooth::drain_reports_() {
     const int8_t slot = this->route_(p.handle);
     if (slot >= 0) {
       this->cur_input_ = (uint8_t) slot;
-      this->feed_hid_descriptor(p.bytes, p.len, p.vendor, p.product);
+      this->feed_hid_descriptor(p.bytes, p.len, p.vendor, p.product, p.declared);
     }
     this->pending_desc_tail_ = (uint8_t) ((this->pending_desc_tail_ + 1) % MAX_INPUTS);
   }
-  while (this->report_tail_ != this->report_head_) {
-    const HidReport &slot = this->reports_[this->report_tail_];
+  HidReport slot{};
+  while (this->reports_.pop(slot)) {
     /* WHICH DEVICE SENT THIS, before a byte of it is decoded. Everything
        keys.cpp reads -- the map, the hat, the buttons, the six keycodes still
        held -- belongs to one device, and reading a second controller's report
@@ -668,12 +664,11 @@ void UsbBluetooth::drain_reports_() {
        not pretend to be. */
     if (routed >= 0)
       this->feed_hid_keys(slot.data, slot.len);
-    this->report_tail_ = (uint8_t) ((this->report_tail_ + 1) % REPORTS);
   }
-  if (this->reports_lost_ != 0) {
+  const uint32_t lost = this->reports_.take_lost();
+  if (lost != 0) {
     ESP_LOGW(TAG, "%u input report(s) dropped -- the loop is not keeping up with the device",
-             (unsigned) this->reports_lost_);
-    this->reports_lost_ = 0;
+             (unsigned) lost);
   }
 }
 
@@ -1257,22 +1252,27 @@ void UsbBluetooth::note_remote_name(const uint8_t *addr, const char *name) {
 #ifdef CONFIG_BT_BLUEDROID_ENABLED
   if (addr == nullptr || name == nullptr)
     return;
-  // Which slot this belongs to is decided by the ADDRESS, not by which event
-  // carried it: a pairing and a name request can both arrive for either role,
-  // and a device this board does not remember has no slot to go in.
-  char *slot = nullptr;
+  // Which places this belongs in is decided by the ADDRESS, not by which
+  // event carried it: a pairing and a name request can both arrive for either
+  // role, and a device this board does not remember has nowhere to go.
+  //
+  // EVERY place the address is, not the first one found. The speaker playing
+  // is in two: `sink_name_`, which its own entity reads, and its row in the
+  // list of remembered speakers. Writing only the first left that row nameless
+  // the moment another speaker was chosen -- a list on a screen with one bare
+  // address in it, the one that had just been playing.
+  char *places[3] = {nullptr, nullptr, nullptr};
+  uint8_t count = 0;
   const int8_t input = this->slot_for_addr_(addr);
   if (input >= 0)
-    slot = this->inputs_[input].name;
-  else if (this->remembered_.has_sink &&
-           memcmp(addr, this->remembered_.sink, 6) == 0)
-    slot = this->sink_name_;
-  // A remembered speaker keeps its own name too, for its row on a screen.
+    places[count++] = this->inputs_[input].name;
+  if (this->remembered_.has_sink && memcmp(addr, this->remembered_.sink, 6) == 0)
+    places[count++] = this->sink_name_;
   const int8_t sink = this->sink_slot_(addr);
-  if (slot == nullptr && sink < 0)
+  if (sink >= 0)
+    places[count++] = this->sink_names_[sink];
+  if (count == 0)
     return;
-  if (slot == nullptr)
-    slot = this->sink_names_[sink];
 
   // The printable run, and no further. A device does not have to terminate a
   // fixed-width field -- a TP-Link dongle padded its own with something else
@@ -1285,8 +1285,10 @@ void UsbBluetooth::note_remote_name(const uint8_t *addr, const char *name) {
       break;
     take++;
   }
-  memcpy(slot, name, take);
-  slot[take] = '\0';
+  for (uint8_t i = 0; i < count; i++) {
+    memcpy(places[i], name, take);
+    places[i][take] = '\0';
+  }
 #else
   (void) addr;
   (void) name;

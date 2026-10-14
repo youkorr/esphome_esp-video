@@ -56,8 +56,12 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 # rejected before the rest of the file is looked at, which reads like a fault
 # in the configuration and is not one.
 FAKE_KEY = "aGVsbG9oZWxsb2hlbGxvaGVsbG9oZWxsb2hlbGxvMTI="
+# A `path:` under the git source is where its components live inside the
+# repository (usb_bluetooth/ keeps its own under usb_bluetooth/components). It
+# is captured so the local copy points at the same folder -- left behind, it
+# sat beside the local path as a second `path:` and the file read as broken.
 GIT_SOURCE = re.compile(
-    r"( *)- source:\n *type: git\n *url: [^\n]*\n( *ref: [^\n]*\n)?", re.M
+    r"( *)- source:\n *type: git\n *url: [^\n]*\n( *ref: [^\n]*\n)?(?: *path: ([^\n]*)\n)?", re.M
 )
 
 
@@ -114,7 +118,7 @@ def check(path, esphome):
         )
         staged = GIT_SOURCE.sub(
             lambda m: f"{m.group(1)}- source:\n{m.group(1)}    type: local\n"
-                      f"{m.group(1)}    path: {ROOT / 'components'}\n",
+                      f"{m.group(1)}    path: {ROOT / (m.group(3) or 'components').strip()}\n",
             text,
         )
         target = tmp / pathlib.Path(path).name

@@ -281,6 +281,28 @@ HID_REPORT_TRIGGER = automation.Trigger.template(cg.std_vector.template(cg.uint8
 MEDIA_KEY_TRIGGER = automation.Trigger.template(cg.uint8, cg.bool_)
 MEDIA_VOLUME_TRIGGER = automation.Trigger.template(cg.float_)
 
+def _default_inquiry(config):
+    """Ten seconds of listening at boot on a probe, none on a panel.
+
+    The boot inquiry was written for the probe firmware, where hearing
+    something IS the proof that the radio works. It stayed on by default when
+    the host stack arrived, so every panel with a speaker or a gamepad ran one
+    on every boot -- and an inquiry sweeps the whole 2.4 GHz band and takes the
+    C6's Wi-Fi down for as long as it runs, measured twice on this hardware. It
+    also holds Bluedroid back: the stack is started after it, so a remembered
+    speaker was asked for ten seconds late, on every boot, for a list of
+    devices nobody reads. And it contradicted this component's own boot log,
+    which says nothing here scans except a pairing.
+
+    So with a host stack the default is 0. A configuration that names a
+    duration keeps it.
+    """
+    if CONF_INQUIRY_SECONDS not in config:
+        seconds = 0 if _wants(config, CONF_HOST_STACK) else 10
+        config[CONF_INQUIRY_SECONDS] = cv.TimePeriod(seconds=seconds)
+    return config
+
+
 def _validate_hid(config):
     """A profile needs a host, and the host is not on by default.
 
@@ -623,10 +645,11 @@ CONFIG_SCHEMA = cv.All(
             cv.Optional(CONF_TRANSPORT, default="cherryusb"): _transport,
             # How long to listen for Bluetooth Classic devices once the dongle
             # has answered. 0 turns it off. The specification's own ceiling is
-            # 61 seconds and the C++ clamps to it.
-            cv.Optional(
-                CONF_INQUIRY_SECONDS, default="10s"
-            ): cv.All(cv.positive_time_period_seconds, cv.Range(max=cv.TimePeriod(seconds=61))),
+            # 61 seconds and the C++ clamps to it. No default here: it depends
+            # on host_stack, and _default_inquiry says why.
+            cv.Optional(CONF_INQUIRY_SECONDS): cv.All(
+                cv.positive_time_period_seconds, cv.Range(max=cv.TimePeriod(seconds=61))
+            ),
             cv.Optional(CONF_HOST_STACK, default="none"): cv.enum(HOST_STACKS, lower=True),
             # A gamepad, a keyboard, a mouse or a remote -- one feature, not
             # four. See hid.cpp; they differ only in which buttons get pressed.
@@ -696,6 +719,7 @@ CONFIG_SCHEMA = cv.All(
     ).extend(cv.COMPONENT_SCHEMA),
     esp32.only_on_variant(supported=[esp32.VARIANT_ESP32P4]),
     _validate_hid,
+    _default_inquiry,
 )
 
 
@@ -815,11 +839,15 @@ async def to_code(config):
         # without including its header anywhere. A board carrying only
         # portall_bt never generates this line and never needs portall to
         # exist at all.
+        #
+        # press_key rather than send_key: these are keys somebody pressed, so
+        # portall's on_key: runs for them and a dark panel is woken rather
+        # than acted on -- the touch's rules, given to the remote.
         cg.add(
             var.set_key_sink(
                 cg.RawExpression(
                     f"[](uint16_t page, uint16_t usage) {{ "
-                    f"{panel}->send_key(page, usage); }}"
+                    f"{panel}->press_key(page, usage); }}"
                 )
             )
         )
@@ -829,7 +857,7 @@ async def to_code(config):
         # option was written to remove.
         cg.add(
             var.set_home_sink(
-                cg.RawExpression(f"[]() {{ {panel}->ask_home(); }}")
+                cg.RawExpression(f"[]() {{ {panel}->press_home(); }}")
             )
         )
     for conf in config.get(CONF_ON_HID_REPORT, []):

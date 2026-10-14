@@ -165,6 +165,23 @@ HID_REPORT_TRIGGER = automation.Trigger.template(cg.std_vector.template(cg.uint8
 MEDIA_KEY_TRIGGER = automation.Trigger.template(cg.uint8, cg.bool_)
 MEDIA_VOLUME_TRIGGER = automation.Trigger.template(cg.float_)
 
+def _default_inquiry(config):
+    """Ten seconds of listening at boot on a probe, none with a host stack.
+
+    The boot inquiry was written for a probe, where hearing something IS the
+    proof that the radio works. It stayed on by default when the host stack
+    arrived, so every board with a speaker or a gamepad ran one on every boot
+    -- and an inquiry sweeps the whole 2.4 GHz band, which on an ESP32-P4 takes
+    the C6's Wi-Fi down for as long as it runs. It also held Bluedroid back
+    ten seconds, so a remembered speaker came back late on every boot. A
+    configuration that names a duration keeps it.
+    """
+    if CONF_INQUIRY_SECONDS not in config:
+        seconds = 0 if _wants(config, CONF_HOST_STACK) else 10
+        config[CONF_INQUIRY_SECONDS] = cv.TimePeriod(seconds=seconds)
+    return config
+
+
 def _validate_hid(config):
     """A profile needs a host, and the host is not on by default.
 
@@ -449,10 +466,11 @@ CONFIG_SCHEMA = cv.All(
             cv.Optional(CONF_TRANSPORT, default="cherryusb"): _transport,
             # How long to listen for Bluetooth Classic devices once the dongle
             # has answered. 0 turns it off. The specification's own ceiling is
-            # 61 seconds and the C++ clamps to it.
-            cv.Optional(
-                CONF_INQUIRY_SECONDS, default="10s"
-            ): cv.All(cv.positive_time_period_seconds, cv.Range(max=cv.TimePeriod(seconds=61))),
+            # 61 seconds and the C++ clamps to it. No default here: it depends
+            # on host_stack, and _default_inquiry says why.
+            cv.Optional(CONF_INQUIRY_SECONDS): cv.All(
+                cv.positive_time_period_seconds, cv.Range(max=cv.TimePeriod(seconds=61))
+            ),
             cv.Optional(CONF_HOST_STACK, default="none"): cv.enum(HOST_STACKS, lower=True),
             # A gamepad, a keyboard, a mouse or a remote -- one feature, not
             # four. See hid.cpp; they differ only in which buttons get pressed.
@@ -496,6 +514,7 @@ CONFIG_SCHEMA = cv.All(
     ).extend(cv.COMPONENT_SCHEMA),
     esp32.only_on_variant(supported=[esp32.VARIANT_ESP32P4]),
     _validate_hid,
+    _default_inquiry,
 )
 
 

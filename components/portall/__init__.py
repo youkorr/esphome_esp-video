@@ -260,6 +260,7 @@ CONF_SAMPLE_RATE = "sample_rate"
 SAMPLE_RATES = (16000, 32000, 44100, 48000)
 CONF_ON_AUDIO_START = "on_audio_start"
 CONF_ON_AUDIO_STOP = "on_audio_stop"
+CONF_ON_KEY = "on_key"
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -678,6 +679,14 @@ CONFIG_SCHEMA = cv.All(
             cv.Optional(CONF_ON_AUDIO_STOP): automation.validate_automation(
                 {cv.GenerateID(CONF_TRIGGER_ID): cv.declare_id(automation.Trigger.template())}
             ),
+            # A key somebody pressed: a Bluetooth remote, a gamepad or a
+            # keyboard through portall_bt's keys:, or one of remote:'s buttons
+            # in Home Assistant. What on_touch is to a finger -- light the
+            # screen, restart its timeout -- and like the tap that wakes a
+            # panel, a key on a dark one wakes it and goes no further.
+            cv.Optional(CONF_ON_KEY): automation.validate_automation(
+                {cv.GenerateID(CONF_TRIGGER_ID): cv.declare_id(automation.Trigger.template())}
+            ),
             # Must match what the PC application is told to send: the header of
             # every frame carries the size, and a frame whose size does not
             # match is dropped rather than drawn at the wrong shape.
@@ -986,6 +995,13 @@ async def to_code(config):
             trigger = cg.new_Pvariable(conf[CONF_TRIGGER_ID])
             cg.add(setter(trigger))
             await automation.build_automation(trigger, [], conf)
+
+    # Added rather than set, unlike the two above: a list of automations is
+    # several triggers, and setting a single pointer keeps only the last.
+    for conf in config.get(CONF_ON_KEY, []):
+        trigger = cg.new_Pvariable(conf[CONF_TRIGGER_ID])
+        cg.add(var.add_on_key_trigger(trigger))
+        await automation.build_automation(trigger, [], conf)
 
     if touchscreen_id := config.get(CONF_TOUCHSCREEN_ID):
         touch = await cg.get_variable(touchscreen_id)

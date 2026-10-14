@@ -147,6 +147,95 @@ struct MediaKey {
   bool pressed;
 };
 
+/// A queue from ONE producer task to ONE consumer that, when it is full, loses
+/// the OLDEST entry -- without the producer ever writing the consumer's
+/// position.
+///
+/// Dropping the oldest is the right loss for input: a button's LAST report is
+/// its release, and a release that never arrives leaves a key held down for
+/// ever. The first version did it by moving the tail from the producer, and
+/// that is a race in the one place it cannot be afforded: the tail belongs to
+/// the loop, which may be half way through copying out the very slot the
+/// producer has just decided to write over -- a report with one device's first
+/// bytes and another moment's last -- and which then advances a tail the
+/// producer has already moved, skipping one more. It happens only when the
+/// loop has fallen 32 reports behind, which is exactly when nobody is looking.
+///
+/// So each slot carries the sequence number of what is in it, odd while it is
+/// being written and even when it is whole -- a sequence lock -- and the
+/// producer only ever writes its own count and its own slot. The consumer
+/// keeps its position to itself, notices for itself when it has been lapped,
+/// and throws away a slot that changed under it rather than delivering it.
+/// Wait-free on both sides: no lock, so no priority inversion between
+/// Bluedroid's task and the loop on one core.
+template<typename T, uint32_t N> class NewestRing {
+ public:
+  /// Producer side only.
+  void push(const T &value) {
+    const uint32_t n = this->written_.load(std::memory_order_relaxed);
+    Slot &s = this->slots_[n % N];
+    s.seq.store(2 * n + 1, std::memory_order_relaxed);
+    std::atomic_thread_fence(std::memory_order_release);
+    s.value = value;
+    s.seq.store(2 * n + 2, std::memory_order_release);
+    this->written_.store(n + 1, std::memory_order_release);
+  }
+
+  /// Consumer side only. False when there is nothing to take.
+  bool pop(T &out) {
+    for (;;) {
+      const uint32_t written = this->written_.load(std::memory_order_acquire);
+      if (this->read_ == written)
+        return false;
+      if (written - this->read_ > N) {
+        // Lapped: the slots this would have read next have been written over.
+        this->lost_ += written - this->read_ - N;
+        this->read_ = written - N;
+      }
+      Slot &s = this->slots_[this->read_ % N];
+      const uint32_t whole = 2 * this->read_ + 2;
+      if (s.seq.load(std::memory_order_acquire) == whole) {
+        out = s.value;
+        std::atomic_thread_fence(std::memory_order_acquire);
+        if (s.seq.load(std::memory_order_relaxed) == whole) {
+          this->read_++;
+          return true;
+        }
+      }
+      // The producer came round and began writing over this slot while it was
+      // being read. Its newer content is further on and will be read there.
+      this->lost_++;
+      this->read_++;
+    }
+  }
+
+  /// Consumer side only: how many were lost since the last time it was asked.
+  uint32_t take_lost() {
+    const uint32_t lost = this->lost_;
+    this->lost_ = 0;
+    return lost;
+  }
+
+  /// Consumer side only.
+  bool empty() const { return this->read_ == this->written_.load(std::memory_order_acquire); }
+
+  /// Consumer side only, with the producer quiet: forget everything queued.
+  void clear() {
+    this->read_ = this->written_.load(std::memory_order_acquire);
+    this->lost_ = 0;
+  }
+
+ private:
+  struct Slot {
+    std::atomic<uint32_t> seq{0};
+    T value{};
+  };
+  Slot slots_[N];
+  std::atomic<uint32_t> written_{0};
+  uint32_t read_{0};
+  uint32_t lost_{0};
+};
+
 /// Which remote device plays which part, remembered across restarts.
 ///
 /// This is NOT the pairing. Bluedroid keeps the link keys itself, in NVS, and
@@ -416,8 +505,10 @@ class UsbBluetooth : public Component {
       this->rtl_images_[this->rtl_image_count_++] = {rom_version, data, length};
   }
 
+  /// `declared` is how long the device said its descriptor was, when that is
+  /// more than `len` reached this far -- 0 means the two are the same.
   void feed_hid_descriptor(const uint8_t *desc, uint16_t len, uint16_t vendor,
-                           uint16_t product);
+                           uint16_t product, uint16_t declared = 0);
   /* One decoded field of one report, on its way to a key. Public for the same
      reason. */
   void feed_hid_usage(uint16_t page, uint16_t usage, int32_t value, int32_t logical_min,
@@ -732,6 +823,8 @@ class UsbBluetooth : public Component {
   struct PendingDesc {
     uint8_t bytes[MAX_DESC];
     uint16_t len;
+    /// What the device sent, which is more than `len` when it did not fit.
+    uint16_t declared;
     uint16_t vendor;
     uint16_t product;
     uint8_t handle;
@@ -921,26 +1014,19 @@ class UsbBluetooth : public Component {
   volatile uint8_t head_{0};
   volatile uint8_t tail_{0};
 
-  // Input reports, filled on Bluedroid's task and emptied by loop().
+  // Input reports and media buttons, filled on Bluedroid's task and emptied by
+  // loop().
   //
-  // THIS ONE DROPS THE OLDEST, which is the opposite of the queue above, and
-  // the reason is the opposite too. An enumeration's FIRST event is the one
+  // THESE DROP THE OLDEST, which is the opposite of the queue above, and the
+  // reason is the opposite too. An enumeration's FIRST event is the one
   // somebody is waiting to read about; a button's LAST event is the release,
   // and a release that never arrives leaves a key held down for ever. portall's
   // touch queue learned that at a cost of twenty seconds of apparent latency,
-  // and a finger and a thumb are the same problem.
-  // Buttons, filled on Bluedroid's task and emptied by loop(). Sixteen is
-  // generous: a thumb is not a thumbstick.
-  static constexpr uint8_t MEDIA_KEYS = 16;
-  MediaKey keys_[MEDIA_KEYS];
-  volatile uint8_t key_head_{0};
-  volatile uint8_t key_tail_{0};
-
-  static constexpr uint8_t REPORTS = 32;
-  HidReport reports_[REPORTS];
-  volatile uint8_t report_head_{0};
-  volatile uint8_t report_tail_{0};
-  uint32_t reports_lost_{0};
+  // and a finger and a thumb are the same problem. NewestRing says how without
+  // the producer touching the loop's position. Sixteen buttons is generous: a
+  // thumb is not a thumbstick.
+  NewestRing<MediaKey, 16> keys_;
+  NewestRing<HidReport, 32> reports_;
 };
 
 /* usb_bluetooth.pair and usb_bluetooth.forget.

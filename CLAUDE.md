@@ -12231,6 +12231,60 @@ waited N ms/s` beside the same page with `decode_buffers: 1` is the
 measurement. `codegen` at 2026.10.0-dev: `set_decode_buffers(2)`;
 `decode_buffers: 3` refused.
 
+## portall_bt read back: six quiet faults
+
+**Asked as *"verifie le code que tu a fait et voir si tu peut ameliore"*.**
+Read end to end rather than by symptom. Six faults, every one of them silent,
+each now with a check that fails against the code before it:
+
+- **Both queues from Bluedroid's task to the loop raced.** Full, they dropped
+  the OLDEST by moving the loop's own read position from the producer's side
+  -- while the loop might be copying out the very slot about to be written
+  over, and before it advanced a position the producer had already moved.
+  `NewestRing` (portall_bt.h) is a sequence lock per slot: the producer writes
+  only its own count and slot, the consumer notices for itself that it was
+  lapped and throws away a slot that changed under it. Wait-free, so no
+  priority inversion between Bluedroid's task and the loop on one core.
+  `tools/bttest/queues.cpp` races a real thread against the real
+  `on_hid_report()`/`drain_reports_()` and `on_media_key()`/`drain_media_()`:
+  against the old queues, torn reports, reports twice or backwards, and media
+  buttons backwards, every run; eight runs in eight clean after. It needs
+  `-pthread`, which `checkbt.py` passes now.
+- **The boot inquiry ran on every panel.** It was the probe's proof that the
+  radio works and stayed on by default when the host stack came: ten seconds
+  of a whole-band sweep at every boot, which takes the C6's Wi-Fi down, holds
+  Bluedroid back (it starts after) and contradicts the component's own boot
+  log. `_default_inquiry`: 0 with `host_stack: bluedroid`, 10 s without, a
+  value written in the YAML wins. `tab5-bt-probe.yaml` asks for its ten by
+  name. Read off the codegen: 0 for the three panels and the copy's example,
+  10 for the probe.
+- **A report descriptor over 512 bytes was cut and then misreported** --
+  "described itself: 512 bytes" about a device that sent 700. The staging
+  carries the length the device declared and the log names both.
+- **The speaker playing kept its name in one place**, so its row went nameless
+  as soon as another speaker was chosen. `note_remote_name` writes every place
+  the address is.
+- **A dongle plugged in after Bluedroid was up was probed and never used**,
+  with nothing said. It says now that the panel must restart; Bluedroid cannot
+  be handed a second controller while it runs.
+- **A remote on a dark panel acted on a page nobody could see, and never kept
+  the screen on.** `press_key()`/`press_home()` on portall give a pressed key
+  the touch's rules: `on_key:` runs first (light the screen, restart its
+  timeout, as `on_touch` does), and a key on a dark panel wakes it and goes no
+  further. Darkness is read BEFORE `on_key:` runs, because lighting the screen
+  calls `portall.wake` synchronously. portall_bt's `keys:` and `remote:`'s
+  Home Assistant buttons use it; the `portall.key`/`portall.home` actions a
+  YAML writes keep their old behaviour. `tools/checkkeywake.py` lifts the
+  three functions out of network.cpp; with the darkness read after the
+  trigger, two cases fail. `on_key:` is in `hassit-esp32p4.yaml` and
+  `guition-voice-bluetooth.yaml`, the two with a screen timeout.
+
+`checkyaml.py`/`checkcodegen.py` followed a git source's `path:` into a second
+`path:`, so `usb_bluetooth/example/tab5-lvgl-bluetooth.yaml` read as broken; the
+path is carried over now. Validated at ESPHome 2026.11.0-dev (the Guition
+files with the wake-word model given by its raw.githubusercontent.com address
+and a throwaway API key). **Not compiled by ESP-IDF, not flashed.**
+
 ## Repository conventions
 
 - Work on branch `claude/esphome-pr-outdated-mdq36w`, then merge into `main`

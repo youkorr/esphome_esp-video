@@ -134,6 +134,12 @@ portall_bt:
   #
   host_stack: bluedroid
 
+  # An inquiry at boot, which is what a probe is for: a device heard here is
+  # the radio proved. With host_stack: bluedroid the default is 0, because on
+  # a panel it takes the Wi-Fi down for ten seconds on every boot to print a
+  # list nobody reads, so a probe asks for it by name.
+  inquiry_seconds: 10s
+
   # A REALTEK DONGLE NEEDS ITS FIRMWARE, and nothing about the log says so
   # until it is too late: the ROM answers every HCI command, Bluedroid starts
   # completely, and then nothing reaches the air -- an inquiry that hears
