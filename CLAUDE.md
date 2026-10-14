@@ -1802,7 +1802,7 @@ the dashboard, where it is invisible while the keys go on working.
 ahead of the `pip install` as well as the `ADD`s, so a bump refetched
 everything — at the cost of the browser download on each update.
 `present_browser()` prints the Chromium version at startup and warns below 114,
-so this is never diagnosed by guesswork again. Currently **4.47.1**.
+so this is never diagnosed by guesswork again. Currently **4.48.0**.
 
 **CORRECTED in 4.29.5: the cost was every update, and a pin removes it.**
 Asked as *"verifie addon ... si il ya pas des elements qui freine la
@@ -12284,6 +12284,96 @@ each now with a check that fails against the code before it:
 path is carried over now. Validated at ESPHome 2026.11.0-dev (the Guition
 files with the wake-word model given by its raw.githubusercontent.com address
 and a throwaway API key). **Not compiled by ESP-IDF, not flashed.**
+
+## Transport buttons reach the page, the sound follows the speaker, the battery shows
+
+**Asked for as functions *"que personne n'a pense ... seulement ce que
+personne n'a pense"* -- our own code only.** Three were built; a fourth is
+proposed below and not built.
+
+**Play, pause, next and previous, from every remote, on whatever plays on
+the page.** Before this, a car's steering wheel and a headset's button
+(AVRCP) went to `on_media_key` and no further, a remote's media keys did not
+reach the board's decode at all (next paragraph), and the iPhone widget's
+Play/Pause was sent as the browser key `MediaPlayPause` -- which **Playwright
+refuses outright ("Unknown key")**, measured; this file had recorded that
+mapping as "worth attempting ... the cost of being wrong is a log line". It
+was the cost of the button.
+
+- **The board** (keys.cpp): AVRCP Play/Pause/Stop/Forward/Backward/FF/Rewind
+  become Consumer-page usages (0xB0, 0xB1, 0xB7, 0xB5, 0xB6, 0xB3, 0xB4, the
+  HID Usage Tables' own), and `CONSUMER_KEYS` is one table for every Consumer
+  button: the transport keys, Home, Back, and a television remote's Menu
+  Up/Down/Left/Right/Pick/Escape (0x42..0x45, 0x41, 0x46) as arrows. The
+  Consumer page never moves a tile, so "next track" is never bent into "next
+  tile" -- the invention this file was written to remove.
+- **The sender** (udisp_send.py `MEDIA_ACTIONS`, ha_send.py `MEDIA_CONTROL_JS`
+  and `act_on_media`): a b"K" on page 0x0C is ("media", action). An init
+  script wraps `MediaSession.prototype.setActionHandler` in every frame, so a
+  site's own play/pause/next handlers -- YouTube's, Spotify's, Jellyfin's --
+  are called the way a laptop's media keys call them; where a page registered
+  none, the `<video>`/`<audio>` element is paused or resumed (the one furthest
+  in), and next/previous are ten seconds. Play/pause asks every frame first,
+  because the player is usually in an iframe.
+- **HomeKit** sends `media playpause` etc.; `run.Remote.send` knows the kind.
+  **`portall.key:`** gains `play_pause`, `play`, `pause`, `stop`,
+  `next_track`, `previous_track` (codegen: `set_usage(12, 177)` for pause),
+  and **`remote: true`** an eighth button, "Remote play pause" -- not
+  "play/pause": ESPHome warns that `/` in an entity name becomes an error in
+  2027.7.0.
+- `tools/checkmedia.py`: the shipped script in the real browser with the
+  sender's BROWSER_ARGS, pages served over HTTP so the init script goes in as
+  the sender puts it -- a plain sound, a page with Media Session handlers, a
+  player in a cross-origin iframe, a page with nothing -- and **the shipped
+  ha_send.py against a fake panel sending a Consumer Play/Pause**, both
+  presses read off its own log. Two faults in the ruler first: http.server
+  answers no byte ranges, so a WAV it serves is not seekable (a data: URL is);
+  and the iframe's origin, 127.0.0.2, had no server bound to it.
+  `tools/bttest/media.cpp` drives the board: 16 of 18 cases fail against the
+  previous code, the two that pass being the "nothing happens" ones.
+
+**A remote's Consumer ARRAY was discarded, and that was a fault in its own
+right.** The decode dropped every array field outside the keyboard page, and
+a remote's Home, Back and Play are nearly always one Consumer array ("Usage
+Minimum 0, Usage Maximum 0x3FF, Input (Data,Array)"). Only the Shield worked,
+because it declares Home and Back one bit each. Arrays are now gathered like a
+keyboard's six keycodes and compared with the last report that CARRIED the
+array -- a gamepad report arriving between two of the remote's must not read
+as every media key let go. The fixture is `REMOTE_DESC` in descfixtures.h.
+
+**The sound follows whichever remembered speaker is switched on.** With
+several speakers remembered (car receiver, headset), only the one last playing
+was paged, so with the car gone the headset beside the panel was never asked.
+`a2dp_reconnect_` now takes the remembered speakers in turn, the one last
+playing first; whichever answers becomes the speaker (`remember_sink_` already
+did that). One page per tick on the same backoff, so it costs no more radio
+time. `speaker_follows: false` keeps the old behaviour, and running the test
+with it off is the reproduction: the headset is never asked and never
+connects. `tools/bttest/follow.cpp`; `linkstubs.h` now records each A2DP
+page's address (`g_a2dp_connects`). Its first failure was the ruler: the
+loop's end was computed from the clock it was moving.
+
+**A controller's or a remote's battery, from its own descriptor.** Battery
+Strength (0x06/0x20) or the Battery System page's state of charge
+(0x85/0x65, 0x66), scaled by the field's declared range and rounded to five,
+goes into the input text sensor's line -- `... connected, battery 80%` -- and
+a warning at 20%. Read whether or not `keys:` is set. **Not known: whether
+the Shield declares one.** Its descriptor has still never been seen, and
+Linux reads its battery through NVIDIA's own host-command reports, which is
+not a standard usage; a device without one simply shows no battery.
+`tools/bttest/battery.cpp`.
+
+**Proposed, not built: the gamepad as a pointer.** On a page with no arrow
+navigation at all, the right stick moving a pointer the sender draws into the
+picture and the A button clicking where it is -- every site driven from the
+sofa. Not built because it is a mouse emulated over a picture stream and
+worth a design of its own.
+
+`usb_bluetooth` has all three, and its `key:` sensor takes the transport names
+on the Consumer page (`key: play_pause` on an LVGL media page lights for a
+car's steering wheel); `tools/usbbttest/keysensor.cpp` checks it. Add-on
+4.48.0. **Not compiled by ESP-IDF, not flashed; the media keys are proved in
+a browser on a workstation, not on YouTube.**
 
 ## Repository conventions
 

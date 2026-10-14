@@ -74,13 +74,15 @@ ACTIONS = {
     # Kept although this widget never sends it: another HomeKit controller
     # may, and a television's Exit means the same thing as its Back here.
     "Exit": ("home", True),
-    # Worth attempting rather than leaving out: a panel showing a film is what
-    # these are for. The sender presses them through the browser's keyboard,
-    # which says so in one line if a name means nothing to it -- so the cost
-    # of being wrong here is a log line, not a silence.
-    "PlayPause": ("key", "MediaPlayPause"),
-    "NextTrack": ("key", "MediaTrackNext"),
-    "PreviousTrack": ("key", "MediaTrackPrevious"),
+    # A panel showing a film is what these are for. They went to the page as
+    # the browser keys MediaPlayPause and MediaTrackNext, which Playwright
+    # refuses outright ("Unknown key") -- so the widget's play/pause, the one
+    # button of it a film needs, did nothing on every panel and only said so
+    # in the sender's log. They are media actions now: the sender asks the
+    # page's own player, the way a laptop's media keys reach it.
+    "PlayPause": ("media", "playpause"),
+    "NextTrack": ("media", "nexttrack"),
+    "PreviousTrack": ("media", "previoustrack"),
 }
 
 # The first port this uses. Home Assistant's own HomeKit bridge defaults to

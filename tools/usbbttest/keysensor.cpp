@@ -84,7 +84,18 @@ int main() {
   esphome::g_now_ms += 200;
   home->loop();
   bt->feed_avrc_key(ESP_AVRC_PT_CMD_PLAY);
-  ok("PLAY is no key at all", !home->state && !up->state && !down->state);
+  ok("PLAY is no arrow and no home", !home->state && !up->state && !down->state);
+
+  // A play button on an LVGL media page: key: play, on HID's Consumer page,
+  // lit by a car's steering wheel through AVRCP.
+  auto *play = new UsbBluetoothKey();
+  play->set_parent(bt);
+  play->add_usage(0x0C, 0xB0);
+  play->set_hold(100);
+  play->setup();
+  esphome::g_now_ms += 200;
+  bt->feed_avrc_key(ESP_AVRC_PT_CMD_PLAY);
+  ok("but it turns key: play on", play->state && !up->state);
 
   std::printf("%s\n", failures ? "  ECHEC" : "  tout est bon");
   return failures ? 1 : 0;

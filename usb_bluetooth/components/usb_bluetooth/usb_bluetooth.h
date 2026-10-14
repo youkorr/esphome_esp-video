@@ -346,6 +346,18 @@ struct InputDevice {
   uint32_t buttons{0};
   uint32_t said{0};
   uint8_t consumer{0};
+  /* The Consumer page -- Home, Back, the transport keys, a television
+     remote's menu arrows. One bit each, by their place in keys.cpp's table,
+     for a device that declares them as bits; and the usages down in the last
+     report for one that sends them as an ARRAY, which is what a remote's
+     media keys nearly always are. */
+  uint32_t consumer_bits{0};
+  uint16_t consumer_held[4]{};
+  uint16_t said_consumer[6]{};
+  uint8_t said_consumer_count{0};
+  /// The battery, in percent rounded to five, as the device's own report
+  /// says it; -1 until one arrives, and for a device that never sends one.
+  int8_t battery{-1};
   int8_t axis[PAD_AXES]{};
   uint8_t axis_dir[PAD_AXES]{};
   uint8_t axis_live{0};
@@ -365,6 +377,9 @@ class UsbBluetooth : public Component {
   void set_host_stack(bool wanted) { this->host_stack_ = wanted; }
   void set_hid_host(bool wanted) { this->hid_host_ = wanted; }
   void set_a2dp(bool wanted) { this->a2dp_ = wanted; }
+  /// While no speaker is connected, take every remembered one in turn rather
+  /// than only the one last playing. See a2dp_reconnect_.
+  void set_speaker_follows(bool follows) { this->speaker_follows_ = follows; }
   void set_test_tone(uint16_t hz) { this->test_tone_hz_ = hz; }
 
   /* A2DP source, defined in a2dp.cpp.
@@ -671,7 +686,8 @@ class UsbBluetooth : public Component {
   bool forget_input_slot_(uint8_t i);
   /// "Name (address) connected" -- one device, in the words both
   /// describe_role and describe_input use.
-  std::string describe_device_(const uint8_t *addr, const char *name, bool open) const;
+  std::string describe_device_(const uint8_t *addr, const char *name, bool open,
+                               int8_t battery = -1) const;
   /// How many devices a pair scan heard, so the end of one can say whether it
   /// heard anything at all. Counted in heard_device, which is the only thing
   /// an inquiry result reaches.
@@ -775,6 +791,10 @@ class UsbBluetooth : public Component {
   bool host_stack_{false};
   bool hid_host_{false};
   bool a2dp_{false};
+  bool speaker_follows_{true};
+  /// Which remembered speaker the next page goes to, counted from the one
+  /// last playing. Back to 0 whenever a speaker connects or one is lost.
+  uint8_t sink_turn_{0};
   bool a2dp_up_{false};
   bool a2dp_open_{false};
   bool a2dp_playing_{false};
@@ -883,6 +903,12 @@ class UsbBluetooth : public Component {
      the descriptor path and the plain boot-keyboard fallback, because a
      key held down is a key held down either way. */
   void note_keyboard_keys_(const uint8_t *now);
+  /* The Consumer page, from bits or from an array: what one button does, the
+     array's own edge, and a button with no meaning named once. */
+  void press_consumer_(uint8_t index, const char *who);
+  void note_consumer_array_(const uint16_t *now, uint8_t count);
+  void say_consumer_once_(uint16_t usage);
+  void note_battery_(int32_t value, int32_t logical_min, int32_t logical_max);
   /* Every byte of the report descriptor, under `show_reports:`. */
   void say_descriptor_(const uint8_t *desc, uint16_t len);
   void say_unreadable_report_(const uint8_t *data, uint16_t len);

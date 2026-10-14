@@ -388,6 +388,10 @@ void UsbBluetooth::reset_decode_(InputDevice &d) {
   d.buttons = 0;
   d.said = 0;
   d.consumer = 0;
+  d.consumer_bits = 0;
+  memset(d.consumer_held, 0, sizeof(d.consumer_held));
+  // A device that has just come back has not said how full it is yet.
+  d.battery = -1;
   memset(d.axis, 0, sizeof(d.axis));
   memset(d.axis_dir, 0, sizeof(d.axis_dir));
   /* Not live until centred again: a controller that has just come back has
@@ -1308,18 +1312,26 @@ void UsbBluetooth::ask_remote_name_(const uint8_t *addr) {
 #endif
 }
 
-std::string UsbBluetooth::describe_device_(const uint8_t *addr, const char *name, bool open) const {
+std::string UsbBluetooth::describe_device_(const uint8_t *addr, const char *name, bool open,
+                                        int8_t battery) const {
 #ifdef CONFIG_BT_BLUEDROID_ENABLED
   char text[18];
   say_addr(text, addr);
   std::string out = name[0] != '\0' ? std::string(name) + " (" + text + ")" : std::string(text);
   if (this->bt_off_)
     return out + " (Bluetooth off)";
-  return out + (open ? " connected" : " paired, away");
+  if (!open)
+    return out + " paired, away";
+  // Its battery, where the device reports one -- a controller left on the
+  // sofa says it is nearly flat before it stops answering.
+  if (battery >= 0)
+    return out + " connected, battery " + std::to_string((int) battery) + "%";
+  return out + " connected";
 #else
   (void) addr;
   (void) name;
   (void) open;
+  (void) battery;
   return "none";
 #endif
 }
@@ -1329,7 +1341,7 @@ std::string UsbBluetooth::describe_input(uint8_t slot) const {
   if (slot >= MAX_INPUTS || !this->inputs_[slot].used)
     return "none";
   const InputDevice &d = this->inputs_[slot];
-  return this->describe_device_(d.addr, d.name, d.open);
+  return this->describe_device_(d.addr, d.name, d.open, d.battery);
 #else
   (void) slot;
   return "none";
@@ -1342,8 +1354,8 @@ std::string UsbBluetooth::describe_role(bool speaker) const {
   // card is looking for -- "Orange TV remote" rather than A4:C1:38:9E:22:07.
   // The address stays beside it: two remotes of the same model are the same
   // name, and it is the address that a pair or forget action works on.
-  auto one_device = [this](const uint8_t *addr, const char *name, bool open) {
-    return this->describe_device_(addr, name, open);
+  auto one_device = [this](const uint8_t *addr, const char *name, bool open, int8_t battery = -1) {
+    return this->describe_device_(addr, name, open, battery);
   };
 
   if (speaker) {
@@ -1363,7 +1375,7 @@ std::string UsbBluetooth::describe_role(bool speaker) const {
     if (!d.used || !d.remembered)
       continue;
     total++;
-    const std::string entry = one_device(d.addr, d.name, d.open);
+    const std::string entry = one_device(d.addr, d.name, d.open, d.battery);
     if (out.size() + entry.size() + 2 > 200)
       continue;
     if (!out.empty())

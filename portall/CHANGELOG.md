@@ -1,5 +1,24 @@
 # Changelog
 
+## 4.48.0
+
+- **Play and pause the video on the screen from any remote.** A car's steering
+  wheel and a headset's button, a television remote's or a keyboard's media
+  keys, an NVIDIA Shield, the iPhone's Control Centre remote and the new play
+  button of `remote: true` all pause or play what is playing on the page, and
+  next and previous move along the site's own list. The add-on asks the site's
+  own player first, the way a laptop's media keys do, and pauses the video
+  itself where a site has none. Needs the panel reflashed for a Bluetooth
+  remote; the iPhone remote works with the add-on alone.
+- **The iPhone remote's play/pause never worked**, and does now: it was sent to
+  the page as a key the browser refuses.
+- An automation can pause the film too: `portall.key: pause` in the panel's
+  YAML (also `play`, `play_pause`, `stop`, `next_track`, `previous_track`).
+- On the panel's side, after reflashing: a remote's key on a dark screen wakes
+  it and presses nothing, like the tap that wakes it, and the new `on_key:`
+  lets the screen stay on while somebody uses a remote. See *A Bluetooth
+  remote, and what it does inside a link* in the documentation.
+
 ## 4.47.1
 
 - Nothing changes in how the add-on works. Every file of the add-on now

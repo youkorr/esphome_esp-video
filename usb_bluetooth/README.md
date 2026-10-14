@@ -54,7 +54,8 @@ and a media player sounding through Bluetooth, is in
 | `hid` | `false` | HID host, up to four input devices at once. |
 | `device_name` | the node name | What the board is called on the device being paired. |
 | `pair_seconds` | `10s` | Length of a pairing scan. |
-| `inquiry_seconds` | `10s` | A scan at boot that logs what it hears; `0s` turns it off. |
+| `inquiry_seconds` | `0s` with `host_stack: bluedroid`, `10s` without | A scan at boot that logs what it hears. Off with a host stack, because it takes the C6's Wi-Fi down for as long as it runs and holds the stack back; give a duration to have it anyway. |
+| `speaker_follows` | `true` | With several speakers remembered and none connected, ask each in turn -- the one last playing first -- so the sound goes to whichever is switched on. `false` asks only the one last playing. |
 | `firmware` | built in | The Realtek RTL8761BU patch is carried and uploaded when such a dongle is found. `none` saves ~44 KB of flash on a board that will only see a Broadcom. |
 | `show_reports` | `false` | Log every HID report and the whole report descriptor. |
 | `test_tone` | `0` | A sine in Hz played when nothing else is, to prove the speaker link. |
@@ -73,6 +74,10 @@ reports that slot alone (`none` when it is empty), and
 and leave the others. Without `slot:` both work on all of them. The example's
 Settings page is built this way: a row per device with its own Forget.
 
+`input:` also shows a device's **battery**, when the device reports one in
+its own HID report descriptor (Battery Strength, or the Battery System page):
+`Shield (00:04:4B:...) connected, battery 80%`. A warning is logged at 20%.
+
 Up to four speakers are remembered too, and ONE plays at a time -- an A2DP
 source is one stream with one encoder. Pairing a new speaker adds it and makes
 it the one playing. `speaker:` with `slot: 1` to `4` reports that speaker
@@ -83,6 +88,11 @@ playing is hung up, and the chosen one is asked for only once the stack says
 the first link is closed (Bluedroid drops a connection asked for while
 another is still closing). `usb_bluetooth.forget_speaker` takes `slot:` too;
 without it, it forgets the one playing.
+
+**The sound follows whichever speaker is switched on**: while none is
+connected, the reconnection asks each remembered speaker in turn, the one last
+playing first, and whichever answers becomes the one playing. One page at a
+time on the same clock, so it costs no more radio time than asking for one.
 
 ## Keys, and LVGL
 
@@ -95,6 +105,13 @@ Every device is turned into one vocabulary in `keys.cpp`:
 | `esc` | Exit / Back | Esc | B, Back |
 | `home` | Menu | Home | Home |
 | `backspace` `del` `next` `end` `0`–`9` | — | the same keys | — |
+| `play_pause` `play` `pause` `stop` `next_track` `previous_track` `fast_forward` `rewind` | the transport buttons | media keys | media buttons |
+
+A remote's or a keyboard's media row is read whether it is declared one bit
+per button or, as most remotes do, as an array of usages; a television
+remote's Menu arrows (Consumer page) are the arrows. So `key: play_pause` is a
+play button on an LVGL media page whatever is pressing it -- a car's steering
+wheel included.
 
 `key:` takes a list, and a sensor stays ON for `hold:` (100 ms) because LVGL
 reads a keypad on its own timer, every 30 ms, and would miss a shorter press.

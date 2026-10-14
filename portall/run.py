@@ -1616,6 +1616,8 @@ class Remote:
         elif kind == "volume":
             line = f"volume {body}\n"
             self._volume = line
+        elif kind == "media":
+            line = f"media {body}\n"
         else:
             line = f"key {body}\n"
         with self._lock:

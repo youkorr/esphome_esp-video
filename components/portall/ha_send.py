@@ -1373,6 +1373,10 @@ class Control:
                     # A link to open, asked for by voice. The add-on sends
                     # only addresses from the configured links.
                     self._queue.append(("open", rest))
+                elif word == "media" and rest in MEDIA_WORDS:
+                    # A transport button -- the iPhone's television remote's
+                    # play/pause through the add-on's HomeKit accessory.
+                    self._queue.append(("media", rest))
                 elif word == "volume" and _is_gain(rest):
                     # A telephone's volume button, turned into a gain by the
                     # add-on, which keeps the level across restarts of this
@@ -1817,6 +1821,153 @@ class Follow:
 # when it is -- so it does not keep the screen saver away; a film does.
 PLAYING_JS = """() => [...document.querySelectorAll('video, audio')].some(
   m => !m.paused && !m.ended && m.readyState > 2 && !m.muted && m.volume > 0)"""
+
+
+# The transport buttons, for whatever plays on the page: a car's steering
+# wheel, a headset, a remote's media row, a Shield, the iPhone's television
+# remote, or `portall.key: pause` from an automation.
+#
+# THE SITE'S OWN PLAYER FIRST. A page that plays media tells the browser what
+# it does for play, pause and next track through the Media Session API
+# (navigator.mediaSession.setActionHandler) -- that is how a laptop's media
+# keys reach YouTube, Spotify's web player or Jellyfin. A driven browser has no
+# such keys, so this records the handlers a page registers, in every frame,
+# and calls them: "next" on a page with a playlist is that page's next item,
+# not a guess. Only where a page registered nothing does it touch the
+# <video>/<audio> element itself -- pause what plays, resume the one furthest
+# in -- and "next" with no list to move along is ten seconds forward.
+#
+# Installed before the page's own scripts, which is what an init script is for:
+# a handler registered before the wrapper existed could not be seen.
+MEDIA_CONTROL_JS = r"""
+(() => {
+  if (window.__portallMedia) return;
+  const handlers = Object.create(null);
+  try {
+    const proto = window.MediaSession && window.MediaSession.prototype;
+    const original = proto && proto.setActionHandler;
+    if (original) {
+      proto.setActionHandler = function (action, handler) {
+        try {
+          if (typeof handler === 'function') handlers[action] = handler;
+          else delete handlers[action];
+        } catch (e) {}
+        return original.apply(this, arguments);
+      };
+    }
+  } catch (e) {}
+  const media = () => {
+    const found = [];
+    const walk = (root) => {
+      for (const m of root.querySelectorAll('video, audio')) found.push(m);
+      for (const el of root.querySelectorAll('*'))
+        if (el.shadowRoot) walk(el.shadowRoot);
+    };
+    try { walk(document); } catch (e) {}
+    return found;
+  };
+  const playing = (m) => !m.paused && !m.ended;
+  const resumable = (m) => m.paused && !m.ended && (m.currentTime > 0 || m.readyState > 0);
+  const STEP = { nexttrack: 10, seekforward: 10, previoustrack: -10, seekbackward: -10 };
+  window.__portallMedia = {
+    state() {
+      const all = media();
+      return { playing: all.filter(playing).length, paused: all.filter(resumable).length,
+               handlers: Object.keys(handlers) };
+    },
+    act(action) {
+      const all = media();
+      const on = all.filter(playing);
+      const handler = handlers[action];
+      if (handler) {
+        try { handler({ action: action, seekOffset: 10 }); return 'site'; } catch (e) {}
+      }
+      if (action === 'pause' || action === 'stop') {
+        for (const m of on) m.pause();
+        return on.length ? 'element' : '';
+      }
+      if (action === 'play') {
+        const choice = all.filter(resumable).sort((a, b) => b.currentTime - a.currentTime)[0];
+        if (!choice) return '';
+        const started = choice.play();
+        if (started && started.catch) started.catch(() => {});
+        return 'element';
+      }
+      if (STEP[action] !== undefined && on.length) {
+        for (const m of on) {
+          const end = isFinite(m.duration) ? m.duration : Infinity;
+          m.currentTime = Math.max(0, Math.min(end, m.currentTime + STEP[action]));
+        }
+        return 'seek';
+      }
+      return '';
+    },
+  };
+})();
+"""
+
+MEDIA_WORDS = {
+    "playpause": "play/pause", "play": "play", "pause": "pause", "stop": "stop",
+    "nexttrack": "next", "previoustrack": "previous",
+    "seekforward": "fast forward", "seekbackward": "rewind",
+}
+
+
+def act_on_media(page, action):
+    """Do a transport button's action to the page, and say how it was done.
+
+    Every frame is asked what plays in it first, because the player is very
+    often in an iframe -- a video embedded in a dashboard, a site's own player
+    frame -- and the top document has nothing to pause. Play/pause decides
+    which it is from ALL the frames together: anything playing anywhere means
+    pause. Returns the line for the log.
+    """
+    looks = []
+    for frame in page.frames:
+        try:
+            state = frame.evaluate(
+                "() => window.__portallMedia ? window.__portallMedia.state() : null")
+        except Exception:  # noqa: BLE001 - a frame going away is not news
+            state = None
+        if state:
+            looks.append((frame, state))
+    asked = action
+    if action == "playpause":
+        action = "pause" if any(state["playing"] for _, state in looks) else "play"
+    if action in ("pause", "stop"):
+        targets = [frame for frame, state in looks if state["playing"]]
+    elif action == "play":
+        ranked = sorted(
+            looks,
+            key=lambda fs: (fs[1]["paused"] > 0 and "play" in fs[1]["handlers"],
+                            fs[1]["paused"] > 0, "play" in fs[1]["handlers"]),
+            reverse=True)
+        targets = [frame for frame, state in ranked[:1]
+                   if state["paused"] or "play" in state["handlers"]]
+    else:
+        targets = ([frame for frame, state in looks if action in state["handlers"]][:1]
+                   or [frame for frame, state in looks if state["playing"]])
+    hows = set()
+    for frame in targets:
+        try:
+            how = frame.evaluate("(a) => window.__portallMedia.act(a)", action)
+        except Exception:  # noqa: BLE001 - a frame going away is not news
+            how = ""
+        if how:
+            hows.add(how)
+    word = MEDIA_WORDS.get(action, action)
+    head = (f"Media: {MEDIA_WORDS['playpause']} -> {word}" if asked == "playpause"
+            else f"Media: {word}")
+    if "site" in hows:
+        return f"{head}, through the site's own player"
+    if "element" in hows:
+        return f"{head}, on the page's video or audio"
+    if "seek" in hows:
+        sign = "forward" if action in ("nexttrack", "seekforward") else "back"
+        return f"{head} -- no list to move along here, so ten seconds {sign}"
+    if action in ("pause", "stop"):
+        return f"{head} -- nothing is playing on this page"
+    return f"{head} -- nothing on this page can do that"
 
 
 class Saver:
@@ -6707,6 +6858,8 @@ def main():
                   if args.profile else
                   "Bookmarks: none, this screen keeps no profile")
         context.add_init_script(SPATNAV_JS)
+        # Play, pause and next for whatever plays, from every remote there is.
+        context.add_init_script(MEDIA_CONTROL_JS)
         # Which requests the page could not make. Silent on a page that works.
         watch_failed_requests(context)
         # The panel's own token first, so a panel that sets one keeps it over
@@ -7610,6 +7763,7 @@ def main():
 
                     reports = []
                     keys = []
+                    media = []
                     # The panel's own return channel and the control
                     # channel are read into one list, so a key means the same
                     # thing whichever side it arrived from.
@@ -7628,6 +7782,11 @@ def main():
                             # resolved, because only this end knows what a
                             # browser calls a key.
                             keys.append(body)
+                            continue
+                        if kind == "media":
+                            # A transport button: play, pause, next. Not a
+                            # key -- see MEDIA_CONTROL_JS.
+                            media.append(body)
                             continue
                         if kind == "volume":
                             # The add-on's HomeKit remote: a telephone's
@@ -7726,10 +7885,11 @@ def main():
                                     saver.hide("the screen went dark")
                                     capture = main_capture
                                 capture.pause()
-                    if reports or keys or asked_home or asked_open is not None:
+                    if (reports or keys or media or asked_home
+                            or asked_open is not None):
                         last_input = started
                     if saver is not None:
-                        asked_any = bool(reports or keys or asked_home
+                        asked_any = bool(reports or keys or media or asked_home
                                          or asked_open is not None)
                         if saver.on and asked_any:
                             # Back to exactly what was showing. The touch
@@ -7840,6 +8000,20 @@ def main():
                             # by itself, so the picture in hand is still the
                             # newest true one, and asking the browser to start
                             # again would only cost an interval.
+                            urgent_until = time.monotonic() + args.urgent_window
+
+                    if media:
+                        # A request rather than a key: like the remote's home,
+                        # it still does what it asked when it was the press
+                        # that took the screen saver away -- play on a paused
+                        # film is a request to watch it.
+                        for action in media:
+                            try:
+                                print(act_on_media(page, action))
+                            except Exception as problem:  # noqa: BLE001
+                                # An accessory must never cost the picture.
+                                print(f"Media: {action} did not go in ({problem})")
+                        if URGENT_AFTER_INPUT:
                             urgent_until = time.monotonic() + args.urgent_window
 
                     # The screen saver, after a while with nothing touched --

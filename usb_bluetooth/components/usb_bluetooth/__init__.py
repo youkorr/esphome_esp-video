@@ -72,6 +72,7 @@ CONF_TEST_TONE = "test_tone"
 CONF_DEVICE_NAME = "device_name"
 CONF_PAIR_SECONDS = "pair_seconds"
 CONF_SHOW_REPORTS = "show_reports"
+CONF_SPEAKER_FOLLOWS = "speaker_follows"
 CONF_FIRMWARE = "firmware"
 CONF_FIRMWARE_CONFIG = "firmware_config"
 CONF_ON_HID_REPORT = "on_hid_report"
@@ -479,6 +480,10 @@ CONFIG_SCHEMA = cv.All(
             # a car receiver or a pair of headphones. Classic, so the C6 can
             # never do it and the dongle is the whole point.
             cv.Optional(CONF_AUDIO, default=False): cv.boolean,
+            # With several speakers remembered and none connected, ask each in
+            # turn -- the one last playing first -- so the sound follows
+            # whichever is switched on. False asks only the one last playing.
+            cv.Optional(CONF_SPEAKER_FOLLOWS, default=True): cv.boolean,
             # A sine, in hertz, played whenever nothing else has been fed in.
             # 0 is off. It exists so the link can be proved before there is
             # anything real to play through it -- tools/playsound.py made the
@@ -574,6 +579,7 @@ async def to_code(config):
     cg.add(var.set_device_name(config.get(CONF_DEVICE_NAME, CORE.name)))
     cg.add(var.set_pair_seconds(config[CONF_PAIR_SECONDS].total_seconds))
     cg.add(var.set_show_reports(config[CONF_SHOW_REPORTS]))
+    cg.add(var.set_speaker_follows(config[CONF_SPEAKER_FOLLOWS]))
 
     # Which patch to build in, and the DEFAULT is the one carried beside this
     # file: a household that plugs in a Realtek dongle should not have to know

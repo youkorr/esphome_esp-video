@@ -62,9 +62,11 @@ WANT = {
     "Back": ("home", True),
     "Information": ("key", "Escape"),
     "Exit": ("home", True),
-    "PlayPause": ("key", "MediaPlayPause"),
-    "NextTrack": ("key", "MediaTrackNext"),
-    "PreviousTrack": ("key", "MediaTrackPrevious"),
+    # Media actions, not browser keys: Playwright refuses MediaPlayPause as
+    # an "Unknown key", which is how the widget's play/pause did nothing.
+    "PlayPause": ("media", "playpause"),
+    "NextTrack": ("media", "nexttrack"),
+    "PreviousTrack": ("media", "previoustrack"),
 }
 
 faults = []
@@ -232,7 +234,7 @@ def round_trip_cases():
     television = homekit.Television("Salon", remote.send, quiet,
                                     homekit.FIRST_PORT, tempfile.mkdtemp())
 
-    pressed = ("ArrowUp", "ArrowLeft", "Select", "Back", "Exit")
+    pressed = ("ArrowUp", "ArrowLeft", "Select", "Back", "Exit", "PlayPause")
     for name in pressed:
         television.remote_key(numbers[name], table)
     want = [WANT[name] for name in pressed]
@@ -244,6 +246,9 @@ def round_trip_cases():
           got == want)
     check("and home crosses as its own kind, not as a key named home",
           ("home", True) in got and ("key", "home") not in got)
+    check("and play/pause as a media action, not as a key Playwright refuses",
+          ("media", "playpause") in got
+          and not any(kind == "key" and body.startswith("Media") for kind, body in got))
 
 
 def _has_pyhap():

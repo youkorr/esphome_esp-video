@@ -39,8 +39,14 @@ def table_from(path, name, stubs=None):
 def main():
     keys = table_from("components/portall/__init__.py", "KEYS")
     browser = table_from("components/portall/udisp_send.py", "BROWSER_KEYS")
+    # The transport buttons are not browser keys -- Playwright refuses them --
+    # but a page's player action, and a name reaching one of those has a far
+    # end as surely as an arrow does.
+    media = table_from("components/portall/udisp_send.py", "MEDIA_ACTIONS")
 
-    problems = []
+    problems = [f"{u[0]:#04x}/{u[1]:#04x} is both a browser key and a media action"
+                for u in sorted(set(browser) & set(media))]
+    browser = {**browser, **{u: f"media {a}" for u, a in media.items()}}
     for name, usage in sorted(keys.items()):
         where = browser.get(usage)
         if where is None:
