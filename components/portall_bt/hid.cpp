@@ -1252,6 +1252,19 @@ void PortallBT::set_bt_enabled(bool on) {
 #endif
 }
 
+// A controller that has just come back: everything remembered is asked for at
+// once, rather than at the end of whatever the backoff grew to while nothing
+// could answer. Bluetooth switched off stays off, and a pairing scan keeps the
+// radio to itself until it ends.
+void PortallBT::reconnect_soon_() {
+#ifdef CONFIG_BT_BLUEDROID_ENABLED
+  if (this->bt_off_ || this->reconnect_paused_)
+    return;
+  this->reconnect_backoff_ms_ = RECONNECT_FIRST_MS;
+  this->reconnect_due_ms_ = now_ms_();
+#endif
+}
+
 void PortallBT::note_remote_name(const uint8_t *addr, const char *name) {
 #ifdef CONFIG_BT_BLUEDROID_ENABLED
   if (addr == nullptr || name == nullptr)

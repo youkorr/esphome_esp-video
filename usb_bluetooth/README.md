@@ -48,7 +48,7 @@ and a media player sounding through Bluetooth, is in
 | option | default | |
 |---|---|---|
 | `controller` | `high_speed` | `high_speed` or `full_speed`: the P4 OTG peripheral the dongle's socket is on. |
-| `transport` | `cherryusb` | `idf` uses this component's own USB layer on ESP-IDF's USB Host Library instead of CherryUSB: nothing downloaded, nothing patched. **Never yet run on a board**; remove the line to go back. |
+| `transport` | `cherryusb` | `idf` uses this component's own USB layer on ESP-IDF's USB Host Library instead of CherryUSB: nothing downloaded, nothing patched, and a dongle that stops answering is restarted by itself (see below). **Never yet run on a board**; remove the line to go back. |
 | `host_stack` | `none` | `bluedroid` brings ESP-IDF's Classic host into the build. `none` only enumerates the dongle and runs an inquiry. |
 | `audio` | `false` | A2DP source and AVRCP. |
 | `hid` | `false` | HID host, up to four input devices at once. |
@@ -152,6 +152,26 @@ On M5Stack Tab5, Guition 10" and 4", and Waveshare 7B boards:
   (`firmware/`, Realtek's own files, redistributed under their licence).
 - An UGREEN car receiver (A2DP + AVRCP) and an NVIDIA Shield controller (HID).
 
+## When the dongle goes away
+
+With either transport, **Bluetooth survives the dongle leaving.** Pull it out,
+knock it loose, or let it reset itself: Bluedroid is answered in its place
+(every command it was waiting on, every link closed, its credit given back),
+and when the **same** dongle is plugged back in it is told every setting
+Bluedroid had given it -- whether it can be paged, its class, its name, its
+event masks, latest value each -- and handed back. Speakers and controllers
+reconnect on their own; nothing is restarted. A **different** dongle still
+needs a restart of the board, and the log names both addresses: every
+pairing was made with the first one's.
+
+A dongle that is still there and leaves a command unanswered is answered
+for after five seconds, so Bluedroid does not stop with its one credit spent
+(which used to be every speaker, controller and remote silent until a
+restart). With `transport: idf`, two such commands within a minute restart
+the dongle: its USB port is switched off and on, and it comes back through
+the same rejoin. CherryUSB cannot do that from the board, so with it the log
+asks for the dongle to be unplugged and plugged back in.
+
 ## What to know
 
 - **A pairing scan takes the Wi-Fi down for as long as it runs.** An inquiry
@@ -187,7 +207,10 @@ plus a test of the keys, all passing (the tests live in the main repository's
 on all four of those boards -- through CherryUSB. `transport: idf` has not:
 it has run only on a workstation, against a stand-in for ESP-IDF's USB Host
 Library with a simulated Broadcom and Realtek dongle behind it
-(`tools/checkidfusb.py --copy` in the main repository).
+(`tools/checkidfusb.py --copy` in the main repository). Nor has a dongle
+coming back: the rejoin, the answers given while it is away and the restart
+are proved there, against a stand-in Bluedroid that counts its credits the
+way ESP-IDF's does, and not yet on a board.
 
 ## Licence
 

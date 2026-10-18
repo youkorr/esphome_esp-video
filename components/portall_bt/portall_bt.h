@@ -784,6 +784,34 @@ class PortallBT : public Component {
                          struct usb_endpoint_descriptor *events,
                          struct usb_endpoint_descriptor *acl_in,
                          struct usb_endpoint_descriptor *acl_out);
+  /* A dongle that answered the probe after Bluetooth was already up on one.
+     The same dongle back -- pulled out and put in again, knocked loose, or
+     one that reset itself -- is told everything Bluedroid told it before and
+     handed back, so Bluetooth carries on without a restart. Any other is
+     refused: every pairing was made with the first one's address. Defined in
+     portall_bt.cpp, beside the transport it hands the dongle to. */
+  void rejoin_(struct usbh_hubport *hport, uint8_t intf, struct usb_endpoint_descriptor *events,
+               struct usb_endpoint_descriptor *acl_in, struct usb_endpoint_descriptor *acl_out);
+  /// From the loop: hands Bluedroid the answers given for a controller that is
+  /// not there, and answers for one that has stopped answering.
+  void transport_tick_();
+  /// Defined in hid.cpp: every remembered device asked for again, now.
+  void reconnect_soon_();
+  // What the probe read, and the address Bluetooth was started on. Written
+  // the way they are printed, most significant byte first.
+  uint8_t probed_addr_[6]{};
+  bool probed_addr_ok_{false};
+  uint8_t stack_addr_[6]{};
+  uint32_t unanswered_{0};
+  bool said_ledger_full_{false};
+  bool said_outbox_full_{false};
+  /// Restarts a dongle that has stopped answering, where the transport can.
+  void restart_mute_dongle_(uint32_t at);
+  uint8_t strikes_{0};
+  uint32_t first_strike_ms_{0};
+  bool restarted_ever_{false};
+  uint32_t restarted_ms_{0};
+  bool said_cannot_restart_{false};
 
   uint16_t inquiry_seconds_{10};
   uint16_t pair_seconds_{10};

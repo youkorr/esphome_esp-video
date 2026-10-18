@@ -82,12 +82,19 @@ struct Fake {
   std::deque<usb_transfer_t *> done;
   std::set<usb_transfer_t *> inflight;
   std::map<uint16_t, uint32_t> latency;
+  std::set<uint16_t> swallowed;
   bool silent_inquiry = false;
   bool out_stuck = false;
   bool loopback = false;
   bool rtl_patched = false;
+  // The root port, which ESP-IDF can switch off and on: the dongle stays in
+  // its socket while it is off, and enumerates anew when it comes back on.
+  bool port_off = false;
+  bool in_socket = false;
+  unsigned restarts = 0;
   unsigned set_interfaces = 0;
   std::vector<uint16_t> commands;
+  std::vector<std::vector<uint8_t>> command_bytes;
   std::vector<std::vector<uint8_t>> acl_out;
   std::vector<std::vector<uint8_t>> fragments;
   std::vector<uint8_t> config;
@@ -150,8 +157,34 @@ std::vector<uint8_t> build_config(uint8_t cls, bool vendor_extras) {
   return c;
 }
 
+// A USB 2.0 hub, which is what somebody plugs in when the socket is wanted
+// for two things: device class 09, one interface of class 09 with its status
+// endpoint, and no Bluetooth anywhere.
+std::vector<uint8_t> build_hub_config() {
+  std::vector<uint8_t> c = {9, 0x02, 25, 0, 1, 1, 0, 0xE0, 50};
+  c.insert(c.end(), {9, 0x04, 0, 0, 1, 0x09, 0x00, 0x00, 0});
+  c.insert(c.end(), {7, 0x05, 0x81, 0x03, 1, 0, 12});
+  return c;
+}
+
 void set_model(fake::Dongle model) {
   g.model = model;
+  if (model == fake::Dongle::HUB) {
+    memset(&g.device, 0, sizeof(g.device));
+    g.device.bLength = 18;
+    g.device.bDescriptorType = 0x01;
+    g.device.bcdUSB = 0x0200;
+    g.device.bDeviceClass = 0x09;
+    g.device.bMaxPacketSize0 = 64;
+    g.device.idVendor = 0x05E3;
+    g.device.idProduct = 0x0608;
+    g.device.bNumConfigurations = 1;
+    g.config = build_hub_config();
+    g.manufacturer = string_desc("GenesysLogic");
+    g.product = string_desc("USB2.0 Hub");
+    g.rtl_patched = false;
+    return;
+  }
   const bool broadcom = model == fake::Dongle::BROADCOM;
   memset(&g.device, 0, sizeof(g.device));
   g.device.bLength = 18;
@@ -246,9 +279,31 @@ void hci_command(const uint8_t *cmd, size_t len) {
   const uint8_t plen = cmd[2];
   const uint8_t *p = cmd + 3;
   g.commands.push_back(op);
+  g.command_bytes.push_back(std::vector<uint8_t>(cmd, cmd + len));
   const uint64_t due = now_ms() + (g.latency.count(op) ? g.latency[op] : 0);
   const bool broadcom = g.model == fake::Dongle::BROADCOM;
+  if (g.swallowed.count(op))
+    return;  // taken, and never answered
   switch (op) {
+    // The settings Bluedroid gives a controller, which both dongles take.
+    case 0x0C01:  // Set Event Mask
+    case 0x0C13:  // Write Local Name
+    case 0x0C1A:  // Write Scan Enable
+    case 0x0C24:  // Write Class Of Device
+    case 0x0C56:  // Write Simple Pairing Mode
+    case 0x080F:  // Write Default Link Policy Settings
+      command_complete(op, {0x00}, due);
+      break;
+    case 0x0405: {  // Create Connection: a status now, the link a moment later
+      push_event({0x0F, 0x04, 0x00, 0x01, 0x05, 0x04}, due);
+      std::vector<uint8_t> cc = {0x03, 0x0B, 0x00, 0x0B, 0x00};
+      cc.insert(cc.end(), p, p + (plen >= 6 ? 6 : plen));
+      cc.resize(11, 0x00);
+      cc.push_back(0x01);
+      cc.push_back(0x00);
+      push_event(cc, due + 30);
+      break;
+    }
     case 0x0C03:  // Reset. A Broadcom says something of its own first.
       if (broadcom)
         push_event({0xFF, 0x03, 0x2A, 0x00, 0x00}, due);
@@ -338,8 +393,7 @@ void use(Dongle dongle) {
   set_model(dongle);
 }
 
-void plug() {
-  std::lock_guard<std::mutex> lock(g.m);
+void plug_locked() {
   g.present = true;
   g.closed = false;
   g.rtl_patched = false;
@@ -357,8 +411,7 @@ void plug() {
   g.cv.notify_all();
 }
 
-void unplug() {
-  std::lock_guard<std::mutex> lock(g.m);
+void unplug_locked() {
   g.present = false;
   for (auto &entry : g.eps) {
     Ep &ep = entry.second;
@@ -380,9 +433,32 @@ void unplug() {
   g.cv.notify_all();
 }
 
+void plug() {
+  std::lock_guard<std::mutex> lock(g.m);
+  g.in_socket = true;
+  if (!g.port_off)
+    plug_locked();
+}
+
+void unplug() {
+  std::lock_guard<std::mutex> lock(g.m);
+  g.in_socket = false;
+  unplug_locked();
+}
+
+unsigned restarts() {
+  std::lock_guard<std::mutex> lock(g.m);
+  return g.restarts;
+}
+
 void set_latency(uint16_t opcode, uint32_t ms) {
   std::lock_guard<std::mutex> lock(g.m);
   g.latency[opcode] = ms;
+}
+
+void set_swallowed(uint16_t opcode) {
+  std::lock_guard<std::mutex> lock(g.m);
+  g.swallowed.insert(opcode);
 }
 
 void set_silent_inquiry(bool on) {
@@ -417,6 +493,11 @@ void set_acl_loopback(bool on) {
 std::vector<uint16_t> commands() {
   std::lock_guard<std::mutex> lock(g.m);
   return g.commands;
+}
+
+std::vector<std::vector<uint8_t>> command_bytes() {
+  std::lock_guard<std::mutex> lock(g.m);
+  return g.command_bytes;
 }
 
 std::vector<std::vector<uint8_t>> acl_out() {
@@ -484,6 +565,31 @@ esp_err_t usb_host_install(const usb_host_config_t *config) {
     return ESP_ERR_INVALID_STATE;
   g.installed = true;
   g.peripheral_map = config->peripheral_map;
+  return ESP_OK;
+}
+
+// What hub.c and hcd_dwc.c do at v5.5.5: off disconnects whatever is on the
+// port (and is ESP_OK when it is already off), on is ESP_ERR_INVALID_STATE
+// unless it was off. A dongle still in its socket enumerates again -- and the
+// stand-in's dongle comes back reset, which is the case worth testing: one
+// that a restart does not cure stays away, and Bluedroid stays answered.
+esp_err_t usb_host_lib_set_root_port_power(bool enable) {
+  std::lock_guard<std::mutex> lock(g.m);
+  if (!enable) {
+    if (g.port_off)
+      return ESP_OK;
+    g.port_off = true;
+    g.restarts++;
+    fake::unplug_locked();
+    return ESP_OK;
+  }
+  if (!g.port_off)
+    return ESP_ERR_INVALID_STATE;
+  g.port_off = false;
+  if (g.in_socket) {
+    g.swallowed.clear();
+    fake::plug_locked();
+  }
   return ESP_OK;
 }
 

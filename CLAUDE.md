@@ -12266,7 +12266,9 @@ each now with a check that fails against the code before it:
   the address is.
 - **A dongle plugged in after Bluedroid was up was probed and never used**,
   with nothing said. It says now that the panel must restart; Bluedroid cannot
-  be handed a second controller while it runs.
+  be handed a second controller while it runs. **SUPERSEDED the next day**:
+  the same dongle coming back is taken back; only a different one needs the
+  restart. See **A dongle that goes away no longer takes Bluetooth with it**.
 - **A remote on a dark panel acted on a page nobody could see, and never kept
   the screen on.** `press_key()`/`press_home()` on portall give a pressed key
   the touch's rules: `on_key:` runs first (light the screen, restart its
@@ -12374,6 +12376,113 @@ on the Consumer page (`key: play_pause` on an LVGL media page lights for a
 car's steering wheel); `tools/usbbttest/keysensor.cpp` checks it. Add-on
 4.48.0. **Not compiled by ESP-IDF, not flashed; the media keys are proved in
 a browser on a workstation, not on YouTube.**
+
+## A dongle that goes away no longer takes Bluetooth with it
+
+**Asked as *"celui que tu avais cree transport: idf c'etait de lui que je
+disais pour l'amelioration et ajoute des fonctionnalites que personne n'a
+penser"*, own code only.** Reading the idf layer for faults led one level up,
+to what Bluedroid does when ANY transport loses its controller -- read in
+ESP-IDF v5.5.5 rather than assumed, `bluedroid/hci/hci_layer.c`:
+
+- **One command credit, spent on every send, given back only by a Command
+  Complete or Command Status.** `command_timed_out()` after eight seconds only
+  logs, with the comment "We shouldn't try to recover the stack from this
+  command timeout." So one command lost with a dongle stalls every later one
+  for good.
+- **A link that was up stays up** in l2cap's tables, holding the ACL credits it
+  had in flight -- `l2cu_release_lcb()` adds a link's `sent_not_acked` back to
+  `controller_xmit_window` only when a Disconnection Complete releases it.
+- **`check_send_available()` false makes Bluedroid queue**, into queues that
+  BLOCK its task when they fill. Holding it off is not safe for an absence of
+  unknown length.
+
+So a dongle pulled out, knocked, or resetting itself was the end of Bluetooth
+until a restart, whichever transport -- and *"je suis oblige de debrancher ou
+redemarrer"* could not have been fixed by unplugging at all.
+
+**`hci_ledger.h/.cpp` is what Bluedroid has said to the controller**: plain
+bytes in and out, no RTOS, every table transcribed from Core 5.4 Vol 4 Part E
+section 7 -- the commands still unanswered, the operations a Command Status
+started (inquiry, page, accept, name request), the links up, and the
+SETTINGS, latest value each in first-given order: everything sent while the
+stack starts (bar the reset, Host Number Of Completed Packets and anything
+answered by a Command Status), then afterwards the writes that leave state in
+a controller (`is_setting()`: scan enable, class, name, event masks, EIR, link
+policy...). `lost()` answers in that order -- credit first, then the ended
+operations (Inquiry Complete, Connection Complete with page timeout, Remote
+Name Request Complete), then a Disconnection Complete per link with reason
+connection timeout. A refused Command Complete carries status 0x0C (Command
+Disallowed), the first six parameter bytes echoed and zeros out to 248 after
+the status, so a handler that reads past the status reads zeros, not past the
+event. Settings while away are told yes and kept.
+
+The transport (portall_bt.cpp) keeps it under a mutex, answers while away from
+an outbox the LOOP drains (never from inside `hci_drv_send`, which is
+Bluedroid's own HCI task mid-send), and only once the stack is UP -- during
+Bluedroid's startup its parsers assert on an answer they cannot read, and a
+panel that reboots is worse than one whose Bluetooth waits. A generation
+number on the link keeps a send or reader that started on the old dongle from
+ending the new one by failing late, and the rejoin waits for the old readers to
+exit before starting new ones over the same frame buffers.
+
+**The same dongle back is `rejoin_()`**: told every kept command again
+through the probe's own command and event path, before any reader exists, so
+no answer to a replayed setting is taken for one Bluedroid waits on; a
+setting changed while that runs moves the ledger's change count and the
+telling starts again; then the link is swapped under the same lock and the
+reconnection clock restarted from its short end. A DIFFERENT dongle is
+refused, both addresses in one line: Bluedroid keeps the first one's address
+and every pairing was made with it.
+
+**A dongle that is there and silent** is answered for after `ANSWER_LIMIT_MS`
+(5 s, below Bluedroid's own 8 s which only logs). Two within a minute and,
+with `transport: idf`, the dongle is RESTARTED: `idf_usb_restart_dongle()`
+switches ESP-IDF's root port off (`usb_host_lib_set_root_port_power`, which
+`hcd_dwc.c` turns into a disconnect) and on 500 ms later, the dongle
+enumerates anew and comes back through the rejoin. At most once every ten
+minutes. Linux does the same to a controller that stops answering
+(`btusb_reset()` -> `usb_queue_reset_device()`, read in torvalds/linux), and
+its stack takes the new device as a new adapter; nothing like it existed for
+Bluedroid on an ESP32. Whether the dongle loses its POWER is the board's: the
+call stops driving the port, and a socket with its own 5 V switch stays
+powered, so it is a bus reset, not a power cycle. CherryUSB has no such call;
+with it the log asks for an unplug.
+
+**A hub or a USB stick in the socket used to end in silence** after its
+interface list -- `report_()` returned with nothing said, which reads exactly
+like a dead dongle. It says now that it is not a dongle, and for a hub, with
+`transport: idf`, why one cannot be reached through it: ESP-IDF's USB host
+documentation (v5.5.5) lists for the P4 "No Transaction Translator layer (No
+FS/LS Devices support when a Hub is attached to HS Host)", and every dongle
+is full speed. Hub support (`CONFIG_USB_HOST_HUBS_SUPPORTED`) is therefore
+NOT switched on: it would only help the full-speed controller. The layer's
+"first device wins" was read as a fault first and is not one: without hub
+support there is never more than one device on the root port.
+
+`tools/bttest/ledger.cpp` checks every byte against the specification's event
+layouts. `tools/checkidfusb.py` gains four scenarios on a stand-in Bluedroid
+that counts its credits the way `hci_layer.c` does -- `rejoin` (link open,
+command waiting, unplug, answers, away, same dongle back, settings replayed
+latest-value-only in first order, carries on), `other`, `watchdog`, `restart`
+-- and `hub`, and its mutants can now edit portall_bt.cpp (the harness is
+rebuilt with the mutant first on the include path) and hci_ledger.cpp as well
+as the layer: twelve, all caught, against the shipped tree and `--copy`.
+Against the previous component the new scenarios fail 23 checks: exactly
+"Bluetooth dead until a restart", the watchdog case included -- the next
+command never goes because the credit never comes back.
+
+**Two faults were in the ruler first, as usual.** The fake dongle's events are
+one ordered queue, so a command delayed for ever blocked every answer behind
+it -- a fault no real controller has; `fake::set_swallowed()` takes a command
+and never answers it while later ones are. And the rejoin's away-time setting
+was the same value as the startup one, so a mutant that kept the FIRST value
+passed: the away value is now one neither earlier write gave.
+
+**Not compiled by ESP-IDF, not flashed, and no dongle has come back on a
+board.** What a panel will say: `the dongle is gone (...)` with the answers
+given in its place, then `the dongle XX:XX:... is back, and Bluetooth carries
+on without a restart: told it N setting(s) again`.
 
 ## Repository conventions
 

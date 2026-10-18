@@ -43,6 +43,11 @@ constexpr uint32_t CANCEL_WAIT_MS = 200;
 // has arrived or close one that has gone.
 constexpr uint32_t CLIENT_SLICE_MS = 20;
 
+// How long the root port stays off when the dongle is restarted. Long enough
+// for the disconnection to be seen and every transfer handed back; a person
+// pulling a dongle out and putting it back takes longer.
+constexpr uint32_t RESTART_OFF_MS = 500;
+
 // The HCI interface has three endpoints. A fourth slot costs nothing.
 constexpr int MAX_PIPES = 4;
 
@@ -82,6 +87,10 @@ struct Host {
   Pipe pipes[MAX_PIPES];
   Pipe control;
   SemaphoreHandle_t control_lock = nullptr;
+  // A restart asked for, and one under way: the port is off until restart_at.
+  volatile bool want_restart = false;
+  volatile bool restarting = false;
+  TickType_t restart_at = 0;
 };
 
 Host g_host;
@@ -518,6 +527,31 @@ void client_task(void *arg) {
     }
     if (g_host.open && g_host.gone && idle())
       close_device();
+
+    // A restart: the port goes off here, which the library turns into the
+    // dongle's departure like any unplugging, and comes back on once that
+    // dongle is closed and the port has been off for long enough.
+    if (g_host.want_restart) {
+      g_host.want_restart = false;
+      const esp_err_t err = usb_host_lib_set_root_port_power(false);
+      if (err == ESP_OK) {
+        g_host.restarting = true;
+        g_host.restart_at = xTaskGetTickCount() + pdMS_TO_TICKS(RESTART_OFF_MS);
+        ESP_LOGW(TAG, "the root port is switched off to restart the dongle");
+      } else {
+        ESP_LOGE(TAG, "the root port would not switch off (%s); the dongle is not restarted",
+                 esp_err_to_name(err));
+      }
+    }
+    if (g_host.restarting && !g_host.open && (int32_t) (xTaskGetTickCount() - g_host.restart_at) >= 0) {
+      g_host.restarting = false;
+      const esp_err_t err = usb_host_lib_set_root_port_power(true);
+      if (err == ESP_OK)
+        ESP_LOGI(TAG, "the root port is on again; the dongle enumerates anew");
+      else
+        ESP_LOGE(TAG, "the root port would not switch back on (%s); unplug the dongle and plug it "
+                      "in again", esp_err_to_name(err));
+    }
   }
 }
 
@@ -706,6 +740,15 @@ int usbh_submit_urb(struct usbh_urb *urb) {
   if (err < 0)
     return err;
   urb->actual_length = (int) urb->transfer_buffer_length;
+  return 0;
+}
+
+int idf_usb_restart_dongle(void) {
+  if (g_host.client == nullptr)
+    return -USB_ERR_NODEV;
+  if (g_host.want_restart || g_host.restarting)
+    return -USB_ERR_BUSY;
+  g_host.want_restart = true;
   return 0;
 }
 

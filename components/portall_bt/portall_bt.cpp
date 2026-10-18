@@ -35,7 +35,12 @@
 #endif
 
 #include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 #include "freertos/task.h"
+
+#include <atomic>
+
+#include "hci_ledger.h"
 
 namespace esphome {
 namespace portall_bt {
@@ -168,6 +173,7 @@ void PortallBT::loop() {
     this->report_(arrival.hub_index, arrival.hub_port);
   }
   this->say_if_nothing_arrived_();
+  this->transport_tick_();
   // Both live in hid.cpp. Input reports arrive on Bluedroid's task and an
   // ESPHome automation may not run there, so they are queued and fired from
   // here; the reconnection is here rather than in a task of its own because
@@ -834,6 +840,27 @@ void PortallBT::report_(uint8_t hub_index, uint8_t hub_port) {
 #endif
 
   if (hci_interface < 0) {
+    /* Said, rather than the silence this used to end in: a hub or a USB stick
+       in the socket listed its interfaces above and then nothing happened at
+       all, which reads exactly like a dongle that does not work. */
+    bool hub = hport->device_desc.bDeviceClass == 0x09;
+    for (uint8_t i = 0; i < interfaces; i++)
+      hub = hub || hport->config.intf[i].altsetting[0].intf_desc.bInterfaceClass == 0x09;
+    if (hub) {
+#ifdef HCI_USB_IDF
+      ESP_LOGW(TAG, "  this is a USB hub, and a dongle cannot be reached through it here: ESP-IDF's "
+                    "USB host has no transaction translator on an ESP32-P4 (so no full-speed device "
+                    "behind a hub on the high-speed controller -- its own documentation says so) and "
+                    "this build carries no hub support. Plug the dongle into the socket itself.");
+#else
+      ESP_LOGW(TAG, "  this is a USB hub. A dongle plugged into it is looked for when it arrives, but "
+                    "a dongle has only ever been proved plugged into the socket itself -- try that "
+                    "first.");
+#endif
+    } else {
+      ESP_LOGW(TAG, "  no interface here is a Bluetooth controller (subclass 01, protocol 01), so this "
+                    "is not a dongle; it is left alone");
+    }
     return;
   }
   if (vendor_class) {
@@ -1153,9 +1180,140 @@ struct HciLink {
   struct usb_endpoint_descriptor *acl_out;
   uint8_t intf;
   volatile bool up;
+  // Which dongle this is, counted from one. A send or a reader that started on
+  // the dongle before cannot end the one after it by failing late.
+  volatile uint32_t generation;
 };
 static HciLink g_link{};
 static const esp_bluedroid_hci_driver_callbacks_t *g_host_cb = nullptr;
+
+// ---------------------------------------------------------------------------
+// A controller that goes away, and comes back
+// ---------------------------------------------------------------------------
+//
+// hci_ledger.h says what Bluedroid does when a controller vanishes, which is
+// to wait for ever. From the moment the stack is up, this transport keeps the
+// ledger, answers for a controller that is gone, and hands the same dongle back
+// to Bluedroid when it returns -- told everything it had been told, so nothing
+// above this line has to know it was ever away.
+static HciLedger g_ledger;
+static SemaphoreHandle_t g_ledger_lock = nullptr;
+// Bluedroid is up and its controller is gone: everything it sends is answered
+// here and nothing reaches a dongle. Only once the stack is UP: during its own
+// startup Bluedroid parses every answer and asserts on one it cannot read, and
+// a panel that reboots is worse than a Bluetooth that waits.
+static volatile bool g_stack_up = false;
+static volatile bool g_away = false;
+static uint32_t g_answered_away = 0;
+static uint32_t g_acl_dropped_away = 0;
+// The readers still running. A dongle that comes back gets new ones, and they
+// must not share the frame buffers with the old ones for even one packet.
+static std::atomic<int> g_readers{0};
+
+// Answers for a controller that is not there, waiting for the LOOP to hand
+// them to Bluedroid -- never from inside hci_drv_send, which runs on
+// Bluedroid's own HCI task half way through sending the command being
+// answered. Room for the worst lost(): eight refused commands, four ended
+// operations and sixteen links.
+static uint8_t g_outbox[4096];
+static size_t g_outbox_used = 0;
+static uint32_t g_outbox_dropped = 0;
+
+// How long a controller that is still THERE may leave a command unanswered
+// before it is answered for. Bluedroid's own limit is eight seconds and all it
+// does then is log -- its one credit stays spent and Bluetooth stops for good,
+// which from a panel is a remote that does nothing until a restart.
+static constexpr uint32_t ANSWER_LIMIT_MS = 5000;
+
+// One command answered for is a dongle that dropped an answer. Two within a
+// minute is a dongle that has stopped, and with `transport: idf` it is
+// restarted from this side of the cable -- at most once every ten minutes, so
+// one that never recovers is not cycled for ever.
+static constexpr uint8_t RESTART_STRIKES = 2;
+static constexpr uint32_t STRIKE_WINDOW_MS = 60000;
+static constexpr uint32_t RESTART_SPACING_MS = 600000;
+
+static void ledger_lock() {
+  if (g_ledger_lock != nullptr)
+    xSemaphoreTake(g_ledger_lock, portMAX_DELAY);
+}
+static void ledger_unlock() {
+  if (g_ledger_lock != nullptr)
+    xSemaphoreGive(g_ledger_lock);
+}
+
+// With the ledger locked.
+static void outbox_put(const uint8_t *event, uint16_t len, void *arg) {
+  (void) arg;
+  if (g_outbox_used + 2u + len > sizeof(g_outbox)) {
+    g_outbox_dropped++;
+    return;
+  }
+  g_outbox[g_outbox_used] = (uint8_t) (len & 0xFF);
+  g_outbox[g_outbox_used + 1] = (uint8_t) (len >> 8);
+  memcpy(&g_outbox[g_outbox_used + 2], event, len);
+  g_outbox_used += 2u + len;
+}
+
+// From the loop. Bluedroid copies what it is handed (host_recv_pkt_cb in
+// hci_hal_h4.c, v5.5.5) and queues it for its own task, so one frame on the
+// stack is enough.
+static unsigned deliver_outbox() {
+  unsigned delivered = 0;
+  uint8_t frame[1 + 2 + 255];
+  while (true) {
+    ledger_lock();
+    if (g_outbox_used == 0) {
+      ledger_unlock();
+      break;
+    }
+    uint16_t len = (uint16_t) (g_outbox[0] | (g_outbox[1] << 8));
+    const size_t entry = 2u + len;
+    if (len > sizeof(frame) - 1)
+      len = (uint16_t) (sizeof(frame) - 1);
+    frame[0] = 0x04;  // H4: an event
+    memcpy(&frame[1], &g_outbox[2], len);
+    memmove(g_outbox, &g_outbox[entry], g_outbox_used - entry);
+    g_outbox_used -= entry;
+    ledger_unlock();
+    if (g_host_cb != nullptr && g_host_cb->notify_host_recv != nullptr)
+      g_host_cb->notify_host_recv(frame, (uint16_t) (len + 1));
+    delivered++;
+  }
+  return delivered;
+}
+
+// The dongle that `generation` names is gone. Every path that can notice --
+// either reader, or a send -- comes here, and only the first one for that
+// dongle says so; the ledger is asked every time, because a command can join
+// the waiting list between two of them.
+static void controller_lost(uint32_t generation, const char *noticed) {
+  ledger_lock();
+  if (generation != g_link.generation) {
+    ledger_unlock();
+    return;  // a dongle that has already been replaced
+  }
+  const bool first = g_link.up;
+  g_link.up = false;
+  unsigned answered = 0;
+  if (g_stack_up) {
+    g_away = true;
+    answered = g_ledger.lost(outbox_put, nullptr);
+  }
+  ledger_unlock();
+  if (!first)
+    return;
+  if (g_stack_up) {
+    ESP_LOGW(TAG, "the dongle is gone (%s). Bluetooth carries on without it: %u answer(s) given in "
+                  "its place, every link closed -- plug the same dongle back in and it is taken back "
+                  "without a restart",
+             noticed, answered);
+  } else {
+    ESP_LOGW(TAG, "the dongle stopped answering (%s) before Bluedroid had finished starting on it; "
+                  "only a restart of the panel gives it a controller again",
+             noticed);
+  }
+}
 
 // DMA touches these, so they go where CherryUSB puts its own, exactly like the
 // probe's. Separate from the probe's buffers because they are live at the same
@@ -1290,12 +1448,30 @@ static bool link_gone(int err) {
 // taken the bytes, which is what check_send_available() being unconditionally
 // true means: there is never a send in flight to wait for.
 static void hci_drv_send(uint8_t *data, uint16_t len) {
-  if (!g_link.up || data == nullptr || len < 2) {
+  if (data == nullptr || len < 2) {
     return;
   }
   const uint8_t kind = data[0];
   const uint8_t *body = data + 1;
   const uint16_t body_len = (uint16_t) (len - 1);
+
+  // One look, under the lock, at which dongle this goes to -- or whether it
+  // goes to none and is answered here.
+  ledger_lock();
+  if (!g_link.up) {
+    if (g_away && kind == H4_COMMAND) {
+      g_ledger.answer_for(body, body_len, outbox_put, nullptr);
+      g_answered_away++;
+    } else if (g_away && kind == H4_ACL) {
+      g_acl_dropped_away++;
+    }
+    ledger_unlock();
+    return;
+  }
+  const uint32_t generation = g_link.generation;
+  if (kind == H4_COMMAND)
+    g_ledger.note_sent(body, body_len, now_ms());
+  ledger_unlock();
 
   if (kind == H4_COMMAND) {
     if (body_len > sizeof(g_tx_cmd)) {
@@ -1318,7 +1494,7 @@ static void hci_drv_send(uint8_t *data, uint16_t len) {
         ESP_LOGE(TAG, "the dongle refused an HCI command (%d); further ones are counted only", err);
       }
       if (link_gone(err)) {
-        g_link.up = false;
+        controller_lost(generation, "an HCI command found it gone");
       }
     }
     return;
@@ -1337,7 +1513,7 @@ static void hci_drv_send(uint8_t *data, uint16_t len) {
         ESP_LOGE(TAG, "the dongle refused ACL data (%d); further ones are counted only", err);
       }
       if (link_gone(err)) {
-        g_link.up = false;
+        controller_lost(generation, "ACL data found it gone");
       }
     }
     return;
@@ -1359,7 +1535,10 @@ static void hci_drv_send(uint8_t *data, uint16_t len) {
 // notify_host_send_available() is never needed -- and never calling it from
 // inside send() also keeps this off the reentrant path back into Bluedroid's
 // own task.
-static bool hci_drv_check_send_available(void) { return g_link.up; }
+// And true while the controller is AWAY: Bluedroid holds what it cannot send
+// in queues that block it when they fill, so it is better answered here at
+// once than left to queue against a dongle that may never come back.
+static bool hci_drv_check_send_available(void) { return g_link.up || g_away; }
 
 static esp_err_t hci_drv_register_host_callback(
     const esp_bluedroid_hci_driver_callbacks_t *callback) {
@@ -1381,22 +1560,25 @@ static const esp_bluedroid_hci_driver_operations_t g_hci_ops = {
 // So a refusal is not an error to report, it is silence -- which is also why
 // the pause after one is short.
 static void hci_event_task(void *arg) {
+  const uint32_t generation = g_link.generation;
   uint32_t mps = USB_GET_MAXPACKETSIZE(g_link.events->wMaxPacketSize);
   if (mps == 0 || mps > sizeof(g_hci_pkt)) {
     ESP_LOGE(TAG, "the event endpoint says its packets are %u bytes, which will not fit",
              (unsigned) mps);
     g_link.up = false;
+    g_readers--;
     vTaskDelete(nullptr);
     return;
   }
   uint32_t filled = 0;
 
-  while (g_link.up) {
+  while (g_link.up && g_link.generation == generation) {
     usbh_int_urb_fill(&g_event_urb, g_link.hport, g_link.events, g_hci_pkt, mps, 1000, nullptr,
                       nullptr);
     const int err = usbh_submit_urb(&g_event_urb);
     if (err < 0) {
       if (link_gone(err)) {
+        controller_lost(generation, "its event endpoint is gone");
         break;
       }
       // Silence, not a lost frame: what has been read is kept.
@@ -1424,6 +1606,11 @@ static void hci_event_task(void *arg) {
     }
 
     say_frame("event", &g_rx_evt_frame[1], want);
+    // Noted before it is handed up, so the ledger never shows Bluedroid
+    // waiting on a command it has already been answered for.
+    ledger_lock();
+    g_ledger.note_received(&g_rx_evt_frame[1], (uint16_t) want);
+    ledger_unlock();
     g_rx_evt_frame[0] = H4_EVENT;
     if (g_host_cb != nullptr && g_host_cb->notify_host_recv != nullptr) {
       g_host_cb->notify_host_recv(g_rx_evt_frame, (uint16_t) (want + 1));
@@ -1431,9 +1618,7 @@ static void hci_event_task(void *arg) {
     filled = 0;
   }
 
-  g_link.up = false;
-  ESP_LOGW(TAG, "the dongle stopped answering; Bluedroid has no controller now, and only a restart "
-                "of the panel gives it one again");
+  g_readers--;
   vTaskDelete(nullptr);
 }
 
@@ -1442,21 +1627,24 @@ static void hci_event_task(void *arg) {
 // block and a reader cannot wait on two at once. btusb submits both at the
 // same time for the same reason.
 static void hci_acl_task(void *arg) {
+  const uint32_t generation = g_link.generation;
   uint32_t mps = USB_GET_MAXPACKETSIZE(g_link.acl_in->wMaxPacketSize);
   if (mps == 0 || mps > sizeof(g_rx_acl_pkt)) {
     ESP_LOGE(TAG, "the ACL endpoint says its packets are %u bytes, which will not fit",
              (unsigned) mps);
+    g_readers--;
     vTaskDelete(nullptr);
     return;
   }
   uint32_t filled = 0;
 
-  while (g_link.up) {
+  while (g_link.up && g_link.generation == generation) {
     usbh_bulk_urb_fill(&g_acl_in_urb, g_link.hport, g_link.acl_in, g_rx_acl_pkt, mps, 1000, nullptr,
                        nullptr);
     const int err = usbh_submit_urb(&g_acl_in_urb);
     if (err < 0) {
       if (link_gone(err)) {
+        controller_lost(generation, "its ACL endpoint is gone");
         break;
       }
       vTaskDelay(pdMS_TO_TICKS(5));
@@ -1493,7 +1681,31 @@ static void hci_acl_task(void *arg) {
     filled = 0;
   }
 
+  g_readers--;
   vTaskDelete(nullptr);
+}
+
+// The two readers, for the dongle g_link names now. False when even the event
+// reader could not be started, which leaves nothing to answer Bluedroid.
+static bool start_readers() {
+  g_readers++;
+  if (xTaskCreate(hci_event_task, "portall_bt_evt", 4096, nullptr, 6, nullptr) != pdPASS) {
+    g_readers--;
+    ESP_LOGE(TAG, "could not start the task that reads events, so nothing would answer Bluedroid");
+    return false;
+  }
+  if (g_link.acl_in != nullptr) {
+    g_readers++;
+    if (xTaskCreate(hci_acl_task, "portall_bt_acl", 4096, nullptr, 6, nullptr) != pdPASS) {
+      g_readers--;
+      // Events alone are enough to bring the stack up, so this costs the data
+      // path and not the milestone. An accessory must never cost the picture.
+      ESP_LOGW(TAG, "could not start the ACL reader; the stack will come up but carry no data");
+    }
+  } else {
+    ESP_LOGW(TAG, "this interface has no bulk IN endpoint, so no ACL data can arrive");
+  }
+  return true;
 }
 
 #endif  // CONFIG_BT_BLUEDROID_ENABLED
@@ -1511,27 +1723,27 @@ void PortallBT::start_host_stack_(struct usbh_hubport *hport, uint8_t intf,
     return;
   }
   if (this->stack_up_) {
-    /* A DONGLE PLUGGED IN AFTER BLUEDROID WAS STARTED ON ONE BEFORE IT -- the
-       same dongle pulled out and put back, or another. The probe above has
-       just answered for it, so from the log it looks like a dongle that works,
-       and it is one Bluedroid will never use: the stack was attached to the
-       controller that went away and cannot be handed a second while it runs.
-       It used to return here in silence, which read as Bluetooth working
-       while every speaker and controller stayed away for good. */
-    ESP_LOGE(TAG, "this dongle arrived after Bluetooth was already started on the one before it, "
-                  "and Bluedroid cannot take a second controller while it runs -- restart the panel "
-                  "to use it");
+    /* A DONGLE PLUGGED IN AFTER BLUEDROID WAS STARTED ON ONE BEFORE IT. This
+       used to be the end of Bluetooth until a restart, whichever dongle it
+       was; the same one coming back is now taken back. See rejoin_(). */
+    this->rejoin_(hport, intf, events, acl_in, acl_out);
     return;
   }
 #ifdef CONFIG_BT_BLUEDROID_ENABLED
+  if (g_ledger_lock == nullptr)
+    g_ledger_lock = xSemaphoreCreateMutex();
   g_link.hport = hport;
   g_link.intf = intf;
   g_link.events = events;
   g_link.acl_in = acl_in;
   g_link.acl_out = acl_out;
+  g_link.generation++;
   g_link.up = true;
   g_acl_in_urb = usbh_urb{};
   g_acl_out_urb = usbh_urb{};
+  // Everything Bluedroid tells this controller from here until it is up is
+  // its bring-up, and a controller that comes back is brought up the same way.
+  g_ledger.set_recording_startup(true);
 
   esp_err_t err = esp_bluedroid_attach_hci_driver(&g_hci_ops);
   if (err != ESP_OK) {
@@ -1540,19 +1752,9 @@ void PortallBT::start_host_stack_(struct usbh_hubport *hport, uint8_t intf,
     return;
   }
 
-  if (xTaskCreate(hci_event_task, "portall_bt_evt", 4096, nullptr, 6, nullptr) != pdPASS) {
-    ESP_LOGE(TAG, "could not start the task that reads events, so nothing would answer Bluedroid");
+  if (!start_readers()) {
     g_link.up = false;
     return;
-  }
-  if (acl_in != nullptr) {
-    if (xTaskCreate(hci_acl_task, "portall_bt_acl", 4096, nullptr, 6, nullptr) != pdPASS) {
-      // Events alone are enough to bring the stack up, so this costs the data
-      // path and not the milestone. An accessory must never cost the picture.
-      ESP_LOGW(TAG, "could not start the ACL reader; the stack will come up but carry no data");
-    }
-  } else {
-    ESP_LOGW(TAG, "this interface has no bulk IN endpoint, so no ACL data can arrive");
   }
 
   err = esp_bluedroid_init();
@@ -1572,6 +1774,8 @@ void PortallBT::start_host_stack_(struct usbh_hubport *hport, uint8_t intf,
   }
 
   this->stack_up_ = true;
+  g_stack_up = true;
+  memcpy(this->stack_addr_, this->probed_addr_, sizeof(this->stack_addr_));
   ESP_LOGI(TAG, "Bluedroid is ENABLED on a USB dongle -- a Classic host on a chip with no radio");
 
   // The proof, and it costs one line: this address comes out of Bluedroid,
@@ -1590,6 +1794,11 @@ void PortallBT::start_host_stack_(struct usbh_hubport *hport, uint8_t intf,
   // enable(), because every one of those calls refuses with
   // ESP_ERR_INVALID_STATE while the stack is not enabled.
   this->start_profiles_();
+  // What the profiles set from here on -- the class of device, the name,
+  // whether the panel can be paged -- is kept as a setting, latest value.
+  ledger_lock();
+  g_ledger.set_recording_startup(false);
+  ledger_unlock();
 #else
   (void) hport;
   (void) intf;
@@ -1597,6 +1806,221 @@ void PortallBT::start_host_stack_(struct usbh_hubport *hport, uint8_t intf,
   (void) acl_in;
   (void) acl_out;
   ESP_LOGE(TAG, "host_stack: bluedroid was asked for and CONFIG_BT_BLUEDROID_ENABLED is not set");
+#endif
+}
+
+static void format_addr(const uint8_t *addr, char *out, size_t room) {
+  snprintf(out, room, "%02X:%02X:%02X:%02X:%02X:%02X", addr[0], addr[1], addr[2], addr[3], addr[4],
+           addr[5]);
+}
+
+/* The same dongle, back. Pulled out and put in again, knocked loose, or one
+ * that reset itself and enumerated anew: before this, any of them was the end
+ * of Bluetooth until somebody restarted the panel, because Bluedroid was left
+ * waiting on a controller that no longer existed (hci_ledger.h says how).
+ *
+ * While it was away Bluedroid was answered in its place, so all that is left
+ * is to bring the controller to where the old one was and hand it over. It is
+ * told everything Bluedroid told the one before -- the whole bring-up, then
+ * the latest value of every setting since -- through the probe's own command
+ * and event path, before any reader task exists, so no answer to a setting is
+ * ever mistaken for an answer Bluedroid is waiting for. A setting Bluedroid
+ * changes while that runs is caught by the ledger's change count, and the
+ * telling starts again.
+ *
+ * A DIFFERENT dongle is refused. Bluedroid read the first one's address when
+ * it started and keeps it, every pairing was made with it, and a controller
+ * with another address under the same stack would fail every one of them --
+ * so that still takes a restart, and the line says which two addresses
+ * disagree. */
+void PortallBT::rejoin_(struct usbh_hubport *hport, uint8_t intf, struct usb_endpoint_descriptor *events,
+                        struct usb_endpoint_descriptor *acl_in, struct usb_endpoint_descriptor *acl_out) {
+#ifdef CONFIG_BT_BLUEDROID_ENABLED
+  if (!g_away) {
+    ESP_LOGW(TAG, "a second dongle answered while Bluetooth is running on the first one; it is left "
+                  "alone -- one dongle at a time");
+    return;
+  }
+  char now_addr[18] = "unknown";
+  char was_addr[18];
+  if (this->probed_addr_ok_)
+    format_addr(this->probed_addr_, now_addr, sizeof(now_addr));
+  format_addr(this->stack_addr_, was_addr, sizeof(was_addr));
+  if (!this->probed_addr_ok_ || memcmp(this->probed_addr_, this->stack_addr_, 6) != 0) {
+    ESP_LOGE(TAG, "this dongle (%s) is not the one Bluetooth was started on (%s): Bluedroid keeps that "
+                  "one's address and every pairing was made with it -- restart the panel to use this "
+                  "one, or plug the first one back in",
+             now_addr, was_addr);
+    return;
+  }
+
+  // The old readers first. A reader that is still on its way out shares the
+  // frame buffers the new ones are about to fill.
+  for (int waited = 0; waited < 300 && g_readers.load() > 0; waited++)
+    vTaskDelay(pdMS_TO_TICKS(10));
+  if (g_readers.load() > 0) {
+    ESP_LOGE(TAG, "the dongle is back but the tasks reading the one that went have not stopped; "
+                  "restart the panel");
+    return;
+  }
+
+  uint8_t cmd[3 + 255];
+  for (uint8_t round = 1; round <= 3; round++) {
+    ledger_lock();
+    const uint32_t seen = g_ledger.changes();
+    const size_t count = g_ledger.kept();
+    ledger_unlock();
+
+    unsigned told = 0, refused = 0, silent = 0;
+    for (size_t i = 0; i < count; i++) {
+      ledger_lock();
+      const uint16_t n = g_ledger.kept_command(i, cmd);
+      ledger_unlock();
+      if (n < 3)
+        break;
+      const uint16_t opcode = (uint16_t) (cmd[0] | (cmd[1] << 8));
+      if (hci_command(hport, intf, opcode, &cmd[3], cmd[2]) < 0) {
+        silent++;
+        if (!hport->connected) {
+          ESP_LOGW(TAG, "the dongle went again while it was being given its settings back");
+          return;
+        }
+        continue;
+      }
+      Waited saw;
+      const int got = hci_await(hport, events, opcode, 1500, &saw);
+      if (got < 0)
+        silent++;
+      else if (got >= 6 && g_hci_evt[5] != 0)
+        refused++;
+      else
+        told++;
+    }
+
+    // Handed over in the same breath as the check, under the lock: a setting
+    // given after this line goes to the new dongle, one given before it was
+    // just told -- unless it changed while this ran, and then it is all said
+    // again.
+    ledger_lock();
+    if (g_ledger.changes() != seen) {
+      ledger_unlock();
+      continue;
+    }
+    g_link.hport = hport;
+    g_link.intf = intf;
+    g_link.events = events;
+    g_link.acl_in = acl_in;
+    g_link.acl_out = acl_out;
+    g_link.generation++;
+    g_acl_in_urb = usbh_urb{};
+    g_acl_out_urb = usbh_urb{};
+    g_link.up = true;
+    g_away = false;
+    const uint32_t answered = g_answered_away;
+    ledger_unlock();
+
+    if (!start_readers()) {
+      controller_lost(g_link.generation, "its reader could not be started");
+      return;
+    }
+    if (g_host_cb != nullptr && g_host_cb->notify_host_send_available != nullptr)
+      g_host_cb->notify_host_send_available();
+    ESP_LOGI(TAG, "the dongle %s is back, and Bluetooth carries on without a restart: told it %u "
+                  "setting(s) again (%u refused, %u unanswered); %u command(s) were answered in its "
+                  "place while it was away",
+             now_addr, told, refused, silent, (unsigned) answered);
+    this->reconnect_soon_();
+    return;
+  }
+  ESP_LOGE(TAG, "the dongle is back, but Bluedroid kept changing its settings while they were being "
+                "given back; it stays unused -- unplug it and plug it in again");
+#else
+  (void) hport;
+  (void) intf;
+  (void) events;
+  (void) acl_in;
+  (void) acl_out;
+#endif
+}
+
+/* A dongle that has stopped answering. With `transport: idf` it is restarted:
+ * its USB port goes off and on (idf_usb_restart_dongle()), the dongle leaves
+ * the bus -- which is answered for, like any unplugging -- and enumerates
+ * anew, and rejoin_() hands it back to Bluedroid. CherryUSB has no way to do
+ * that from here, so with it the line says what a person can do instead. */
+void PortallBT::restart_mute_dongle_(uint32_t at) {
+#if defined(CONFIG_BT_BLUEDROID_ENABLED) && defined(HCI_USB_IDF)
+  if (this->restarted_ever_ && at - this->restarted_ms_ < RESTART_SPACING_MS) {
+    ESP_LOGW(TAG, "the dongle has stopped answering again, and was restarted %u s ago; it is left "
+                  "as it is -- unplug it and plug it back in",
+             (unsigned) ((at - this->restarted_ms_) / 1000));
+    return;
+  }
+  if (idf_usb_restart_dongle() == 0) {
+    this->restarted_ever_ = true;
+    this->restarted_ms_ = at;
+    ESP_LOGW(TAG, "the dongle has stopped answering: restarting it -- its USB port is switched off "
+                  "and on again, and Bluetooth carries on once it is back");
+  }
+#elif defined(CONFIG_BT_BLUEDROID_ENABLED)
+  (void) at;
+  if (!this->said_cannot_restart_) {
+    this->said_cannot_restart_ = true;
+    ESP_LOGW(TAG, "the dongle has stopped answering, and CherryUSB cannot restart it from here: "
+                  "unplug it and plug it back in, or use `transport: idf`, which restarts it by itself");
+  }
+#else
+  (void) at;
+#endif
+}
+
+/* From the loop, once Bluetooth is up. Two jobs, both about a controller
+ * Bluedroid cannot see past:
+ *
+ *  - the answers given in place of a controller that is gone are handed over
+ *    here, on the loop's task, after the send each one answers;
+ *  - and a controller that is still THERE but has not answered a command in
+ *    ANSWER_LIMIT_MS is answered for. Bluedroid would wait for ever on it with
+ *    its one credit spent -- every speaker, controller and remote silent until
+ *    a restart, with nothing in the log after one line about a timeout. */
+void PortallBT::transport_tick_() {
+#ifdef CONFIG_BT_BLUEDROID_ENABLED
+  if (!this->stack_up_)
+    return;
+  uint16_t first = 0;
+  unsigned late = 0;
+  ledger_lock();
+  if (g_link.up)
+    late = g_ledger.overdue(now_ms(), ANSWER_LIMIT_MS, outbox_put, nullptr, &first);
+  const uint32_t overflowed = g_ledger.overflowed();
+  const uint32_t dropped = g_outbox_dropped;
+  ledger_unlock();
+  if (late != 0) {
+    this->unanswered_ += late;
+    ESP_LOGE(TAG, "the dongle has not answered command %04x in %u s; answered for it so Bluetooth "
+                  "does not stop (%u time(s) so far)",
+             first, (unsigned) (ANSWER_LIMIT_MS / 1000), (unsigned) this->unanswered_);
+    const uint32_t at = now_ms();
+    if (this->strikes_ == 0 || at - this->first_strike_ms_ > STRIKE_WINDOW_MS) {
+      this->strikes_ = 0;
+      this->first_strike_ms_ = at;
+    }
+    this->strikes_ = (uint8_t) (this->strikes_ + late);
+    if (this->strikes_ >= RESTART_STRIKES) {
+      this->strikes_ = 0;
+      this->restart_mute_dongle_(at);
+    }
+  }
+  deliver_outbox();
+  if (overflowed != 0 && !this->said_ledger_full_) {
+    this->said_ledger_full_ = true;
+    ESP_LOGW(TAG, "more controller settings than the ledger holds; a dongle that comes back would "
+                  "miss %u of them", (unsigned) overflowed);
+  }
+  if (dropped != 0 && !this->said_outbox_full_) {
+    this->said_outbox_full_ = true;
+    ESP_LOGE(TAG, "%u answer(s) for an absent dongle did not fit and were not given", (unsigned) dropped);
+  }
 #endif
 }
 
@@ -1613,6 +2037,7 @@ void PortallBT::probe_hci(uint8_t hub_index, uint8_t hub_port, uint8_t intf_inde
   // this talking HCI to the voice channel.
   struct usbh_interface_altsetting *alt = &hport->config.intf[intf_index].altsetting[0];
   const uint8_t intf = alt->intf_desc.bInterfaceNumber;
+  this->probed_addr_ok_ = false;
 
   // Events arrive on the interrupt IN endpoint. Finding it by its attributes
   // rather than by its number, because a number is a convention and these
@@ -1779,6 +2204,11 @@ void PortallBT::probe_hci(uint8_t hub_index, uint8_t hub_port, uint8_t intf_inde
     // Little-endian on the wire, printed the way everybody writes it.
     ESP_LOGI(TAG, "  address %02X:%02X:%02X:%02X:%02X:%02X", g_hci_evt[11], g_hci_evt[10],
              g_hci_evt[9], g_hci_evt[8], g_hci_evt[7], g_hci_evt[6]);
+    // Kept, written the way it is printed: it is what says whether a dongle
+    // that comes back is the one Bluetooth was started on.
+    for (uint8_t i = 0; i < 6; i++)
+      this->probed_addr_[i] = g_hci_evt[11 - i];
+    this->probed_addr_ok_ = true;
   }
 
   len = hci_ask(hport, intf, events, HCI_READ_LOCAL_NAME, "Read Local Name", 1500);

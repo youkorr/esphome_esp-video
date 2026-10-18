@@ -69,6 +69,16 @@ int xTaskCreate(void (*)(void *), const char *, unsigned, void *, unsigned, Task
 void vTaskDelete(TaskHandle_t) {}
 unsigned xTaskGetTickCount(void) { return 0; }
 void vTaskDelay(unsigned) {}
+// One thread, so a lock that always succeeds is a lock. tools/idfusbtest/
+// rtos.cpp has the real ones, on real threads.
+struct SemaphoreStandIn {
+  int unused;
+};
+static SemaphoreStandIn g_semaphore_stand_in;
+SemaphoreHandle_t xSemaphoreCreateBinary(void) { return &g_semaphore_stand_in; }
+SemaphoreHandle_t xSemaphoreCreateMutex(void) { return &g_semaphore_stand_in; }
+BaseType_t xSemaphoreGive(SemaphoreHandle_t) { return pdTRUE; }
+BaseType_t xSemaphoreTake(SemaphoreHandle_t, TickType_t) { return pdTRUE; }
 #endif
 // The microsecond clock a speaker stamps its played-frame reports with.
 int64_t g_now_us = 0;
