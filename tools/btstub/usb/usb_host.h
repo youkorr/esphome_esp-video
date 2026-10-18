@@ -63,6 +63,7 @@ typedef struct {
 
 esp_err_t usb_host_install(const usb_host_config_t *config);
 esp_err_t usb_host_lib_handle_events(TickType_t timeout_ticks, uint32_t *event_flags_ret);
+esp_err_t usb_host_lib_set_root_port_power(bool enable);
 esp_err_t usb_host_client_register(const usb_host_client_config_t *client_config,
                                    usb_host_client_handle_t *client_hdl_ret);
 esp_err_t usb_host_client_handle_events(usb_host_client_handle_t client_hdl, TickType_t timeout_ticks);

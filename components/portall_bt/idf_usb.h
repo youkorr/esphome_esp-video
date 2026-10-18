@@ -42,10 +42,18 @@
  *   - Claiming an interface sends nothing to the device. usbh_set_interface()
  *     claims, then sends SET_INTERFACE itself, which is what CherryUSB's does.
  *
+ * And one thing CherryUSB cannot do, which is the reason this layer is more
+ * than a replacement: it can RESTART the dongle from this side of the cable.
+ * See idf_usb_restart_dongle() below.
+ *
  * Not carried, as with CherryUSB: isochronous transfers (SCO), and a dongle
- * behind a hub. NOTHING HERE HAS RUN ON A BOARD. tools/checkidfusb.py runs it
- * on a workstation, against a stand-in for the library and a simulated
- * dongle, with portall_bt's own probe on top. */
+ * behind a hub -- which on an ESP32-P4's high-speed controller ESP-IDF could
+ * not reach anyway: its USB host documentation lists "No Transaction
+ * Translator layer (No FS/LS Devices support when a Hub is attached to HS
+ * Host)", and every Bluetooth dongle is a full-speed device. NOTHING HERE HAS
+ * RUN ON A BOARD. tools/checkidfusb.py runs it on a workstation, against a
+ * stand-in for the library and a simulated dongle, with portall_bt's own
+ * probe on top. */
 
 #include <cstddef>
 #include <cstdint>
@@ -260,3 +268,21 @@ struct usbh_hubport *usbh_find_hubport(uint8_t busid, uint8_t hub_index, uint8_t
 int usbh_set_interface(struct usbh_hubport *hport, uint8_t intf, uint8_t altsetting);
 int usbh_control_transfer(struct usbh_hubport *hport, struct usb_setup_packet *setup, uint8_t *buffer);
 int usbh_submit_urb(struct usbh_urb *urb);
+
+/* A tenth call, with no CherryUSB name because CherryUSB has nothing like it.
+ *
+ * Switches the root port off and, half a second later, on again: the dongle
+ * leaves the bus and enumerates anew, with the bus reset that comes with it.
+ * Linux does the same to a controller that stops answering commands
+ * (btusb_reset(), usb_queue_reset_device()) and its stack takes the new
+ * device as a new adapter. Here it is portall_bt's rejoin that makes it worth
+ * doing: the dongle that comes back is handed to the Bluedroid that was
+ * waiting for it, with nothing restarted but the dongle.
+ *
+ * Whether the dongle loses its POWER depends on the board, not on this call:
+ * ESP-IDF stops driving the port (hcd_dwc.c, _port_cmd_power_off), and a
+ * socket whose 5 V comes from a switch of its own stays powered. So it is a
+ * restart of the USB side, and of the controller only as far as a bus reset
+ * restarts it. Returns 0 when asked, -USB_ERR_BUSY while one is still under
+ * way, -USB_ERR_NODEV before usbh_initialize(). */
+int idf_usb_restart_dongle(void);

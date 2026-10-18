@@ -16,14 +16,19 @@ namespace fake {
 enum class Dongle {
   BROADCOM,     // BCM20702A1: vendor class ff/01/01, Bluetooth 4.0, answers from ROM
   REALTEK_ROM,  // TP-Link UB500, RTL8761BU: e0/01/01, waits for its firmware
+  HUB,          // a USB 2.0 hub: class 09, and no Bluetooth at all
 };
 
 void use(Dongle dongle);
 void plug();
 void unplug();
+// How many times ESP-IDF's root port was switched off.
+unsigned restarts();
 
 // A command's answer arrives this many milliseconds after the command does.
 void set_latency(uint16_t opcode, uint32_t ms);
+// This command is taken and never answered, while everything after it is.
+void set_swallowed(uint16_t opcode);
 // The inquiry is acknowledged and then never reports anything.
 void set_silent_inquiry(bool on);
 // The next transfer to complete on this IN endpoint ends with `status`, and
@@ -37,6 +42,8 @@ void queue_event(const std::vector<uint8_t> &event);
 void set_acl_loopback(bool on);
 
 std::vector<uint16_t> commands();
+// Every command whole: opcode, length, parameters.
+std::vector<std::vector<uint8_t>> command_bytes();
 std::vector<std::vector<uint8_t>> acl_out();
 std::vector<std::vector<uint8_t>> rtl_fragments();
 unsigned peripheral_map();

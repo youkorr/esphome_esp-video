@@ -28,6 +28,21 @@
 //               that will not finish is cancelled, an error is cleared, and a
 //               dongle pulled out under a read leaves nothing stale behind
 //               for the next one
+//   rejoin      Bluedroid up on a dongle with a link open and a command
+//               waiting; the dongle is pulled out. Bluedroid must get its
+//               answer, its link closed and its credit back, be answered while
+//               the dongle is away, and have the SAME dongle back -- told its
+//               settings again, latest value each -- with no restart
+//   other       the same, and a DIFFERENT dongle plugged in: refused, naming
+//               both addresses, and Bluedroid still answered in its place
+//   watchdog    a dongle that is there and never answers one command: it is
+//               answered for after five seconds, and Bluetooth carries on
+//   hub         a USB hub in the socket: said to be one, with why a dongle
+//               cannot be reached through it, and the dongle plugged in
+//               afterwards is probed as usual
+//   restart     a dongle that stops answering altogether: after the second
+//               command answered for, the layer switches its USB port off and
+//               on, and the dongle that enumerates again is taken back
 //
 // Checks print as "  ok" or "  ECHEC" and the exit status is the count.
 #define private public
@@ -45,8 +60,10 @@
 
 #include "fakehost.h"
 
+#include <algorithm>
 #include <chrono>
 #include <cstdlib>
+#include <cstring>
 #include <fcntl.h>
 #include <mutex>
 #include <string>
@@ -95,6 +112,23 @@ static std::string log_text() {
 
 static bool has(const std::string &needle) { return log_text().find(needle) != std::string::npos; }
 
+// One line of the log that says both: a check that two things were said
+// TOGETHER, which two lines anywhere in the log would pass by accident.
+static bool line_has(const std::string &a, const std::string &b) {
+  const std::string text = log_text();
+  size_t start = 0;
+  while (start < text.size()) {
+    size_t end = text.find('\n', start);
+    if (end == std::string::npos)
+      end = text.size();
+    const std::string line = text.substr(start, end - start);
+    if (line.find(a) != std::string::npos && line.find(b) != std::string::npos)
+      return true;
+    start = end + 1;
+  }
+  return false;
+}
+
 static void sleep_ms(uint32_t ms) { std::this_thread::sleep_for(std::chrono::milliseconds(ms)); }
 
 // Runs the component's loop() until the log says `needle`, or gives up.
@@ -129,11 +163,103 @@ static std::vector<std::vector<uint8_t>> g_rx;
 static bool g_reset_answered = false;
 static bool g_acl_echoed = false;
 
+// Bluedroid's own bookkeeping, as bluedroid/hci/hci_layer.c keeps it at
+// v5.5.5: ONE credit to start with, spent by every command sent, given back
+// only by a Command Complete or a Command Status -- which also takes the
+// command off the list of those waiting. An answer for a command nobody is
+// waiting for is what hci_layer.c warns about as "no matching command".
+static int g_credits = 1;
+static std::vector<uint16_t> g_waiting;
+static unsigned g_unmatched = 0;
+static PortallBT *g_bt = nullptr;
+
+// What enable() does: `bluedroid` sends a reset and some ACL as it always did;
+// `startup` brings a controller up the way Bluedroid does, settings and all.
+enum class Host { BASIC, STARTUP };
+static Host g_host_mode = Host::BASIC;
+
 static int host_recv(uint8_t *data, uint16_t len) {
   std::lock_guard<std::mutex> lock(g_rx_m);
   g_rx.emplace_back(data, data + len);
+  if (len >= 7 && data[0] == 0x04 && (data[1] == 0x0E || data[1] == 0x0F)) {
+    const bool complete = data[1] == 0x0E;
+    g_credits = complete ? data[3] : data[4];
+    const uint16_t opcode = complete ? (uint16_t) (data[4] | (data[5] << 8)) : (uint16_t) (data[5] | (data[6] << 8));
+    bool matched = false;
+    for (size_t i = 0; i < g_waiting.size(); i++) {
+      if (g_waiting[i] == opcode) {
+        g_waiting.erase(g_waiting.begin() + (long) i);
+        matched = true;
+        break;
+      }
+    }
+    if (!matched && opcode != 0)
+      g_unmatched++;
+  }
   return 0;
 }
+
+static size_t rx_mark() {
+  std::lock_guard<std::mutex> lock(g_rx_m);
+  return g_rx.size();
+}
+
+// The first frame since `mark` that starts with `head`, or an empty one.
+static std::vector<uint8_t> rx_since(size_t mark, const std::vector<uint8_t> &head) {
+  std::lock_guard<std::mutex> lock(g_rx_m);
+  for (size_t i = mark; i < g_rx.size(); i++)
+    if (g_rx[i].size() >= head.size() && std::equal(head.begin(), head.end(), g_rx[i].begin()))
+      return g_rx[i];
+  return {};
+}
+
+static bool waiting_on(uint16_t opcode) {
+  std::lock_guard<std::mutex> lock(g_rx_m);
+  for (uint16_t op : g_waiting)
+    if (op == opcode)
+      return true;
+  return false;
+}
+
+static int credits() {
+  std::lock_guard<std::mutex> lock(g_rx_m);
+  return g_credits;
+}
+
+static void sleep_ms(uint32_t ms);
+
+// Waits, turning the component's loop if asked: an answer given in place of
+// a dongle that is gone reaches Bluedroid from the loop, never from a send.
+static bool settle(bool (*done)(), uint32_t ms, bool turn_loop) {
+  for (uint32_t waited = 0; waited < ms; waited += 10) {
+    if (turn_loop && g_bt != nullptr)
+      g_bt->loop();
+    if (done())
+      return true;
+    sleep_ms(10);
+  }
+  return done();
+}
+
+// A command from Bluedroid: it needs a credit, and spends it.
+static uint16_t g_last_sent = 0;
+static bool g_turn_loop = false;
+static bool host_send(uint16_t opcode, const std::vector<uint8_t> &params) {
+  if (!settle([] { return credits() > 0; }, 6000, g_turn_loop))
+    return false;
+  std::vector<uint8_t> h4 = {0x01, (uint8_t) (opcode & 0xFF), (uint8_t) (opcode >> 8), (uint8_t) params.size()};
+  h4.insert(h4.end(), params.begin(), params.end());
+  {
+    std::lock_guard<std::mutex> lock(g_rx_m);
+    g_credits--;
+    g_waiting.push_back(opcode);
+  }
+  g_last_sent = opcode;
+  g_ops->send(h4.data(), (uint16_t) h4.size());
+  return true;
+}
+
+static bool last_answered() { return !waiting_on(g_last_sent); }
 static void host_send_available() {}
 static const esp_bluedroid_hci_driver_callbacks_t g_callbacks = {host_send_available, host_recv};
 
@@ -159,10 +285,36 @@ esp_err_t esp_bluedroid_attach_hci_driver(const esp_bluedroid_hci_driver_operati
   return ESP_OK;
 }
 
+static const std::vector<uint8_t> EVENT_MASK = {0xFF, 0xFF, 0xFB, 0xFF, 0x07, 0xF8, 0xBF, 0x3D};
+static const std::vector<uint8_t> CLASS_OF_DEVICE = {0x14, 0x04, 0x24};
+static std::vector<uint8_t> local_name() {
+  std::vector<uint8_t> name(248, 0x00);
+  memcpy(name.data(), "Salon", 5);
+  return name;
+}
+
+// What controller.c and btm_devctl.c do to a controller while Bluedroid
+// starts, in miniature: every command waits for its answer before the next.
+static bool g_startup_answered = false;
+static void bring_up() {
+  bool all = true;
+  const std::pair<uint16_t, std::vector<uint8_t>> steps[] = {
+      {0x0C03, {}}, {0x0C01, EVENT_MASK}, {0x0C24, CLASS_OF_DEVICE}, {0x0C13, local_name()}, {0x0C1A, {0x02}},
+  };
+  for (const auto &step : steps) {
+    all = all && host_send(step.first, step.second) && settle(last_answered, 3000, false);
+  }
+  g_startup_answered = all;
+}
+
 esp_err_t esp_bluedroid_enable(void) {
   if (g_ops == nullptr)
     return ESP_FAIL;
   g_ops->register_host_callback(&g_callbacks);
+  if (g_host_mode == Host::STARTUP) {
+    bring_up();
+    return ESP_OK;
+  }
   uint8_t reset[] = {0x01, 0x03, 0x0C, 0x00};
   g_ops->send(reset, sizeof(reset));
   g_reset_answered = wait_received({0x04, 0x0E, 0x04, 0x01, 0x03, 0x0C, 0x00}, 3000);
@@ -405,6 +557,219 @@ static void layer() {
      "and its first read is its own, not what the last one left behind");
 }
 
+// ---------------------------------------------------------------------------
+// The dongle goes away and comes back
+// ---------------------------------------------------------------------------
+
+static const std::vector<uint8_t> SPEAKER = {0xDD, 0x88, 0x8A, 0x1C, 0xE8, 0x46};
+
+static std::vector<uint8_t> page_params() {
+  std::vector<uint8_t> p = SPEAKER;
+  p.insert(p.end(), {0x18, 0xCC, 0x01, 0x00, 0x00, 0x00, 0x01});
+  return p;
+}
+
+// Up, with a setting changed after startup, a link open and one command the
+// dongle will never answer. What `rejoin` and `other` both start from.
+static PortallBT *up_with_a_link() {
+  fake::use(fake::Dongle::BROADCOM);
+  fake::set_acl_loopback(true);
+  g_host_mode = Host::STARTUP;
+  PortallBT *bt = make(true, 0, true);
+  g_bt = bt;
+  fake::plug();
+  run_until(bt, "Bluedroid is ENABLED", 20000);
+  g_turn_loop = true;
+  ok(g_startup_answered, "Bluedroid's startup is answered, command by command");
+
+  host_send(0x0C1A, {0x03});
+  ok(settle(last_answered, 3000, true), "a setting changed after startup is answered by the dongle");
+  const size_t mark = rx_mark();
+  host_send(0x0405, page_params());
+  settle([] { return !rx_since(0, {0x04, 0x03, 0x0B, 0x00, 0x0B, 0x00}).empty(); }, 3000, true);
+  ok(!rx_since(mark, {0x04, 0x03, 0x0B, 0x00, 0x0B, 0x00}).empty(), "a link comes up: handle 000b");
+  fake::set_latency(0x1405, 600000);
+  host_send(0x1405, {0x0B, 0x00});
+  return bt;
+}
+
+static bool s_gone() { return has("the dongle is gone"); }
+
+static void rejoin() {
+  PortallBT *bt = up_with_a_link();
+  const size_t sent_before = fake::command_bytes().size();
+  const size_t mark = rx_mark();
+  fake::unplug();
+
+  ok(settle(last_answered, 5000, true), "the command the dongle took with it is answered for");
+  const auto rssi = rx_since(mark, {0x04, 0x0E});
+  ok(rssi.size() > 7 && rssi[4] == 0x05 && rssi[5] == 0x14 && rssi[6] == 0x0C,
+     "refused, as Read RSSI's own Command Complete (status 0c)");
+  ok(!rx_since(mark, {0x04, 0x05, 0x04, 0x00, 0x0B, 0x00, 0x08}).empty(),
+     "the link is closed: Disconnection Complete, handle 000b, connection timeout");
+  ok(credits() == 1, "and Bluedroid has its credit back");
+  ok(settle(s_gone, 2000, true), "the log says the dongle is gone and Bluetooth carries on");
+
+  // While it is away.
+  size_t away = rx_mark();
+  host_send(0x0405, page_params());
+  settle(last_answered, 3000, true);
+  ok(!rx_since(away, {0x04, 0x0F, 0x04, 0x0C, 0x01, 0x05, 0x04}).empty(),
+     "a page asked for while it is away is refused at once, with a Command Status");
+  // Not paged at all: a value neither the startup (02) nor the change after it
+  // (03) gave, so the dongle that comes back can only have it from the ledger.
+  away = rx_mark();
+  host_send(0x0C1A, {0x00});
+  settle(last_answered, 3000, true);
+  ok(!rx_since(away, {0x04, 0x0E, 0x04, 0x01, 0x1A, 0x0C, 0x00}).empty(),
+     "a setting asked for while it is away is told yes");
+  ok(fake::command_bytes().size() == sent_before, "and nothing reached a dongle while there was none");
+  ok(credits() == 1 && g_unmatched == 0, "every answer matched a command Bluedroid was waiting on");
+
+  // Back.
+  fake::plug();
+  ok(run_until(bt, "is back, and Bluetooth carries on without a restart", 20000),
+     "the same dongle plugged back in is taken back, with no restart");
+  const auto all = fake::command_bytes();
+  std::vector<std::vector<uint8_t>> since(all.begin() + (long) sent_before, all.end());
+  auto find = [&](const std::vector<uint8_t> &cmd) -> long {
+    for (size_t i = 0; i < since.size(); i++)
+      if (since[i] == cmd)
+        return (long) i;
+    return -1;
+  };
+  auto has_opcode = [&](uint16_t op) {
+    for (const auto &c : since)
+      if (c.size() >= 2 && (uint16_t) (c[0] | (c[1] << 8)) == op)
+        return true;
+    return false;
+  };
+  std::vector<uint8_t> mask = {0x01, 0x0C, 0x08};
+  mask.insert(mask.end(), EVENT_MASK.begin(), EVENT_MASK.end());
+  std::vector<uint8_t> cod = {0x24, 0x0C, 0x03};
+  cod.insert(cod.end(), CLASS_OF_DEVICE.begin(), CLASS_OF_DEVICE.end());
+  std::vector<uint8_t> name = {0x13, 0x0C, 0xF8};
+  const auto n = local_name();
+  name.insert(name.end(), n.begin(), n.end());
+  const long at_mask = find(mask), at_cod = find(cod), at_name = find(name), at_scan = find({0x1A, 0x0C, 0x01, 0x00});
+  ok(at_mask >= 0 && at_cod >= 0 && at_name >= 0, "it is told its event mask, class and name again");
+  ok(at_scan >= 0 && find({0x1A, 0x0C, 0x01, 0x03}) < 0 && find({0x1A, 0x0C, 0x01, 0x02}) < 0,
+     "and whether it can be paged at the value set while it was away, and that value only");
+  ok(at_mask < at_cod && at_cod < at_name && at_name < at_scan, "in the order Bluedroid first gave them");
+  ok(!has_opcode(0x0405) && !has_opcode(0x1405), "but not the page or the read: those were activities, not settings");
+  size_t resets = 0;
+  for (const auto &c : since)
+    if (c.size() >= 2 && c[0] == 0x03 && c[1] == 0x0C)
+      resets++;
+  ok(resets == 1, "and reset once, by the probe");
+
+  // And it carries on.
+  const size_t back = rx_mark();
+  host_send(0x0405, page_params());
+  settle([] { return !rx_since(0, {0x04, 0x0F, 0x04, 0x00}).empty(); }, 3000, true);
+  settle(last_answered, 3000, true);
+  ok(!rx_since(back, {0x04, 0x0F, 0x04, 0x00, 0x01, 0x05, 0x04}).empty(),
+     "a page after it is back reaches the dongle and is accepted");
+  settle([] { return false; }, 200, true);
+  ok(!rx_since(back, {0x04, 0x03, 0x0B, 0x00, 0x0B, 0x00}).empty(), "and the link comes up again");
+  uint8_t acl[] = {0x02, 0x0B, 0x20, 0x04, 0x00, 'b', 'a', 'c', 'k'};
+  g_ops->send(acl, sizeof(acl));
+  ok(wait_received(std::vector<uint8_t>(acl, acl + sizeof(acl)), 3000),
+     "ACL goes out and comes back through the new readers");
+  ok(credits() == 1 && g_unmatched == 0, "and every answer still matches");
+}
+
+static bool s_refused() { return has("is not the one Bluetooth was started on"); }
+
+static void other() {
+  PortallBT *bt = up_with_a_link();
+  fake::unplug();
+  settle(s_gone, 5000, true);
+  fake::use(fake::Dongle::REALTEK_ROM);
+  fake::plug();
+  ok(run_until(bt, "is not the one Bluetooth was started on", 30000),
+     "a different dongle is refused rather than handed to Bluedroid");
+  ok(line_has("E8:48:B8:C8:40:00", "00:02:72:DC:33:59"), "naming both addresses, in the one line");
+  ok(has("restart the panel"), "and what it takes to use it");
+  ok(!has("is back"), "it is not taken back");
+  const size_t mark = rx_mark();
+  host_send(0x0C1A, {0x02});
+  settle(last_answered, 3000, true);
+  ok(!rx_since(mark, {0x04, 0x0E, 0x04, 0x01, 0x1A, 0x0C, 0x00}).empty(),
+     "and Bluedroid is still answered in its place");
+}
+
+static bool s_answered_for() { return has("has not answered command 1405"); }
+
+static void watchdog() {
+  fake::use(fake::Dongle::BROADCOM);
+  g_host_mode = Host::STARTUP;
+  PortallBT *bt = make(true, 0, true);
+  g_bt = bt;
+  fake::plug();
+  run_until(bt, "Bluedroid is ENABLED", 20000);
+  g_turn_loop = true;
+  fake::set_swallowed(0x1405);
+  const size_t mark = rx_mark();
+  host_send(0x1405, {0x0B, 0x00});
+  settle([] { return false; }, 3000, true);
+  ok(waiting_on(0x1405), "a command the dongle does not answer is still waited on at 3 s");
+  ok(settle(last_answered, 4000, true), "and answered for by 7 s");
+  const auto answer = rx_since(mark, {0x04, 0x0E});
+  ok(answer.size() > 7 && answer[4] == 0x05 && answer[5] == 0x14 && answer[6] == 0x0C, "refused, status 0c");
+  ok(settle(s_answered_for, 1000, true), "and the log names the command");
+  host_send(0x0C1A, {0x03});
+  ok(settle(last_answered, 3000, true), "Bluetooth carries on: the next command reaches the dongle");
+  ok(credits() == 1, "with its credit");
+}
+
+static void hub() {
+  fake::use(fake::Dongle::HUB);
+  PortallBT *bt = make(true, 0, false);
+  fake::plug();
+  ok(run_until(bt, "this is a USB hub", 5000), "a hub in the socket is said to be one, not left in silence");
+  ok(has("no transaction translator"), "with the reason a dongle behind it cannot be reached");
+  ok(!has("asking it who it is"), "and nothing asks it HCI questions");
+  fake::unplug();
+  sleep_ms(300);
+  fake::use(fake::Dongle::BROADCOM);
+  fake::plug();
+  ok(run_until(bt, "HCI Reset answered", 15000), "the dongle plugged in after it is probed as usual");
+}
+
+static bool s_restarting() { return has("restarting it"); }
+
+static void restart() {
+  fake::use(fake::Dongle::BROADCOM);
+  g_host_mode = Host::STARTUP;
+  PortallBT *bt = make(true, 0, true);
+  g_bt = bt;
+  fake::plug();
+  run_until(bt, "Bluedroid is ENABLED", 20000);
+  g_turn_loop = true;
+  fake::set_swallowed(0x1405);
+
+  host_send(0x1405, {0x0B, 0x00});
+  ok(settle(last_answered, 7000, true), "the first command it does not answer is answered for");
+  ok(fake::restarts() == 0, "and one is not a reason to restart the dongle");
+
+  host_send(0x1405, {0x0B, 0x00});
+  ok(settle(last_answered, 7000, true), "nor is the second left waiting");
+  ok(settle(s_restarting, 2000, true), "after the second, the log says the dongle is being restarted");
+  // Asked for by the transport, done by the layer's client task a slice later.
+  settle([] { return fake::restarts() > 0; }, 2000, true);
+  ok(fake::restarts() == 1, "its USB port is switched off, once");
+  ok(run_until(bt, "is back, and Bluetooth carries on without a restart", 20000),
+     "and the dongle that enumerates again is taken back");
+
+  const size_t mark = rx_mark();
+  host_send(0x1405, {0x0B, 0x00});
+  ok(settle(last_answered, 3000, true), "the command it stopped answering is answered again");
+  const auto answer = rx_since(mark, {0x04, 0x0E});
+  ok(answer.size() > 6 && answer[6] == 0x01, "by the dongle itself this time (its own status, not 0c)");
+  ok(credits() == 1 && g_unmatched == 0, "with Bluedroid's credit, and nothing unmatched");
+}
+
 int main(int argc, char **argv) {
   const std::string which = argc > 1 ? argv[1] : "";
   capture();
@@ -420,8 +785,18 @@ int main(int argc, char **argv) {
     bluedroid();
   else if (which == "layer")
     layer();
+  else if (which == "rejoin")
+    rejoin();
+  else if (which == "other")
+    other();
+  else if (which == "watchdog")
+    watchdog();
+  else if (which == "restart")
+    restart();
+  else if (which == "hub")
+    hub();
   else {
-    dprintf(g_real_out, "usage: %s broadcom|realtek|slow|error|bluedroid|layer\n", argv[0]);
+    dprintf(g_real_out, "usage: %s broadcom|realtek|slow|error|bluedroid|layer|rejoin|other|watchdog|restart|hub\n", argv[0]);
     std::_Exit(2);
   }
   if (getenv("IDFUSB_SHOW_LOG") != nullptr)

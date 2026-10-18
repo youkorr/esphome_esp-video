@@ -42,7 +42,10 @@ COPY = ROOT / "usb_bluetooth" / "components" / "usb_bluetooth"
 HERE = ROOT / "tools" / "idfusbtest"
 TESTS = ROOT / "tools" / "bttest"
 
-SCENARIOS = ["broadcom", "realtek", "slow", "error", "bluedroid", "layer"]
+SCENARIOS = [
+    "broadcom", "realtek", "slow", "error", "bluedroid", "layer", "rejoin", "other", "watchdog", "restart",
+    "hub",
+]
 
 def rename(text):
     """The rename usb_bluetooth/ was made with -- tools/checkusbbt.py's."""
@@ -88,31 +91,78 @@ COMMON = [
     COMPONENT / "a2dp.cpp",
     COMPONENT / "keys.cpp",
     COMPONENT / "hid_descriptor.cpp",
+    COMPONENT / "hci_ledger.cpp",
     COMPONENT / "speaker" / "portall_bt_speaker.cpp",
 ]
 
-# The layer's rules, one taken out at a time. Each (old, new) must match
-# exactly once in the shipped file, or this stops rather than checking the
-# shipped file a second time and calling it a mutant.
+# The rules, one taken out at a time: the layer's own, and the ones that keep
+# Bluedroid alive across a dongle that goes away. Each (file, old, new) must
+# match exactly once in the shipped file, or this stops rather than checking
+# the shipped file a second time and calling it a mutant.
 MUTANTS = {
     "a read that timed out submits again instead of collecting its transfer": [(
+        "idf_usb.cpp",
         "  if (!pipe->pending) {\n    // The library wants an IN transfer to be whole packets.",
         "  if (true) {\n    // The library wants an IN transfer to be whole packets.",
     )],
     "a halted endpoint is never cleared": [(
+        "idf_usb.cpp",
         "  if (pipe->halted) {\n    usb_host_endpoint_clear(g_host.dev, pipe->address);\n"
         "    pipe->halted = false;\n  }\n  pipe->xfer->num_bytes = num_bytes;",
         "  pipe->xfer->num_bytes = num_bytes;",
     )],
     "a completion left by the last dongle is not drained": [(
+        "idf_usb.cpp",
         "  while (xSemaphoreTake(pipe->done, 0) == pdTRUE) {\n  }\n",
         "",
     )],
     "a read that times out cancels its transfer": [(
+        "idf_usb.cpp",
         "  if (!wait_done(pipe, ms))\n    return g_host.gone ? -USB_ERR_NODEV : -USB_ERR_TIMEOUT;\n"
         "  const int err = reap(pipe);",
         "  if (!wait_done(pipe, ms)) {\n    if (g_host.gone)\n      return -USB_ERR_NODEV;\n"
         "    cancel(pipe);\n    return -USB_ERR_TIMEOUT;\n  }\n  const int err = reap(pipe);",
+    )],
+    "a dongle that goes is not answered for": [(
+        "portall_bt.cpp",
+        "    answered = g_ledger.lost(outbox_put, nullptr);\n",
+        "    answered = 0;\n",
+    )],
+    "a command sent while it is away goes unanswered": [(
+        "portall_bt.cpp",
+        "      g_ledger.answer_for(body, body_len, outbox_put, nullptr);\n",
+        "",
+    )],
+    "the dongle that comes back is not told its settings again": [(
+        "portall_bt.cpp",
+        "    const size_t count = g_ledger.kept();\n",
+        "    const size_t count = 0;\n",
+    )],
+    "a dongle that stops answering one command is waited on for ever": [(
+        "portall_bt.cpp",
+        "    late = g_ledger.overdue(now_ms(), ANSWER_LIMIT_MS, outbox_put, nullptr, &first);\n",
+        "    late = 0;\n",
+    )],
+    "a dongle that has stopped answering is never restarted": [(
+        "portall_bt.cpp",
+        "    if (this->strikes_ >= RESTART_STRIKES) {\n",
+        "    if (false) {\n",
+    )],
+    "the root port is switched off and never on again": [(
+        "idf_usb.cpp",
+        "      const esp_err_t err = usb_host_lib_set_root_port_power(true);\n",
+        "      const esp_err_t err = ESP_FAIL;\n",
+    )],
+    "a setting given again keeps its first value": [(
+        "hci_ledger.cpp",
+        "    if (this->arena_[at + 2] == len && memcmp(&this->arena_[at + 3], params, len) == 0)\n"
+        "      return;  // said again, the same: nothing changed\n",
+        "    return;\n",
+    )],
+    "the links are not closed when it goes": [(
+        "hci_ledger.cpp",
+        "    emit(ev, sizeof(ev), arg);\n    emitted++;\n  }\n  this->link_count_ = 0;",
+        "    (void) ev;\n  }\n  this->link_count_ = 0;",
     )],
 }
 
@@ -194,6 +244,7 @@ def main() -> int:
         text = shipped.read_text()
 
         objects = []
+        by_source = {}
         for source in COMMON:
             obj = tmp / (source.stem + ".o")
             err = compile_object(source, obj)
@@ -208,6 +259,7 @@ def main() -> int:
                     print(f"         {line}")
                 return 1
             objects.append(obj)
+            by_source[source.name] = obj
 
         layer = tmp / "idf_usb.o"
         err = compile_object(shipped, layer)
@@ -234,31 +286,55 @@ def main() -> int:
 
         print("\nThe check against itself -- each copy below must fail something:")
         caught_all = True
+        harness_name = COMMON[0].name
         for label, edits in MUTANTS.items():
-            mutated = text
-            for old, new in edits:
-                count = mutated.count(old)
+            texts = {}
+            for file, old, new in edits:
+                if args.copy:
+                    file, old, new = rename(file), rename(old), rename(new)
+                base = texts.get(file, (COMPONENT / file).read_text())
+                count = base.count(old)
                 if count != 1:
-                    print(f"  ECHEC  '{label}': the edit matches {count} times in idf_usb.cpp")
+                    print(f"  ECHEC  '{label}': the edit matches {count} times in {file}")
                     return 1
-                mutated = mutated.replace(old, new)
-            # Beside the original, so its quoted includes resolve the same way.
-            copy = tmp / "idf_usb_mutant.cpp"
-            copy.write_text(mutated)
-            obj = tmp / "idf_usb_mutant.o"
-            obj.unlink(missing_ok=True)
-            result = subprocess.run(
-                ["g++", *FLAGS, f"-iquote{COMPONENT}", "-c", "-o", str(obj), str(copy)],
-                capture_output=True,
-                text=True,
-            )
-            if result.returncode != 0:
+                texts[file] = base.replace(old, new)
+            parts = dict(by_source)
+            layer_obj = layer
+            mutdir = tmp / "mutsrc"
+            mutdir.mkdir(exist_ok=True)
+            for old_file in mutdir.iterdir():
+                old_file.unlink()
+            failed = None
+            for file, mutated in texts.items():
+                obj = tmp / ("mutant_" + pathlib.Path(file).stem + ".o")
+                obj.unlink(missing_ok=True)
+                if file.endswith("idf_usb.cpp") or file.endswith("hci_ledger.cpp"):
+                    # Beside the original, so its quoted includes resolve the same way.
+                    copy = tmp / ("mutant_" + file)
+                    copy.write_text(mutated)
+                    command = ["g++", *FLAGS, f"-iquote{COMPONENT}", "-c", "-o", str(obj), str(copy)]
+                else:
+                    # The component's main file is #included by the harness, so
+                    # the harness is rebuilt with the mutant first on the path.
+                    (mutdir / file).write_text(mutated)
+                    command = ["g++", f"-I{mutdir}", *FLAGS, "-c", "-o", str(obj), str(COMMON[0])]
+                result = subprocess.run(command, capture_output=True, text=True)
+                if result.returncode != 0:
+                    failed = result.stderr
+                    break
+                if file.endswith("idf_usb.cpp"):
+                    layer_obj = obj
+                elif file.endswith("hci_ledger.cpp"):
+                    parts["hci_ledger.cpp"] = obj
+                else:
+                    parts[harness_name] = obj
+            if failed is not None:
                 print(f"  ECHEC  '{label}': the mutant would not build")
-                for line in result.stderr.strip().splitlines()[:10]:
+                for line in failed.strip().splitlines()[:10]:
                     print(f"         {line}")
                 return 1
             mutant = tmp / "mutant"
-            err = link([*objects, obj], mutant)
+            err = link([*parts.values(), layer_obj], mutant)
             if err:
                 print(f"  ECHEC  '{label}': the mutant would not link")
                 return 1

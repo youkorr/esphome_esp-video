@@ -134,14 +134,39 @@ int main() {
 
   std::printf("\na dongle plugged in after Bluedroid is already up\n");
   {
+    // While the first one still works: a second is left alone, and says so.
     esphome::global_preferences->wipe();
     auto *bt = new PortallBT();
     bt->set_host_stack(true);
     bt->stack_up_ = true;
+    esphome::portall_bt::g_away = false;
     capture_begin();
     bt->start_host_stack_(nullptr, 0, nullptr, nullptr, nullptr);
     const std::string said = capture_end();
-    ok("says it will not be used, rather than nothing at all", says(said, "restart the panel"));
+    ok("a second dongle beside a working one says it is left alone, rather than nothing at all",
+       says(said, "left alone"));
+    delete bt;
+  }
+  {
+    // After the first has gone: ANOTHER dongle cannot take its place, because
+    // every pairing was made with the first one's address. The line names both.
+    esphome::global_preferences->wipe();
+    auto *bt = new PortallBT();
+    bt->set_host_stack(true);
+    bt->stack_up_ = true;
+    esphome::portall_bt::g_away = true;
+    const uint8_t first[6] = {0x00, 0x02, 0x72, 0xDC, 0x33, 0x59};
+    const uint8_t other[6] = {0xE8, 0x48, 0xB8, 0xC8, 0x40, 0x00};
+    std::memcpy(bt->stack_addr_, first, 6);
+    std::memcpy(bt->probed_addr_, other, 6);
+    bt->probed_addr_ok_ = true;
+    capture_begin();
+    bt->start_host_stack_(nullptr, 0, nullptr, nullptr, nullptr);
+    const std::string said = capture_end();
+    esphome::portall_bt::g_away = false;
+    ok("a different dongle after the first has gone takes a restart, and says so",
+       says(said, "restart the panel"));
+    ok("naming both addresses", says(said, "E8:48:B8:C8:40:00") && says(said, "00:02:72:DC:33:59"));
     delete bt;
   }
 

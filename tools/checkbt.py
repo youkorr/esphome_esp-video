@@ -224,6 +224,10 @@ def run_tests() -> bool:
                 # all, which is precisely why it is worth linking and running
                 # rather than only compiling.
                 str(ROOT / "components" / "portall_bt" / "hid_descriptor.cpp"),
+                # hci_ledger.cpp is what the transport keeps for a dongle that
+                # goes away and comes back. The transport calls it, so nothing
+                # links without it, and ledger.cpp checks its every byte.
+                str(ROOT / "components" / "portall_bt" / "hci_ledger.cpp"),
                 str(ROOT / "components" / "portall_bt" / "speaker" / "portall_bt_speaker.cpp"),
             ],
             capture_output=True,
