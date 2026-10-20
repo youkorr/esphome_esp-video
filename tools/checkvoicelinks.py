@@ -337,11 +337,11 @@ def automation_api():
           and ("POST", f"/api/config/automation/config/"
                        f"{voicelinks.AUTOMATION_ID}") in ha.requests)
     stored = ha.stored or {}
-    check("with one trigger per link that can be said, and home",
+    check("with one trigger per link that can be said, home, and dictation",
           [t["id"] for t in stored.get("triggers", [])]
           == ["link:Home Assistant", "link:Jellyfin", "link:YouTube",
               "link:Camera cuisine", "link:Orange TV", "link:télé du salon",
-              "home"])
+              "home", "type", "search"])
     check("and says which links it knows, with their other words",
           any("6 link(s)" in s and "Jellyfin (or gelée fine, jelly fin)" in s
               for s in said), repr(said))

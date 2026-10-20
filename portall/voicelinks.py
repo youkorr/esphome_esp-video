@@ -46,6 +46,11 @@ AUTOMATION_ID = "portall_open_links"
 EVENT = "portall_open"
 HOME = "home"
 LINK = "link:"
+# Words said to be typed into the page: "écris ..." types them where the
+# panel is waiting for text, "cherche ..." replaces what a search field held
+# and presses Enter.
+TYPE = "type"
+SEARCH = "search"
 
 # The words somebody says in front of a link's name. French first, because
 # that is who this was built with, and English beside it. No hyphens: a
@@ -97,6 +102,23 @@ HOME_SENTENCES = [
     "accueil",
     LEAD + "(go|back) [to] home",
     "home [screen]",
+]
+
+
+# Dictation. {text} is a wildcard like {before}, and takes the rest of the
+# sentence. Only after a verb that means TYPE or SEARCH, which no command of
+# Home Assistant's own begins with, so nothing is taken from it; a sentence
+# trigger of the household's own that names its words exactly still wins,
+# because hassil ranks a literal match above a wildcard.
+TYPE_SENTENCES = [
+    LEAD + "(écris|écrivez|écrire|tape|tapez|taper|saisis|saisissez) "
+    "[moi] {text}",
+    LEAD + "(type|write) {text}",
+]
+SEARCH_SENTENCES = [
+    LEAD + "(cherche|cherchez|chercher|recherche|recherchez|rechercher) "
+    "[moi] {text}",
+    LEAD + "search [for] {text}",
 ]
 
 
@@ -176,10 +198,18 @@ def automation(names, voices=None):
         })
     triggers.append({"trigger": "conversation", "command": HOME_SENTENCES,
                      "id": HOME})
+    triggers.append({"trigger": "conversation", "command": TYPE_SENTENCES,
+                     "id": TYPE})
+    triggers.append({"trigger": "conversation", "command": SEARCH_SENTENCES,
+                     "id": SEARCH})
     response = (
         "{% set fr = ((trigger.user_input or {}).language or '')[:2] == 'fr' %}"
         "{% if trigger.id == 'home' %}"
         "{{ \"Retour à l'accueil\" if fr else 'Back to the home page' }}"
+        "{% elif trigger.id == 'type' %}"
+        "{{ \"J'écris\" if fr else 'Typing' }}"
+        "{% elif trigger.id == 'search' %}"
+        "{{ 'Je cherche' if fr else 'Searching' }}"
         "{% else %}"
         "{{ (\"J'ouvre \" if fr else 'Opening ') ~ trigger.id[5:] }}"
         "{% endif %}")
@@ -195,7 +225,12 @@ def automation(names, voices=None):
         "actions": [
             {"event": EVENT,
              "event_data": {"link": "{{ trigger.id }}",
-                            "satellite": "{{ trigger.satellite_id }}"}},
+                            "satellite": "{{ trigger.satellite_id }}",
+                            # What dictation heard; empty for a link. Not
+                            # `trigger.slots.text`, which would warn on
+                            # every link that has no such slot.
+                            "text": "{{ (trigger.slots or {}).get('text', "
+                                    "'') }}"}},
             {"set_conversation_response": response},
         ],
     }
@@ -274,12 +309,18 @@ def find_link(links, name):
 
 
 def wanted(name):
-    """What an event asked for: ("home", None), ("link", name) or None."""
+    """What an event asked for: ("home", None), ("link", name) or None.
+
+    TYPE and SEARCH are returned as (kind, None); their words are the event's
+    `text`, read by the caller.
+    """
     text = str(name or "").strip()
     if not text:
         return None
     if text.lower() == HOME:
         return (HOME, None)
+    if text.lower() in (TYPE, SEARCH):
+        return (text.lower(), None)
     if text.startswith(LINK):
         text = text[len(LINK):]
     return ("link", text) if text else None
@@ -374,6 +415,15 @@ class VoiceLinks:
         if satellite in ("None", "none"):
             satellite = ""
         panel = str((data or {}).get("panel") or "").strip()
+        if asked[0] in (TYPE, SEARCH):
+            # str(): a template renders "42" as a number. One line, and a
+            # sentence's worth: nothing longer is somebody speaking.
+            words = " ".join(str((data or {}).get("text") or "").split())
+            if not words:
+                self._say(f"Voice links: an event {EVENT} asked to "
+                          f"{asked[0]} but carried no text -- ignored")
+                return
+            asked = (asked[0], words[:300])
         self.act(asked[0], asked[1], satellite, panel)
 
     def start(self):

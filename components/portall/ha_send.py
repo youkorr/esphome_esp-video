@@ -228,6 +228,12 @@ PUMP_MS = 8
 # The beat while a new page is on its way -- see the loop. Only from a
 # navigation to the first picture of it.
 NEW_PAGE_PUMP_MS = 1
+# How long a picture asked for may go unanswered, after the browser stopped
+# capturing because every frame it may hold was out, before the page is
+# fetched as it now stands -- see Screencast.request.
+# Above the time a frame takes to arrive (13 to 40 ms measured), and short,
+# because until then the panel may be showing a moment the page has left.
+MISSED_CHANGE_S = 0.25
 # How often to say "still here" when there is nothing to send. A sender that
 # only transmits what changed is silent while nothing changes, and silence is
 # indistinguishable from having died; the board's patience has to be longer
@@ -1377,6 +1383,10 @@ class Control:
                     # A transport button -- the iPhone's television remote's
                     # play/pause through the add-on's HomeKit accessory.
                     self._queue.append(("media", rest))
+                elif word in ("type", "search") and rest:
+                    # What somebody said, to be typed into the page: the
+                    # add-on's voice links, "écris ..." and "cherche ...".
+                    self._queue.append((word, rest))
                 elif word == "volume" and _is_gain(rest):
                     # A telephone's volume button, turned into a gain by the
                     # add-on, which keeps the level across restarts of this
@@ -3777,6 +3787,21 @@ class Screencast:
         # of them arrives a whole interval late -- see request().
         self.lead = 0.030
         self._asked_at = None
+        # How many frames the browser sends before it waits to be told they
+        # arrived, learnt by watching rather than assumed -- see request().
+        # Measured on Playwright's Chromium: three.
+        self._in_flight_seen = 1
+        # The screencast session the frames now belong to. Every start makes a
+        # new one, and an acknowledgement carrying an older one frees nothing
+        # (measured), so frames of an old session are not acknowledged.
+        self._sid = None
+        # Whether the browser may have skipped a change since the last frame
+        # that reached here -- see request().
+        self._full = False
+        self._acked_while_full = False
+        # Pages fetched as they stood because the screencast may have skipped
+        # their last change, for --stats -- see request().
+        self.recaptured = 0
         # Whether this browser refuses a start on a running screencast, which
         # is only learnt by asking -- see restart().
         self._stop_first = False
@@ -3828,15 +3853,42 @@ class Screencast:
             self.lead = 0.7 * self.lead + 0.3 * (time.monotonic() - self._asked_at)
             self._asked_at = None
         self._latest = base64.b64decode(params["data"])
-        self._unacked.append(params["sessionId"])
         self.produced += 1
+        sid = params["sessionId"]
+        if self._sid is None or sid > self._sid:
+            self._sid = sid
+            self._unacked.clear()
+        if sid != self._sid:
+            # Sent before the screencast was started again: a picture worth
+            # having, and a slot nothing can give back.
+            return
+        if self._acked_while_full:
+            # Captured after a slot was given back, so it shows the page as it
+            # stands, after anything the browser skipped while it was full.
+            self._full = self._acked_while_full = False
+        self._unacked.append(sid)
+        held = len(self._unacked)
+        self._in_flight_seen = max(self._in_flight_seen, held)
+        if held >= 2 and held >= self._in_flight_seen:
+            self._full = True
+
+    def _forget_flight(self):
+        # A new screencast starts with every slot free.
+        self._unacked.clear()
+        self._asked_at = None
+        self._full = self._acked_while_full = False
+
+    def take_recaptured(self):
+        """Pages fetched by request() since this was last asked."""
+        count, self.recaptured = self.recaptured, 0
+        return count
 
     def take(self):
         """The newest frame since the last call, or None if nothing moved."""
         frame, self._latest = self._latest, None
         return frame
 
-    def request(self, discard=False):
+    def request(self, discard=False, eager=False):
         """Let the browser produce another frame.
 
         The acknowledgement is not a formality: it is the flow control. Chromium
@@ -3860,16 +3912,60 @@ class Screencast:
         """
         if discard:
             self._latest = None
-        if self._unacked and self._asked_at is None:
-            self._asked_at = time.monotonic()
-        for session_id in self._unacked:
+            eager = True
+        now = time.monotonic()
+        # ONE frame per ask, while nobody is waiting. The browser holds three frames in flight and
+        # waits for acknowledgements before capturing more, so giving every
+        # slot back at once let it paint and encode three pictures for each
+        # one this loop could send: measured against a panel taking 800 KiB/s,
+        # 28.5 made a second for 10.2 sent, and 51 for 28 against one that
+        # takes everything. All but one slot stay taken, so the next swap is
+        # captured and the ones after it are not.
+        #
+        # EAGER gives every slot back, as before, and the loop asks for it
+        # while somebody is waiting: a touch, its window, a page arriving.
+        # After a tap the browser often sends one more picture of the page
+        # being left before the first of the new one, and with a single slot
+        # that cost a round trip: measured on a launcher tile, the new page's
+        # first picture 93 to 102 ms after the lift against 74 to 92. Video,
+        # an animation, a slideshow -- what runs while nobody touches -- is
+        # where the pictures were being thrown away, and it keeps one slot.
+        #
+        # The browser does not remember a swap it skipped while full: a change
+        # made then, on a page that stops changing afterwards, never arrives at
+        # all -- measured, and true of the old way too, which left a panel at
+        # --fps 10 on a mid-animation picture in three runs of six. So a frame
+        # asked for while the browser was full and not come after
+        # MISSED_CHANGE_S means the page stopped there, and the page is
+        # fetched as it stands, at the screencast's own quality so it is
+        # compared like with like. Once per pause, and only after motion that
+        # filled every slot. Not by starting the screencast again, which
+        # usually hands over a picture and did not in one run of twenty.
+        if (self._full and self._asked_at is not None
+                and now - self._asked_at > MISSED_CHANGE_S):
+            self.recaptured += 1
+            self._full = self._acked_while_full = False
+            self._asked_at = None
+            still = self.screenshot(self._quality)
+            if still is not None:
+                self._latest = still
+            return
+        keep = 0 if eager else self._in_flight_seen - 1
+        give = len(self._unacked) - keep
+        if give <= 0:
+            return
+        if self._asked_at is None:
+            self._asked_at = now
+        if self._full:
+            self._acked_while_full = True
+        for session_id in self._unacked[:give]:
             try:
                 self._session.send(
                     "Page.screencastFrameAck", {"sessionId": session_id}
                 )
             except Exception:  # noqa: BLE001 - a closed page is handled by the caller
                 pass
-        self._unacked.clear()
+        del self._unacked[:give]
 
     def restart(self):
         """Ask for a picture of the page as it is now, whatever it is doing.
@@ -3890,7 +3986,7 @@ class Screencast:
         if not self._running:
             return
         self._latest = None
-        self._unacked.clear()
+        self._forget_flight()
         # Started again WITHOUT being stopped first where the browser allows
         # it: a start on a running screencast resets its frames in flight and
         # hands over the page as it is, which is all this is for, and the stop
@@ -3950,7 +4046,7 @@ class Screencast:
             return
         self._running = False
         self._latest = None
-        self._unacked.clear()
+        self._forget_flight()
         try:
             self._session.send("Page.stopScreencast")
         except Exception:  # noqa: BLE001 - a closed page needs no stopping
@@ -3965,16 +4061,18 @@ class Screencast:
     def stop(self):
         self.pause()
 
-    def screenshot(self):
+    def screenshot(self, quality=0):
         """The page as it stands, without loss, or None.
 
         A PNG asked for once, when the page has stopped changing -- not the
         per-frame capture this class exists to avoid, which fell over under
         load. optimizeForSpeed is a newer field; a browser that refuses it is
-        asked again without.
+        asked again without. With a quality, a JPEG at it instead -- the
+        screencast's own format, for a change the screencast missed.
         """
-        for options in ({"format": "png", "optimizeForSpeed": True},
-                        {"format": "png"}):
+        shape = ({"format": "jpeg", "quality": quality} if quality
+                 else {"format": "png"})
+        for options in (dict(shape, optimizeForSpeed=True), shape):
             try:
                 got = self._session.send("Page.captureScreenshot", options)
                 return base64.b64decode(got["data"])
@@ -4763,6 +4861,30 @@ class NavBar:
         return image
 
 
+# Whether an element takes text: an input that is not a button, a textarea,
+# something contenteditable, or -- for a field this cannot see into, behind a
+# closed shadow root -- a host that says it is a text box or has one in it.
+# ONE definition, spliced into both the keyboard's script and dictation's.
+TYPABLE_JS = r"""function (a) {
+  if (!a) return false;
+  const tag = a.tagName;
+  if (a.isContentEditable || tag === 'TEXTAREA') return true;
+  if (tag === 'INPUT') {
+    const type = (a.getAttribute('type') || 'text').toLowerCase();
+    return ['button', 'checkbox', 'radio', 'submit', 'reset', 'range',
+            'color', 'file', 'image', 'hidden'].indexOf(type) === -1;
+  }
+  const role = (a.getAttribute('role') || '').toLowerCase();
+  if (['textbox', 'searchbox', 'combobox'].indexOf(role) !== -1) return true;
+  if (tag.indexOf('-') !== -1) {
+    const inner = 'input:not([type=button]):not([type=checkbox]),'
+                + 'textarea,[contenteditable=""],[contenteditable=true]';
+    return !!(a.querySelector && a.querySelector(inner))
+        || !!(a.shadowRoot && a.shadowRoot.querySelector(inner));
+  }
+  return false;
+}"""
+
 KEYBOARD_INIT_JS = r"""
 (() => {
   const ID = '__udisp_kb';
@@ -4930,30 +5052,7 @@ KEYBOARD_INIT_JS = r"""
         if (a.tagName.indexOf('-') !== -1) road.push('(shadow root ferme?)');
         break;
       }
-      let yes = false;
-      if (a) {
-        const tag = a.tagName;
-        if (a.isContentEditable || tag === 'TEXTAREA') {
-          yes = true;
-        } else if (tag === 'INPUT') {
-          const type = (a.getAttribute('type') || 'text').toLowerCase();
-          yes = ['button', 'checkbox', 'radio', 'submit', 'reset', 'range',
-                 'color', 'file', 'image', 'hidden'].indexOf(type) === -1;
-        } else {
-          // Widened for a field this cannot see into. A closed shadow root
-          // stops the descent at the host, and a host that says it is a text
-          // box, or that has a text box in it, is one.
-          const role = (a.getAttribute('role') || '').toLowerCase();
-          if (['textbox', 'searchbox', 'combobox'].indexOf(role) !== -1) {
-            yes = true;
-          } else if (tag.indexOf('-') !== -1) {
-            const inner = 'input:not([type=button]):not([type=checkbox]),'
-                        + 'textarea,[contenteditable=""],[contenteditable=true]';
-            yes = !!(a.querySelector && a.querySelector(inner))
-               || !!(a.shadowRoot && a.shadowRoot.querySelector(inner));
-          }
-        }
-      }
+      const yes = (__TYPABLE__)(a);
       return {yes: yes, road: road.join(' > ') || '(rien)'};
     },
     typable() {
@@ -4961,7 +5060,80 @@ KEYBOARD_INIT_JS = r"""
     },
   };
 })();
-"""
+""".replace("__TYPABLE__", TYPABLE_JS)
+
+
+# Dictation: what somebody said to the voice assistant, typed into the page.
+#
+# A panel has no keyboard to hand, and the on-screen one is slow for anything
+# longer than a word. "Écris recette de crêpes" or "cherche Les Simpson" goes
+# through Home Assistant's own speech-to-text and arrives here as text; it is
+# typed into whatever is waiting for text, in whichever frame holds it. With
+# nothing focused, the page's own search field is found and used, which is
+# what "cherche" on a page nobody has touched yet means. Evaluated in each
+# frame with want=false to ask only whether that frame holds a field, and in
+# the top frame with want=true to look for one.
+DICTATE_JS = r"""
+(want) => {
+  const typable = (__TYPABLE__);
+  let a = document.activeElement;
+  while (a && a.shadowRoot && a.shadowRoot.activeElement)
+    a = a.shadowRoot.activeElement;
+  if (typable(a)) return 'focused';
+  if (!want) return '';
+  const SEARCH = 'input[type=search],[role=searchbox],input[name=q],'
+    + 'input[name=search],input[name=search_query],input[aria-label*=earch i],'
+    + 'input[placeholder*=earch i],input[placeholder*=echerch i]';
+  const found = [];
+  (function walk(root) {
+    root.querySelectorAll(SEARCH).forEach((e) => found.push(e));
+    root.querySelectorAll('*').forEach((e) => { if (e.shadowRoot) walk(e.shadowRoot); });
+  })(document);
+  for (const e of found) {
+    const r = e.getBoundingClientRect();
+    if (r.width > 0 && r.height > 0 && typable(e)) {
+      e.focus();
+      return e.getAttribute('aria-label') || e.getAttribute('placeholder')
+        || e.getAttribute('name') || e.tagName.toLowerCase();
+    }
+  }
+  return '';
+}
+""".replace("__TYPABLE__", TYPABLE_JS)
+
+
+def dictate(page, text, submit):
+    """Type what was said into the field waiting for it; a line for the log.
+
+    `submit` is a search: what the field held is replaced and Enter follows.
+    The words themselves are never printed -- somebody may dictate a password
+    -- only how many characters went in and where.
+    """
+    where = None
+    for frame in page.frames:
+        try:
+            if frame.evaluate(DICTATE_JS, False) == "focused":
+                where = "the field that has focus"
+                break
+        except Exception:  # noqa: BLE001 - a frame going away is no field
+            continue
+    if where is None:
+        try:
+            found = page.main_frame.evaluate(DICTATE_JS, True)
+        except Exception:  # noqa: BLE001 - nor is a page that refuses
+            found = ""
+        if not found:
+            return ("Voice: nothing on this page is waiting for text -- tap "
+                    "the field first, then say it again")
+        where = f"the page's search field ({found[:40]})"
+    keyboard = _Safe(page.keyboard)
+    if submit:
+        keyboard.press("Control+A")
+    keyboard.type(text)
+    if submit:
+        keyboard.press("Enter")
+    return (f"Voice: {'searched for' if submit else 'typed'} {len(text)} "
+            f"character(s) in {where}")
 
 
 class _Safe:
@@ -7588,7 +7760,7 @@ def main():
                     # nothing but a picture waiting a few milliseconds in hand.
                     lead = min(max(capture.lead * 1.5, PUMP_MS / 1000.0), limit)
                     if pending is None and started - last_send >= limit - lead:
-                        capture.request()
+                        capture.request(eager=hurry or started < urgent_until)
 
                     if shot is not None:
                         image = compose(Image.open(io.BytesIO(shot)))
@@ -7764,6 +7936,7 @@ def main():
                     reports = []
                     keys = []
                     media = []
+                    typed = []
                     # The panel's own return channel and the control
                     # channel are read into one list, so a key means the same
                     # thing whichever side it arrived from.
@@ -7787,6 +7960,11 @@ def main():
                             # A transport button: play, pause, next. Not a
                             # key -- see MEDIA_CONTROL_JS.
                             media.append(body)
+                            continue
+                        if kind in ("type", "search"):
+                            # Words said to the voice assistant -- see
+                            # dictate().
+                            typed.append((kind, body))
                             continue
                         if kind == "volume":
                             # The add-on's HomeKit remote: a telephone's
@@ -7885,11 +8063,12 @@ def main():
                                     saver.hide("the screen went dark")
                                     capture = main_capture
                                 capture.pause()
-                    if (reports or keys or media or asked_home
+                    if (reports or keys or media or typed or asked_home
                             or asked_open is not None):
                         last_input = started
                     if saver is not None:
-                        asked_any = bool(reports or keys or media or asked_home
+                        asked_any = bool(reports or keys or media or typed
+                                         or asked_home
                                          or asked_open is not None)
                         if saver.on and asked_any:
                             # Back to exactly what was showing. The touch
@@ -8000,6 +8179,20 @@ def main():
                             # by itself, so the picture in hand is still the
                             # newest true one, and asking the browser to start
                             # again would only cost an interval.
+                            urgent_until = time.monotonic() + args.urgent_window
+
+                    if typed:
+                        # A request rather than a key, like media below: it
+                        # still does what it asked when it was what took the
+                        # screen saver away.
+                        for kind, text in typed:
+                            try:
+                                print(dictate(page, text, kind == "search"))
+                            except Exception as problem:  # noqa: BLE001
+                                # An accessory must never cost the picture.
+                                print(f"Voice: the words did not go in "
+                                      f"({problem})")
+                        if URGENT_AFTER_INPUT:
                             urgent_until = time.monotonic() + args.urgent_window
 
                     if media:
@@ -8415,6 +8608,13 @@ def main():
                             # Finished pictures sent once the page was still.
                             line += f", {sharpened} sharp"
                             sharpened = 0
+                        caught = main_capture.take_recaptured() + (
+                            capture.take_recaptured()
+                            if capture is not main_capture else 0)
+                        if caught:
+                            # A page's last change the browser skipped while
+                            # every frame it may hold was out, fetched instead.
+                            line += f", {caught} caught up"
                         sound, lost = writer.take_audio()
                         if sound or lost:
                             line += (f", sound {sound / elapsed:.0f}/s"
