@@ -1129,6 +1129,81 @@ link: lowering it would cost every scene what only the heaviest ones need.
 Set it lower on a link if a video still stutters, higher if a panel has a
 faster link, or `0` to turn it off.
 
+### A camera when somebody is at the door
+
+When a sensor in Home Assistant says somebody is there -- a camera's person
+detection, a doorbell's visitor -- the screens you choose show that camera
+live, over whatever they were showing: the launcher, a dashboard, a film, the
+screen saver. After its time, or at a touch, each goes back to exactly where
+it was. The touch that closes it presses nothing.
+
+```yaml
+alerts:
+  - sensor: binary_sensor.porch_person
+    camera: camera.porch
+    seconds: 30            # 30 when left out, 5 to 300
+    panels: salon, cuisine # left out: every screen
+  - sensor: binary_sensor.doorbell_visitor
+    camera: camera.doorbell
+    wake: true             # light a dark screen for it
+```
+
+- **The sensor** is any Home Assistant entity. A `binary_sensor` sets the alert
+  off when it turns on. An `event` entity -- the way many doorbells report a
+  press now -- sets it off with each new event. Its name is under Settings >
+  Devices & services > Entities.
+- **The camera** is the `camera.` entity Home Assistant shows for it.
+- **Not again for two minutes.** Somebody standing on the porch keeps a person
+  sensor going on and off, and every screen jumping back to the camera each
+  time would stop being an alert. The log says when one was not shown for
+  that reason.
+- **A key, a remote or a voice request closes it too.** A request still does
+  what it asked.
+
+**How smooth the picture is depends on the camera, and it is not a video.**
+The screen shows Home Assistant's own live stream of the camera, the one its
+dashboard falls back to. A camera that only gives still pictures -- a Reolink,
+for one -- is shown as Home Assistant makes that stream, **at most two
+pictures a second** (read in Home Assistant's camera code). A camera with a
+real MJPEG stream gives that stream.
+
+**A dark screen.** An alert that arrives while a screen is dark waits: if the
+screen lights up while it still stands, it is shown then. With `wake: true` the
+add-on lights it, by turning on the screen's light in Home Assistant -- found
+the way the launcher's Wi-Fi icon finds the screen, by its address -- and, if
+nobody touched it by the end, turns it off again. A screen somebody touched is
+left alone: its own timeout puts it in the dark. A screen that was already lit
+stays lit. This needs the screen's YAML to say `portall.wake` and
+`portall.sleep` when its light goes on and off, which the examples do -- these
+two lines under the backlight's `light:` entry:
+
+```yaml
+    on_turn_on:
+      - portall.wake:
+    on_turn_off:
+      - portall.sleep:
+```
+
+Without those two lines a screen that is lit from Home Assistant never tells
+the add-on it is awake, and the alert waiting for it is never shown.
+
+**What it needs.** The Home Assistant link with its token (*3 · Shared
+links*): the screen's browser reads the camera at that link's address. The
+camera itself is read with the short-lived access token Home Assistant gives
+every camera for its own pictures, never with yours, and that token is
+written in no log.
+
+The log says what each alert will do at the start (`Alerts:
+binary_sensor.porch_person shows camera.porch for 30s on every screen`), and
+each time one fires (`[salon] alert: binary_sensor.porch_person -- showing
+camera.porch for 30s`). A screen whose light cannot be found -- a device with
+several lights and none called backlight, screen or display -- is named
+once.
+
+Not tried against a real camera or a real doorbell: it is measured against a
+stand-in Home Assistant serving an MJPEG stream the way Home Assistant does,
+with the real browser and a fake screen.
+
 ### The server paints only the pictures the screen will take
 
 **The browser on the server painted up to three pictures for each one a

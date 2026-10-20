@@ -339,7 +339,10 @@ def check_reaches_sender(folder):
         # 127.0.0.1; no sender ever sees it. links: and a panel's identity are
         # this file's business too, and so is a panel's own launcher under
         # launchers: -- tools/checkpanels.py opens those pages and reads them.
-        if path[0] in ("launcher", "links", "launchers") \
+        # alerts: are run.py's as well: it follows their sensors and hands a
+        # sender an `alert` line, never a flag -- tools/checkalerts.py drives
+        # that from the form's own shape to the camera on a fake panel.
+        if path[0] in ("launcher", "links", "launchers", "alerts") \
                 or path[-1] in ITS_OWN:
             continue
         flag = "--" + flat_name(path).replace("_", "-")

@@ -1,5 +1,5 @@
 name: Portall
-version: "4.49.0"
+version: "4.50.0"
 # Home Assistant identifies an add-on by its slug, so this one moving from
 # usb_display_panel to portall makes the Supervisor see a NEW add-on: options
 # are not carried over and /data starts empty, which means the browser
@@ -372,6 +372,19 @@ options:
   #         url: https://www.marmiton.org
   #         icon: cuisine
   launchers: []
+  # A camera on the screens when somebody is at the door: when the sensor
+  # turns on -- a person detected, a doorbell's visitor -- the chosen screens
+  # show the camera live over whatever they show, for `seconds`, and go back
+  # to exactly that afterwards, or at a touch. Not shown again for two
+  # minutes. wake lights a dark screen for it, and puts it back in the dark
+  # if nobody touched it: tick it for a doorbell.
+  #
+  #   - sensor: binary_sensor.porch_person
+  #     camera: camera.porch
+  #     seconds: 30
+  #     panels: salon, cuisine
+  #     wake: false
+  alerts: []
   # What every panel inherits unless its own advanced: says otherwise.
   # All off. Turn one on only while something is already wrong: each
   # writes to the add-on's log and nothing else.
@@ -563,6 +576,12 @@ schema:
       slideshow_avatar_position: list(top_left|top|top_right|left|center|right|bottom_left|bottom|bottom_right)?
       slideshow_avatar_size: list(small|medium|large|huge)?
       slideshow_shade: list(none|light|strong)?
+  alerts:
+    - sensor: str
+      camera: str
+      seconds: int(5,300)?
+      panels: str?
+      wake: bool?
   debug:
     stats: bool?
     show_media: bool?

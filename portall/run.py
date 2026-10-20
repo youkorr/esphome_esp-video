@@ -69,6 +69,13 @@ try:
 except ImportError:  # the image was built without it
     signin = None
 
+# And again: a camera that cannot be shown when somebody is at the door
+# leaves every screen showing what it showed.
+try:
+    import alerts
+except ImportError:  # the image was built without it
+    alerts = None
+
 # Its own folder under the add-on's persistent volume, so a pairing survives
 # a restart and an update.
 HOMEKIT_DIR = "/data/homekit"
@@ -92,6 +99,10 @@ _print_lock = threading.Lock()
 # browsers cannot share one.
 _current = {}
 _held = {}
+# Something to tell about every line a panel's sender prints, by panel name.
+# The alerts use it: only the sender knows whether somebody touched a screen
+# the add-on lit for an alert, and it says so in its log.
+_watchers = {}
 
 # Long enough not to hammer a Home Assistant that is still starting, short
 # enough that a panel is back before anyone walks over to it.
@@ -1516,6 +1527,10 @@ def command_for(panel):
     if (str(panel.get("homekit", "")).strip().lower() in ("true", "yes", "1")
             or panel.get("control")):
         argv.append("--control")
+    # Not a form field either: main() sets it on the screens an alert can be
+    # shown on, which then keep a page ready for the camera.
+    if panel.get("alerts"):
+        argv.append("--alerts")
     return argv
 
 
@@ -1624,6 +1639,9 @@ class Remote:
             if not words:
                 return False
             line = f"{kind} {words}\n"
+        elif kind == "alert":
+            # A camera to show, as JSON -- which never holds a raw line end.
+            line = f"alert {body}\n"
         else:
             line = f"key {body}\n"
         with self._lock:
@@ -1819,6 +1837,12 @@ def serve(panel, name, stop, remote=None):
         # read.
         for line in process.stdout:
             say(f"[{name}] {line.rstrip()}")
+            watcher = _watchers.get(str(name))
+            if watcher is not None:
+                try:
+                    watcher(line)
+                except Exception as err:  # noqa: BLE001 - never the log
+                    say(f"[{name}] {err}")
         process.wait()
         if remote is not None:
             remote.set_process(None)
@@ -2057,6 +2081,210 @@ def voice_target(panels, config, satellite="", asked=""):
                   "are several panels. Fire portall_open with panel: <name>")
 
 
+def home_assistant_origin(panel, config):
+    """Where this panel's own browser reaches Home Assistant, or None.
+
+    The address of the link that carries a token -- the dashboard's -- the
+    panel's own links first, then the house's; or, for a panel that shows the
+    dashboard itself with a token of its own, that address.
+    """
+    from urllib.parse import urlsplit
+
+    def origin(url):
+        split = urlsplit(str(url or "").strip())
+        if split.scheme in ("http", "https") and split.netloc:
+            return f"{split.scheme}://{split.netloc}"
+        return None
+    for link in list(panel.get("launcher_links") or []) \
+            + list(config.get("links") or []):
+        if given(link.get("url")) and given(link.get("token")):
+            found = origin(link["url"])
+            if found:
+                return found
+    if given(panel.get("token")):
+        for key in ("token_url", "url"):
+            found = origin(panel.get(key))
+            if found:
+                return found
+    return None
+
+
+# A word in an entity id that says it is a screen's backlight, for an ESPHome
+# device that has more than one light.
+BACKLIGHT_WORDS = re.compile(r"backlight|retro|ecran|screen|display|lcd")
+
+
+def backlight_of(panel, base, token):
+    """The light that is this screen's backlight, as (entity id, why not).
+
+    Its ESPHome device is found the way the launcher's Wi-Fi icon finds it,
+    by the screen's address. Its only light is the backlight; with several,
+    the one whose name says so.
+    """
+    helper = PanelStatus([], base, token)
+    want = {"device": str(panel.get("esphome_device") or "").strip(),
+            "host": str(panel.get("host") or "").strip()}
+    found = PanelStatus.match(want, helper.devices_known())
+    if found is None:
+        return None, (f"no ESPHome device in Home Assistant has the address "
+                      f"{want['host'] or '?'} -- add esphome_device: <its "
+                      f"name> under this screen's advanced (Edit in YAML)")
+    lights = sorted(e for e in helper.entities_of(found["id"])
+                    if e.startswith("light."))
+    if len(lights) == 1:
+        return lights[0], None
+    named = [e for e in lights if BACKLIGHT_WORDS.search(e)]
+    if len(named) == 1:
+        return named[0], None
+    title = found.get("title") or found.get("name") or "?"
+    if not lights:
+        return None, f"its ESPHome device \"{title}\" has no light"
+    return None, (f"its ESPHome device \"{title}\" has several lights ("
+                  + ", ".join(lights) + ") and none is plainly the backlight")
+
+
+def plan_alerts(panels, names):
+    """The alerts asked for; the screens they can appear on are marked.
+
+    Before the senders start, because a screen an alert can appear on keeps
+    a page ready for the camera and takes requests on its control channel.
+    """
+    asked = _config.get("alerts") or []
+    if not asked:
+        return []
+    if alerts is None:
+        say("Alerts are set, but this build has no alerts.py in it. The "
+            "panels are unaffected.")
+        return []
+    planned = alerts.parse(asked, names, say)
+    shown_on = set()
+    for alert in planned:
+        shown_on.update(alerts.targets(alert, names))
+    for panel, name in zip(panels, names):
+        if name in shown_on:
+            panel["alerts"] = True
+            panel["control"] = True
+    for alert in planned:
+        say(f"Alerts: {alert['sensor']} shows {alert['camera']} for "
+            f"{alert['seconds']}s on "
+            + (", ".join(alert["panels"]) if alert["panels"]
+               else "every screen")
+            + ("; a dark screen is lit for it" if alert["wake"] else ""))
+    return planned
+
+
+def start_alerts(panels, names, planned, remotes):
+    """Follow the alerts' sensors, and put their cameras on the screens."""
+    if not planned:
+        return None
+    every = list(_config.get("links") or [])
+    for entry in own_launchers(_config, panels).values():
+        every += list(entry.get("links") or [])
+    route = Weather(*home_assistant_link({"links": every}), None)
+    by_name = dict(zip(names, panels))
+    lights = {}
+    # The screens an alert lit -- found off, turned on -- and with which
+    # light: the only ones put back in the dark afterwards, and only when the
+    # sender says nobody touched them.
+    lit = {}
+    said = set()
+
+    def once(key, text):
+        if key not in said:
+            said.add(key)
+            say(text)
+
+    def light_of(name):
+        if name not in lights:
+            try:
+                lights[name], why = backlight_of(by_name[name], route.url,
+                                                 route.token)
+            except Exception as err:  # noqa: BLE001 - asked again next time
+                return None, f"Home Assistant could not be asked ({err})"
+            if why:
+                return None, why
+        return lights[name], None
+
+    def wake(name):
+        light, why = light_of(name)
+        if light is None:
+            once(f"light {name}", f"[{name}] alert: the screen cannot be lit "
+                 f"-- {why}")
+            return
+        state = alerts.ask(route.url, route.token, f"/api/states/{light}")
+        if (state or {}).get("state") == "off":
+            alerts.ask(route.url, route.token, "/api/services/light/turn_on",
+                       {"entity_id": light})
+            lit[name] = light
+            say(f"[{name}] alert: lighting the screen ({light})")
+
+    def fire(alert):
+        camera = alert["camera"]
+        state = alerts.ask(route.url, route.token, f"/api/states/{camera}")
+        attributes = (state or {}).get("attributes") or {}
+        access = attributes.get("access_token")
+        if not access:
+            say(f"Alerts: {camera} gives no picture -- Home Assistant hands "
+                f"out no access token for it, so it is not a camera it shows")
+            return
+        title = str(attributes.get("friendly_name") or camera)
+        for name in alerts.targets(alert, names):
+            remote = remotes.get(name)
+            origin = home_assistant_origin(by_name[name], _config)
+            if origin is None:
+                once(f"origin {name}", f"[{name}] alert: cannot show "
+                     f"{camera} -- this screen's browser has no address for "
+                     f"Home Assistant. Give the Home Assistant link its "
+                     f"token (3 · Shared links).")
+                continue
+            # The address carries the camera's own access token: never
+            # printed, here or by the sender.
+            body = json.dumps({
+                "url": alerts.camera_address(origin, camera, access),
+                "name": title, "seconds": alert["seconds"]})
+            if remote is not None and remote.send("alert", body):
+                say(f"[{name}] alert: {alert['sensor']} -- showing {camera} "
+                    f"for {alert['seconds']}s")
+            if alert["wake"]:
+                try:
+                    wake(name)
+                except Exception as err:  # noqa: BLE001
+                    say(f"[{name}] alert: the screen could not be lit ({err})")
+
+    def watch(name):
+        def back_to_dark():
+            light = lit.pop(name, None)
+            if light is None:
+                return
+            try:
+                alerts.ask(route.url, route.token,
+                           "/api/services/light/turn_off",
+                           {"entity_id": light})
+                say(f"[{name}] alert: dark again, as it was ({light})")
+            except Exception as err:  # noqa: BLE001
+                say(f"[{name}] alert: the screen could not be put back in "
+                    f"the dark ({err})")
+
+        def on_line(line):
+            if line.startswith(alerts.UNTOUCHED):
+                # Not on this thread: it reads the sender's log.
+                threading.Thread(target=back_to_dark, daemon=True).start()
+            elif line.startswith(alerts.TOUCHED):
+                # Somebody is using it now; its own timeout is in charge.
+                lit.pop(name, None)
+            elif line.startswith(alerts.ENDED) and (
+                    "went dark" in line or "not shown" in line):
+                # Dark already, or never lit: nothing to put back.
+                lit.pop(name, None)
+        return on_line
+
+    for alert in planned:
+        if alert["wake"]:
+            for name in alerts.targets(alert, names):
+                _watchers[name] = watch(name)
+    return alerts.Alerts(route.url, route.token, planned, fire, say).start()
+
+
 def start_voice_links(panels, remotes):
     """Keep Home Assistant's automation in step and act on what it hears."""
     house = _config.get("links") or []
@@ -2208,13 +2436,17 @@ def main():
     # channel the HomeKit remote uses, so every panel needs one then.
     by_voice = (voicelinks is not None
                 and truthy(_config.get("launcher_voice_links", False)))
+    names = [str(panel.get("name") or panel.get("host") or f"panel {index}")
+             for index, panel in enumerate(panels, start=1)]
+    # Marks the screens an alert can appear on, which need a control channel.
+    planned = plan_alerts(panels, names)
     every_remote = {}
-    for index, panel in enumerate(panels, start=1):
-        name = panel.get("name") or panel.get("host") or f"panel {index}"
+    for name, panel in zip(names, panels):
         wants = str(panel.get("homekit", "")).strip().lower() in ("true", "yes", "1")
         if by_voice:
             panel["control"] = True
-        remote = Remote(name) if (wants or by_voice) else None
+        remote = (Remote(name) if (wants or by_voice or panel.get("alerts"))
+                  else None)
         if remote is not None:
             every_remote[str(name)] = remote
         if remote is not None and wants:
@@ -2227,6 +2459,7 @@ def main():
 
     # After the senders, for the same reason as the accessory below.
     start_voice_links(panels, every_remote)
+    start_alerts(panels, names, planned, every_remote)
     sign_in = start_signin(panels)
 
     # After the senders, so a press cannot arrive before there is anything to
