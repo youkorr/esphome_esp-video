@@ -50,7 +50,7 @@ print(f"Image for {machine}, version {open(os.path.join(APP, 'BUNDLE')).read().s
 
 print("The add-on's own code:")
 for module in ("ha_send", "udisp_send", "run", "launcher", "logos", "files",
-               "homekit", "voice", "voicelinks", "signin"):
+               "homekit", "voice", "voicelinks", "alerts", "signin"):
     try:
         __import__(module)
         need(True, f"{module}.py imports")
