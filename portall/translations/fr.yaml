@@ -73,7 +73,7 @@ configuration:
         name: 🛠️ Avancé
         description: Rien d'obligatoire ici. Port, images par seconde, qualité, débit, clavier, connexion
           aux sites et langue se règlent une fois pour tous les écrans en 1 · Réglages communs ; le diagnostic,
-          en 6.
+          en 7.
         fields:
           token:
             name: 🔑 Jeton pour cet écran seulement
@@ -485,8 +485,31 @@ configuration:
       slideshow_shade:
         name: 🌗 Voile sur l'écran de veille
         description: 'Assombrit seulement les coins où il y a quelque chose : none, light ou strong.'
+  alerts:
+    name: 🚨 6 · Alertes caméra
+    description: Quand quelqu'un est à la porte, les écrans choisis montrent la caméra en direct, par-dessus
+      ce qu'ils affichent, puis y reviennent. Un toucher ferme l'alerte. Pas de nouvelle alerte avant
+      deux minutes.
+    fields:
+      sensor:
+        name: Capteur
+        description: 'Ce qui déclenche l''alerte : un détecteur de personne (binary_sensor.porche_personne)
+          ou une sonnette (binary_sensor.sonnette_visiteur, event.sonnette).'
+      camera:
+        name: Caméra
+        description: La caméra à montrer, par exemple camera.porche.
+      seconds:
+        name: ⏱️ Durée (secondes)
+        description: 30 si vide.
+      panels:
+        name: 🖥️ Sur les écrans
+        description: Leurs noms, séparés par des virgules (salon, cuisine). Vide = tous les écrans.
+      wake:
+        name: 💡 Allumer un écran éteint
+        description: À cocher pour une sonnette. L'écran s'allume pour l'alerte et se rééteint si personne
+          ne l'a touché.
   debug:
-    name: 🐞 6 · Diagnostic
+    name: 🐞 7 · Diagnostic
     description: 'À laisser éteint. À allumer seulement pour chercher un problème : cela remplit le journal.'
     fields:
       stats:

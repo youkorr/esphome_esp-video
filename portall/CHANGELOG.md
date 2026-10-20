@@ -1,5 +1,18 @@
 # Changelog
 
+## 4.50.0
+
+- **A camera on the screens when somebody is at the door.** In the new
+  *6 · Camera alerts* section, name a sensor -- a camera's person detection,
+  a doorbell -- and a camera: when the sensor goes off, the screens you choose
+  show the camera live over whatever they show, then go back to exactly where
+  they were, after 30 seconds or at a touch. Not shown again for two minutes.
+  `wake` lights a dark screen for it and puts it back in the dark if nobody
+  touched it. A camera that only gives still pictures, a Reolink for one, is
+  shown at about two pictures a second. See *A camera when somebody is at the
+  door* in the documentation.
+- *Diagnostics* is section 7 now.
+
 ## 4.49.0
 
 - **Dictate into the screen by voice.** With `voice_links:` on, *"écris

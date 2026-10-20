@@ -72,7 +72,7 @@ configuration:
         name: 🛠️ Advanced
         description: Nothing required here. Port, pictures per second, quality, rate, keyboard, staying
           signed in and language are set once for every screen in 1 · Common settings; diagnostics in
-          6.
+          7.
         fields:
           token:
             name: 🔑 Token for this screen only
@@ -470,8 +470,30 @@ configuration:
       slideshow_shade:
         name: 🌗 Veil on the screen saver
         description: 'Darkens only the corners something sits in: none, light or strong.'
+  alerts:
+    name: 🚨 6 · Camera alerts
+    description: When somebody is at the door, the chosen screens show the camera live, over whatever
+      they show, then go back to it. A touch closes the alert. No new alert for two minutes.
+    fields:
+      sensor:
+        name: Sensor
+        description: 'What sets the alert off: a person detector (binary_sensor.porch_person) or a doorbell
+          (binary_sensor.doorbell_visitor, event.doorbell).'
+      camera:
+        name: Camera
+        description: The camera to show, for example camera.porch.
+      seconds:
+        name: ⏱️ How long (seconds)
+        description: 30 when empty.
+      panels:
+        name: 🖥️ On the screens
+        description: Their names, separated by commas (living, kitchen). Empty = every screen.
+      wake:
+        name: 💡 Light a dark screen
+        description: Tick it for a doorbell. The screen lights up for the alert and goes dark again if
+          nobody touched it.
   debug:
-    name: 🐞 6 · Diagnostics
+    name: 🐞 7 · Diagnostics
     description: 'Leave off. Only turn on to track down a problem: it fills the log.'
     fields:
       stats:

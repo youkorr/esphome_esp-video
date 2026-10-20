@@ -1330,6 +1330,21 @@ def _agent_metadata(page, version, agent=None):
     }
 
 
+def _alert_body(text):
+    """An alert line's JSON, checked: {url, name, seconds}, or None."""
+    try:
+        body = json.loads(text)
+        url = str(body["url"])
+        seconds = int(body.get("seconds", 30))
+    except (ValueError, TypeError, KeyError, AttributeError):
+        return None
+    if not url.startswith(("http://", "https://")):
+        return None
+    name = " ".join(str(body.get("name") or "").split())[:80] or "Camera"
+    return {"url": url, "name": name,
+            "seconds": max(5, min(300, seconds))}
+
+
 def _is_gain(text):
     try:
         value = float(text)
@@ -1387,6 +1402,14 @@ class Control:
                     # What somebody said, to be typed into the page: the
                     # add-on's voice links, "écris ..." and "cherche ...".
                     self._queue.append((word, rest))
+                elif word == "alert":
+                    # A camera to show (see Alert). Never printed whole: its
+                    # address carries the camera's access token.
+                    body = _alert_body(rest)
+                    if body is None:
+                        print("Control: an alert that is not one -- ignored")
+                    else:
+                        self._queue.append(("alert", body))
                 elif word == "volume" and _is_gain(rest):
                     # A telephone's volume button, turned into a gain by the
                     # add-on, which keeps the level across restarts of this
@@ -2067,6 +2090,214 @@ class Saver:
         except Exception:  # noqa: BLE001 - nothing to stop any more
             pass
         print(f"Screen saver: off ({why})")
+
+
+# What this sender says when an alert ends, at the start of the line. The
+# add-on reads them (portall/alerts.py holds the same words, and
+# tools/checkalerts.py holds the two to each other): a screen the add-on lit
+# for an alert goes dark again when the alert ran its time out with nobody
+# touching it, and is left alone when somebody closed it from the screen.
+ALERT_UNTOUCHED = "Alert: over, nobody touched the screen"
+ALERT_TOUCHED = "Alert: closed from the screen"
+
+# The page an alert shows: the camera as large as the screen allows, its name
+# and the time it started along the top, and how to go back along the bottom.
+# Nothing moves on it but the camera itself -- every change is a rectangle on
+# the wire -- and its words follow the page's language, as the greeting does.
+ALERT_PAGE = r"""<!doctype html><html><head><meta charset="utf-8"><style>
+html,body{margin:0;height:100%;background:#07090c;overflow:hidden;
+ font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:#f4f6f8}
+#cam{position:absolute;inset:0;width:100%;height:100%;object-fit:contain}
+#top{position:absolute;left:0;right:0;top:0;display:flex;align-items:center;
+ gap:2.4vmin;padding:2.6vmin 3.4vmin 7vmin;
+ background:linear-gradient(#000c,#0000)}
+#dot{width:2.6vmin;height:2.6vmin;border-radius:50%;background:#e5484d;
+ box-shadow:0 0 0 .7vmin #e5484d44;flex:none}
+#name{font-size:5.4vmin;font-weight:700;letter-spacing:.02em;
+ white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#when{margin-left:auto;font-size:4.2vmin;font-variant-numeric:tabular-nums;
+ opacity:.85}
+#back{position:absolute;left:0;right:0;bottom:0;text-align:center;
+ padding:7vmin 3vmin 2.6vmin;font-size:3.2vmin;opacity:.8;
+ background:linear-gradient(#0000,#000a)}
+#gone{position:absolute;inset:0;display:none;align-items:center;
+ justify-content:center;font-size:4.6vmin;opacity:.7}
+</style></head><body><img id="cam" alt=""><div id="top"><div id="dot"></div>
+<div id="name"></div><div id="when"></div></div><div id="gone"></div>
+<div id="back"></div><script>
+window.showAlert = (a) => {
+  const fr = (navigator.language || "").toLowerCase().startsWith("fr");
+  const cam = document.getElementById("cam");
+  const gone = document.getElementById("gone");
+  document.getElementById("name").textContent = a.name;
+  // A browser can report a language no formatter accepts -- the container's
+  // own en-US@posix, when nothing set one -- and the time is not worth an
+  // alert that throws before its camera is shown.
+  let when = "";
+  try {
+    when = new Date().toLocaleTimeString(navigator.language || undefined,
+                                         {hour: "2-digit", minute: "2-digit"});
+  } catch (e) {
+    when = new Date().toTimeString().slice(0, 5);
+  }
+  document.getElementById("when").textContent = when;
+  document.getElementById("back").textContent = fr
+    ? "Touchez l'écran pour revenir" : "Touch the screen to go back";
+  gone.textContent = fr ? "Caméra indisponible" : "Camera unavailable";
+  // The same camera again keeps its stream: only the token in the query
+  // differs, and a stream already open outlives the token it began with.
+  const path = u => String(u || "").split("?")[0];
+  const failed = gone.style.display === "flex";
+  if (failed || path(cam.getAttribute("src")) !== path(a.url)) {
+    gone.style.display = "none";
+    cam.style.visibility = "visible";
+    cam.onerror = () => { cam.style.visibility = "hidden";
+                          gone.style.display = "flex"; };
+    cam.src = a.url;
+  }
+};
+</script></body></html>"""
+
+
+class Alert:
+    """A camera shown full screen when somebody is at the door.
+
+    Asked for by a household with a camera on the porch, for others with a
+    doorbell that has one: the add-on follows a sensor in Home Assistant and,
+    when it fires, hands this sender the camera's live address. The camera
+    comes up over whatever the screen shows -- the launcher, a dashboard, a
+    film, the screen saver -- and after its time, or at a touch, the screen
+    goes back to exactly that. The touch that closes it presses nothing.
+
+    The Saver's pattern exactly: a page of its own in the same browser and a
+    Screencast of its own, so what was showing is never navigated away from.
+    Created before NewWindows listens, for the same reason.
+
+    The page is served from 127.0.0.1, by a small server of its own, and not
+    written into about:blank. Measured on the shipped Chromium: about:blank
+    is not a secure context, and such a page may not load anything from a
+    more private address than its own ("the request client is not a secure
+    context and the resource is in more-private address space"). With the
+    camera on a loopback address the second alert showed no camera; on a LAN
+    address, which is where a household's Home Assistant is, the first did
+    not either. 127.0.0.1 is the most private address there is and a secure
+    context, which is how the launcher on it shows wallpapers from a LAN
+    server.
+
+    A dark screen shows nothing, so an alert arriving then WAITS: if the
+    screen lights up while it still stands -- the add-on lights it when the
+    alert asks for that, or somebody does -- it is shown then, for what is
+    left of its time. When it runs out with nobody having touched the
+    screen this says ALERT_UNTOUCHED, and a screen the add-on lit for it goes
+    back in the dark. Whether it was dark is the add-on's to know, not this
+    sender's: it is the add-on that found the light off and turned it on,
+    and the board's "awake" can reach this sender before the alert does.
+    """
+
+    def __init__(self, context, width, height, quality):
+        self.page = context.new_page()
+        self.address = self._serve()
+        self._size = (width, height, quality)
+        self.cast = None
+        self.on = False
+        self.until = 0.0
+        # An alert that came while the screen was dark: (body, until).
+        self.waiting = None
+
+    @staticmethod
+    def _serve():
+        import http.server
+        page = ALERT_PAGE.encode("utf-8")
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def log_message(self, *_):
+                pass
+
+            def do_GET(self):
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.send_header("Content-Length", str(len(page)))
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+                self.wfile.write(page)
+
+        try:
+            server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        except OSError as err:
+            print(f"Alert: no page for a camera ({err})")
+            return None
+        server.daemon_threads = True
+        threading.Thread(target=server.serve_forever, daemon=True,
+                         name="alert-page").start()
+        return f"http://127.0.0.1:{server.server_address[1]}/"
+
+    def arrive(self, body, now, awake):
+        """An alert from the add-on. Its Screencast when it is to be put on
+        the panel now; None when it is not (dark, or already showing)."""
+        until = now + body["seconds"]
+        if not awake:
+            self.waiting = (body, until)
+            print(f"Alert: {body['name']} -- the screen is dark; shown if it "
+                  f"lights up within {body['seconds']}s")
+            return None
+        return self._show(body, until)
+
+    def woke(self, now):
+        """The screen lit up: the alert waiting for that, if one still stands."""
+        waiting, self.waiting = self.waiting, None
+        if waiting is None:
+            return None
+        body, until = waiting
+        if now >= until:
+            print(f"Alert: {body['name']} -- not shown, the screen stayed dark")
+            return None
+        return self._show(body, until)
+
+    def _show(self, body, until):
+        if self.address is None:
+            return None
+        try:
+            if not self.on:
+                self.page.goto(self.address, wait_until="load",
+                               timeout=LOAD_TIMEOUT_S * 1000)
+            self.page.evaluate("(a) => window.showAlert(a)",
+                               {"url": body["url"], "name": body["name"]})
+        except Exception as err:  # noqa: BLE001 - the screen stays as it is
+            print(f"Alert: {body['name']} could not be shown ({err})")
+            return None
+        if self.on:
+            self.until = max(self.until, until)
+            print(f"Alert: {body['name']} again -- kept on the screen")
+            return None
+        if self.cast is None:
+            self.cast = Screencast(self.page, *self._size)
+        else:
+            self.cast.resume()
+        self.on = True
+        self.until = until
+        # Never the address: it carries the camera's access token.
+        print(f"Alert: {body['name']} on the screen for "
+              f"{max(0, round(until - time.monotonic()))}s")
+        return self.cast
+
+    def due(self, now):
+        """Whether the alert on screen has run its time out."""
+        return self.on and now >= self.until
+
+    def hide(self, line):
+        """Take it down, say why, and close the camera's stream."""
+        if not self.on:
+            return
+        self.on = False
+        if self.cast is not None:
+            self.cast.pause()
+        try:
+            # The camera's stream ends with its page: Home Assistant stops
+            # asking the camera for pictures nobody is shown.
+            self.page.goto("about:blank", wait_until="commit")
+        except Exception:  # noqa: BLE001 - nothing to stop any more
+            pass
+        print(line)
 
 
 class NewWindows:
@@ -6488,6 +6719,14 @@ def main():
         help="seconds without a touch before --saver comes up (0: never)",
     )
     parser.add_argument(
+        "--alerts",
+        action="store_true",
+        help="keep a page ready for a camera the add-on asks to show when "
+        "somebody is at the door (an `alert` line on the control channel): "
+        "full screen over whatever is open, until its time is up or a touch, "
+        "which presses nothing",
+    )
+    parser.add_argument(
         "--glide",
         action="store_true",
         help="a page flicked with a finger carries on after the finger lifts "
@@ -7094,6 +7333,14 @@ def main():
         if saver is not None:
             print(f"Screen saver: {args.saver} after "
                   f"{args.saver_after:g}s without a touch")
+        # Before NewWindows too, for the same reason.
+        alert = (Alert(context, page_w, page_h, args.capture_quality)
+                 if args.alerts else None)
+
+        def overlaid():
+            """Whether the panel shows the saver or an alert, not its page."""
+            return ((saver is not None and saver.on)
+                    or (alert is not None and alert.on))
         windows = NewWindows(page)
         context.on("page", windows)
         # One session for both: an override belongs to the session that set
@@ -7255,7 +7502,7 @@ def main():
             if picture.mode != "RGB":
                 picture = picture.convert("RGB")
             if (bar is not None and bar.shown
-                    and not (saver is not None and saver.on)):
+                    and not overlaid()):
                 # The page is the strip's height shorter than the panel, and
                 # the strip goes above it.
                 body = (page_w, page_h - bar.height)
@@ -7731,7 +7978,7 @@ def main():
                     if shot is not None:
                         last_shot = shot
                     elif (bar is not None and bar.shown and free
-                            and not (saver is not None and saver.on)
+                            and not overlaid()
                             and last_shot is not None
                             and bar.look() != composed_look):
                         # A button went down or came up, or the address
@@ -7937,6 +8184,7 @@ def main():
                     keys = []
                     media = []
                     typed = []
+                    arrived = []
                     # The panel's own return channel and the control
                     # channel are read into one list, so a key means the same
                     # thing whichever side it arrived from.
@@ -7965,6 +8213,10 @@ def main():
                             # Words said to the voice assistant -- see
                             # dictate().
                             typed.append((kind, body))
+                            continue
+                        if kind == "alert":
+                            # A camera, because somebody is at the door.
+                            arrived.append(body)
                             continue
                         if kind == "volume":
                             # The add-on's HomeKit remote: a telephone's
@@ -8055,6 +8307,13 @@ def main():
                                     injector.release()
                                 idle_since = started
                                 greet_avatar(page)
+                                # An alert that came while it was dark, if
+                                # it still stands: this is what it waited for.
+                                shown = (alert.woke(started)
+                                         if alert is not None else None)
+                                if shown is not None:
+                                    capture.pause()
+                                    capture = shown
                             else:
                                 asleep_since = started
                                 if saver is not None and saver.on:
@@ -8062,14 +8321,30 @@ def main():
                                     # for a screen nobody can see.
                                     saver.hide("the screen went dark")
                                     capture = main_capture
+                                if alert is not None and alert.on:
+                                    alert.hide("Alert: the screen went dark")
+                                    capture = main_capture
                                 capture.pause()
                     if (reports or keys or media or typed or asked_home
                             or asked_open is not None):
                         last_input = started
+                    asked_any = bool(reports or keys or media or typed
+                                     or asked_home or asked_open is not None)
+                    if alert is not None and alert.on and asked_any:
+                        # Closed from the screen, back to exactly what was
+                        # showing, the touch that did it pressing nothing --
+                        # the screen saver's rule. A request still does what
+                        # it asked.
+                        alert.hide(ALERT_TOUCHED + (
+                            " (a touch)" if reports else
+                            " (a key)" if keys else " (a request)"))
+                        capture = main_capture
+                        capture.resume()
+                        previous = pending = image = None
+                        last_shot = composed_look = None
+                        swallow_touch = bool(reports)
+                        keys = []
                     if saver is not None:
-                        asked_any = bool(reports or keys or media or typed
-                                         or asked_home
-                                         or asked_open is not None)
                         if saver.on and asked_any:
                             # Back to exactly what was showing. The touch
                             # that did it presses nothing, all of it until
@@ -8085,17 +8360,17 @@ def main():
                             last_shot = composed_look = None
                             swallow_touch = bool(reports)
                             keys = []
-                        if swallow_touch:
-                            kept = []
-                            for contacts in reports:
-                                if swallow_touch:
-                                    if not contacts:
-                                        swallow_touch = False
-                                    continue
-                                kept.append(contacts)
-                            reports = kept
                         if asked_any:
                             idle_since = started
+                    if swallow_touch:
+                        kept = []
+                        for contacts in reports:
+                            if swallow_touch:
+                                if not contacts:
+                                    swallow_touch = False
+                                continue
+                            kept.append(contacts)
+                        reports = kept
                     if args.show_touches and reports:
                         # With the time on them, because "the panel reacts
                         # slowly" has two very different causes and this tells
@@ -8209,10 +8484,35 @@ def main():
                         if URGENT_AFTER_INPUT:
                             urgent_until = time.monotonic() + args.urgent_window
 
+                    # A camera, because somebody is at the door: over whatever
+                    # shows, the screen saver included.
+                    for body in arrived:
+                        if alert is None:
+                            print("Alert: this sender was started without "
+                                  "--alerts -- not shown")
+                            break
+                        if awake and saver is not None and saver.on:
+                            saver.hide("an alert")
+                            capture = main_capture
+                        shown = alert.arrive(body, started, awake)
+                        if shown is not None:
+                            capture.pause()
+                            capture = shown
+                            previous = pending = image = None
+                            last_shot = composed_look = None
+                            if injector is not None:
+                                injector.release()
+                    if alert is not None and alert.due(started):
+                        alert.hide(ALERT_UNTOUCHED)
+                        capture = main_capture
+                        capture.resume()
+                        previous = pending = image = None
+                        last_shot = composed_look = None
+
                     # The screen saver, after a while with nothing touched --
                     # unless something is being watched or listened to,
                     # which a PC's screen saver waits for as well.
-                    if (saver is not None and awake
+                    if (saver is not None and awake and not overlaid()
                             and saver.due(started, idle_since)):
                         if saver.busy(page, started, heard_at):
                             saver.refuse(started)

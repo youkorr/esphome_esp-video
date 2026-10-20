@@ -1802,7 +1802,7 @@ the dashboard, where it is invisible while the keys go on working.
 ahead of the `pip install` as well as the `ADD`s, so a bump refetched
 everything — at the cost of the browser download on each update.
 `present_browser()` prints the Chromium version at startup and warns below 114,
-so this is never diagnosed by guesswork again. Currently **4.49.0**.
+so this is never diagnosed by guesswork again. Currently **4.50.0**.
 
 **CORRECTED in 4.29.5: the cost was every update, and a pin removes it.**
 Asked as *"verifie addon ... si il ya pas des elements qui freine la
@@ -12599,6 +12599,97 @@ container, taps landing on BODY and BUTTON#bottom rather than the field,
 while the working tree passed. With the recovery switched off only the
 lost-picture case failed, so most of HEAD's failures are not the lost change.
 Worth a look if the old sender's taps ever seem misplaced on a slow machine.
+
+## A camera when somebody is at the door -- 4.50.0
+
+**Asked by a household with a Reolink on the porch and no doorbell, for
+others who have one** (point 1 of a list of own ideas; approved as proposed).
+`alerts:` is a top-level list (default `[]`, so saved configurations are
+untouched) of `sensor`, `camera`, `seconds`, `panels`, `wake`; section 6 of
+the form, Diagnostics moved to 7.
+
+**`portall/alerts.py`** follows the sensors over Home Assistant's websocket
+(`subscribe_entities`, voice.py's client) through the Supervisor's own
+credential. A `binary_sensor` fires on a change to `on` from a last REAL
+state that was not `on`; an `event` entity on any new state (its state is the
+time of its last event). The state each sensor has at subscription is
+recorded without firing, and the last real state survives a reconnection, so
+neither the add-on starting nor Home Assistant restarting rings a bell.
+`COOLDOWN_S = 120` per alert.
+
+**The picture is Home Assistant's own `camera_proxy_stream`, read in its
+source (wheel 2026.2.3 from PyPI -- out-of-scope GitHub repositories are not
+read here):** `CameraView` accepts `?token=` in the camera's `access_tokens`
+(a deque of 2, rotated every `TOKEN_CHANGE_INTERVAL` = 5 min) and checks it
+at the START of a request, so a stream outlives its token. A camera without
+its own MJPEG -- Reolink's `camera.py` has none -- is served by
+`async_get_still_stream` at `frame_interval`, `MIN_STREAM_INTERVAL = 0.5`:
+**two pictures a second at most**, said plainly in the documentation. The
+add-on asks `/api/states/<camera>` for the current token at every alert and
+hands the sender `<HA link origin>/api/camera_proxy_stream/<camera>?token=`.
+The house's long-lived token never goes into a page, and the camera token is
+in no log on either side (the check asserts it).
+
+**In the sender, `Alert` is the Saver's pattern**: a second page, its own
+Screencast, the touch that closes it swallowed until release, `covered()`
+`overlaid()` replacing the three "is the saver on" tests. It was first
+called `covered()`, and main() assigns an int called `covered` in the
+finished-picture path, further down: every sender crashed on its first
+finished picture -- `TypeError: 'int' object is not callable` -- while
+checkalerts passed, because it ran with `--no-refine`. checksaver and
+checkdictate caught it. A check that turns a default OFF is not checking the
+default; checkalerts runs with the finished picture on now. Arrived while
+dark it WAITS
+until the screen lights, if it still stands.
+
+**And the page had to be served from 127.0.0.1, which nothing but running it
+showed.** Built first with `set_content` on about:blank, the second alert
+showed "Camera unavailable". Chromium: *"the request client is not a secure
+context and the resource is in more-private address space"* -- Local Network
+Access. A navigated about:blank is not a secure context, and Home Assistant
+on the LAN is a PRIVATE address; with the camera's port marked private
+(`--ip-address-space-overrides=127.0.0.1:PORT=private`, now in the check)
+it was refused at the FIRST alert too, which is the household's real case.
+Served by a small server on 127.0.0.1 -- a secure context and loopback, the
+most private space -- it loads every time; it is how the launcher already
+showed LAN wallpapers. A loopback stand-in would have hidden this entirely:
+**a stand-in for a LAN address has to be classified as one.**
+
+**A cache-buster went in on a wrong diagnosis and came out before
+shipping.** The second-alert failure was first blamed on the image cache, a
+`shown=` parameter was added with a comment saying it was "measured", and the
+check's mutant without it then PASSED: the cause was the address space. The
+comment would have been a false measurement in the file. Check the check
+against a mutant before believing the fix it was written for.
+
+**Who knows the screen was dark is the add-on, not the sender.** The first
+version had the sender judge "dark when the alert came" -- and the board's
+`S 1` (the add-on lit the light, ESPHome ran `portall.wake`) can reach the
+sender in the same turn as the alert line, or before it; the check's wake
+sent at once caught exactly that. Now the add-on records that IT found the
+light off and turned it on (`lit`), the sender says only whether the alert
+ran out untouched (`ALERT_UNTOUCHED`) or was closed from the screen
+(`ALERT_TOUCHED`), and the add-on turns the light off only for both. The
+words are one constant on each side, held to each other by the check, and
+run.py reads them through `_watchers`, a per-panel hook on the sender's log.
+
+The backlight is found the way the launcher's Wi-Fi icon finds the device
+(PanelStatus's config-entry route, by host): its only light, or the one
+whose id says backlight/screen/display/ecran/retro/lcd; otherwise named once.
+It depends on the YAML's `on_turn_on: portall.wake` -- without it a screen
+lit from Home Assistant never tells the sender, and the waiting alert is
+never shown.
+
+`tools/checkalerts.py` (72 cases): the parsing, the firing rule, the cooldown
+on a moved clock, the shared words; Alerts against a stand-in Home Assistant
+over a real websocket; run.py's planning, command line, routing, origin,
+token and light; and the shipped sender on a fake panel with the stand-in's
+MJPEG -- through `run.start_alerts` and a real `Remote` -- for the camera on
+the glass, its time running out, a touch closing it without pressing the
+page, a dark screen lit and darkened with the wake arriving late and at
+once, and an alert outliving a screen that stayed dark. Against mutants: the
+about:blank page fails 3 cases, a closing touch not swallowed fails 1.
+**Not tried against a real Home Assistant, camera or doorbell.**
 
 ## Repository conventions
 
