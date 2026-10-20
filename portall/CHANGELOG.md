@@ -1,5 +1,12 @@
 # Changelog
 
+## 4.50.1
+
+- **A camera alert cuts the page's sound while it shows.** A film playing
+  underneath is not paused; it goes on in silence and is heard again when the
+  camera goes, at the volume it had. A volume set from an iPhone meanwhile is
+  kept. An announcement played on the screen's own speaker is not cut.
+
 ## 4.50.0
 
 - **A camera on the screens when somebody is at the door.** In the new

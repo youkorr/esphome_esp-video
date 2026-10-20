@@ -1802,7 +1802,7 @@ the dashboard, where it is invisible while the keys go on working.
 ahead of the `pip install` as well as the `ADD`s, so a bump refetched
 everything — at the cost of the browser download on each update.
 `present_browser()` prints the Chromium version at startup and warns below 114,
-so this is never diagnosed by guesswork again. Currently **4.50.0**.
+so this is never diagnosed by guesswork again. Currently **4.50.1**.
 
 **CORRECTED in 4.29.5: the cost was every update, and a pin removes it.**
 Asked as *"verifie addon ... si il ya pas des elements qui freine la
@@ -12690,6 +12690,22 @@ page, a dark screen lit and darkened with the wake arriving late and at
 once, and an alert outliving a screen that stayed dark. Against mutants: the
 about:blank page fails 3 cases, a closing touch not swallowed fails 1.
 **Not tried against a real Home Assistant, camera or doorbell.**
+
+**The page's sound is cut while one shows -- 4.50.1.** Asked whether a film
+under an alert is stopped. It was not, and its sound went on over the
+camera. Of the three answers offered -- pause and resume, cut the sound, leave
+it -- the household chose *"le plus simple est de couper le son"*.
+`PageAudio.hushed` is read off `alert.on` every turn, not set where the alert
+opens and closes: it closes in four places, and one forgotten would leave the
+page silent for good. It is a flag beside `gain`, not a gain of 0, so a
+volume an iPhone sets meanwhile is kept. Held-back blocks count in `held` and
+still move `heard_at`, or the screen saver could come up over a page that
+was playing all along. Only the page's sound: an announcement on the board's
+own `media_player` is the board's. `checkalerts.py` plays a 440 Hz tone
+through PulseAudio (`pulseaudio -D` here, after `apt-get update`) and reads
+the panel's PCM blocks: none for 2.5 s of camera, back at once after it, at
+half the peak after `volume 0.5` sent during it. Against 4.50.0: 125 blocks
+in those 2.5 s, three cases fail.
 
 ## Repository conventions
 
