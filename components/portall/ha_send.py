@@ -3658,6 +3658,14 @@ class PageAudio:
         # page as it plays, 0.0 is muted. Set from a telephone's volume
         # buttons through the add-on's HomeKit remote.
         self.gain = 1.0
+        # True while a camera alert is on the screen: the page's video goes
+        # on playing underneath, in silence, and its sound comes back with
+        # the page. Kept apart from the gain so a volume set meanwhile is
+        # neither lost nor undone.
+        self.hushed = False
+        # Blocks of real sound held back for that, so the screen saver still
+        # knows the page is playing something.
+        self.held = 0
 
     def start(self):
         """True if there is sound to be had; False, with a reason, if not."""
@@ -3766,6 +3774,9 @@ class PageAudio:
             # which is what silence is.
             if not block.strip(b"\x00"):
                 self.silent += 1
+                continue
+            if self.hushed:
+                self.held += 1
                 continue
             if self.gain <= 0.0:
                 # Muted. Counted as silence and not sent, the same as a page
@@ -7889,9 +7900,27 @@ def main():
                     # Sound first, and every turn: it goes into its own queue
                     # and out between rectangles, so it never waits behind a
                     # picture. A panel that is asleep is sent none of it.
+                    if audio is not None:
+                        # A camera alert cuts the page's sound for as long as
+                        # it shows -- asked for as the simplest of the three
+                        # ways to treat a film playing underneath. Read off
+                        # the alert every turn rather than set where it opens
+                        # and closes, because it closes in four places and
+                        # one forgotten would leave the page silent for good.
+                        hush = alert is not None and alert.on
+                        if hush != audio.hushed:
+                            audio.hushed = hush
+                            print("Alert: the page's sound is cut while it "
+                                  "shows" if hush else
+                                  "Alert: the page's sound is back")
                     if audio is not None and awake:
+                        held = audio.held
                         for block in audio.take():
                             writer.offer_audio(block)
+                            heard_at = started
+                        if audio.held != held:
+                            # Still playing, only not heard: the screen saver
+                            # must not come up over it once the alert is gone.
                             heard_at = started
 
                     free = writer.ready()

@@ -1159,6 +1159,11 @@ alerts:
   that reason.
 - **A key, a remote or a voice request closes it too.** A request still does
   what it asked.
+- **The page's sound is cut while the camera shows.** A film or a song under
+  it is not paused: it goes on playing in silence and is heard again the
+  moment the camera goes, at the volume it had -- or at the one an iPhone set
+  meanwhile. An announcement Home Assistant plays on the screen's own speaker
+  (a chime for the doorbell, say) is not the page's sound and is not cut.
 
 **How smooth the picture is depends on the camera, and it is not a video.**
 The screen shows Home Assistant's own live stream of the camera, the one its

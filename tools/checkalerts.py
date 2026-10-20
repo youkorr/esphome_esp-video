@@ -25,12 +25,16 @@ drives each with the SHIPPED code:
      stand-in's websocket: the camera reaches the glass, the page comes back
      after its time and at a touch (which presses nothing), a dark screen is
      lit for it and put back in the dark, and the camera's token reaches no
-     log.
+     log;
+  5. the same sender playing a tone, with PulseAudio: the page's sound stops
+     reaching the panel while the camera shows and comes back after it, at
+     a volume set meanwhile -- a film is not paused, it goes on in silence.
 
     python3 tools/checkalerts.py [--sender PATH]
 
 The sender half needs Playwright, a Chromium (named by $CHROMIUM when
-Playwright's own is not installed) and Pillow. About a minute and a half.
+Playwright's own is not installed) and Pillow; the sound, a PulseAudio server
+running (pulseaudio -D) with pactl and parec. About two minutes.
 """
 
 import http.server
@@ -38,6 +42,7 @@ import io
 import json
 import os
 import pathlib
+import shutil
 import socket
 import struct
 import subprocess
@@ -188,6 +193,21 @@ def units():
     check("one that is not JSON, or not an address, is refused",
           ha_send._alert_body("{not json") is None
           and ha_send._alert_body('{"url": "javascript:x"}') is None)
+
+    # The page's sound while an alert shows: held back, and the volume a
+    # telephone set meanwhile is what it comes back at.
+    audio = ha_send.PageAudio("check")
+    tone = struct.pack("<4h", 1000, -1000, 1000, -1000)
+    audio._blocks.extend([tone, tone])
+    audio.gain = 0.5
+    audio.hushed = True
+    check("while an alert shows, the page's sound is held back, not sent",
+          audio.take() == [] and audio.held == 2, repr(audio.held))
+    audio.hushed = False
+    audio._blocks.append(tone)
+    check("and once it is gone it comes back at the volume it had",
+          audio.take() == [ha_send.scale_pcm(tone, 0.5)]
+          and audio.gain == 0.5)
 
 
 # --- 2 and 3. a stand-in Home Assistant --------------------------------------
@@ -819,6 +839,151 @@ def sender():
 _WATCHERS = []
 
 
+# --- 5. the page's sound while an alert shows -----------------------------
+
+TONE = ("<script>const c = new AudioContext(), o = c.createOscillator(),"
+        " g = c.createGain(); o.frequency.value = 440; g.gain.value = 0.3;"
+        " o.connect(g).connect(c.destination); o.start();</script>")
+
+
+def sound():
+    print("The page's sound while an alert shows:")
+    if not (shutil.which("parec") and shutil.which("pactl")):
+        print("  --   skipped: no PulseAudio here")
+        return
+    if subprocess.run(["pactl", "info"], capture_output=True).returncode:
+        print("  --   skipped: no PulseAudio server running (pulseaudio -D)")
+        return
+    try:
+        import playwright  # noqa: F401
+    except ImportError:
+        print("  --   skipped: no Playwright here")
+        return
+    from udisp_send import _HEADER, UDISP_TYPE_PCM
+
+    class Page(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            body = ("<!doctype html><body style='margin:0;height:100vh;"
+                    "background:rgb%s'>%s" % (PAGE, TONE)).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *args):
+            pass
+    pages = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Page)
+    threading.Thread(target=pages.serve_forever, daemon=True).start()
+
+    # Every block of sound the panel is sent: when, and how loud.
+    heard = []
+    listener = socket.socket()
+    listener.bind(("127.0.0.1", 0))
+    listener.listen(1)
+
+    def accept():
+        conn, _ = listener.accept()
+        stream = b""
+        try:
+            while True:
+                data = conn.recv(1 << 20)
+                if not data:
+                    return
+                stream += data
+                while len(stream) >= _HEADER.size:
+                    _, kind, _, _, _, _, _, packed = _HEADER.unpack_from(stream)
+                    total = packed >> 10
+                    if len(stream) < _HEADER.size + total:
+                        break
+                    blob = stream[_HEADER.size:_HEADER.size + total]
+                    stream = stream[_HEADER.size + total:]
+                    if kind == UDISP_TYPE_PCM and len(blob) >= 2:
+                        samples = struct.unpack(f"<{len(blob) // 2}h",
+                                                blob[:len(blob) // 2 * 2])
+                        heard.append((time.monotonic(),
+                                      max(abs(x) for x in samples)))
+        except (OSError, struct.error):
+            pass
+    threading.Thread(target=accept, daemon=True).start()
+
+    ha = FakeHA()
+    command = [sys.executable, "-u", SENDER, "--host", "127.0.0.1",
+               "--port", str(listener.getsockname()[1]),
+               "--url", f"http://127.0.0.1:{pages.server_address[1]}/",
+               "--no-token", "--not-home-assistant", "--width", "320",
+               "--height", "240", "--keyboard", "off",
+               "--control", "--alerts",
+               "--browser-arg=--ip-address-space-overrides="
+               f"127.0.0.1:{ha.port}=private"]
+    if os.environ.get("CHROMIUM"):
+        command += ["--browser", os.environ["CHROMIUM"]]
+    process = subprocess.Popen(command, stdin=subprocess.PIPE,
+                               stdout=subprocess.PIPE,
+                               stderr=subprocess.STDOUT, text=True)
+    out = []
+
+    def read():
+        for line in process.stdout:
+            out.append(line)
+    threading.Thread(target=read, daemon=True).start()
+
+    def logged(text, since=0):
+        return any(text in line for line in out[since:])
+
+    def between(start, end):
+        return [peak for at, peak in heard if start <= at < end]
+
+    def send(line):
+        process.stdin.write(line + "\n")
+        process.stdin.flush()
+
+    try:
+        check("the page's sound reaches the panel",
+              settle(lambda: len(heard) > 50, 40), "".join(out[-5:]))
+        now = time.monotonic()
+        time.sleep(1.0)
+        before = sorted(between(now, time.monotonic()))
+        loud = before[len(before) // 2] if before else 0
+        mark = len(out)
+        send("alert " + json.dumps({
+            "url": f"{ha.base}/api/camera_proxy_stream/camera.porch?"
+                   f"token={ACCESS}", "name": "Porche", "seconds": 6}))
+        check("the alert cuts it, and says so",
+              settle(lambda: logged("the page's sound is cut", mark), 5),
+              "".join(out[mark:]))
+        # What was already on its way is let through; after that, nothing.
+        cut = time.monotonic()
+        time.sleep(0.3)
+        quiet_from = time.monotonic()
+        # A telephone's volume button while the camera shows.
+        send("volume 0.5")
+        time.sleep(2.5)
+        during = between(quiet_from, time.monotonic())
+        check("no sound reaches the panel while the camera shows",
+              not during, f"{len(during)} block(s) in 2.5 s; "
+              f"{len(between(cut - 1, cut))} in the second before")
+        check("a volume set meanwhile is taken",
+              logged("Audio: volume 50%", mark), "".join(out[mark:]))
+        check("the camera's time runs out and the sound comes back",
+              settle(lambda: logged("the page's sound is back", mark), 10),
+              "".join(out[mark:]))
+        back = time.monotonic()
+        check("straight away -- the page went on playing underneath",
+              settle(lambda: len(between(back, time.monotonic())) > 20, 3),
+              repr(len(between(back, time.monotonic()))))
+        time.sleep(0.5)
+        after = sorted(between(back + 0.2, time.monotonic()))
+        soft = after[len(after) // 2] if after else 0
+        check(f"at the volume set while it was cut ({soft} against {loud})",
+              loud and 0.35 < soft / loud < 0.65)
+    finally:
+        process.kill()
+        pages.shutdown()
+        listener.close()
+        ha.close()
+
+
 def main():
     real = alerts.Alerts.start
 
@@ -831,6 +996,7 @@ def main():
     websocket()
     routing()
     sender()
+    sound()
     bad = results.count(False)
     print("all good" if not bad else f"{bad} failure(s)")
     return 1 if bad else 0
