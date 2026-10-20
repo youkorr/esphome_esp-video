@@ -1802,7 +1802,7 @@ the dashboard, where it is invisible while the keys go on working.
 ahead of the `pip install` as well as the `ADD`s, so a bump refetched
 everything — at the cost of the browser download on each update.
 `present_browser()` prints the Chromium version at startup and warns below 114,
-so this is never diagnosed by guesswork again. Currently **4.48.0**.
+so this is never diagnosed by guesswork again. Currently **4.49.0**.
 
 **CORRECTED in 4.29.5: the cost was every update, and a pin removes it.**
 Asked as *"verifie addon ... si il ya pas des elements qui freine la
@@ -8954,6 +8954,9 @@ it on the writer as well would cut two thirds of the host's paint and encode
 during motion and change nothing the panel sees. Identified, not built, and
 nobody asked for it.
 
+**BUILT in 4.49.0, and the cause was not the gate's timing.** See **The
+browser painted three pictures for each one sent** near the end of this file.
+
 ## `--fps 30` delivered 23.6, and the panel's own stats are what said so
 
 **Reported with `stats` on during a swipe down Home Assistant's entity list:**
@@ -10048,6 +10051,46 @@ fail against 4.27.0. Still not settled without the panel's own `Speech
 recognised as:` line, or Home Assistant's Assist debug view, which shows the
 same text beside what handled it; "Home Assistance" is the next spelling to
 look for, and a `voice:` word is its fix.
+
+### Dictation into the page -- 4.49.0
+
+**Asked for from a list of proposals ("Intéressant 2 et 10").** The same
+automation carries two more triggers: `type` -- *"écris / tape / saisis /
+type / write {text}"* -- and `search` -- *"cherche / recherche / search
+[for] {text}"*. `{text}` is a wildcard exactly as `{before}` is
+(`_rebuild_trigger_intents` makes every list a trigger names one), and these
+verbs begin no Home Assistant command; a household trigger naming its words
+exactly still wins, because hassil ranks a literal above a wildcard. The
+event gains `text`, written `{{ (trigger.slots or {}).get('text', '') }}`
+and not `trigger.slots.text`, which would warn on every link's event.
+
+The words travel as `type <words>` / `search <words>` on the sender's control
+channel, collapsed onto one line and capped at 300 characters, and **never
+reach any log**: run.py says how many characters went to which panel, the
+sender how many went where. Somebody may dictate a password.
+
+In the sender, `dictate()` asks every frame whether its deep active element
+takes text and types with `page.keyboard`, which goes to whichever frame has
+focus -- so a field inside an ingress add-on's iframe works. With nothing
+focused it looks for the page's own search field (type=search, role=
+searchbox, name=q, a label or placeholder saying search or recherche) through
+shadow roots and focuses it. A search replaces what the field held
+(Control+A) and presses Enter. "Takes text" is ONE function, `TYPABLE_JS`,
+spliced into both the keyboard's `focus()` and dictation's script -- it had
+been inline in the keyboard's, and a second copy would be the hand-copied
+pair this file keeps paying for.
+
+`tools/checkdictate.py`: the sentences through hassil 3.12.1 with the words
+captured (and five that must stay Home Assistant's), the reply and the
+event's text through jinja2, the event over a real websocket through run.py
+to a real Remote with the words absent from every log line, and the shipped
+sender in a real browser -- a focused field with accents, a field in a
+srcdoc frame, a search field nobody focused, a search replacing old words,
+and a page with nothing to type into. 34 cases. It imports the stand-in Home
+Assistant from `checkvoicelinks.py`, whose expected trigger list now ends in
+`type, search`. **Not tried against a real Home Assistant or a real speech
+engine**: what a French engine writes for a dictated sentence -- the
+punctuation, the casing -- is the next panel's `Speech recognised as:` line.
 
 ## A byte rate, because a fixed quality makes the rate follow the scene -- 4.21.0
 
@@ -12483,6 +12526,79 @@ passed: the away value is now one neither earlier write gave.
 board.** What a panel will say: `the dongle is gone (...)` with the answers
 given in its place, then `the dongle XX:XX:... is back, and Bluetooth carries
 on without a restart: told it N setting(s) again`.
+
+## The browser painted three pictures for each one sent -- 4.49.0
+
+**Asked for as point 10 of a list ("ne plus faire peindre ce que l'écran ne
+prendra pas").** The note above blamed the acknowledgement gate's timing. The
+cause was the screencast's window, measured on the shipped Chromium: it sends
+**three** frames without an acknowledgement and then stops capturing; every
+frame of one screencast carries the same session id; an acknowledgement with
+an older session's id frees nothing; and every start, with or without a stop,
+makes a new session with three free slots. `request()` acknowledged every
+frame held, so each ask let up to three paints and encodes through for the
+one picture that could go out.
+
+`request(eager=False)` now gives back all but one slot -- keep is learnt as
+the largest number of frames ever held, minus one, so a browser holding fewer
+than three cannot deadlock -- and frames of an older session are not counted.
+**`eager=True` gives every slot back**, and the loop asks for it while
+somebody is waiting: a press (`discard` implies it), the urgent window, a page
+arriving (`hurry`). Without it a tap cost a round trip: after a tap the
+browser often sends one more picture of the page being left, and with one
+slot the new page's first picture waited for it -- `checklinkspeed.py --tap`
+read 93-102 ms against 74-92 at HEAD, back to within noise with eager.
+
+**And the browser does not remember a swap it skipped while full.** Measured
+directly: three frames out, the page changed and then stood still, one or all
+slots given back -- nothing ever arrived. So a page whose last change landed
+while every slot was out kept the picture before it until it moved again. True
+of the old way too: `--fps 10 --no-refine` left a panel on a mid-animation
+picture in 3 runs of 6 (4 of 8 in `checkmade.py`). The finished picture hides
+it where it runs, because the animating tiles are soft and get recaptured.
+`_full` marks a frame that filled the window, cleared by a frame captured
+after a slot was given back; a picture asked for while full and not come
+after `MISSED_CHANGE_S` (0.25 s) means the page stopped there, and it is
+fetched with `Page.captureScreenshot` as a JPEG at the screencast's quality,
+so the diff compares like with like. **Not by restarting the screencast**,
+which was the first version: a start usually hands over the page as it stands
+and in one run of twenty handed over nothing -- found by logging the colour
+of every frame after the two identical failures turned out to be the
+animation's last colour, not its second. `--stats` ends in `N caught up`.
+
+Measured with the shipped sender against a fake panel, old against new, same
+run: at 800 KiB/s **22.7 made / 10.1 sent -> 10.2 / 10.1**, CPU of the
+process tree 202% -> 178%, the same gaps at the panel (median 97, max 124 vs
+130 ms) and the same age of a picture on arrival; taking everything, **45.4 /
+23.1 -> 26.7 / 26.7**, 261% -> 223%, age 128 -> 96 ms. The age is a page
+painting `Date.now()` as sixteen blocks, read back by the fake panel, and
+needs `net.ipv4.tcp_wmem` capped at 256 KiB: left at Linux's 4 MB, the
+loopback buffers held five seconds of pictures and the age measured them.
+`checkpacing.py` at --fps 30 fails on this container for old and new alike
+(24.4-25.0 old, 26.4-27.4 new): it is CPU-bound here.
+
+`tools/checkmade.py`: made against sent with nobody touching, and a page that
+stops ending on its last picture, six runs. The sender runs in its own
+process group and is killed with it: a browser left over from the first half
+slowed the next start, and the first version read the panel at a fixed 13 s,
+before a slowed animation had finished. It reads 8 s after the panel's first
+picture now.
+
+Two rulers found wanting on the way, neither the change's fault:
+
+- `checkkeyboard.py` read a key's colour at one instant, right after the
+  letter arrived, and sometimes caught it still drawn pressed --
+  (60, 125, 229). It waits for it now, as it waits for the bar.
+- `checksharp.py` reads 21.2 dB before and 20.8 after for old and new alike,
+  to the same digits: the sender's browser picks another `sans-serif` than
+  the reference's and the lines sit a few pixels lower. It read 30.1 -> 37.8
+  once in the same session, so it is the environment's fonts, not fixed here.
+
+Not explained: `checkkeyboard.py --ref HEAD` failed 8 cases every time in this
+container, taps landing on BODY and BUTTON#bottom rather than the field,
+while the working tree passed. With the recovery switched off only the
+lost-picture case failed, so most of HEAD's failures are not the lost change.
+Worth a look if the old sender's taps ever seem misplaced on a slow machine.
 
 ## Repository conventions
 

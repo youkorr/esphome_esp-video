@@ -494,6 +494,34 @@ can open a link with this step:
     panel: salon        # which screen; needed only with several
 ```
 
+**Dictate into the page, with the same option.** With `voice_links:` on, say
+*"écris recette de crêpes"* (or *"tape ..."*, *"type ..."*) and the words are
+typed into the field the screen is waiting in -- a search box, a login, a
+message. Say *"cherche Les Simpson"* (or *"recherche ..."*, *"search
+for ..."*) and the search field is filled, what it held is replaced, and the
+search is sent. The voice assistant answers *"J'écris"* or *"Je cherche"*.
+
+- **The field the screen is on**, in a frame too (a Home Assistant add-on's
+  page is one). With nothing selected, *"cherche"* finds the page's own
+  search field by itself.
+- **Nothing to type into** -- a photograph, a video: nothing is typed, and the
+  add-on's log says so. Tap the field first, then say it again.
+- **The words never go into the add-on's log**, only how many characters
+  were typed: somebody may dictate a password.
+- **Only sentences that begin with those words**, which no Home Assistant
+  command does, so nothing is taken from your own commands. An automation
+  of your own whose sentence names its words exactly still wins.
+
+The same event types from anywhere: `link: type` (or `search`) and `text:`.
+
+```yaml
+- event: portall_open
+  event_data:
+    link: search
+    text: les simpson
+    panel: salon
+```
+
 ### Each panel its own launcher
 
 In the settings form this is section **🧩 4**, under the name the form shows in
@@ -1100,6 +1128,27 @@ link: lowering it would cost every scene what only the heaviest ones need.
 
 Set it lower on a link if a video still stutters, higher if a panel has a
 faster link, or `0` to turn it off.
+
+### The server paints only the pictures the screen will take
+
+**The browser on the server painted up to three pictures for each one a
+screen could receive**, and threw the others away. It keeps three pictures on
+the way and the add-on gave it room for all three every time it asked. Since
+4.49 it is asked for one picture at a time whenever nobody is touching the
+screen -- a video, an animation, a slideshow -- and for all three again the
+moment somebody touches it or a page is arriving, so nothing waits. Measured
+against a screen taking 800 KiB/s: 22.7 pictures made a second for 10.1 sent
+before, 10.2 for 10.1 after, and the server's processor at 178% of a core
+instead of 202%. What the screen shows is the same: the same gaps between
+pictures, and pictures no older.
+
+**And a page's last change can no longer get lost.** The browser does not
+remember a change it skipped while its three pictures were on the way; on a
+page that then stopped moving, the screen kept the picture before it. With
+`sharp` off and 10 pictures a second, that was 3 runs in 6 of a page ending
+on a mid-animation picture. Now, when a picture asked for does not come, the
+page is fetched as it stands a quarter of a second later. With `stats` on, a
+line ends in `1 caught up` when that happened.
 
 ### A sharp picture once the screen is still
 

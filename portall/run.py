@@ -1618,6 +1618,12 @@ class Remote:
             self._volume = line
         elif kind == "media":
             line = f"media {body}\n"
+        elif kind in ("type", "search"):
+            # Words somebody said. One line: what could end one is a space.
+            words = " ".join(str(body).split())
+            if not words:
+                return False
+            line = f"{kind} {words}\n"
         else:
             line = f"key {body}\n"
         with self._lock:
@@ -2082,6 +2088,14 @@ def start_voice_links(panels, remotes):
         if kind == voicelinks.HOME:
             if remote.send("home", True):
                 say(f"[{who}] voice: back to its home page")
+            return
+        if kind in (voicelinks.TYPE, voicelinks.SEARCH):
+            # The words go to the sender, never to this log: somebody may
+            # dictate a password.
+            what = "a search" if kind == voicelinks.SEARCH else "words"
+            if remote.send(kind, name):
+                say(f"[{who}] voice: {what} for the page "
+                    f"({len(name)} characters)")
             return
         mine = panel.get("launcher_links")
         link = (voicelinks.find_link(mine if mine is not None else house, name)

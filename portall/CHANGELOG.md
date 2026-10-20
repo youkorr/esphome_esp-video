@@ -1,5 +1,20 @@
 # Changelog
 
+## 4.49.0
+
+- **Dictate into the screen by voice.** With `voice_links:` on, *"écris
+  recette de crêpes"* types the words into the field the screen is on, and
+  *"cherche Les Simpson"* fills the page's search field and sends the search,
+  even when nothing was selected. The words never go into the add-on's log.
+  See *Dictate into the page* in the documentation.
+- **The server works less while something moves on a screen nobody is
+  touching.** The browser used to paint up to three pictures for each one a
+  screen could take: 22.7 a second for 10.1 sent, measured, now 10.2 for
+  10.1. What the screen shows is unchanged.
+- **A page's last change could be lost** and the screen stay on the picture
+  before it, until the page moved again: it is fetched now. With `stats` on,
+  `caught up` counts it.
+
 ## 4.48.0
 
 - **Play and pause the video on the screen from any remote.** A car's steering

@@ -285,8 +285,10 @@ def main():
         if "--picture" in sys.argv:
             with lock:
                 canvas.save(sys.argv[sys.argv.index("--picture") + 1])
+        # Waited for, like the bar: right after the letter arrives the key
+        # may still be drawn pressed -- (60, 125, 229) -- for a moment.
         check("the bar is drawn with the keys up", bar_up()
-              and near(colour(ground["a"]), KEY))
+              and until(lambda: near(colour(ground["a"]), KEY), 3))
         time.sleep(6)
         tap(key["b"])
         check("a while later, the field still types",
