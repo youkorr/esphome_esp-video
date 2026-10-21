@@ -150,7 +150,7 @@ RUN (apt-get update \
 # Bump this with the version in config.yaml. It sits AFTER the browsers and
 # BEFORE the senders: an update refetches the two senders below and copies the
 # add-on's own files, and reuses everything above -- see the note on the pin.
-ARG BUNDLE=4.50.1
+ARG BUNDLE=4.51.0
 RUN echo "${BUNDLE}" > /app/BUNDLE
 
 # Fetched rather than copied: the add-on builds with its own folder as the
@@ -179,6 +179,8 @@ COPY homekit.py /app/homekit.py
 COPY voice.py /app/voice.py
 COPY voicelinks.py /app/voicelinks.py
 COPY alerts.py /app/alerts.py
+COPY notices.py /app/notices.py
+COPY morning.py /app/morning.py
 COPY signin.py /app/signin.py
 
 WORKDIR /app

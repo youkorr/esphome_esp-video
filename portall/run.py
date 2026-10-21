@@ -32,6 +32,7 @@ import subprocess
 import sys
 import threading
 import time
+import urllib.parse
 
 # An accessory must never cost the picture, and this one already has: the file
 # was not copied into the add-on's image, so an import at the top of the file
@@ -76,6 +77,16 @@ try:
 except ImportError:  # the image was built without it
     alerts = None
 
+try:
+    import notices
+except ImportError:  # the image was built without it
+    notices = None
+
+try:
+    import morning
+except ImportError:  # the image was built without it
+    morning = None
+
 # Its own folder under the add-on's persistent volume, so a pairing survives
 # a restart and an update.
 HOMEKIT_DIR = "/data/homekit"
@@ -99,10 +110,31 @@ _print_lock = threading.Lock()
 # browsers cannot share one.
 _current = {}
 _held = {}
-# Something to tell about every line a panel's sender prints, by panel name.
+# Whatever wants to hear every line a panel's sender prints, by panel name.
 # The alerts use it: only the sender knows whether somebody touched a screen
-# the add-on lit for an alert, and it says so in its log.
+# the add-on lit for an alert, and it says so in its log. So do the morning
+# greeting (the screen waking) and the page sent to a telephone.
 _watchers = {}
+
+# A line a sender starts with this is for the add-on alone: handed to the
+# watchers and never printed. It is how a page's address reaches the add-on
+# without going into a log that is read in Home Assistant and pasted into
+# forums. The sender's ADDON_ONLY; tools/checknotices.py holds the two equal.
+ADDON_ONLY = "\x1e"
+
+
+def watch_lines(name, watcher):
+    """Hand `watcher` every line this panel's sender prints, beside others."""
+    _watchers.setdefault(str(name), []).append(watcher)
+
+
+def hand_line(name, line):
+    """Give one line of a panel's sender to everything watching it."""
+    for watcher in list(_watchers.get(str(name)) or []):
+        try:
+            watcher(line)
+        except Exception as err:  # noqa: BLE001 - never the log
+            say(f"[{name}] {err}")
 
 # Long enough not to hammer a Home Assistant that is still starting, short
 # enough that a panel is back before anyone walks over to it.
@@ -695,6 +727,7 @@ LAUNCHER_OWN = (
     "slideshow", "slideshow_urls", "slideshow_seconds", "slideshow_fade",
     "slideshow_rescan", "slideshow_after", "slideshow_clock",
     "slideshow_date", "slideshow_weather", "slideshow_avatar",
+    "morning", "morning_calendar",
 ) + tuple("slideshow_" + key for key in SAVER_LOOK_KEYS)
 
 
@@ -981,6 +1014,9 @@ _GROUPED = {
         "avatar": "launcher_avatar",
         "avatar_voice": "launcher_avatar_voice",
         "voice_links": "launcher_voice_links",
+        # Good morning, the first time each screen lights up in the morning.
+        "morning": {"enabled": "launcher_morning",
+                    "calendar": "launcher_morning_calendar"},
         "clock": {"show": "launcher_clock", "size": "launcher_clock_size",
                   "color": "launcher_clock_color"},
         "date": {"size": "launcher_date_size", "color": "launcher_date_color"},
@@ -1010,7 +1046,7 @@ _GROUPED = {
     # eye, not renamed.
     "defaults": {k: k for k in ("port", "fps", "quality", "max_rate",
                                 "keyboard",
-                                "keep_profile", "locale", "homekit")},
+                                "keep_profile", "locale", "homekit", "phone")},
     "debug": {k: k for k in ("stats", "show_media", "show_touches")},
 }
 # A panel's own two groups. Everything in advanced: keeps its own name, so it
@@ -1642,6 +1678,13 @@ class Remote:
         elif kind == "alert":
             # A camera to show, as JSON -- which never holds a raw line end.
             line = f"alert {body}\n"
+        elif kind == "notify":
+            # Words to show over the page, as JSON. Never printed here.
+            line = f"notify {body}\n"
+        elif kind == "share":
+            # "Send the page you show": the answer comes back in the log,
+            # as a line for the add-on alone (ADDON_ONLY).
+            line = "share\n"
         else:
             line = f"key {body}\n"
         with self._lock:
@@ -1836,13 +1879,9 @@ def serve(panel, name, stop, remote=None):
         # Prefix every line, so one log can carry several panels and still be
         # read.
         for line in process.stdout:
-            say(f"[{name}] {line.rstrip()}")
-            watcher = _watchers.get(str(name))
-            if watcher is not None:
-                try:
-                    watcher(line)
-                except Exception as err:  # noqa: BLE001 - never the log
-                    say(f"[{name}] {err}")
+            if not line.startswith(ADDON_ONLY):
+                say(f"[{name}] {line.rstrip()}")
+            hand_line(name, line)
         process.wait()
         if remote is not None:
             remote.set_process(None)
@@ -2278,10 +2317,13 @@ def start_alerts(panels, names, planned, remotes):
                 lit.pop(name, None)
         return on_line
 
+    lighting = []
     for alert in planned:
         if alert["wake"]:
             for name in alerts.targets(alert, names):
-                _watchers[name] = watch(name)
+                if name not in lighting:
+                    lighting.append(name)
+                    watch_lines(name, watch(name))
     return alerts.Alerts(route.url, route.token, planned, fire, say).start()
 
 
@@ -2317,6 +2359,9 @@ def start_voice_links(panels, remotes):
             if remote.send("home", True):
                 say(f"[{who}] voice: back to its home page")
             return
+        if kind == getattr(voicelinks, "SEND", None):
+            ask_to_share(who, panel, remote, name)
+            return
         if kind in (voicelinks.TYPE, voicelinks.SEARCH):
             # The words go to the sender, never to this log: somebody may
             # dictate a password.
@@ -2342,6 +2387,209 @@ def start_voice_links(panels, remotes):
 
     return voicelinks.VoiceLinks(route.url, route.token, every, act,
                                  say).start()
+
+
+def ha_route(panels):
+    """Home Assistant's REST address and a credential for it, as a Weather.
+
+    The Supervisor's own route under Home Assistant; by hand, the first link
+    with an address and a token, the panels' own launchers' included.
+    """
+    every = list(_config.get("links") or [])
+    for entry in own_launchers(_config, panels).values():
+        every += list(entry.get("links") or [])
+    return Weather(*home_assistant_link({"links": every}), None)
+
+
+def start_notices(panels, names, remotes):
+    """Show portall_notify's words on the screens it names, or on all."""
+    if notices is None:
+        return None
+    route = ha_route(panels)
+    said = set()
+
+    def act(data):
+        body = notices.notice(data)
+        if body is None:
+            say(f"Notices: a {notices.EVENT} event with no message and no "
+                f"title -- nothing to show")
+            return
+        wanted, unknown = notices.screens(data, names)
+        for name in unknown:
+            if name not in said:
+                said.add(name)
+                say(f"Notices: {notices.EVENT} names the screen \"{name}\", "
+                    f"and the screens are " + ", ".join(names))
+        shown = []
+        for name in wanted:
+            remote = remotes.get(name)
+            if remote is not None and remote.send("notify", json.dumps(body)):
+                shown.append(name)
+        if shown:
+            # How long, and where -- never the words: an automation may put
+            # anything in them.
+            say(f"Notices: shown for {body['seconds']:.0f}s on "
+                + ", ".join(shown))
+    return notices.EventFollower(route.url, route.token, notices.EVENT, act,
+                                 say, "Notices").start()
+
+
+# A telephone asked for per panel, while its sender is asked for the page:
+# the phone service an event named, or "" for the setting's.
+_share_asked = {}
+
+
+def ask_to_share(who, panel, remote, phone=""):
+    """Ask a panel's sender for the page it shows, to send to a telephone."""
+    if notices is None:
+        say(f"[{who}] share: this build has no notices.py in it")
+        return
+    _share_asked[who] = str(phone or "")
+    if remote.send("share", True):
+        say(f"[{who}] share: asking the screen for its page")
+
+
+def start_sharing(panels, names):
+    """Send a page a screen hands over (SHARE lines) to the telephones."""
+    if notices is None:
+        return
+    route = ha_route(panels)
+    by_name = dict(zip(names, panels))
+    prefix = ADDON_ONLY + "share "
+
+    def send(name, shared):
+        panel = by_name[name]
+        phone = _share_asked.pop(name, "") or _config.get("phone")
+        services, why = notices.phone_services(route.url, route.token, phone)
+        if not services:
+            say(f"[{name}] share: not sent -- {why}")
+            return
+        french = str(panel.get("locale") or "").lower().startswith("fr")
+        payload = notices.phone_message(
+            shared, name, home_assistant_origin(panel, _config), french)
+        sent, failed = notices.send_to_phones(route.url, route.token,
+                                              services, payload)
+        host = urllib.parse.urlsplit(str(shared.get("url") or "")).hostname
+        host = (host or "").removeprefix("www.")
+        if sent:
+            # The site, not the address: the page's path may carry anything.
+            say(f"[{name}] share: {host or 'the page'} sent to "
+                + ", ".join("notify." + s for s in sent)
+                + ("" if str(phone or "").strip() or len(sent) == 1 else
+                   " -- every telephone with Home Assistant's app; name one "
+                   "in 1 · Common settings > Telephone to send to it alone"))
+        for service, err in failed:
+            say(f"[{name}] share: notify.{service} refused it ({err})")
+
+    def watch(name):
+        def on_line(line):
+            if not line.startswith(prefix):
+                return
+            try:
+                shared = json.loads(line[len(prefix):])
+            except ValueError:
+                return
+            if not isinstance(shared, dict) or not shared.get("url"):
+                return
+            threading.Thread(target=send, args=(name, shared),
+                             daemon=True).start()
+        return on_line
+
+    for name in names:
+        watch_lines(name, watch(name))
+
+
+def morning_settings(panel, name, panels):
+    """This screen's launcher settings: its own launchers: entry over the
+    house's, the way its page of links is made."""
+    entry = own_launchers(_config, panels).get(str(name).strip().lower())
+    return launcher_config(_config, entry) if entry else _config
+
+
+def start_morning(panels, names, remotes):
+    """Say good morning on each screen that asks, when it first wakes."""
+    if morning is None:
+        return
+    route = ha_route(panels)
+    by_name = dict(zip(names, panels))
+    locks = {}
+
+    def greet(name):
+        panel = by_name[name]
+        settings = morning_settings(panel, name, panels)
+        with locks.setdefault(name, threading.Lock()):
+            try:
+                day, hour, now, end = morning.local_now(route.url,
+                                                        route.token)
+            except Exception as err:  # noqa: BLE001
+                say(f"[{name}] morning: Home Assistant could not be asked "
+                    f"the time ({err})")
+                return
+            if not morning.is_morning(hour):
+                return
+            if morning.greeted_today(name, day):
+                return
+            french = str(panel.get("locale") or "").lower().startswith("fr")
+            weather = None
+            entity = str(settings.get("launcher_weather") or "").strip()
+            if entity:
+                try:
+                    weather = morning.read_weather(route.url, route.token,
+                                                   entity)
+                except Exception as err:  # noqa: BLE001
+                    say(f"[{name}] morning: no weather ({entity}: {err})")
+            events, looked = [], False
+            try:
+                calendars = morning.calendars_of(
+                    route.url, route.token,
+                    settings.get("launcher_morning_calendar"))
+                if calendars:
+                    events = morning.read_events(route.url, route.token,
+                                                 calendars, now, end)
+                    looked = True
+            except Exception as err:  # noqa: BLE001
+                say(f"[{name}] morning: no calendar ({err})")
+            title, message, spoken = morning.greeting(french, weather,
+                                                      events, looked)
+            remote = remotes.get(name)
+            if remote is not None:
+                remote.send("notify", json.dumps(
+                    {"title": title, "message": message, "seconds": 20}))
+            try:
+                satellite, why = morning.satellite_for(
+                    route.url, route.token,
+                    settings.get("launcher_avatar_voice"))
+                if satellite is None:
+                    say(f"[{name}] morning: shown, not said -- {why}")
+                    return
+                morning.announce(route.url, route.token, satellite, spoken)
+                say(f"[{name}] morning: said on {satellite}")
+            except Exception as err:  # noqa: BLE001
+                say(f"[{name}] morning: shown, not said ({err})")
+
+    def watch(name):
+        dark = {"was": False}
+
+        def on_line(line):
+            if line.startswith("Panel asleep"):
+                dark["was"] = True
+            elif line.startswith("Panel awake"):
+                if dark["was"]:
+                    threading.Thread(target=greet, args=(name,),
+                                     daemon=True).start()
+                dark["was"] = False
+        return on_line
+
+    wanted = []
+    for name, panel in zip(names, panels):
+        settings = morning_settings(panel, name, panels)
+        if truthy(settings.get("launcher_morning", False)):
+            wanted.append(name)
+            watch_lines(name, watch(name))
+    if wanted:
+        say("Morning: a good morning on " + ", ".join(wanted)
+            + f" when it first lights up between {morning.MORNING_FROM} h "
+            f"and {morning.MORNING_UNTIL} h")
 
 
 def main():
@@ -2432,10 +2680,6 @@ def main():
     start_pulseaudio()
     threads = []
     remotes = []
-    # A link asked for by voice is handed to a panel's sender down the same
-    # channel the HomeKit remote uses, so every panel needs one then.
-    by_voice = (voicelinks is not None
-                and truthy(_config.get("launcher_voice_links", False)))
     names = [str(panel.get("name") or panel.get("host") or f"panel {index}")
              for index, panel in enumerate(panels, start=1)]
     # Marks the screens an alert can appear on, which need a control channel.
@@ -2443,13 +2687,13 @@ def main():
     every_remote = {}
     for name, panel in zip(names, panels):
         wants = str(panel.get("homekit", "")).strip().lower() in ("true", "yes", "1")
-        if by_voice:
-            panel["control"] = True
-        remote = (Remote(name) if (wants or by_voice or panel.get("alerts"))
-                  else None)
-        if remote is not None:
-            every_remote[str(name)] = remote
-        if remote is not None and wants:
+        # Every screen has a way in: the HomeKit remote, a link asked for by
+        # voice, a camera alert, and now a notification from any automation
+        # (portall_notify), which can be for any screen at any time.
+        panel["control"] = True
+        remote = Remote(name)
+        every_remote[str(name)] = remote
+        if wants:
             remotes.append((name, remote))
         thread = threading.Thread(target=serve, args=(panel, name, stop, remote),
                                   daemon=True)
@@ -2460,6 +2704,9 @@ def main():
     # After the senders, for the same reason as the accessory below.
     start_voice_links(panels, every_remote)
     start_alerts(panels, names, planned, every_remote)
+    start_notices(panels, names, every_remote)
+    start_sharing(panels, names)
+    start_morning(panels, names, every_remote)
     sign_in = start_signin(panels)
 
     # After the senders, so a press cannot arrive before there is anything to

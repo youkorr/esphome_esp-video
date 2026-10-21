@@ -31,6 +31,11 @@ configuration:
       homekit:
         name: 📱 Télécommande iPhone (HomeKit)
         description: Chaque écran apparaît dans l'app Maison et dans la télécommande du Centre de contrôle.
+      phone:
+        name: 📲 Téléphone
+        description: 'Où « envoie ça sur mon téléphone » envoie la page : notify.mobile_app_… de l''app
+          Home Assistant du téléphone, plusieurs séparés par des virgules. Vide = tous les téléphones
+          qui ont l''app.'
   panels:
     name: 🖥️ 2 · Mes écrans
     description: Un élément par écran ESP32-P4. Nom, adresse IP, taille, et ce qu'il affiche.
@@ -194,10 +199,22 @@ configuration:
           Home Assistant. S''il y en a plusieurs, mettez celui de cet écran (assist_satellite.guition
           par exemple). off : aucun.'
       voice_links:
-        name: 🗣️ Ouvrir les liens à la voix
-        description: 'Dites « ouvre Jellyfin » ou « retour à l''accueil » à l''assistant vocal de l''écran.
+        name: 🗣️ Commander l'écran à la voix
+        description: 'Dites à l''assistant vocal de l''écran « ouvre Jellyfin », « retour à l''accueil
+          », « écris recette de crêpes », « cherche Les Simpson » ou « envoie ça sur mon téléphone ».
           L''add-on écrit pour cela l''automatisation « Portall : ouvrir un lien à la voix » dans Home
           Assistant et la tient à jour avec vos liens.'
+      morning:
+        name: ☀️ Bonjour du matin
+        description: La première fois que l'écran s'allume entre 5 h et 12 h, son assistant vocal dit
+          la météo et l'agenda du jour, et l'écran l'affiche. Une fois par jour.
+        fields:
+          enabled:
+            name: Activer
+          calendar:
+            name: Agendas
+            description: calendar.famille, plusieurs séparés par des virgules. Vide = tous les agendas
+              de Home Assistant.
       clock:
         name: 🕒 Horloge
         fields:
@@ -398,6 +415,12 @@ configuration:
         description: 'Le visage écoute, réfléchit et répond avec lui. Vide : le seul assistant vocal de
           Home Assistant. S''il y en a plusieurs, mettez celui de cet écran (assist_satellite.guition
           par exemple). off : aucun.'
+      morning:
+        name: ☀️ Bonjour du matin
+        description: La météo et l'agenda du jour, dits et affichés quand l'écran s'allume le matin.
+      morning_calendar:
+        name: ☀️ Agendas du bonjour
+        description: calendar.famille, plusieurs séparés par des virgules. Vide = tous.
       clock:
         name: 🕒 Afficher l'horloge
       clock_size:

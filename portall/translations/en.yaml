@@ -31,6 +31,10 @@ configuration:
       homekit:
         name: 📱 iPhone remote (HomeKit)
         description: Each screen appears in the Home app and in Control Centre's remote.
+      phone:
+        name: 📲 Telephone
+        description: 'Where "send this to my phone" sends the page: notify.mobile_app_… of the phone''s
+          Home Assistant app, several separated by commas. Empty = every phone that has the app.'
   panels:
     name: 🖥️ 2 · My screens
     description: 'One entry per ESP32-P4 screen: name, IP address, size, and what it shows.'
@@ -190,10 +194,21 @@ configuration:
         description: 'The face listens, thinks and answers with it. Empty: Home Assistant''s only voice
           assistant. With several, put this screen''s (assist_satellite.guition, say). off: none.'
       voice_links:
-        name: 🗣️ Open links by voice
-        description: 'Say "open Jellyfin" or "go home" to the screen''s voice assistant. The add-on writes
-          the automation "Portall : ouvrir un lien à la voix" into Home Assistant for it and keeps it
-          in step with your links.'
+        name: 🗣️ Drive the screen by voice
+        description: 'Say to the screen''s voice assistant "open Jellyfin", "go home", "type pancake recipe",
+          "search for The Simpsons" or "send this to my phone". The add-on writes the automation "Portall
+          : ouvrir un lien à la voix" into Home Assistant for it and keeps it in step with your links.'
+      morning:
+        name: ☀️ Good morning
+        description: The first time the screen lights up between 5 and 12, its voice assistant says the
+          day's weather and calendar, and the screen shows it. Once a day.
+        fields:
+          enabled:
+            name: 'On'
+          calendar:
+            name: Calendars
+            description: calendar.family, several separated by commas. Empty = every calendar Home Assistant
+              has.
       clock:
         name: 🕒 Clock
         fields:
@@ -387,6 +402,12 @@ configuration:
         name: 🎙️ The avatar's voice assistant
         description: 'The face listens, thinks and answers with it. Empty: Home Assistant''s only voice
           assistant. With several, put this screen''s (assist_satellite.guition, say). off: none.'
+      morning:
+        name: ☀️ Good morning
+        description: The day's weather and calendar, said and shown when the screen lights up in the morning.
+      morning_calendar:
+        name: ☀️ Calendars for the greeting
+        description: calendar.family, several separated by commas. Empty = all of them.
       clock:
         name: 🕒 Show the clock
       clock_size:

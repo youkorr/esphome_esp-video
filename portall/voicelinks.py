@@ -51,6 +51,9 @@ LINK = "link:"
 # and presses Enter.
 TYPE = "type"
 SEARCH = "search"
+# "Envoie ça sur mon téléphone": the page the screen shows, sent to a
+# telephone as a notification that opens it.
+SEND = "send"
 
 # The words somebody says in front of a link's name. French first, because
 # that is who this was built with, and English beside it. No hyphens: a
@@ -119,6 +122,21 @@ SEARCH_SENTENCES = [
     LEAD + "(cherche|cherchez|chercher|recherche|recherchez|rechercher) "
     "[moi] {text}",
     LEAD + "search [for] {text}",
+]
+
+
+# Sending the page to a telephone. Every word of it fixed -- a verb, then what
+# is sent, then where -- so it can take no sentence of Home Assistant's own:
+# none of its commands begins "envoie". "moi" because "envoie-moi ça" reaches
+# the trigger as "envoie moi ça", the hyphen gone.
+SEND_SENTENCES = [
+    LEAD + "(envoie|envoyez|envoyer|partage|partagez|partager|transfère|"
+    "transférez|transfere) [moi] (ça|ca|ceci|cela|la page|cette page|le lien|"
+    "ce lien|l'écran|ce site|cette vidéo) (sur|vers|à|a|au|dans) "
+    "[mon |ma |le |la |l']"
+    "(téléphone|telephone|portable|mobile|iphone|smartphone|tel) " + POLITE,
+    LEAD + "(send|share) (this|it|the page|this page|the link|that) to "
+    "[my |the ](phone|mobile|iphone|smartphone) " + POLITE,
 ]
 
 
@@ -202,6 +220,8 @@ def automation(names, voices=None):
                      "id": TYPE})
     triggers.append({"trigger": "conversation", "command": SEARCH_SENTENCES,
                      "id": SEARCH})
+    triggers.append({"trigger": "conversation", "command": SEND_SENTENCES,
+                     "id": SEND})
     response = (
         "{% set fr = ((trigger.user_input or {}).language or '')[:2] == 'fr' %}"
         "{% if trigger.id == 'home' %}"
@@ -210,6 +230,9 @@ def automation(names, voices=None):
         "{{ \"J'écris\" if fr else 'Typing' }}"
         "{% elif trigger.id == 'search' %}"
         "{{ 'Je cherche' if fr else 'Searching' }}"
+        "{% elif trigger.id == 'send' %}"
+        "{{ \"Je l'envoie sur ton téléphone\" if fr else "
+        "'Sending it to your phone' }}"
         "{% else %}"
         "{{ (\"J'ouvre \" if fr else 'Opening ') ~ trigger.id[5:] }}"
         "{% endif %}")
@@ -312,14 +335,14 @@ def wanted(name):
     """What an event asked for: ("home", None), ("link", name) or None.
 
     TYPE and SEARCH are returned as (kind, None); their words are the event's
-    `text`, read by the caller.
+    `text`, read by the caller. SEND too, with the event's `phone`, if any.
     """
     text = str(name or "").strip()
     if not text:
         return None
     if text.lower() == HOME:
         return (HOME, None)
-    if text.lower() in (TYPE, SEARCH):
+    if text.lower() in (TYPE, SEARCH, SEND):
         return (text.lower(), None)
     if text.startswith(LINK):
         text = text[len(LINK):]
@@ -424,6 +447,10 @@ class VoiceLinks:
                           f"{asked[0]} but carried no text -- ignored")
                 return
             asked = (asked[0], words[:300])
+        elif asked[0] == SEND:
+            # A telephone of the event's own, when it names one -- a
+            # dashboard button "send this to Léa's phone".
+            asked = (SEND, str((data or {}).get("phone") or "").strip())
         self.act(asked[0], asked[1], satellite, panel)
 
     def start(self):

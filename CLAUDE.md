@@ -1802,7 +1802,7 @@ the dashboard, where it is invisible while the keys go on working.
 ahead of the `pip install` as well as the `ADD`s, so a bump refetched
 everything — at the cost of the browser download on each update.
 `present_browser()` prints the Chromium version at startup and warns below 114,
-so this is never diagnosed by guesswork again. Currently **4.50.1**.
+so this is never diagnosed by guesswork again. Currently **4.51.0**.
 
 **CORRECTED in 4.29.5: the cost was every update, and a pin removes it.**
 Asked as *"verifie addon ... si il ya pas des elements qui freine la
@@ -12706,6 +12706,70 @@ through PulseAudio (`pulseaudio -D` here, after `apt-get update`) and reads
 the panel's PCM blocks: none for 2.5 s of camera, back at once after it, at
 half the peak after `volume 0.5` sent during it. Against 4.50.0: 125 blocks
 in those 2.5 s, three cases fail.
+
+## Notifications, a page sent to a telephone, good morning -- 4.51.0
+
+**Asked for together from a list of proposals ("Ok pour 2,3,5").** Three
+things, one shape: Home Assistant says something, run.py routes it, a sender
+shows or answers it. `tools/checknotices.py` drives all three with the
+shipped code (unit pieces, run.py against a stand-in Home Assistant over a
+real websocket and REST, the sender against a fake panel).
+
+**Notifications are drawn onto the PICTURE, like the bar's strip, never put
+into the page** (`ha_send.Toasts`). So they show over any site, the saver and
+a camera alert, and no Trusted Types page can refuse them. `compose()` draws
+them below the strip; a change of what is shown re-makes the picture from
+`last_shot` -- the strip's own mechanism -- or a still page would show its
+notification only at its next paint. Measured: 53 ms from the event to the
+panel on a page that paints nothing; with the re-make taken out, 3 s
+(something else happened to paint) and four cases fail. A tap ON one closes
+it and is swallowed to its release (`drop_until_release`); without that the
+page under it is clicked, and two cases fail. Dark, it waits up to
+`NOTICE_WAIT_S` and its time starts when seen.
+
+**Pillow's default font draws no accent at all** -- "é" measures the same as
+U+FFFF and draws the box. `NOTICE_FONTS` tries Liberation, DejaVu, FreeSans
+and Noto, which the image has through Playwright's font packages, and
+`checkimage.py` checks in the published image that "éçà" is drawn and an
+emoji becomes an icon. A character the font lacks is DETECTED by drawing it
+and comparing with U+FFFF's drawing, and left out; a leading emoji is drawn
+in colour from Noto Color Emoji (`embedded_color`, size 109, scaled).
+
+**Every screen has a control channel now** (`--control`, a `Remote`), since a
+notification can be for any screen at any time. That made `by_voice` dead and
+it went.
+
+**An early swallow, and why.** The gesture-swallowing used to run after
+`asked_any` was computed, so the RELEASE of a touch that closed something
+arrived next turn as input and could close what was showing then -- harmless
+for the saver and the alert (already off), wrong for a notification closed
+over a camera alert. A swallow carried over from the last turn is applied
+before `asked_any` now. `checksaver`, `checkalerts`, `checknavbar`,
+`checkkeyboard`, `checksharp`, `checkglide`, `checklinkspeed --tap` (65-79 ms,
+same as 4.50.1 on the same machine) all pass.
+
+**The page goes to the add-on on a line its log never prints.** `share` on
+the control channel; the sender answers `ADDON_ONLY + "share " + json` (U+001E
+in front), and `serve()` hands such lines to the watchers without printing
+them. The add-on's log says the site, never the address. `_watchers` is a
+LIST per panel now (`watch_lines`, `hand_line`): the alerts, the morning and
+the share all watch the same log. A telephone is the `phone:` setting or
+every `notify.mobile_app_*` service; Home Assistant's own pages go as their
+path (the app opens a path inside itself), read in its notification docs.
+The sentence "envoie ça sur mon téléphone" is matched through hassil 3.12.1,
+and "envoie un message à Léa" is left alone.
+
+**The morning uses Home Assistant's clock, not the container's.** The
+Supervisor does pass `TZ` (`ENV_TIME` in docker/app.py), but whether the
+image has the zone database was not established, and a template's `now()`
+needs nothing. Weather through `weather.get_forecasts?return_response`,
+calendars through `/api/calendars/<id>?start&end`, the voice through
+`assist_satellite.announce` with `preannounce: false` -- each read in Home
+Assistant's 2026.2 source. An announce puts the satellite in `responding`,
+which is what moves the avatar's mouth. Greeted once a day per screen,
+remembered in `/data/morning.json`, only on a wake that follows a "Panel
+asleep" line. **Not tried against a real Home Assistant, satellite or
+telephone.**
 
 ## Repository conventions
 

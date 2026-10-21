@@ -1,5 +1,5 @@
 name: Portall
-version: "4.50.1"
+version: "4.51.0"
 # Home Assistant identifies an add-on by its slug, so this one moving from
 # usb_display_panel to portall makes the Supervisor see a NEW add-on: options
 # are not carried over and /data starts empty, which means the browser
@@ -137,6 +137,11 @@ options:
     # press arrives here, where the page is rendered. Unpair from the Home
     # app like any other accessory.
     homekit: false
+    # Where "envoie ça sur mon téléphone" sends the page a screen shows: the
+    # notify service of Home Assistant's phone app, notify.mobile_app_<phone>,
+    # or several separated by commas. Empty sends to every telephone that has
+    # the app, and the log names them so a house with several can pick one.
+    phone: ""
   # The panels come right after the settings they all share, because they
   # are the one thing that must be filled in for anything to appear.
   panels:
@@ -236,6 +241,14 @@ options:
     # "Portall : ouvrir un lien à la voix", naming your links exactly, and
     # keeps it in step with them. Off takes it away again.
     voice_links: false
+    # Good morning: the first time a screen lights up between 5 and 12, its
+    # voice assistant says the day's weather and what is on the calendar, and
+    # the screen shows the same. Once a day per screen. The weather is the
+    # one below; the calendars are those named here, separated by commas --
+    # calendar.famille -- or every calendar Home Assistant has when empty.
+    morning:
+      enabled: false
+      calendar: ""
     clock:
       # The time and the date, above the links. Formatted by the browser, so they
       # follow `locale:` -- a French panel writes "lundi 2 septembre" without this
@@ -430,6 +443,7 @@ schema:
     quality: int(1,95)?
     max_rate: int(0,20000)?
     homekit: bool?
+    phone: str?
     port: port?
   panels:
     - name: str
@@ -477,6 +491,9 @@ schema:
     avatar: bool?
     avatar_voice: str?
     voice_links: bool?
+    morning:
+      enabled: bool?
+      calendar: str?
     clock:
       show: bool?
       size: list(small|medium|large|huge)?
@@ -541,6 +558,8 @@ schema:
       tile_text_color: list(theme|slate|gray|zinc|neutral|stone|red|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose|white|black)?
       avatar: bool?
       avatar_voice: str?
+      morning: bool?
+      morning_calendar: str?
       clock: bool?
       clock_size: list(small|medium|large|huge)?
       clock_color: list(theme|slate|gray|zinc|neutral|stone|red|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose|white|black)?
