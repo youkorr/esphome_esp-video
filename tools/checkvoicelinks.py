@@ -341,7 +341,7 @@ def automation_api():
           [t["id"] for t in stored.get("triggers", [])]
           == ["link:Home Assistant", "link:Jellyfin", "link:YouTube",
               "link:Camera cuisine", "link:Orange TV", "link:télé du salon",
-              "home", "type", "search"])
+              "home", "type", "search", "send"])
     check("and says which links it knows, with their other words",
           any("6 link(s)" in s and "Jellyfin (or gelée fine, jelly fin)" in s
               for s in said), repr(said))

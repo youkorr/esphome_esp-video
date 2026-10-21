@@ -256,6 +256,10 @@ def check_reaches_sender(folder):
         # On unless false, so it emits a flag only when turned OFF
         # (--no-refine). tools/checksharp.py runs command_for both ways.
         "sharp",
+        # The telephone "envoie ça sur mon téléphone" sends to: read HERE,
+        # when a sender hands its page over, and never a sender's flag.
+        # tools/checknotices.py sends a page to a stand-in phone service.
+        "phone",
     }
 
     def leaves(spec, path=()):

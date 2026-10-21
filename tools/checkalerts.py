@@ -520,10 +520,10 @@ def routing():
               any("lighting the screen (light.salon_backlight)" in line
                   for line in said), repr(said[-4:]))
         watcher = run._watchers.get("cuisine")
-        check("its sender's log is watched", watcher is not None)
-        if watcher is not None:
-            watcher(alerts.TOUCHED + " (a touch)\n")
-            watcher(alerts.UNTOUCHED + "\n")
+        check("its sender's log is watched", bool(watcher))
+        if watcher:
+            run.hand_line("cuisine", alerts.TOUCHED + " (a touch)\n")
+            run.hand_line("cuisine", alerts.UNTOUCHED + "\n")
             time.sleep(0.5)
             check("touched, it is left lit: somebody is using it",
                   ("turn_off", "light.salon_backlight") not in ha.posted,
@@ -535,7 +535,7 @@ def routing():
             ha.set_state("binary_sensor.door", "on")
             settle(lambda: ha.posted.count(("turn_on",
                                             "light.salon_backlight")) == 2, 5)
-            watcher(alerts.UNTOUCHED + "\n")
+            run.hand_line("cuisine", alerts.UNTOUCHED + "\n")
             check("untouched, the screen it lit goes back in the dark",
                   settle(lambda: ("turn_off", "light.salon_backlight")
                          in ha.posted, 5), repr(ha.posted))
@@ -545,7 +545,7 @@ def routing():
             ha.set_state("binary_sensor.door", "off")
             ha.set_state("binary_sensor.door", "on")
             time.sleep(1.0)
-            watcher(alerts.UNTOUCHED + "\n")
+            run.hand_line("cuisine", alerts.UNTOUCHED + "\n")
             time.sleep(0.5)
             check("and one that was already lit is left lit",
                   ha.posted.count(("turn_off", "light.salon_backlight")) == 1
@@ -676,9 +676,7 @@ def sender():
     def read():
         for line in process.stdout:
             out.append(line)
-            watcher = run._watchers.get("salon")
-            if watcher is not None:
-                watcher(line)
+            run.hand_line("salon", line)
     threading.Thread(target=read, daemon=True).start()
 
     def logged(text, since=0):

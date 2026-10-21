@@ -50,7 +50,8 @@ print(f"Image for {machine}, version {open(os.path.join(APP, 'BUNDLE')).read().s
 
 print("The add-on's own code:")
 for module in ("ha_send", "udisp_send", "run", "launcher", "logos", "files",
-               "homekit", "voice", "voicelinks", "alerts", "signin"):
+               "homekit", "voice", "voicelinks", "alerts", "notices",
+               "morning", "signin"):
     try:
         __import__(module)
         need(True, f"{module}.py imports")
@@ -76,6 +77,24 @@ for module in ("numpy", "PIL", "pyhap"):
 print("The launcher's icons:")
 fonts = subprocess.run(["fc-list"], capture_output=True, text=True).stdout
 need("Noto Color Emoji" in fonts, "a colour emoji font")
+
+print("The notifications:")
+# Written onto the picture by the sender, in a font of this machine's: one
+# that draws French, and the emoji a notification starts with as its icon.
+try:
+    import ha_send
+    from PIL import Image
+    toasts = ha_send.Toasts(800, 480)
+    font = toasts.font(20)
+    where = getattr(font, "path", None)
+    need(isinstance(where, str) and where.startswith("/usr/share/fonts/"),
+         f"a font of the system's, not Pillow's own ({where})")
+    need(toasts._drawable(font, "éçà") == "éçà",
+         "it draws é, ç and à rather than empty boxes")
+    need(toasts._icon("\U0001F9FA", 40) is not None,
+         "an emoji is drawn as a notification's icon")
+except Exception as err:  # noqa: BLE001 -- the message is the finding
+    need(False, f"notifications could not be drawn ({err})")
 
 print("The browser:")
 import ha_send  # noqa: E402 -- after the path above

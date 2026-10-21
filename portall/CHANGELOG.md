@@ -1,5 +1,23 @@
 # Changelog
 
+## 4.51.0
+
+- **Notifications on the screens.** Any automation fires `portall_notify`
+  with a message, and the screens show it over whatever they show for a few
+  seconds -- a film goes on, sound and all. An emoji in front is its icon; a
+  touch on it closes it and presses nothing. See *Notifications on the
+  screens* in the documentation.
+- **"Envoie ça sur mon téléphone".** With voice commands on, the page a
+  screen shows arrives on your telephone as a notification of Home
+  Assistant's app, and opens when touched. A new *Telephone* setting in
+  *1 · Common settings* picks one; empty sends to every telephone with the
+  app.
+- **Good morning.** *Good morning* in *4*: the first time a screen lights up
+  in the morning, its voice assistant says the day's weather and calendar,
+  and the screen shows it. Once a day per screen.
+- The voice commands switch is now called *Drive the screen by voice*, and
+  says everything it does.
+
 ## 4.50.1
 
 - **A camera alert cuts the page's sound while it shows.** A film playing

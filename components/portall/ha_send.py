@@ -1345,6 +1345,28 @@ def _alert_body(text):
             "seconds": max(5, min(300, seconds))}
 
 
+def _notice_body(text):
+    """A notice line's JSON, checked: {title, message, seconds}, or None.
+
+    Words are made one line each and held to a length a screen can show: a
+    notification is a glance, and the text comes from an automation somebody
+    wrote, so it is taken as it is and nothing in it is trusted to be short.
+    """
+    try:
+        body = json.loads(text)
+        seconds = float(body.get("seconds") or NOTICE_SECONDS)
+    except (ValueError, TypeError, AttributeError):
+        return None
+    if not isinstance(body, dict):
+        return None
+    title = " ".join(str(body.get("title") or "").split())[:80]
+    message = " ".join(str(body.get("message") or "").split())[:300]
+    if not title and not message:
+        return None
+    return {"title": title, "message": message,
+            "seconds": max(NOTICE_MIN_S, min(NOTICE_MAX_S, seconds))}
+
+
 def _is_gain(text):
     try:
         value = float(text)
@@ -1410,6 +1432,20 @@ class Control:
                         print("Control: an alert that is not one -- ignored")
                     else:
                         self._queue.append(("alert", body))
+                elif word == "notify":
+                    # A notification from Home Assistant, shown over the
+                    # page (see Toasts). Its words are never printed: an
+                    # automation may put anything in them.
+                    body = _notice_body(rest)
+                    if body is None:
+                        print("Control: a notification with nothing to say "
+                              "-- ignored")
+                    else:
+                        self._queue.append(("notify", body))
+                elif word == "share" and not rest:
+                    # The page this screen shows, for the add-on to send to a
+                    # telephone: "envoie ça sur mon téléphone".
+                    self._queue.append(("share", True))
                 elif word == "volume" and _is_gain(rest):
                     # A telephone's volume button, turned into a gain by the
                     # add-on, which keeps the level across restarts of this
@@ -2090,6 +2126,346 @@ class Saver:
         except Exception:  # noqa: BLE001 - nothing to stop any more
             pass
         print(f"Screen saver: off ({why})")
+
+
+# A line that starts with this is for the add-on that runs this sender and
+# for nobody else: run.py hands it to whatever is watching and does not print
+# it. It is how a page's address goes to the add-on without going into a log
+# that is read in Home Assistant and pasted into forums. The same character is
+# run.py's ADDON_ONLY; tools/checknotices.py holds the two to each other.
+ADDON_ONLY = "\x1e"
+# The page this screen shows, as JSON {url, title}, asked for by "share".
+SHARE_LINE = ADDON_ONLY + "share "
+
+# A notification's time on the screen when it does not say, and its bounds.
+NOTICE_SECONDS = 10.0
+NOTICE_MIN_S = 3.0
+NOTICE_MAX_S = 120.0
+# How long one that arrives while the screen is dark waits for it to light.
+# Past that it is old news: "the washing is done" from two hours ago is not
+# what somebody wants to read first thing in the morning.
+NOTICE_WAIT_S = 600.0
+# How many are shown at once, newest at the top. A fourth pushes out the
+# oldest rather than being lost itself.
+NOTICE_MOST = 3
+
+# Fonts a notification is written in, in order: whichever this machine has.
+# Pillow's own default font draws no accent at all -- measured, "é" and "ç"
+# come out as the box a font draws for a character it lacks -- and these
+# notifications are mostly French. The add-on's image carries Liberation and
+# DejaVu, through the fonts Playwright installs for its browser.
+NOTICE_FONTS = (
+    ("/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+     "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf"),
+    ("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+     "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"),
+    ("/usr/share/fonts/truetype/freefont/FreeSans.ttf",
+     "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf"),
+    ("/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf",
+     "/usr/share/fonts/truetype/noto/NotoSans-Bold.ttf"),
+)
+NOTICE_EMOJI_FONT = "/usr/share/fonts/truetype/noto/NotoColorEmoji.ttf"
+
+
+def _emoji_lead(text):
+    """(the emoji a text starts with, the rest of it). An icon, if any.
+
+    "🧺 Lessive terminée" is how a Home Assistant user writes a notification,
+    and the emoji is the icon they meant. It is drawn as one, in colour, and
+    the words are written beside it.
+    """
+    end = 0
+    for i, ch in enumerate(text):
+        code = ord(ch)
+        if (code >= 0x1F000 or 0x2190 <= code <= 0x21FF
+                or 0x2300 <= code <= 0x23FF or 0x2600 <= code <= 0x27BF
+                or 0x2B00 <= code <= 0x2BFF or code in (0x200D, 0xFE0F, 0x20E3)
+                or (end and 0xE0020 <= code <= 0xE007F)):
+            end = i + 1
+            continue
+        break
+    return text[:end].strip(), text[end:].strip()
+
+
+class Toasts:
+    """Notifications from Home Assistant, written over the screen's picture.
+
+    "Le lave-linge a terminé", "La porte du garage est ouverte": a few words
+    at the top of whatever the screen shows, for a few seconds, without
+    leaving the page -- a film goes on, sound and all. Fired from any
+    automation with the event portall_notify; the add-on hands them here.
+
+    Drawn by this sender ONTO THE PICTURE, the way the bar's strip is, and
+    never put into the page: so they show over any site, a Trusted Types one
+    included, over the screen saver and over a camera alert, and no page can
+    hide or move them. A change of what is shown -- one arriving, one going --
+    makes the picture again from the page's last one, so a still page shows
+    its notification at once rather than at its next paint.
+
+    A tap ON one closes it and goes no further, all of it until the finger
+    lifts: the page underneath is hidden there, and pressing what nobody can
+    see is the fault the keyboard and the camera alert were built to avoid.
+
+    A dark screen shows nothing, so a notification that arrives then waits for
+    it to light, up to NOTICE_WAIT_S, and its time starts when it is seen.
+    """
+
+    def __init__(self, width, height):
+        self.width = width
+        self.height = height
+        self.items = []
+        self.rects = []
+        self._next = 1
+        self._fonts = {}
+        self._said = set()
+        self._missing = {}
+        size = min(width, height)
+        self.size = int(max(14, min(30, round(size * 0.034))))
+
+    # -- what is shown -------------------------------------------------------
+
+    def add(self, body, now):
+        item = dict(body)
+        item["id"] = self._next
+        item["arrived"] = now
+        item["until"] = None
+        icon, title = _emoji_lead(item["title"])
+        if not icon:
+            icon, message = _emoji_lead(item["message"])
+            if icon:
+                item["message"] = message
+        else:
+            item["title"] = title
+        item["icon"] = icon
+        self._next += 1
+        self.items.insert(0, item)
+        if len(self.items) > NOTICE_MOST:
+            self.items.pop()
+            print("Notice: a fourth at once -- the oldest made room for it")
+        return item["id"]
+
+    def tick(self, now, awake):
+        """Start what can now be seen; take away what has had its time."""
+        kept = []
+        for item in self.items:
+            if item["until"] is None:
+                if awake:
+                    item["until"] = now + item["seconds"]
+                    print(f"Notice: on the screen for "
+                          f"{item['seconds']:.0f}s", flush=True)
+                elif now - item["arrived"] > NOTICE_WAIT_S:
+                    print("Notice: dropped, the screen stayed dark for "
+                          f"{NOTICE_WAIT_S / 60:.0f} minutes", flush=True)
+                    continue
+                elif item["id"] not in self._said:
+                    self._said.add(item["id"])
+                    print("Notice: the screen is dark; shown when it lights "
+                          "up", flush=True)
+            elif now >= item["until"]:
+                continue
+            kept.append(item)
+        self.items = kept
+
+    def look(self):
+        """What is on the screen now: a change of it is a picture to send."""
+        return tuple(item["id"] for item in self.items
+                     if item["until"] is not None)
+
+    def dismiss_at(self, x, y):
+        """Close the notification under a point of the screen. True if one."""
+        for x0, y0, x1, y1, ident in self.rects:
+            if x0 <= x < x1 and y0 <= y < y1:
+                self.items = [i for i in self.items if i["id"] != ident]
+                self.rects = [r for r in self.rects if r[4] != ident]
+                print("Notice: closed from the screen", flush=True)
+                return True
+        return False
+
+    # -- drawing -------------------------------------------------------------
+
+    def font(self, size, bold=False):
+        key = (size, bold)
+        if key not in self._fonts:
+            from PIL import ImageFont
+            found = None
+            for regular, heavy in NOTICE_FONTS:
+                try:
+                    found = ImageFont.truetype(heavy if bold else regular,
+                                               size)
+                    break
+                except OSError:
+                    continue
+            if found is None:
+                if "font" not in self._said:
+                    self._said.add("font")
+                    print("Notice: no font with accents on this machine "
+                          "(looked for Liberation, DejaVu, FreeSans, Noto) -- "
+                          "written in Pillow's own, which has none")
+                found = ImageFont.load_default(size=size)
+            self._fonts[key] = found
+        return self._fonts[key]
+
+    def _drawable(self, font, text):
+        """The text without what this font would draw as an empty box."""
+        from PIL import Image, ImageDraw
+        missing = self._missing.setdefault(id(font), {})
+        side = int(getattr(font, "size", 20)) * 2
+
+        def ink(ch):
+            canvas = Image.new("L", (side, side))
+            ImageDraw.Draw(canvas).text((0, 0), ch, font=font, fill=255)
+            return canvas.tobytes()
+        if "box" not in missing:
+            # U+FFFF is no character at all, so what it draws is the box.
+            missing["box"] = ink("\uffff")
+        out = []
+        for ch in text:
+            if ch not in missing:
+                missing[ch] = ch.isspace() or ink(ch) != missing["box"]
+            if missing[ch]:
+                out.append(ch)
+        return " ".join("".join(out).split())
+
+    def _icon(self, text, side):
+        """The emoji as a colour picture `side` square, or None."""
+        key = ("icon", text, side)
+        if key in self._fonts:
+            return self._fonts[key]
+        picture = None
+        try:
+            from PIL import Image, ImageDraw, ImageFont
+            face = ImageFont.truetype(NOTICE_EMOJI_FONT, 109)
+            canvas = Image.new("RGBA", (160 * max(1, len(text)), 160),
+                               (0, 0, 0, 0))
+            ImageDraw.Draw(canvas).text((0, 0), text, font=face,
+                                        embedded_color=True)
+            box = canvas.getbbox()
+            if box:
+                picture = canvas.crop(box)
+                scale = side / max(picture.size)
+                picture = picture.resize(
+                    (max(1, round(picture.width * scale)),
+                     max(1, round(picture.height * scale))), Image.LANCZOS)
+        except Exception:  # noqa: BLE001 - an icon is a nicety
+            picture = None
+        self._fonts[key] = picture
+        return picture
+
+    def _wrap(self, font, text, room, most):
+        """Up to `most` lines of `text` no wider than `room`."""
+        lines, line = [], ""
+        for word in text.split():
+            trial = f"{line} {word}".strip()
+            if font.getlength(trial) <= room:
+                line = trial
+                continue
+            if line:
+                lines.append(line)
+            line = word
+            while font.getlength(line) > room and len(line) > 1:
+                cut = len(line) - 1
+                while cut > 1 and font.getlength(line[:cut]) > room:
+                    cut -= 1
+                lines.append(line[:cut])
+                line = line[cut:]
+        if line:
+            lines.append(line)
+        if len(lines) > most:
+            lines = lines[:most]
+            last = lines[-1]
+            while last and font.getlength(last + "\u2026") > room:
+                last = last[:-1]
+            lines[-1] = last.rstrip() + "\u2026"
+        return lines
+
+    def draw(self, picture, top):
+        """Write what is shown onto `picture`, below `top`. Returns it."""
+        from PIL import ImageDraw
+        self.rects = []
+        shown = [item for item in self.items if item["until"] is not None]
+        if not shown:
+            return picture
+        fs = self.size
+        title_font = self.font(round(fs * 1.08), bold=True)
+        text_font = self.font(fs)
+        margin = round(fs * 0.6)
+        pad = round(fs * 0.7)
+        gap = round(fs * 0.5)
+        width = int(min(self.width - 2 * margin, fs * 26))
+        x0 = (self.width - width) // 2
+        y = top + margin
+        draw = ImageDraw.Draw(picture)
+        for item in shown:
+            icon = self._icon(item["icon"], round(fs * 2.0)) \
+                if item["icon"] else None
+            left = x0 + pad + round(fs * 0.5)
+            if icon is not None:
+                text_x = left + icon.width + gap
+            else:
+                text_x = left
+            room = x0 + width - pad - text_x
+            title = self._drawable(title_font, item["title"])
+            message = self._drawable(text_font, item["message"])
+            title_lines = self._wrap(title_font, title, room, 1) if title else []
+            lines = self._wrap(text_font, message, room,
+                               3 if title_lines else 4) if message else []
+            title_h = round(fs * 1.08 * 1.25)
+            line_h = round(fs * 1.3)
+            body = len(title_lines) * title_h + len(lines) * line_h
+            if title_lines and lines:
+                body += round(fs * 0.2)
+            height = max(body, icon.height if icon is not None else 0) \
+                + 2 * pad
+            if y + height > self.height:
+                break
+            box = (x0, y, x0 + width, y + height)
+            draw.rounded_rectangle(box, radius=round(fs * 0.6),
+                                   fill=(30, 34, 44),
+                                   outline=(70, 78, 96),
+                                   width=max(1, fs // 14))
+            bar_x = x0 + round(fs * 0.45)
+            draw.rounded_rectangle(
+                (bar_x, y + pad, bar_x + max(3, fs // 6), y + height - pad),
+                radius=max(1, fs // 10), fill=(86, 156, 255))
+            if icon is not None:
+                picture.paste(icon, (left, y + (height - icon.height) // 2),
+                              icon)
+            ty = y + pad + (max(0, (icon.height if icon is not None else 0)
+                                - body) // 2)
+            for line in title_lines:
+                draw.text((text_x, ty), line, font=title_font,
+                          fill=(244, 246, 250))
+                ty += title_h
+            if title_lines and lines:
+                ty += round(fs * 0.2)
+            for line in lines:
+                draw.text((text_x, ty), line, font=text_font,
+                          fill=(200, 206, 218))
+                ty += line_h
+            self.rects.append((box[0], box[1], box[2], box[3], item["id"]))
+            y += height + gap
+        return picture
+
+
+def page_to_share(page):
+    """The page this screen shows, as {url, title}, or (None, why not).
+
+    Only an address a telephone can open: the launcher, the Files page and the
+    bookmarks are this add-on's own, on 127.0.0.1, and mean nothing anywhere
+    else.
+    """
+    from urllib.parse import urlsplit
+    url = str(page.url or "")
+    split = urlsplit(url)
+    if split.scheme not in ("http", "https") or not split.netloc:
+        return None, "it shows no web page"
+    if (split.hostname or "") in ("127.0.0.1", "localhost", "::1"):
+        return None, "it shows its own page of links, which only it can open"
+    try:
+        title = page.title()
+    except Exception:  # noqa: BLE001 - the address is what matters
+        title = ""
+    return {"url": url, "title": " ".join(str(title or "").split())[:120]}, None
 
 
 # What this sender says when an alert ends, at the start of the line. The
@@ -2993,6 +3369,18 @@ def changed_rectangles(previous, current, tile=TILE):
         for tx in range(tiles_x):
             mask[ty, tx] = bool(row[:, tx * tile:min(tx * tile + tile, width)].any())
     return tile_rectangles(mask, width, height, tile)
+
+
+def drop_until_release(reports):
+    """Drop a touch's reports up to and including its release.
+
+    Returns (what is left, whether the touch is still going on). What is left
+    belongs to the touches after it.
+    """
+    for i, contacts in enumerate(reports):
+        if not contacts:
+            return reports[i + 1:], False
+    return [], True
 
 
 def tile_rectangles(mask, width, height, tile=TILE):
@@ -7471,6 +7859,10 @@ def main():
         # button going down can be shown without waiting for the page.
         last_shot = None
         composed_look = None
+        # Notifications from Home Assistant, drawn over the picture, and what
+        # was drawn on the last one made (see Toasts).
+        toasts = Toasts(page_w, page_h)
+        composed_toast = ()
 
         def set_strip(want, restart=True):
             """Give the bar its strip above the page, or take it away.
@@ -7506,12 +7898,13 @@ def main():
             picture must come out laid the same way, or the finished one would
             land a strip's height off.
             """
-            nonlocal composed_look
+            nonlocal composed_look, composed_toast
             # A JPEG frame already arrives as RGB, and convert() to the mode
             # a picture is already in still copies the whole of it -- 1.8 ms
             # a frame for nothing.
             if picture.mode != "RGB":
                 picture = picture.convert("RGB")
+            top = 0
             if (bar is not None and bar.shown
                     and not overlaid()):
                 # The page is the strip's height shorter than the panel, and
@@ -7524,6 +7917,15 @@ def main():
                 whole.paste(picture, (0, bar.height))
                 picture = whole
                 composed_look = bar.look()
+                top = bar.height
+            composed_toast = toasts.look()
+            if composed_toast:
+                # Below the strip, so its buttons stay where a hand expects
+                # them; on a copy, because the picture handed in may be one
+                # this loop keeps.
+                if top == 0:
+                    picture = picture.copy()
+                picture = toasts.draw(picture, top)
             if transpose is not None:
                 picture = picture.transpose(transpose)
             if picture.size != (send_w, send_h):
@@ -7816,6 +8218,9 @@ def main():
             # still to be dropped.
             idle_since = time.monotonic()
             swallow_touch = False
+            # Whether a finger was on the glass at the end of the last turn,
+            # so a report can be told to be a landing (see Toasts).
+            finger_down = False
             # When it went dark, and whether the page has been let go of.
             asleep_since = 0.0
             parked = False
@@ -8004,6 +8409,7 @@ def main():
                         last_send = (last_send + limit
                                      if started - last_send < 2 * limit
                                      else started)
+                    toasts.tick(started, awake)
                     if shot is not None:
                         last_shot = shot
                     elif (bar is not None and bar.shown and free
@@ -8014,6 +8420,11 @@ def main():
                         # changed, and the page painted nothing new: the
                         # strip is ours, so the picture is made again from
                         # the page's last one rather than waited for.
+                        shot = last_shot
+                    elif (free and awake and last_shot is not None
+                            and toasts.look() != composed_toast):
+                        # A notification came or went, and the page painted
+                        # nothing new: the same, for the same reason.
                         shot = last_shot
 
                     # Ask for another picture only once there is somewhere to
@@ -8247,6 +8658,23 @@ def main():
                             # A camera, because somebody is at the door.
                             arrived.append(body)
                             continue
+                        if kind == "notify":
+                            toasts.add(body, started)
+                            continue
+                        if kind == "share":
+                            shared, why = page_to_share(page)
+                            if shared is None:
+                                print(f"Share: nothing to send -- {why}",
+                                      flush=True)
+                            else:
+                                # The address goes to the add-on only: see
+                                # ADDON_ONLY.
+                                print(SHARE_LINE + json.dumps(shared),
+                                      flush=True)
+                                print(f"Share: the page went to the add-on "
+                                      f"({len(shared['url'])} characters)",
+                                      flush=True)
+                            continue
                         if kind == "volume":
                             # The add-on's HomeKit remote: a telephone's
                             # volume buttons, as a gain on the page's sound.
@@ -8354,6 +8782,39 @@ def main():
                                     alert.hide("Alert: the screen went dark")
                                     capture = main_capture
                                 capture.pause()
+                    # Where each finger landed, before anything is taken out:
+                    # a tap on a notification is decided at its landing.
+                    down_before = finger_down
+                    if reports:
+                        finger_down = bool(reports[-1])
+                    if swallow_touch and reports:
+                        # The rest of a gesture already given to something --
+                        # a notification closed, the screen saver or a camera
+                        # taken down -- is nobody else's, and is not input
+                        # either: its release must not close what is showing
+                        # now.
+                        reports, swallow_touch = drop_until_release(reports)
+                        # Whatever is left begins after the finger lifted.
+                        down_before = False
+                    # A notification closed by a finger still on the glass:
+                    # the rest of that touch is dropped from the next turn
+                    # on, after anything this turn has handed over.
+                    closing = False
+                    if reports and toasts.look():
+                        kept, closing, down = [], False, down_before
+                        for contacts in reports:
+                            landing = bool(contacts) and not down
+                            down = bool(contacts)
+                            if closing:
+                                if not contacts:
+                                    closing = False
+                                continue
+                            if landing and toasts.dismiss_at(
+                                    *touch_map.to_page(*contacts[0][1:])):
+                                closing = True
+                                continue
+                            kept.append(contacts)
+                        reports = kept
                     if (reports or keys or media or typed or asked_home
                             or asked_open is not None):
                         last_input = started
@@ -8392,14 +8853,8 @@ def main():
                         if asked_any:
                             idle_since = started
                     if swallow_touch:
-                        kept = []
-                        for contacts in reports:
-                            if swallow_touch:
-                                if not contacts:
-                                    swallow_touch = False
-                                continue
-                            kept.append(contacts)
-                        reports = kept
+                        reports, swallow_touch = drop_until_release(reports)
+                    swallow_touch = swallow_touch or closing
                     if args.show_touches and reports:
                         # With the time on them, because "the panel reacts
                         # slowly" has two very different causes and this tells

@@ -522,6 +522,35 @@ The same event types from anywhere: `link: type` (or `search`) and `text:`.
     panel: salon
 ```
 
+**Send the page to your telephone, with the same option.** Say *"envoie ça
+sur mon téléphone"* (or *"partage la page sur mon portable"*, *"send this to
+my phone"*) and the page the screen shows arrives on your telephone as a
+notification of Home Assistant's app; touch it and the page opens there. The
+voice assistant answers *"Je l'envoie sur ton téléphone"*.
+
+- **Which telephone**: the one named in *1 · Common settings > Telephone*
+  (`phone:`) -- `notify.mobile_app_<your phone>`, several separated by commas.
+  Left empty, every telephone that has Home Assistant's app gets it, and the
+  log names them so you can pick one.
+- **A page of Home Assistant** is sent as its path, which the app opens
+  inside itself, at home or away. Any other page opens in the telephone's
+  browser.
+- **The launcher, the Files page and the bookmarks** belong to the screen and
+  cannot be opened anywhere else: nothing is sent, and the log says so.
+- **The page's address never goes into the add-on's log**, only the site's
+  name: an address can carry anything.
+
+The same from anywhere, a dashboard button say, with `link: send` -- and
+`phone:` to send to one telephone in particular:
+
+```yaml
+- event: portall_open
+  event_data:
+    link: send
+    panel: salon
+    phone: notify.mobile_app_iphone_de_lea
+```
+
 ### Each panel its own launcher
 
 In the settings form this is section **🧩 4**, under the name the form shows in
@@ -1208,6 +1237,69 @@ once.
 Not tried against a real camera or a real doorbell: it is measured against a
 stand-in Home Assistant serving an MJPEG stream the way Home Assistant does,
 with the real browser and a fake screen.
+
+### Notifications on the screens
+
+Any automation can put a few words on the screens for a few seconds, over
+whatever they show -- the launcher, a dashboard, a film (which goes on, sound
+and all), the screen saver, a camera alert:
+
+```yaml
+- event: portall_notify
+  event_data:
+    title: "🧺 Lessive"
+    message: Le lave-linge a terminé
+    seconds: 10          # 10 when left out, 3 to 120
+    panel: salon, cuisine  # left out: every screen
+```
+
+- **An emoji at the start** of the title or the message is drawn as the
+  notification's icon, in colour.
+- **Up to three at once**, the newest on top. A fourth pushes out the oldest.
+- **A touch on one closes it** and presses nothing underneath; a touch
+  anywhere else works as usual.
+- **A dark screen** keeps it until it lights up again, for ten minutes at
+  most, and its time starts then.
+- **Its words never go into the add-on's log**, only how long it was shown
+  and on which screens.
+
+Nothing to turn on: every screen listens. It is drawn by the add-on onto the
+picture the screen receives, never put into the page, so no site can hide it.
+
+Not tried on a real screen: measured against a fake screen that rebuilds what
+it is sent, with the real browser -- shown 53 ms after the event on a page
+that was not changing at all.
+
+### Good morning
+
+*4 · Look of the page of links > Good morning* (`morning:`, and `morning:` on
+a screen's own entry under *5*): the first time a screen lights up between
+5 h and 12 h, its voice assistant says the day's weather and what is on the
+calendar, and the screen shows the same as a notification:
+
+> *"Bonjour ! Aujourd'hui, ensoleillé, de 12 à 21 degrés. À l'agenda :
+> Anniversaire de Léa ; à 10 h 30, Dentiste."*
+
+- **Once a day per screen**, and only when it WAKES -- after being dark -- so
+  a screen somebody is already using is never interrupted. It needs the
+  screen's YAML to say `portall.sleep` and `portall.wake` when its light goes
+  off and on, as the examples do (see *A dark screen* under the camera
+  alerts).
+- **The clock is Home Assistant's**, so the morning is your house's morning.
+- **The weather** is the page of links' weather entity: today's forecast, or
+  the temperature now when the weather service gives no forecast.
+- **The calendars** are those you name (`calendar.famille`, several separated
+  by commas), or every calendar Home Assistant has when left empty.
+- **The voice** is the voice assistant the screen's avatar follows
+  (*Avatar's voice assistant*), or Home Assistant's only one. It has to be
+  able to make announcements, which an ESPHome voice assistant with a media
+  player can. Without one the greeting is only shown, and the log says why.
+- **The language** follows the screen's (*Language of the pages*): French for
+  `fr-FR`, English otherwise.
+
+Not tried against a real Home Assistant: measured against a stand-in that
+answers its weather service, its calendars and its announcements the way Home
+Assistant's own code does (read in its source, 2026.2).
 
 ### The server paints only the pictures the screen will take
 
