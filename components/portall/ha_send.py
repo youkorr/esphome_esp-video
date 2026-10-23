@@ -65,6 +65,7 @@ import math
 import os
 import re
 import shutil
+import socket
 import subprocess
 import sys
 import threading
@@ -78,10 +79,16 @@ from udisp_send import (  # noqa: E402
     AUDIO_BITS,
     AUDIO_CHANNELS,
     AUDIO_RATE,
+    GAME_FRAME,
+    GAME_INFO,
+    GAME_SOUND,
+    GAME_STILL,
     build_audio_header,
     build_header,
     build_heartbeat,
     connect_tcp,
+    game_address,
+    unpack_game,
 )
 
 # The panel is divided into tiles and each is compared with the last picture.
@@ -228,6 +235,11 @@ PUMP_MS = 8
 # The beat while a new page is on its way -- see the loop. Only from a
 # navigation to the first picture of it.
 NEW_PAGE_PUMP_MS = 1
+# The most pictures a second a game's streamer is asked for. The panel's own
+# frame limit and the link's fps: are what really set the pace, since each
+# picture is asked for; this only stops a streamer looking at its screen
+# faster than any panel could take.
+GAME_FPS = 60
 # How long a picture asked for may go unanswered, after the browser stopped
 # capturing because every frame it may hold was out, before the page is
 # fetched as it now stands -- see Screencast.request.
@@ -1875,7 +1887,9 @@ class Follow:
             kind = "bookmark"
         else:
             return
-        if isinstance(url, str) and re.match(r"https?://", url):
+        # A game's tile too (game://): it is opened here, never by the
+        # browser, which has no idea what one is.
+        if isinstance(url, str) and re.match(r"(https?|game)://", url):
             self._queue.append((kind, url))
 
     def drain(self):
@@ -4711,6 +4725,246 @@ class Screencast:
         return None
 
 
+class GameCapture:
+    """A game's screen on another machine, in place of the page's screencast.
+
+    A launcher tile whose address is game://host[:port] does not navigate: the
+    panel shows that machine's screen instead, sent by game/portall_game.py
+    beside the game -- Steam in steam-headless on an Unraid server, say. This
+    has the shape of a Screencast (take, request, pause, resume, restart,
+    screenshot), so everything downstream -- the turn, the differences, the
+    notifications drawn on top, the frame limit and the byte rate -- treats a
+    game as one more page and does not know it is one. It is swapped in as the
+    MAIN capture while the game shows, so the screen saver and a camera alert
+    come back to it when they close, exactly as they come back to a page.
+
+    The flow control is the screencast's too: a picture is asked for and the
+    streamer sends one, and only once the screen has changed, so a still menu
+    costs the network nothing and a game never runs ahead of what the panel
+    takes.
+    """
+
+    CONNECT_S = 3.0
+    STILL_WAIT_S = 1.5
+
+    def __init__(self, url, width, height, quality, fps):
+        self.url = url
+        self.host, self.port = game_address(url)
+        self._sock = socket.create_connection((self.host, self.port),
+                                              timeout=self.CONNECT_S)
+        self._sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        self._sock.settimeout(None)
+        self._send_lock = threading.Lock()
+        self._wake = threading.Condition()
+        self._latest = None
+        self._still = None
+        self._sound = collections.deque(maxlen=25)
+        self.alive = True
+        self.why = ""
+        self.info = {}
+        self.produced = 0
+        self.lead = 0.030
+        self._asked_at = None
+        self._wanted = False
+        self._running = True
+        self._tell(hello=1, width=width, height=height, quality=quality,
+                   fps=fps)
+        threading.Thread(target=self._read, daemon=True,
+                         name="portall-game").start()
+        self.restart()
+
+    def _tell(self, **said):
+        if not self.alive:
+            return
+        try:
+            with self._send_lock:
+                self._sock.sendall((json.dumps(said) + "\n").encode())
+        except OSError as err:
+            self._lost(f"it stopped answering ({err})")
+
+    def _lost(self, why):
+        with self._wake:
+            if self.alive:
+                self.alive = False
+                self.why = why
+            self._wake.notify_all()
+
+    def _read(self):
+        buffer = b""
+        try:
+            while True:
+                data = self._sock.recv(1 << 20)
+                if not data:
+                    self._lost("it closed the connection")
+                    return
+                buffer += data
+                messages, buffer = unpack_game(buffer)
+                for kind, payload in messages:
+                    if kind == GAME_FRAME:
+                        with self._wake:
+                            if self._asked_at is not None:
+                                self.lead = 0.7 * self.lead + 0.3 * (
+                                    time.monotonic() - self._asked_at)
+                                self._asked_at = None
+                            self._wanted = False
+                            if self._running:
+                                self._latest = payload
+                                self.produced += 1
+                    elif kind == GAME_STILL:
+                        with self._wake:
+                            self._still = payload
+                            self._wake.notify_all()
+                    elif kind == GAME_SOUND:
+                        self._sound.append(payload)
+                    elif kind == GAME_INFO:
+                        try:
+                            self.info = json.loads(payload)
+                        except ValueError:
+                            pass
+        except OSError as err:
+            self._lost(f"the connection broke ({err})")
+
+    # -- what a Screencast does ------------------------------------------------
+
+    def take(self):
+        with self._wake:
+            frame, self._latest = self._latest, None
+        return frame
+
+    def take_recaptured(self):
+        return 0
+
+    def request(self, discard=False, eager=False):
+        with self._wake:
+            if discard:
+                self._latest = None
+            if not self._running or self._wanted or not self.alive:
+                return
+            self._wanted = True
+            self._asked_at = time.monotonic()
+        self._tell(want=1)
+
+    def restart(self):
+        with self._wake:
+            self._latest = None
+            self._wanted = True
+            self._asked_at = time.monotonic()
+        self._tell(want=1, whole=1)
+
+    def pause(self):
+        with self._wake:
+            if not self._running:
+                return
+            self._running = False
+            self._latest = None
+            self._wanted = False
+        self._sound.clear()
+        self._tell(pause=1)
+
+    def resume(self):
+        with self._wake:
+            if self._running:
+                return
+            self._running = True
+            # The streamer answers a resume with a whole picture.
+            self._wanted = True
+            self._asked_at = time.monotonic()
+        self._tell(resume=1)
+
+    def stop(self):
+        # Said, then shut down before it is closed: a plain close() does not
+        # send anything while the reader thread is still inside recv() on the
+        # same socket, so the streamer would never hear that the panel left.
+        self._tell(bye=1)
+        self._lost("left")
+        for step in (lambda: self._sock.shutdown(socket.SHUT_RDWR),
+                     self._sock.close):
+            try:
+                step()
+            except OSError:
+                pass
+
+    def freeze_animations(self):
+        pass
+
+    def screenshot(self, quality=0):
+        """The game's screen as it stands, without loss, or None."""
+        if quality or not self.alive:
+            return None
+        with self._wake:
+            self._still = None
+        self._tell(still=1)
+        until = time.monotonic() + self.STILL_WAIT_S
+        with self._wake:
+            while self._still is None and self.alive:
+                left = until - time.monotonic()
+                if left <= 0:
+                    break
+                self._wake.wait(left)
+            still, self._still = self._still, None
+        return still
+
+    # -- what only a game has --------------------------------------------------
+
+    def sound(self, rate, channels):
+        """The rate and channels the panel's speaker plays."""
+        self._tell(audio={"rate": rate, "channels": channels})
+
+    def take_audio(self, gain=1.0):
+        out = []
+        while self._sound:
+            block = self._sound.popleft()
+            if gain < 1.0:
+                block = scale_pcm(block, gain)
+            out.append(block)
+        return out
+
+    def key(self, name):
+        self._tell(key=name)
+
+    def media(self, action):
+        self._tell(media=action)
+
+    def type(self, text):
+        self._tell(type=text)
+
+
+class _GameMouse:
+    """The mouse the Injector presses while a game shows: the game's own."""
+
+    def __init__(self, game):
+        self._game = game
+
+    def move(self, x, y, steps=1):
+        self._game._tell(move=[round(x, 1), round(y, 1)])
+
+    def down(self, button="left", click_count=1):
+        self._game._tell(down=1)
+
+    def up(self, button="left", click_count=1):
+        self._game._tell(up=1)
+
+    def wheel(self, delta_x, delta_y):
+        self._game._tell(wheel=[delta_x, delta_y])
+
+
+class GamePage:
+    """What the Injector sees while a game shows, in place of the page.
+
+    The Injector already decides everything a finger means -- a tap, a drag
+    that scrolls, the corner held for home -- and only ever reaches the page
+    through its mouse. Handing it this instead sends the same mouse to the
+    game, so the corner brings the panel home from a game exactly as it does
+    from a site.
+    """
+
+    def __init__(self, game):
+        self.mouse = _GameMouse(game)
+        self._game = game
+
+    def evaluate(self, *_args, **_kwargs):
+        return f"the game's screen at {self._game.host}"
+
 
 # The on-screen keyboard.
 #
@@ -6817,6 +7071,12 @@ class Injector:
         print(f"[{time.strftime('%H:%M:%S')}] tap at ({x:.0f},{y:.0f}) on "
               f"{what}", flush=True)
 
+    def retarget(self, page, keyboard):
+        """Send contacts somewhere else -- a game's screen -- or back."""
+        self.release()
+        self._page = page
+        self._keyboard = keyboard
+
     def release(self):
         # A lost connection is not a tap: drop the gesture rather than clicking
         # wherever the finger happened to be. A corner tap still waiting on its
@@ -8175,6 +8435,76 @@ def main():
             dtype=np.int32,
         )
 
+        # A game on another machine, shown instead of the page while it is on
+        # (see GameCapture). The page's own screencast waits aside and comes
+        # back when the game is left.
+        game = None
+        page_capture = capture
+        french = (args.locale or "").lower().startswith("fr")
+
+        def enter_game(url):
+            """Show the screen at a game:// address. True if it shows."""
+            nonlocal game, capture, main_capture, previous, pending, image
+            nonlocal last_shot, composed_look
+            host, port = game_address(url)
+            if game is not None:
+                leave_game("another game")
+            try:
+                started = GameCapture(url, page_w, page_h,
+                                      args.capture_quality or 90, GAME_FPS)
+            except OSError as err:
+                print(f"Game: {host}:{port} did not answer ({err}) -- is "
+                      f"portall_game.py running there?", flush=True)
+                toasts.add({"title": "\U0001F3AE " + host, "message": (
+                    "ne répond pas : le programme Portall pour les jeux "
+                    "y tourne-t-il ?" if french else
+                    "is not answering: is Portall's game program running "
+                    "there?"), "seconds": 8}, time.monotonic())
+                return False
+            game = started
+            if audio is not None:
+                game.sound(audio.rate, audio.channels)
+            page_capture.pause()
+            if capture is page_capture:
+                capture = game
+            main_capture = game
+            previous = pending = image = None
+            last_shot = composed_look = None
+            set_strip(False, restart=False)
+            if keyboard is not None:
+                keyboard.forget()
+            if injector is not None:
+                injector.retarget(GamePage(game), None)
+            print(f"Game: showing {host}:{port}", flush=True)
+            # How to get back, said once on the way in: the launcher is the
+            # only place the corner is otherwise shown, and it is behind.
+            toasts.add({"title": "\U0001F3AE " + (
+                "Jeu" if french else "Game"), "message": (
+                "Pour revenir : maintenez le coin en haut à gauche, ou le "
+                "bouton Home de la manette" if french else
+                "To come back: hold the top-left corner, or the "
+                "controller's Home button"), "seconds": 5},
+                time.monotonic())
+            return True
+
+        def leave_game(why):
+            """Back to the page, whatever took the game away."""
+            nonlocal game, capture, main_capture, previous, pending, image
+            nonlocal last_shot, composed_look
+            if game is None:
+                return
+            gone, game = game, None
+            gone.stop()
+            main_capture = page_capture
+            if capture is gone:
+                capture = page_capture
+                capture.resume()
+            previous = pending = image = None
+            last_shot = composed_look = None
+            if injector is not None:
+                injector.retarget(page, keyboard)
+            print(f"Game: left {gone.host} ({why})", flush=True)
+
         # One pass per connection: losing the panel waits for it to come back
         # rather than ending, so this can be left running as a service.
         while True:
@@ -8327,6 +8657,22 @@ def main():
                             # Still playing, only not heard: the screen saver
                             # must not come up over it once the alert is gone.
                             heard_at = started
+                    if game is not None and audio is not None:
+                        # The game's sound, cut like the page's while a camera
+                        # shows and at the same volume.
+                        blocks = game.take_audio(max(0.0, audio.gain))
+                        if (awake and audio.gain > 0
+                                and not (alert is not None and alert.on)):
+                            for block in blocks:
+                                writer.offer_audio(block)
+                                heard_at = started
+                    if game is not None and not game.alive:
+                        host, why = game.host, game.why
+                        leave_game(why)
+                        toasts.add({"title": "\U0001F3AE " + host, "message": (
+                            "La connexion au jeu est perdue" if french else
+                            "The game's connection was lost"), "seconds": 8},
+                            started)
 
                     free = writer.ready()
                     frame = capture.take()
@@ -8349,7 +8695,7 @@ def main():
                     # Playwright rather than a round trip, but a comparison
                     # nobody needs is still a comparison.
                     if page_quality or page_fps or page_rate:
-                        here = page.url
+                        here = game.url if game is not None else page.url
                         if here != quality_url:
                             quality_url = here
                             if page_quality:
@@ -8699,6 +9045,8 @@ def main():
                             # before more than a block or two has gone out.
                             if audio is not None and audio.set_rate(body):
                                 writer.audio_rate = audio.rate
+                                if game is not None:
+                                    game.sound(audio.rate, audio.channels)
                             continue
                         if kind == "home":
                             # portall.home on the board. Until now the way back
@@ -8921,7 +9269,10 @@ def main():
                             # crossed the link or the page ignored it.
                             print(f"Key: {name}")
                             try:
-                                page.keyboard.press(name)
+                                if game is not None:
+                                    game.key(name)
+                                else:
+                                    page.keyboard.press(name)
                             except Exception as problem:  # noqa: BLE001
                                 # An accessory must never cost the picture.
                                 print(f"Key: {name} would not go in ({problem})")
@@ -8946,7 +9297,15 @@ def main():
                         # screen saver away.
                         for kind, text in typed:
                             try:
-                                print(dictate(page, text, kind == "search"))
+                                if game is not None:
+                                    # Never the words: somebody may dictate
+                                    # a password.
+                                    game.type(text)
+                                    print(f"Voice: {len(text)} characters "
+                                          f"typed into the game")
+                                else:
+                                    print(dictate(page, text,
+                                                  kind == "search"))
                             except Exception as problem:  # noqa: BLE001
                                 # An accessory must never cost the picture.
                                 print(f"Voice: the words did not go in "
@@ -8961,7 +9320,11 @@ def main():
                         # film is a request to watch it.
                         for action in media:
                             try:
-                                print(act_on_media(page, action))
+                                if game is not None:
+                                    game.media(action)
+                                    print(f"Media: {action} to the game")
+                                else:
+                                    print(act_on_media(page, action))
                             except Exception as problem:  # noqa: BLE001
                                 # An accessory must never cost the picture.
                                 print(f"Media: {action} did not go in ({problem})")
@@ -8997,6 +9360,7 @@ def main():
                     # unless something is being watched or listened to,
                     # which a PC's screen saver waits for as well.
                     if (saver is not None and awake and not overlaid()
+                            and game is None
                             and saver.due(started, idle_since)):
                         if saver.busy(page, started, heard_at):
                             saver.refuse(started)
@@ -9082,7 +9446,7 @@ def main():
                             bar.say(words.format(name),
                                     600.0 if what == "start" else 6.0)
                         here = page.url
-                        want = (not parked
+                        want = (not parked and game is None
                                 and open_page.is_home_assistant is not True
                                 and here.startswith(("http:", "https:"))
                                 and not _same_page(here, args.url)
@@ -9224,7 +9588,18 @@ def main():
                         was_tapped, tapped = tapped, False
                         shelf_tap, from_shelf = from_shelf, False
                         home_at = time.monotonic()
-                        if link is not None:
+                        if game is not None:
+                            leave_game("home" if link is None
+                                       else "another link")
+                        if link is not None and game_address(link):
+                            if enter_game(link):
+                                opened = time.monotonic()
+                                home_pending = opened
+                                urgent_until = opened + args.urgent_window
+                                print(f"{'Tile' if was_tapped else 'Voice'}: "
+                                      f"opened the game at {link} in "
+                                      f"{opened - home_at:.1f}s")
+                        elif link is not None:
                             # Asked for from inside another link, the panel's
                             # own page is not just behind the new one, so the
                             # bar is told where it starts -- or its back and

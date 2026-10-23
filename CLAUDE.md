@@ -12771,6 +12771,84 @@ remembered in `/data/morning.json`, only on a wake that follows a "Panel
 asleep" line. **Not tried against a real Home Assistant, satellite or
 telephone.**
 
+## A game is a link: Steam on a server, shown on the panel -- NOT released
+
+**Asked as a Valve button on the launcher, "comme les links que je dispose
+... et je serais sur steam os"**, after the household's own idea: Steam on
+their Unraid server (Lenovo P360 Tiny, i5-12500T, Intel UHD 770, no graphics
+card). Built on the branch only, at their word: *"commence l'étape 2 sans
+faire de mise à jour de addon portall"* -- so the version is still 4.51.0
+and `tools/checkaddon.py` will say the version must move before this ships.
+
+**Measured before it was built, with real Linux games** (SuperTux 2D, a
+scrolling level; SuperTuxKart 3D, driven by its own AI) on Xvfb, the PC
+sender and a fake panel limited to 2.5 MB/s:
+
+| | 1280x800 | 640x400 |
+|---|---|---|
+| 2D scrolling, per picture | 90-150 KiB (q50-q80) | 32 KiB (q70) |
+| 3D, per picture (q70) | 83 KiB | 28 KiB |
+| sender-side delay, screen change to fake panel | 12-29 ms | 7-17 ms |
+
+Steam Link and Moonlight were ruled out first: both are H.264/HEVC, which
+the P4 decodes only in software. JPEG is what it decodes in hardware, and
+JPEG is what this project already sends.
+
+**The design: a game is one more source of pictures.** `game://host[:port]`
+on a link (`GAME_SCHEME`, `GAME_PORT = 5700`). `game/portall_game.py` runs
+beside the game -- in steam-headless, through its `~/init.d`
+(`game/portall-game.sh`) -- and sends a whole JPEG of the X screen each time
+the add-on asks and the screen has changed. `GameCapture` in ha_send.py has
+the shape of a `Screencast` (take, request, pause, resume, restart,
+screenshot) and is swapped in as `main_capture`, so the turn, the diff, the
+notifications drawn on top, the frame limit, the byte rate, the finished
+picture, the screen saver's and the alert's way back all work on a game
+unchanged. `GamePage` stands in for the page inside the `Injector`
+(`retarget()`), so the corner gesture leaves a game exactly as it leaves a
+site. Keys go as X keysyms (`KEYSYMS`, `MEDIA_KEYSYMS`), the mouse and wheel
+through XTEST by ctypes, the sound through `parec` or `gst-launch-1.0
+pulsesrc` at the rate the board asked for. The wire is in `udisp_send.py`
+(`pack_game`, `unpack_game`, `game_address`), the one file both ends fetch.
+
+**Through the whole path with a real game** (the shipped sender, the
+launcher, the streamer, a fake panel at 2.5 MB/s): about **33 pictures a
+second at 1280x800 with the byte rate pushing quality down to 25-35**, and
+about **30 at 640x400 keeping quality 70, at 0.8 MB/s**. The second is the
+sharper game; this container's four cores were also software-rendering the
+game, so neither is a ceiling.
+
+Three things found by running it, none visible from reading:
+
+- **A plain `close()` sends nothing while another thread is in `recv()` on
+  the same socket**, so the streamer never heard a panel leave. `stop()`
+  says `bye` and shuts the socket down first.
+- **Xvfb resets when its last client leaves**, so the check's red screen was
+  black by the time the streamer looked -- the ruler, as usual: `-noreset`.
+- **A key down and up in the same instant is missed by a game that reads
+  which keys are held once a frame.** `KEY_HOLD_S = 0.06`.
+
+`tools/checkgame.py`: 37 cases, the pieces (addresses, framing cut at every
+byte, every key and transport button the sender can send having an X name)
+and the whole way on Xvfb with xev reading the input -- the Steam tile
+tapped on the glass, a still game sending nothing, a change arriving, a tap
+and a key landing where they should, the sound at the panel's rate, the
+corner home, a server that does not answer and one that goes away -- and
+the sound through GStreamer alone, the way steam-headless will take it.
+Against the sender before it: 17 fail.
+
+**Not done, and each is the next step if it is wanted:** a gamepad's sticks
+and its other buttons (only arrows, OK, Back and the transport keys reach a
+game: the rest needs the board to send a whole gamepad state and a uinput
+pad on the server); a smaller picture for the game ALONE (render size is
+panel-wide today; the board would need a per-picture scale -- the header's
+unused `cmd` byte is where it could go); Steam's own guide button (Home
+leaves the game). **Not tried with steam-headless, Unraid or a real panel**,
+and three things about steam-headless are read rather than run: its
+`~/init.d` (when and as whom it runs is not documented), `DISPLAY=:55` and
+`PULSE_SERVER` from its Dockerfile, and that it has `gst-launch-1.0` but not
+`parec`, so the sound goes through `pulsesrc device=@DEFAULT_MONITOR@` --
+which WAS run here, on Ubuntu's GStreamer, and carries the tone.
+
 ## Repository conventions
 
 - Work on branch `claude/esphome-pr-outdated-mdq36w`, then merge into `main`

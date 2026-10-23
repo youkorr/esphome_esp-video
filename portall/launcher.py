@@ -1230,12 +1230,16 @@ PRESS_JS = """<script>
 # page can paint. The click that follows is swallowed, or it would open the
 # tile a second time; OK on a remote is a click with no pointerdown, and is
 # handed over there as before.
+#
+# A game's tile (game://host, see game/portall_game.py) is handed over the
+# same way: the sender shows that machine's screen instead of navigating, and
+# a browser on its own has no idea what such an address is.
 FOLLOW_JS = """<script>
 (function () {
   var handed = 0;
   function tileOf(e) {
     var tile = e.target.closest && e.target.closest('a.tile');
-    return tile && /^https?:/.test(tile.href) ? tile : null;
+    return tile && /^(https?|game):/.test(tile.href) ? tile : null;
   }
   document.addEventListener('pointerdown', function (e) {
     if (e.defaultPrevented || e.button !== 0 || !window.__udispFollow) return;

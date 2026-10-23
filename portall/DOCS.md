@@ -1301,6 +1301,57 @@ Not tried against a real Home Assistant: measured against a stand-in that
 answers its weather service, its calendars and its announcements the way Home
 Assistant's own code does (read in its source, 2026.2).
 
+### A game on the launcher: Steam from a server
+
+A link whose address is `game://` and a machine's address does not open a web
+page: the screen shows THAT machine's screen instead -- Steam, running on a
+server with no screen of its own -- and the screen's touches, its remote or
+gamepad and its speaker all go to the game.
+
+```yaml
+links:
+  - name: Steam
+    url: game://192.168.1.3        # the server; :5700 unless you changed it
+    icon: steam                    # or valve
+```
+
+On the server, Steam runs in **steam-headless** (Unraid: *Apps*, search
+`steam-headless`) and Portall's small program for games runs beside it: copy
+`game/portall-game.sh` from this repository into steam-headless's `init.d`
+folder and restart the container. It fetches what it needs once and starts
+with the container from then on. In Steam, *Settings > Interface > Start
+Steam in Big Picture mode* gives the Steam Deck's own interface. Its log is
+`portall-game/portall-game.log` in the container's home folder.
+
+- **A touch is the mouse** where the finger is; a drag scrolls.
+- **The remote's or gamepad's arrows, OK and Back are the keyboard's** arrows,
+  Enter and Escape, which Big Picture is driven by. Play, pause and the rest
+  are the keyboard's media keys.
+- **The way back** is the same as from any link: hold the top-left corner, or
+  the remote's or gamepad's Home. The game goes on running on the server;
+  the tile goes back to it.
+- **Its sound** comes to the screen's speaker at the rate the screen asks for.
+- **A still menu sends nothing**; a picture is sent only when the game's
+  screen changed.
+- **One screen at a time**: the newest to open it takes it.
+- **Anybody who can reach the server's port can press keys on Steam's
+  screen.** Give the program the Home Assistant machine's address
+  (`PORTALL_GAME_ALLOW` on the container) and it refuses everybody else.
+
+What to expect, measured with a scrolling 2D game, the add-on's own sender and
+a fake screen limited to 2.5 MB/s (what the screens' Wi-Fi was measured to
+carry): **about 33 pictures a second at 1280x800 with the quality pushed down
+to 25-35**, or **about 30 at 640x400 keeping quality 70, at 0.8 MB/s**. The
+second is the sharper game: draw at half size (`render_width`/`render_height`
+on the screen's `portall:` block) and let the screen enlarge it. That size is
+for everything the screen shows today, the launcher included.
+
+Not done yet: a gamepad's sticks and its other buttons (only arrows, OK, Back
+and the transport keys reach the game for now), and a smaller picture for the
+game alone. Not tried with steam-headless or a real screen: measured against
+an X screen standing in for steam-headless's, with real games (SuperTux,
+SuperTuxKart) on it.
+
 ### The server paints only the pictures the screen will take
 
 **The browser on the server painted up to three pictures for each one a
@@ -1534,21 +1585,21 @@ and `caméra` as `camera`.
 
 | service | les noms qui y mènent | service | les noms qui y mènent |
 |---|---|---|---|
-| adguard | `adguard` `adguardhome` | orange | `orange` `orange-tv` `orangetv` `livebox` |
-| audiobookshelf | `audiobookshelf` `abs` | paperlessngx | `paperless` `paperlessngx` `paperless-ngx` |
-| bitwarden | `bitwarden` | pfsense | `pfsense` |
-| brave | `brave` `brave-search` `bravesearch` | philipshue | `hue` `philipshue` `philips-hue` |
-| calibreweb | `calibre` `calibreweb` `calibre-web` | pihole | `pihole` `pi-hole` |
-| docker | `docker` | plex | `plex` |
-| duplicati | `duplicati` | portainer | `portainer` |
-| eclipsemosquitto | `mosquitto` `broker` | proxmox | `proxmox` `pve` |
-| emby | `emby` | qbittorrent | `qbittorrent` `qbit` |
-| esphome | `esphome` | radarr | `radarr` |
-| frigate | `frigate` | raspberrypi | `raspberrypi` `raspberry-pi` `pi` |
-| gitea | `gitea` `forgejo` | reolink | `reolink` |
-| github | `github` | sonarr | `sonarr` |
-| google | `google` `google-search` `googlesearch` | sonos | `sonos` |
-| grafana | `grafana` | spotify | `spotify` |
+| adguard | `adguard` `adguardhome` | paperlessngx | `paperless` `paperlessngx` `paperless-ngx` |
+| audiobookshelf | `audiobookshelf` `abs` | pfsense | `pfsense` |
+| bitwarden | `bitwarden` | philipshue | `hue` `philipshue` `philips-hue` |
+| brave | `brave` `brave-search` `bravesearch` | pihole | `pihole` `pi-hole` |
+| calibreweb | `calibre` `calibreweb` `calibre-web` | plex | `plex` |
+| docker | `docker` | portainer | `portainer` |
+| duplicati | `duplicati` | proxmox | `proxmox` `pve` |
+| eclipsemosquitto | `mosquitto` `broker` | qbittorrent | `qbittorrent` `qbit` |
+| emby | `emby` | radarr | `radarr` |
+| esphome | `esphome` | raspberrypi | `raspberrypi` `raspberry-pi` `pi` |
+| frigate | `frigate` | reolink | `reolink` |
+| gitea | `gitea` `forgejo` | sonarr | `sonarr` |
+| github | `github` | sonos | `sonos` |
+| google | `google` `google-search` `googlesearch` | spotify | `spotify` |
+| grafana | `grafana` | steam | `steam` `steamos` `steam-deck` `steamdeck` |
 | homeassistant | `home-assistant` `homeassistant` `hass` `ha` `lovelace` | synology | `synology` `dsm` |
 | homebridge | `homebridge` | tailscale | `tailscale` |
 | immich | `immich` | transmission | `transmission` |
@@ -1557,12 +1608,13 @@ and `caméra` as `camera`.
 | mqtt | `mqtt` | ubiquiti | `ubiquiti` `unifi` |
 | netflix | `netflix` | unraid | `unraid` |
 | nextcloud | `nextcloud` | uptimekuma | `uptimekuma` `uptime-kuma` `kuma` |
-| nodered | `nodered` `node-red` | vaultwarden | `vaultwarden` |
-| openmediavault | `openmediavault` `omv` | wireguard | `wireguard` |
-| openwrt | `openwrt` | youtube | `youtube` `yt` |
-| opnsense | `opnsense` | zigbee2mqtt | `zigbee2mqtt` `z2m` |
+| nodered | `nodered` `node-red` | valve | `valve` |
+| openmediavault | `openmediavault` `omv` | vaultwarden | `vaultwarden` |
+| openwrt | `openwrt` | wireguard | `wireguard` |
+| opnsense | `opnsense` | youtube | `youtube` `yt` |
+| orange | `orange` `orange-tv` `orangetv` `livebox` | zigbee2mqtt | `zigbee2mqtt` `z2m` |
 
-52 drawn as shapes and 2 carried as a picture, all of them from the add-on itself and never fetched.
+54 drawn as shapes and 2 carried as a picture, all of them from the add-on itself and never fetched.
 
 ### The screen's Wi-Fi and Bluetooth
 

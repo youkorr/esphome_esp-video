@@ -141,6 +141,70 @@ def build_heartbeat():
     return _HEADER.pack(0, UDISP_TYPE_END, 0, 0, 0, 0, 0, 0)
 
 
+# A game on another machine, shown on a panel like any link -- a launcher tile
+# whose address is game://host[:port]. The machine running the game runs
+# game/portall_game.py (in steam-headless on an Unraid server, say), and the
+# add-on's sender connects to it when the tile is tapped. Defined here rather
+# than in either program, because both need it and this file is the one both
+# fetch: one definition of every wire this project speaks.
+#
+# The streamer sends whole pictures, not rectangles: the add-on's sender diffs,
+# rotates, draws its notifications on top and paces the panel exactly as it
+# does a browser's frames, so a game is one more source of pictures and
+# nothing downstream knows it is one. The hop between the two is the house's
+# wired network, where a picture is cheap.
+#
+# Streamer -> add-on: one byte saying what follows, a little-endian length,
+# then that many bytes. Add-on -> streamer: JSON, one object a line, because
+# it is a handful of input events a second and worth being readable.
+GAME_SCHEME = "game://"
+GAME_PORT = 5700
+GAME_FRAME = b"F"  # a JPEG of the whole game picture, at the size asked for
+GAME_STILL = b"S"  # the same, lossless (PNG), asked for once a picture is still
+GAME_SOUND = b"P"  # signed 16-bit PCM at the rate and channels asked for
+GAME_INFO = b"I"  # JSON: what the streamer is, and the screen it shows
+_GAME_HEAD = struct.Struct("<cI")
+
+
+def game_address(url):
+    """(host, port) for a game:// address, or None for anything else."""
+    url = str(url or "").strip()
+    if not url.lower().startswith(GAME_SCHEME):
+        return None
+    rest = url[len(GAME_SCHEME):].split("/", 1)[0].split("?", 1)[0]
+    host, port = rest, GAME_PORT
+    if rest.startswith("["):  # [IPv6]:port
+        host, _, tail = rest[1:].partition("]")
+        if tail.startswith(":") and tail[1:].isdigit():
+            port = int(tail[1:])
+    elif rest.count(":") == 1:
+        host, _, tail = rest.partition(":")
+        if not tail.isdigit():
+            return None
+        port = int(tail)
+    if not host or not 0 < port < 65536:
+        return None
+    return host, port
+
+
+def pack_game(kind, payload):
+    """One message from the streamer to the add-on."""
+    return _GAME_HEAD.pack(kind, len(payload)) + payload
+
+
+def unpack_game(buffer):
+    """Whole messages out of a byte buffer: ([(kind, payload)], the rest)."""
+    out, at = [], 0
+    while len(buffer) - at >= _GAME_HEAD.size:
+        kind, size = _GAME_HEAD.unpack_from(buffer, at)
+        end = at + _GAME_HEAD.size + size
+        if len(buffer) < end:
+            break
+        out.append((kind, bytes(buffer[at + _GAME_HEAD.size:end])))
+        at = end
+    return out, buffer[at:]
+
+
 def _bundled_backend():
     """The libusb that libusb-package ships, if it is installed.
 
