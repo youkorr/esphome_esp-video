@@ -18,7 +18,7 @@ substitutions:
   font_family: Figtree  
   
 
-  frigate: 
+  frigate: "http://192.168.1.38:8123/local/snapshots/last_snapshot.jpg"   # as on the Tab5
  
   media_player_entity: "media_player.waveshare_esp32_p4_media_player"
   weather_entity: weather.forecast_maison #weather
@@ -228,7 +228,7 @@ logger:
 
 api:
   encryption:
-    key: ""
+    key: !secret api_encryption_key
 
 ota:
   - platform: esphome

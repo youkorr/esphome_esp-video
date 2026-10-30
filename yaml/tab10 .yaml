@@ -230,11 +230,11 @@ http_request:
 # Enable Home Assistant API
 api:
   encryption:
-    key: ""
+    key: !secret api_encryption_key
 
 ota:
   - platform: esphome
-    password: "
+    #password: ""   # the closing quote was missing: no OTA password, as on the Tab5
 
 wifi:
   ssid: !secret wifi_ssid
