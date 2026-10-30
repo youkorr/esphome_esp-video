@@ -246,8 +246,7 @@ external_components:
       type: git
       url: https://github.com/youkorr/lvgl_9.5
       ref: claude/jolly-lamport-ERZOC #claude/mit-license-face-to-face-p9fc6m #claude/review-lvgl-display-adapter-xyWYk #claude/add-animated-svg-support-gTGAz #claude/fix-callback-timing-MAJoa #claude/fix-lvgl-widgets-Ag1yK #claude/fix-lvgl-rendering-performance-xauVV
-    # mipi_dsi from the fork: it gives lvgl_ortho the panel's own frame buffers
-    components: [lvgl, image, font, mipi_dsi]
+    components: [lvgl]
     refresh: always
 
   # lv_draw_ortho: LVGL draws in the panel's orientation, nothing is turned
@@ -3198,10 +3197,6 @@ display:
       number: 4
     pixel_mode: 24  
     color_order: rgb
-    # The panel's own buffers, which LVGL draws into through lvgl_ortho.
-    # Three, so it never draws into the one on the glass. If the board
-    # crashes at boot, remove this line: lvgl_ortho then copies instead.
-    framebuffers: 3
   
 
 # The screen's turn, done by drawing in the panel's orientation instead of
@@ -3215,7 +3210,7 @@ lvgl:
   use_ppa: true  
   color_depth: 16
   use_ppa_img: true
-  buffer_size: 10%      # lvgl_ortho replaces LVGL's buffer; keep this one small
+  buffer_size: 100%
   byte_order: little_endian
   fps_benchmark: true
   perf_monitor: true
