@@ -12820,6 +12820,19 @@ stock lvgl and with the fork read `set_direct(tab_display, 90|180|270,
 compiled by ESP-IDF, not flashed**: the fps, PSRAM bandwidth beside the DSI
 scanout, and tearing (one frame buffer) are the board's to say.
 
+**`ortho_id:` is the same frame for a screen LVGL draws in the panel's
+orientation.** youkorr/ppa-alternative's `lvgl_ortho` component takes LVGL's
+display over (one panel-sized buffer, direct mode, `rotation:` moved from
+`lvgl:` onto it), and `show_video()` turns a frame once with the PPA into a
+window of that buffer LVGL keeps out of. With `ortho_id: <its id>` the
+camera goes there instead. Named by its namespace string rather than
+imported, and compiled only under `USE_LVGL_ORTHO`, which that component
+defines -- so a board without it validates and builds as before. `direct:`
+beside `lvgl_ortho:` is refused: two writers to one screen, and `direct:`
+reads its rotation from an `lvgl:` block that no longer has one. Codegen read
+at 2026.10.0 (`camera_display->set_ortho(ortho)`); compiled `-fsyntax-only`
+both ways against ESPHome's headers. Not flashed.
+
 ## Repository conventions
 
 - Work on branch `claude/esphome-pr-outdated-mdq36w`, then merge into `main`

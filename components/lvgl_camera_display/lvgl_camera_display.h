@@ -4,6 +4,9 @@
 #include "esphome/components/lvgl/lvgl_esphome.h"
 #include "esphome/components/esp_cam_sensor/esp_cam_sensor_camera.h"
 #include "esphome/components/display/display.h"
+#ifdef USE_LVGL_ORTHO
+#include "esphome/components/lvgl_ortho/lvgl_ortho.h"
+#endif
 
 // Forward declarations
 namespace esphome {
@@ -31,6 +34,11 @@ class LVGLCameraDisplay : public Component {
   void set_canvas_id(const std::string &canvas_id) { this->canvas_id_ = canvas_id; }
   void set_update_interval(uint32_t interval_ms) { this->update_interval_ = interval_ms; }
   void set_enabled(bool enabled) { this->enabled_ = enabled; }
+#ifdef USE_LVGL_ORTHO
+  // youkorr/ppa-alternative: LVGL draws in the panel's orientation and each
+  // frame goes into the ortho component's video window, turned once.
+  void set_ortho(lvgl_ortho::LvglOrtho *ortho) { this->ortho_ = ortho; }
+#endif
   // Direct mode: each frame is turned by the PPA and written straight to the
   // display, where LVGL would have copied it into the canvas, redrawn the
   // canvas and turned the whole area in its flush. `rotation` is the lvgl:
@@ -104,6 +112,9 @@ class LVGLCameraDisplay : public Component {
   float stats_frame_time_{0.0f};
   float stats_lvgl_overhead_{0.0f};
 
+#ifdef USE_LVGL_ORTHO
+  lvgl_ortho::LvglOrtho *ortho_{nullptr};
+#endif
   // Direct mode (see set_direct). Null when the YAML did not ask for it.
   display::Display *direct_display_{nullptr};
   int direct_rotation_{0};

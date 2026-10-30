@@ -158,8 +158,15 @@ void LVGLCameraDisplay::update_camera_frame_() {
       ESP_LOGI(TAG, "  Frame interval: %.1fms (target: %ums)", avg_frame_interval, (unsigned) this->update_interval_);
       ESP_LOGI(TAG, "  CPU time: %.1fms (capture: %.1fms + canvas: %.1fms)", avg_cpu_time, avg_capture, avg_canvas);
       ESP_LOGI(TAG, "  LVGL overhead: %.1fms | Skip: %.1f%%", lvgl_overhead, skip_rate);
-      if (this->direct_display_ != nullptr) {
-        if (this->direct_frames_ > 0) {
+      bool one_pass = this->direct_display_ != nullptr;
+#ifdef USE_LVGL_ORTHO
+      one_pass = one_pass || this->ortho_ != nullptr;
+#endif
+      if (one_pass) {
+        if (this->direct_frames_ > 0 && this->direct_ppa_us_ + this->direct_draw_us_ == 0) {
+          ESP_LOGI(TAG, "  Direct: %u of 100 frames through lvgl_ortho's window (its own log has the times)",
+                   (unsigned) this->direct_frames_);
+        } else if (this->direct_frames_ > 0) {
           ESP_LOGI(TAG, "  Direct: %u of 100 frames, PPA %.1fms + display %.1fms each", (unsigned) this->direct_frames_,
                    this->direct_ppa_us_ / 1000.0f / this->direct_frames_,
                    this->direct_draw_us_ / 1000.0f / this->direct_frames_);
@@ -314,6 +321,19 @@ void LVGLCameraDisplay::update_canvas_() {
   uint32_t stride = width * 2;
   uint32_t buf_size = width * height * 2;
 
+#ifdef USE_LVGL_ORTHO
+  if (this->ortho_ != nullptr && this->ortho_->is_ready()) {
+    // The ortho component checks the canvas is on screen and gives the
+    // window back to LVGL when it is not; LVGL is never told the canvas
+    // changed, so it does not draw over the video.
+    if (this->ortho_->show_video(this->canvas_obj_, img_data, width, height)) {
+      this->direct_frames_++;
+      this->first_update_ = false;
+      this->displayed_buffer_ = buffer;
+      return;
+    }
+  }
+#endif
   const bool direct = this->direct_display_ != nullptr && !this->direct_failed_ && this->canvas_on_screen_();
   if (!direct)
     this->direct_seeded_ = false;

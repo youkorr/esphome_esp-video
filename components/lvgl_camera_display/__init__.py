@@ -15,6 +15,11 @@ CONF_FACE_DETECTION_ID = "face_detection_id"
 CONF_YOLO11_DETECTION_ID = "yolo11_detection_id"
 CONF_PEDESTRIAN_DETECTION_ID = "pedestrian_detection_id"
 CONF_DIRECT = "direct"
+CONF_ORTHO_ID = "ortho_id"
+
+# youkorr/ppa-alternative's component, named rather than imported: a board
+# without it must still validate.
+LvglOrtho = cg.esphome_ns.namespace("lvgl_ortho").class_("LvglOrtho", cg.Component)
 
 lvgl_camera_display_ns = cg.esphome_ns.namespace("lvgl_camera_display")
 LVGLCameraDisplay = lvgl_camera_display_ns.class_("LVGLCameraDisplay", cg.Component)
@@ -45,6 +50,10 @@ CONFIG_SCHEMA = cv.Schema({
     cv.Optional(CONF_DIRECT, default=False): cv.boolean,
     # The display to draw on. Left out, it is the lvgl: block's first one.
     cv.Optional(CONF_DISPLAY_ID): cv.use_id(display.Display),
+    # With youkorr/ppa-alternative's lvgl_ortho, LVGL already draws in the
+    # panel's orientation: each frame goes into its video window instead,
+    # turned once by the PPA, and LVGL draws around it.
+    cv.Optional(CONF_ORTHO_ID): cv.use_id(LvglOrtho),
 }).extend(cv.COMPONENT_SCHEMA)
 
 
@@ -78,9 +87,14 @@ def display_depth(full_config, display_id):
 
 
 def _final_validate(config):
+    full = fv.full_config.get()
+    if config[CONF_DIRECT] and ("lvgl_ortho" in full or CONF_ORTHO_ID in config):
+        raise cv.Invalid(
+            f"{CONF_DIRECT}: and lvgl_ortho: do the same job two ways and would "
+            f"fight over the screen. With lvgl_ortho, give {CONF_ORTHO_ID}: instead"
+        )
     if not config[CONF_DIRECT]:
         return config
-    full = fv.full_config.get()
     blocks = _lvgl_blocks(full)
     if len(blocks) != 1:
         raise cv.Invalid(f"{CONF_DIRECT}: needs exactly one lvgl: block")
@@ -116,6 +130,10 @@ async def to_code(config):
         rotation = int(_lvgl_blocks(CORE.config)[0].get(CONF_ROTATION, 0))
         depth = display_depth(CORE.config, disp_id)
         cg.add(var.set_direct(disp, rotation, depth))
+
+    if CONF_ORTHO_ID in config:
+        ortho = await cg.get_variable(config[CONF_ORTHO_ID])
+        cg.add(var.set_ortho(ortho))
 
     update_interval_ms = config[CONF_UPDATE_INTERVAL].total_milliseconds
     cg.add(var.set_update_interval(int(update_interval_ms)))
