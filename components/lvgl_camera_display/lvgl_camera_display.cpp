@@ -4,6 +4,9 @@
 #include <cstring>
 #include "esp_cache.h"
 #include "esp_memory_utils.h"  // esp_ptr_external_ram()
+#include "esp_heap_caps.h"
+#include "driver/ppa.h"
+#include "direct_geometry.h"
 // Conditionally include detection components only if they exist
 #ifdef USE_FACE_DETECTION
 #include "esphome/components/face_detection/face_detection.h"
@@ -155,6 +158,18 @@ void LVGLCameraDisplay::update_camera_frame_() {
       ESP_LOGI(TAG, "  Frame interval: %.1fms (target: %ums)", avg_frame_interval, (unsigned) this->update_interval_);
       ESP_LOGI(TAG, "  CPU time: %.1fms (capture: %.1fms + canvas: %.1fms)", avg_cpu_time, avg_capture, avg_canvas);
       ESP_LOGI(TAG, "  LVGL overhead: %.1fms | Skip: %.1f%%", lvgl_overhead, skip_rate);
+      if (this->direct_display_ != nullptr) {
+        if (this->direct_frames_ > 0) {
+          ESP_LOGI(TAG, "  Direct: %u of 100 frames, PPA %.1fms + display %.1fms each", (unsigned) this->direct_frames_,
+                   this->direct_ppa_us_ / 1000.0f / this->direct_frames_,
+                   this->direct_draw_us_ / 1000.0f / this->direct_frames_);
+        } else {
+          ESP_LOGI(TAG, "  Direct: no frame drawn directly (canvas not on screen, or the PPA refused - see above)");
+        }
+        this->direct_frames_ = 0;
+        this->direct_ppa_us_ = 0;
+        this->direct_draw_us_ = 0;
+      }
 
       // Mettre a jour les stats pour l'affichage UI
       this->stats_fps_ = fps;
@@ -201,6 +216,9 @@ void LVGLCameraDisplay::dump_config() {
   ESP_LOGCONFIG(TAG, "  Update interval: %u ms", (unsigned) this->update_interval_);
   ESP_LOGCONFIG(TAG, "  FPS cible: ~%d", (int) (1000 / this->update_interval_));
   ESP_LOGCONFIG(TAG, "  Canvas configure: %s", this->canvas_obj_ ? "OUI" : "NON");
+  if (this->direct_display_ != nullptr)
+    ESP_LOGCONFIG(TAG, "  Direct mode: on, lvgl rotation %d, display %d bits", this->direct_rotation_,
+                  this->direct_depth_);
 }
 
 void LVGLCameraDisplay::update_canvas_() {
@@ -296,6 +314,10 @@ void LVGLCameraDisplay::update_canvas_() {
   uint32_t stride = width * 2;
   uint32_t buf_size = width * height * 2;
 
+  const bool direct = this->direct_display_ != nullptr && !this->direct_failed_ && this->canvas_on_screen_();
+  if (!direct)
+    this->direct_seeded_ = false;
+
   if (!this->draw_buf_initialized_) {
     // Initialize the draw buffer structure to point to camera data
     lv_draw_buf_init(&this->camera_draw_buf_, width, height,
@@ -312,6 +334,22 @@ void LVGLCameraDisplay::update_canvas_() {
     // Just update the data pointer - no memcpy needed!
     this->camera_draw_buf_.data = img_data;
   }
+
+  if (direct && this->direct_seeded_) {
+    // LVGL keeps pointing at the newest frame, so a redraw of something that
+    // overlaps the canvas shows the right picture, but it is NOT told the
+    // canvas changed: the frame goes to the display below, turned once by
+    // the PPA, and LVGL neither redraws nor turns that area.
+    if (this->draw_direct_(img_data, width, height)) {
+      this->first_update_ = false;
+      this->displayed_buffer_ = buffer;
+      return;
+    }
+    // The PPA refused: draw_direct_ said why. This frame and every later
+    // one go through LVGL as before.
+  }
+  if (direct)
+    this->direct_seeded_ = true;
 
   // LVGL 9.4: Use the correct API depending on widget type
   if (this->is_canvas_) {
@@ -330,6 +368,143 @@ void LVGLCameraDisplay::update_canvas_() {
 
   // Tracker ce buffer pour le liberer au prochain update
   this->displayed_buffer_ = buffer;
+}
+
+bool LVGLCameraDisplay::canvas_on_screen_() {
+  // Drawn behind LVGL's back, a frame must only go out while the canvas is
+  // really there: not on another page, not hidden, not scrolled away.
+  if (!lv_obj_is_visible(this->canvas_obj_))
+    return false;
+  lv_display_t *disp = lv_obj_get_display(this->canvas_obj_);
+  return lv_obj_get_screen(this->canvas_obj_) == lv_display_get_screen_active(disp);
+}
+
+bool LVGLCameraDisplay::draw_direct_(const uint8_t *frame, uint16_t width, uint16_t height) {
+  lv_display_t *disp = lv_obj_get_display(this->canvas_obj_);
+  const int32_t ui_w = lv_display_get_horizontal_resolution(disp);
+  const int32_t ui_h = lv_display_get_vertical_resolution(disp);
+  const int rot = this->direct_rotation_;
+  const bool swap = rot == 90 || rot == 270;
+  const int32_t native_w = swap ? ui_h : ui_w;
+  const int32_t native_h = swap ? ui_w : ui_h;
+  if (this->direct_display_->get_native_width() != native_w ||
+      this->direct_display_->get_native_height() != native_h) {
+    ESP_LOGE(TAG, "Direct mode off: LVGL is %dx%d at rotation %d, so the panel should be %dx%d, and the display is "
+                  "%dx%d. Is a rotation set on the display: block as well as on lvgl:?",
+             (int) ui_w, (int) ui_h, rot, (int) native_w, (int) native_h, this->direct_display_->get_native_width(),
+             this->direct_display_->get_native_height());
+    this->direct_failed_ = true;
+    return false;
+  }
+
+  lv_area_t at;
+  lv_obj_get_coords(this->canvas_obj_, &at);
+  const DirectPlan p = plan_direct(rot, ui_w, ui_h, at.x1, at.y1, at.x2, at.y2, width, height);
+  if (!p.visible)
+    return true;
+
+  const display::ColorBitness bitness =
+      this->direct_depth_ == 24 ? display::COLOR_BITNESS_888 : display::COLOR_BITNESS_565;
+  const uint32_t frame_stride = (uint32_t) width * 2;
+
+  // Nothing to turn, convert or cut sideways: the rows go straight out.
+  if (rot == 0 && this->direct_depth_ == 16 && p.src_x == 0 && p.w == width) {
+    const uint32_t t0 = micros();
+    this->direct_display_->draw_pixels_at(p.px, p.py, p.pw, p.ph, frame + (size_t) p.src_y * frame_stride,
+                                          display::COLOR_ORDER_RGB, bitness, false);
+    this->direct_draw_us_ += micros() - t0;
+    this->direct_frames_++;
+    return true;
+  }
+
+  if (this->ppa_client_ == nullptr) {
+    ppa_client_config_t cfg = {};
+    cfg.oper_type = PPA_OPERATION_SRM;
+    cfg.max_pending_trans_num = 1;
+    ppa_client_handle_t client = nullptr;
+    esp_err_t err = ppa_register_client(&cfg, &client);
+    if (err != ESP_OK) {
+      ESP_LOGE(TAG, "Direct mode off: no PPA client (%s); frames go through LVGL", esp_err_to_name(err));
+      this->direct_failed_ = true;
+      return false;
+    }
+    this->ppa_client_ = client;
+  }
+
+  // The PPA writes whole cache lines: its output buffer and that buffer's
+  // size must both be aligned to one. 128 covers both line sizes a P4 can be
+  // built with.
+  constexpr size_t LINE = 128;
+  const size_t bpp = this->direct_depth_ == 24 ? 3 : 2;
+  const size_t need = ((size_t) p.pw * p.ph * bpp + LINE - 1) & ~(LINE - 1);
+  if (need > this->direct_buf_len_) {
+    heap_caps_free(this->direct_buf_);
+    this->direct_buf_ = (uint8_t *) heap_caps_aligned_alloc(LINE, need, MALLOC_CAP_SPIRAM);
+    this->direct_buf_len_ = this->direct_buf_ != nullptr ? need : 0;
+    if (this->direct_buf_ == nullptr) {
+      ESP_LOGE(TAG, "Direct mode off: no %u bytes of PSRAM for the turned frame", (unsigned) need);
+      this->direct_failed_ = true;
+      return false;
+    }
+    ESP_LOGI(TAG, "Direct mode: %dx%d of the frame from %d,%d, turned %d and drawn at %d,%d (%dx%d) on the panel",
+             (int) p.w, (int) p.h, (int) p.src_x, (int) p.src_y, rot, (int) p.px, (int) p.py, (int) p.pw,
+             (int) p.ph);
+  }
+
+  ppa_srm_oper_config_t srm = {};
+  srm.in.buffer = frame;
+  srm.in.pic_w = width;
+  srm.in.pic_h = height;
+  srm.in.block_w = p.w;
+  srm.in.block_h = p.h;
+  srm.in.block_offset_x = p.src_x;
+  srm.in.block_offset_y = p.src_y;
+  srm.in.srm_cm = PPA_SRM_COLOR_MODE_RGB565;
+  srm.out.buffer = this->direct_buf_;
+  srm.out.buffer_size = this->direct_buf_len_;
+  srm.out.pic_w = p.pw;
+  srm.out.pic_h = p.ph;
+  srm.out.block_offset_x = 0;
+  srm.out.block_offset_y = 0;
+  srm.out.srm_cm = this->direct_depth_ == 24 ? PPA_SRM_COLOR_MODE_RGB888 : PPA_SRM_COLOR_MODE_RGB565;
+  switch (ppa_degrees(rot)) {
+    case 90:
+      srm.rotation_angle = PPA_SRM_ROTATION_ANGLE_90;
+      break;
+    case 180:
+      srm.rotation_angle = PPA_SRM_ROTATION_ANGLE_180;
+      break;
+    case 270:
+      srm.rotation_angle = PPA_SRM_ROTATION_ANGLE_270;
+      break;
+    default:
+      srm.rotation_angle = PPA_SRM_ROTATION_ANGLE_0;
+      break;
+  }
+  srm.scale_x = 1.0f;  // zero-initialised would mean scale 0
+  srm.scale_y = 1.0f;
+  srm.alpha_update_mode = PPA_ALPHA_NO_CHANGE;
+  srm.mode = PPA_TRANS_MODE_BLOCKING;
+
+  const uint32_t t0 = micros();
+  const esp_err_t err = ppa_do_scale_rotate_mirror((ppa_client_handle_t) this->ppa_client_, &srm);
+  const uint32_t t1 = micros();
+  if (err != ESP_OK) {
+    ESP_LOGE(TAG, "Direct mode off: the PPA refused the frame (%s); frames go through LVGL", esp_err_to_name(err));
+    this->direct_failed_ = true;
+    return false;
+  }
+  // The PPA wrote PSRAM behind the cache: drop any stale lines so nothing
+  // reads the old picture back through it.
+  if (esp_ptr_external_ram(this->direct_buf_))
+    esp_cache_msync(this->direct_buf_, this->direct_buf_len_, ESP_CACHE_MSYNC_FLAG_DIR_M2C);
+  this->direct_display_->draw_pixels_at(p.px, p.py, p.pw, p.ph, this->direct_buf_, display::COLOR_ORDER_RGB, bitness,
+                                        false);
+  const uint32_t t2 = micros();
+  this->direct_ppa_us_ += t1 - t0;
+  this->direct_draw_us_ += t2 - t1;
+  this->direct_frames_++;
+  return true;
 }
 
 void LVGLCameraDisplay::configure_canvas(lv_obj_t *canvas) {
