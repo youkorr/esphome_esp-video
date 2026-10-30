@@ -439,6 +439,9 @@ lvgl_camera_display:
   camera_id: tab5_cam
   canvas_id: camera_canvas
   update_interval: 33ms
+  # The PPA turns each frame once, straight onto the screen; LVGL no longer
+  # redraws and re-turns the camera's area. Remove the line to go back.
+  direct: true
 
   #face_detection_id: face_detect 
 
