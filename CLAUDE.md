@@ -12771,6 +12771,55 @@ remembered in `/data/morning.json`, only on a wake that follows a "Panel
 asleep" line. **Not tried against a real Home Assistant, satellite or
 telephone.**
 
+## The camera turned once, straight onto the screen: `direct: true`
+
+**Asked as a PPA alternative that lets the P4's own camera reach its sensor's
+frame rate on a turned screen**, the way Espressif's and M5Stack's demos do.
+The Tab5 measured 10-13 fps through `lvgl_camera_display`. Each frame there is
+set as the canvas's source, LVGL redraws the canvas area, and its flush turns
+that whole area again (PPA, blocking) before the display copies it -- three
+full-frame passes in series on the loop.
+
+`direct: true` on `lvgl_camera_display` makes it one: `draw_direct_()` crops
+the visible part of the frame and turns it with ONE PPA pass into a PSRAM
+buffer in the panel's orientation, then `display->draw_pixels_at()` puts it
+at the panel rectangle. The canvas is not invalidated, so LVGL neither redraws
+nor re-turns that area; it still points at the newest frame, so a redraw of
+something overlapping shows the right picture. Runs inside the LVGL timer, the
+loop's own thread, so it never writes beside a flush.
+
+- **The geometry is ESPHome's own**: `direct_geometry.h`'s `plan_direct()`
+  is the placement formula of lvgl's `draw_buffer_()` (stock 2026.10.0 and
+  youkorr/lvgl_9.5 agree), the frame centred as `lv_image` centres it
+  (`LV_IMAGE_ALIGN_CENTER`), cut to canvas and screen. `ppa_degrees()`
+  inverts the angle: ESPHome's 90 is the PPA's 270.
+- **Read at codegen, never asked for**: the `lvgl:` block's `rotation:` and
+  the display's `color_depth:` (24 makes the PPA write RGB888). The display
+  is the lvgl block's first, or `display_id:`.
+- **Refused with `full_refresh: true`**: every refresh then rewrites the
+  whole screen. And it turns itself off, said once, if LVGL's size does not
+  match the panel turned (a rotation on `display:` too), if no PPA client or
+  PSRAM can be had, or if the PPA refuses a frame -- the frame then goes
+  through LVGL as before.
+- **Only while the canvas is on screen** (`lv_obj_is_visible` and the active
+  screen); off it, the old path. Coming back, the first frame goes through
+  LVGL once.
+- **What it costs**: a widget drawn OVER the canvas is painted over by the
+  next frame. The benchmark line gains `Direct: N of 100 frames, PPA x ms +
+  display y ms each`.
+
+`tools/checkcamdirect.py`: the three boards' geometries and forty random ones
+against the UI drawn by lv_image's rule and turned by ESPHome's flush loops in
+40-row bands, pixel for pixel; three mutants (angle not inverted, 90 placed
+off the wrong side, frame not centred) each caught. The PPA is modelled as
+ppa-alternative's tests hold it to youkorr/lvgl_9.5. The .cpp was compiled
+with `-fsyntax-only` against ESPHome 2026.10.0's headers, LVGL 9.5.0 and a
+v5.5.5 ppa.h stand-in; `esphome config` and the codegen at 2026.10.0 with
+stock lvgl and with the fork read `set_direct(tab_display, 90|180|270,
+16|24)`, nothing without the option, and the full_refresh refusal. **Not
+compiled by ESP-IDF, not flashed**: the fps, PSRAM bandwidth beside the DSI
+scanout, and tearing (one frame buffer) are the board's to say.
+
 ## Repository conventions
 
 - Work on branch `claude/esphome-pr-outdated-mdq36w`, then merge into `main`
