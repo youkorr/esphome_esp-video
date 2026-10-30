@@ -277,8 +277,12 @@ external_components:
       type: git
       url: https://github.com/youkorr/lvgl_9.5
       ref: claude/jolly-lamport-ERZOC #claude/mit-license-face-to-face-p9fc6m  #lvgl-ppa-msync-fix #claude/jolly-lamport-ERZOC  #6dc5b02f3e6940e782d12fd6748154c0c384272d #claude/jolly-lamport-ERZOC  #claude/fix-lottie-esp32-crash-K7tM1 #claude/fix-lottie-esp32-crashes-8gqrJ #claude/fix-lottie-esp32-crash-vVG5Y #claude/fix-lottie-esp32-crashes-8gqrJ #claude/investigate-pr-conflicts-jyqoy #claude/add-lvgl-example-GJsCN #claude/create-sphere-BVofQ # claude/home-assistant-integration-6apll
-    components: [lvgl, font]
-    refresh: 0s   
+    components: [lvgl]
+    refresh: 0s
+  # lv_draw_ortho: LVGL draws in the panel's orientation, nothing is turned
+  - source: github://youkorr/ppa-alternative-@main
+    components: [lvgl_ortho]
+    refresh: always
   - source:
       type: git
       url: https://github.com/youkorr/esphome_esp-video
@@ -306,9 +310,8 @@ lvgl_camera_display:
   camera_id: tab5_cam
   canvas_id: camera_canvas
   update_interval: 33ms 
-  # The PPA turns each frame once, straight onto the screen; LVGL no longer
-  # redraws and re-turns the camera's area. Remove the line to go back.
-  direct: true
+  # Each frame turned once by the PPA into lvgl_ortho's window
+  ortho_id: ortho
     
 # ============================================================================
 # webdavbox3
@@ -1798,6 +1801,12 @@ display:
       - delay 120ms
       - [0x29]
 
+# The screen's turn, done by drawing in the panel's orientation instead of
+# turning every frame afterwards. The number lvgl: had (ESPHome's degrees).
+lvgl_ortho:
+  id: ortho
+  rotation: 180
+
 lvgl:
   use_ppa: true
   use_ppa_img: true
@@ -1806,7 +1815,7 @@ lvgl:
   byte_order: little_endian
   fps_benchmark: true
   perf_monitor: true
-  rotation: 180
+  # rotation: 180       # moved to lvgl_ortho above
 
   style_definitions:
 
