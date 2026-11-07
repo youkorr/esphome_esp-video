@@ -30,6 +30,7 @@
 #include "esp_log.h"
 #include "esp_attr.h"
 #include "esp_check.h"
+#include "esp_idf_version.h"
 #include "esp_private/esp_cache_private.h"
 #include "esp_ldo_regulator.h"
 #include "esp_cam_ctlr.h"
@@ -417,6 +418,24 @@ static esp_err_t csi_video_start(struct esp_video *video, uint32_t type)
     }
 #endif
 
+    /*
+     * From ESP-IDF v5.5.6, input_data_color_type is the colour ENTERING the
+     * CSI bridge -- the ISP's output when the ISP is in the path -- and not
+     * the sensor's. Given RAW in and RGB565 out, ESP-IDF 5.5.6 asks the bridge
+     * to convert, which an ESP32-P4 below v3.0 cannot do: the controller is
+     * refused ("failed to configure format conversion") and the camera never
+     * starts. This copy never uses the bridge's conversion -- the ISP
+     * converts -- so whenever the ISP is in the path, the bridge's input is
+     * what the ISP gives it. Bypassing the ISP, in and out are already equal.
+     * Espressif's own fix is esp-video-components 79ae611.
+     */
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 5, 6)
+    const cam_ctlr_color_t csi_in_color = csi_video->state.bypass_isp ? csi_video->state.in_color
+                                                                      : csi_video->state.out_color;
+#else
+    const cam_ctlr_color_t csi_in_color = csi_video->state.in_color;
+#endif
+
     esp_cam_ctlr_csi_config_t csi_config = {
         .ctlr_id = CSI_CTRL_ID,
         .clk_src = CSI_CLK_SRC,
@@ -425,7 +444,7 @@ static esp_err_t csi_video_start(struct esp_video *video, uint32_t type)
         .h_res = CAPTURE_VIDEO_GET_FORMAT_WIDTH(video),
         .v_res = CAPTURE_VIDEO_GET_FORMAT_HEIGHT(video),
         .data_lane_num = csi_video->state.lane_num,
-        .input_data_color_type = csi_video->state.in_color,
+        .input_data_color_type = csi_in_color,
         .output_data_color_type = csi_video->state.out_color,
         .lane_bit_rate_mbps = csi_video->state.lane_bitrate_mbps,
 #if CONFIG_ESP_VIDEO_DISABLE_MIPI_CSI_DRIVER_BACKUP_BUFFER
