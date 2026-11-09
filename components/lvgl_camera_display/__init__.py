@@ -1,6 +1,9 @@
 import esphome.codegen as cg
+from esphome.components import display
 import esphome.config_validation as cv
-from esphome.const import CONF_ID
+from esphome.const import CONF_DISPLAY_ID, CONF_ID, CONF_ROTATION
+from esphome.core import CORE
+import esphome.final_validate as fv
 
 DEPENDENCIES = ["lvgl", "esp_cam_sensor"]
 AUTO_LOAD = ["esp_cam_sensor"]
@@ -11,6 +14,13 @@ CONF_UPDATE_INTERVAL = "update_interval"
 CONF_FACE_DETECTION_ID = "face_detection_id"
 CONF_YOLO11_DETECTION_ID = "yolo11_detection_id"
 CONF_PEDESTRIAN_DETECTION_ID = "pedestrian_detection_id"
+CONF_DIRECT = "direct"
+CONF_ORTHO_ID = "ortho_id"
+CONF_FAST_LOOP = "fast_loop"
+
+# youkorr/ppa-alternative's component, named rather than imported: a board
+# without it must still validate.
+LvglOrtho = cg.esphome_ns.namespace("lvgl_ortho").class_("LvglOrtho", cg.Component)
 
 lvgl_camera_display_ns = cg.esphome_ns.namespace("lvgl_camera_display")
 LVGLCameraDisplay = lvgl_camera_display_ns.class_("LVGLCameraDisplay", cg.Component)
@@ -35,7 +45,78 @@ CONFIG_SCHEMA = cv.Schema({
     cv.Optional(CONF_FACE_DETECTION_ID): cv.use_id(FaceDetectionComponent),
     cv.Optional(CONF_YOLO11_DETECTION_ID): cv.use_id(YOLO11DetectionComponent),
     cv.Optional(CONF_PEDESTRIAN_DETECTION_ID): cv.use_id(PedestrianDetectionComponent),
+    # Direct mode: the PPA turns each frame once, straight onto the display,
+    # instead of LVGL copying it into the canvas, redrawing the canvas and
+    # turning the whole area again in its flush.
+    cv.Optional(CONF_DIRECT, default=False): cv.boolean,
+    # The display to draw on. Left out, it is the lvgl: block's first one.
+    cv.Optional(CONF_DISPLAY_ID): cv.use_id(display.Display),
+    # With youkorr/ppa-alternative's lvgl_ortho, LVGL already draws in the
+    # panel's orientation: each frame goes into its video window instead,
+    # turned once by the PPA, and LVGL draws around it.
+    cv.Optional(CONF_ORTHO_ID): cv.use_id(LvglOrtho),
+    # Keep ESPHome's main loop from sleeping while the camera is shown, so a
+    # new frame is picked up as soon as LVGL's timer can run. Without it the
+    # loop sleeps up to 16 ms between passes unless something wakes it -- a
+    # log line from another task does, which is why esp-idf: DEBUG made the
+    # camera faster.
+    cv.Optional(CONF_FAST_LOOP, default=False): cv.boolean,
 }).extend(cv.COMPONENT_SCHEMA)
+
+
+def _lvgl_blocks(full_config):
+    blocks = full_config.get("lvgl") or []
+    return blocks if isinstance(blocks, list) else [blocks]
+
+
+def _direct_display(full_config, config):
+    """The display direct mode writes to: the one named, or lvgl's own."""
+    if CONF_DISPLAY_ID in config:
+        return config[CONF_DISPLAY_ID]
+    for block in _lvgl_blocks(full_config):
+        displays = block.get("displays") or []
+        if displays:
+            return displays[0]
+    return None
+
+
+def display_depth(full_config, display_id):
+    """16 or 24, off the display's own color_depth: (mipi_dsi says "16" by
+    default), so the PPA writes the frame in the depth the display copies
+    without converting -- anything else is converted one pixel at a time."""
+    wanted = getattr(display_id, "id", display_id)
+    for block in full_config.get("display") or []:
+        if getattr(block.get(CONF_ID), "id", None) != wanted:
+            continue
+        depth = str(block.get("color_depth", "16")).lower().removesuffix("bit")
+        return 24 if depth == "24" else 16
+    return 16
+
+
+def _final_validate(config):
+    full = fv.full_config.get()
+    if config[CONF_DIRECT] and ("lvgl_ortho" in full or CONF_ORTHO_ID in config):
+        raise cv.Invalid(
+            f"{CONF_DIRECT}: and lvgl_ortho: do the same job two ways and would "
+            f"fight over the screen. With lvgl_ortho, give {CONF_ORTHO_ID}: instead"
+        )
+    if not config[CONF_DIRECT]:
+        return config
+    blocks = _lvgl_blocks(full)
+    if len(blocks) != 1:
+        raise cv.Invalid(f"{CONF_DIRECT}: needs exactly one lvgl: block")
+    if blocks[0].get("full_refresh"):
+        raise cv.Invalid(
+            f"{CONF_DIRECT}: does not work with lvgl: full_refresh: true -- every "
+            "LVGL refresh then rewrites the whole screen, the camera's area "
+            "included. Remove full_refresh, or leave direct: out"
+        )
+    if _direct_display(full, config) is None:
+        raise cv.Invalid(f"{CONF_DIRECT}: no display found; give {CONF_DISPLAY_ID}:")
+    return config
+
+
+FINAL_VALIDATE_SCHEMA = _final_validate
 
 
 async def to_code(config):
@@ -47,8 +128,24 @@ async def to_code(config):
 
     cg.add(var.set_canvas_id(config[CONF_CANVAS_ID]))
 
+    if config[CONF_DIRECT]:
+        disp_id = _direct_display(CORE.config, config)
+        disp = await cg.get_variable(disp_id)
+        # Read off the lvgl: block rather than asked for again, so the two
+        # cannot disagree. ESPHome's lvgl and youkorr/lvgl_9.5 both store
+        # rotation: as its degrees, clockwise.
+        rotation = int(_lvgl_blocks(CORE.config)[0].get(CONF_ROTATION, 0))
+        depth = display_depth(CORE.config, disp_id)
+        cg.add(var.set_direct(disp, rotation, depth))
+
+    if CONF_ORTHO_ID in config:
+        ortho = await cg.get_variable(config[CONF_ORTHO_ID])
+        cg.add(var.set_ortho(ortho))
+
     update_interval_ms = config[CONF_UPDATE_INTERVAL].total_milliseconds
     cg.add(var.set_update_interval(int(update_interval_ms)))
+    if config[CONF_FAST_LOOP]:
+        cg.add(var.set_fast_loop(True))
 
     if CONF_FACE_DETECTION_ID in config:
         cg.add_define("USE_FACE_DETECTION")

@@ -246,7 +246,12 @@ external_components:
       type: git
       url: https://github.com/youkorr/lvgl_9.5
       ref: claude/jolly-lamport-ERZOC #claude/mit-license-face-to-face-p9fc6m #claude/review-lvgl-display-adapter-xyWYk #claude/add-animated-svg-support-gTGAz #claude/fix-callback-timing-MAJoa #claude/fix-lvgl-widgets-Ag1yK #claude/fix-lvgl-rendering-performance-xauVV
-    components: [lvgl, image, font]
+    components: [lvgl]
+    refresh: always
+
+  # lv_draw_ortho: LVGL draws in the panel's orientation, nothing is turned
+  - source: github://youkorr/ppa-alternative-@main
+    components: [lvgl_ortho]
     refresh: always  
     
 
@@ -439,6 +444,8 @@ lvgl_camera_display:
   camera_id: tab5_cam
   canvas_id: camera_canvas
   update_interval: 16ms
+  # Each frame turned once by the PPA into lvgl_ortho's window
+  ortho_id: ortho
 
 
 # ============================================================================
@@ -3192,6 +3199,12 @@ display:
     color_order: rgb
   
 
+# The screen's turn, done by drawing in the panel's orientation instead of
+# turning every frame afterwards. The number lvgl: had (ESPHome's degrees).
+lvgl_ortho:
+  id: ortho
+  rotation: 270
+
 lvgl:
   #full_refresh: true
   use_ppa: true  
@@ -3201,7 +3214,7 @@ lvgl:
   byte_order: little_endian
   fps_benchmark: true
   perf_monitor: true
-  rotation: 270
+  # rotation: 270       # moved to lvgl_ortho below
   #displays:
     #- device_display
   #touchscreens:

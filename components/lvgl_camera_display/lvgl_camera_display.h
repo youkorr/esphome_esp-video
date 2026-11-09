@@ -1,8 +1,13 @@
 #pragma once
 
 #include "esphome/core/component.h"
+#include "esphome/core/helpers.h"
 #include "esphome/components/lvgl/lvgl_esphome.h"
 #include "esphome/components/esp_cam_sensor/esp_cam_sensor_camera.h"
+#include "esphome/components/display/display.h"
+#ifdef USE_LVGL_ORTHO
+#include "esphome/components/lvgl_ortho/lvgl_ortho.h"
+#endif
 
 // Forward declarations
 namespace esphome {
@@ -30,6 +35,21 @@ class LVGLCameraDisplay : public Component {
   void set_canvas_id(const std::string &canvas_id) { this->canvas_id_ = canvas_id; }
   void set_update_interval(uint32_t interval_ms) { this->update_interval_ = interval_ms; }
   void set_enabled(bool enabled) { this->enabled_ = enabled; }
+  void set_fast_loop(bool fast) { this->fast_loop_ = fast; }
+#ifdef USE_LVGL_ORTHO
+  // youkorr/ppa-alternative: LVGL draws in the panel's orientation and each
+  // frame goes into the ortho component's video window, turned once.
+  void set_ortho(lvgl_ortho::LvglOrtho *ortho) { this->ortho_ = ortho; }
+#endif
+  // Direct mode: each frame is turned by the PPA and written straight to the
+  // display, where LVGL would have copied it into the canvas, redrawn the
+  // canvas and turned the whole area in its flush. `rotation` is the lvgl:
+  // block's and `depth` the display's color_depth, both read at codegen.
+  void set_direct(display::Display *display, int rotation, int depth) {
+    this->direct_display_ = display;
+    this->direct_rotation_ = rotation;
+    this->direct_depth_ = depth;
+  }
 #ifdef USE_FACE_DETECTION
   void set_face_detection(face_detection::FaceDetectionComponent *face_detect) { this->face_detection_ = face_detect; }
 #endif
@@ -74,6 +94,9 @@ class LVGLCameraDisplay : public Component {
   bool first_update_{true};
   bool canvas_warning_shown_{false};
   bool enabled_{false};  // LVGL camera display enabled/disabled by switch
+  // fast_loop: keeps ESPHome's main loop awake while the camera is shown.
+  bool fast_loop_{false};
+  HighFrequencyLoopRequester high_freq_;
 
   uint32_t last_fps_time_{0};
 
@@ -93,6 +116,25 @@ class LVGLCameraDisplay : public Component {
   float stats_cpu_percent_{0.0f};
   float stats_frame_time_{0.0f};
   float stats_lvgl_overhead_{0.0f};
+
+#ifdef USE_LVGL_ORTHO
+  lvgl_ortho::LvglOrtho *ortho_{nullptr};
+#endif
+  // Direct mode (see set_direct). Null when the YAML did not ask for it.
+  display::Display *direct_display_{nullptr};
+  int direct_rotation_{0};
+  int direct_depth_{16};
+  void *ppa_client_{nullptr};  // ppa_client_handle_t, kept out of this header
+  uint8_t *direct_buf_{nullptr};
+  size_t direct_buf_len_{0};
+  bool direct_seeded_{false};   // LVGL has been given the canvas once since it became visible
+  bool direct_failed_{false};   // said once, and the frame went through LVGL instead
+  uint32_t direct_ppa_us_{0};   // summed over a benchmark window
+  uint32_t direct_draw_us_{0};
+  uint32_t direct_frames_{0};
+
+  bool canvas_on_screen_();
+  bool draw_direct_(const uint8_t *frame, uint16_t width, uint16_t height);
 
   void update_camera_frame_();
   void update_canvas_();

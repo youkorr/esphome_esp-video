@@ -409,6 +409,7 @@ lvgl_camera_display:
 | `camera_id` | *(required)* | `id` of the `esp_cam_sensor` |
 | `canvas_id` | *(required)* | `id` of the target LVGL `canvas` widget |
 | `update_interval` | `33ms` | Refresh period (33 ms ≈ 30 FPS) |
+| `fast_loop` | `false` | Keeps ESPHome's main loop awake while the camera is shown, so each new frame is taken as soon as it is ready. Without it the loop sleeps up to 16 ms between passes unless something wakes it -- a log line from another task does, which is why `esp-idf: DEBUG` made the camera faster (25 against 20 frames/s on a Waveshare 7B). It costs the main loop never sleeping while the camera runs. |
 | `face_detection_id` | – | Face detection overlay |
 | `yolo11_detection_id` | – | YOLO11 detection overlay |
 | `pedestrian_detection_id` | – | Pedestrian detection overlay |
