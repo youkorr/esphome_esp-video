@@ -16,6 +16,7 @@ CONF_YOLO11_DETECTION_ID = "yolo11_detection_id"
 CONF_PEDESTRIAN_DETECTION_ID = "pedestrian_detection_id"
 CONF_DIRECT = "direct"
 CONF_ORTHO_ID = "ortho_id"
+CONF_FAST_LOOP = "fast_loop"
 
 # youkorr/ppa-alternative's component, named rather than imported: a board
 # without it must still validate.
@@ -54,6 +55,12 @@ CONFIG_SCHEMA = cv.Schema({
     # panel's orientation: each frame goes into its video window instead,
     # turned once by the PPA, and LVGL draws around it.
     cv.Optional(CONF_ORTHO_ID): cv.use_id(LvglOrtho),
+    # Keep ESPHome's main loop from sleeping while the camera is shown, so a
+    # new frame is picked up as soon as LVGL's timer can run. Without it the
+    # loop sleeps up to 16 ms between passes unless something wakes it -- a
+    # log line from another task does, which is why esp-idf: DEBUG made the
+    # camera faster.
+    cv.Optional(CONF_FAST_LOOP, default=False): cv.boolean,
 }).extend(cv.COMPONENT_SCHEMA)
 
 
@@ -137,6 +144,8 @@ async def to_code(config):
 
     update_interval_ms = config[CONF_UPDATE_INTERVAL].total_milliseconds
     cg.add(var.set_update_interval(int(update_interval_ms)))
+    if config[CONF_FAST_LOOP]:
+        cg.add(var.set_fast_loop(True))
 
     if CONF_FACE_DETECTION_ID in config:
         cg.add_define("USE_FACE_DETECTION")

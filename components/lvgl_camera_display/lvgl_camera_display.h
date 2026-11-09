@@ -1,6 +1,7 @@
 #pragma once
 
 #include "esphome/core/component.h"
+#include "esphome/core/helpers.h"
 #include "esphome/components/lvgl/lvgl_esphome.h"
 #include "esphome/components/esp_cam_sensor/esp_cam_sensor_camera.h"
 #include "esphome/components/display/display.h"
@@ -34,6 +35,7 @@ class LVGLCameraDisplay : public Component {
   void set_canvas_id(const std::string &canvas_id) { this->canvas_id_ = canvas_id; }
   void set_update_interval(uint32_t interval_ms) { this->update_interval_ = interval_ms; }
   void set_enabled(bool enabled) { this->enabled_ = enabled; }
+  void set_fast_loop(bool fast) { this->fast_loop_ = fast; }
 #ifdef USE_LVGL_ORTHO
   // youkorr/ppa-alternative: LVGL draws in the panel's orientation and each
   // frame goes into the ortho component's video window, turned once.
@@ -92,6 +94,9 @@ class LVGLCameraDisplay : public Component {
   bool first_update_{true};
   bool canvas_warning_shown_{false};
   bool enabled_{false};  // LVGL camera display enabled/disabled by switch
+  // fast_loop: keeps ESPHome's main loop awake while the camera is shown.
+  bool fast_loop_{false};
+  HighFrequencyLoopRequester high_freq_;
 
   uint32_t last_fps_time_{0};
 

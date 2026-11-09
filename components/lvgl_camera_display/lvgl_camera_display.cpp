@@ -58,6 +58,11 @@ void LVGLCameraDisplay::loop() {
       ESP_LOGE(TAG, "Failed to create LVGL timer");
     } else {
       ESP_LOGI(TAG, "LVGL Camera Display started");
+      // The main loop runs LVGL, and with it the timer that takes each
+      // frame. Left to itself it sleeps up to 16 ms between passes, so a
+      // frame ready meanwhile waits, and a later one may replace it.
+      if (this->fast_loop_)
+        this->high_freq_.start();
     }
   }
 
@@ -66,6 +71,7 @@ void LVGLCameraDisplay::loop() {
     ESP_LOGI(TAG, "Stopping LVGL Camera Display...");
     lv_timer_del(this->lvgl_timer_);
     this->lvgl_timer_ = nullptr;
+    this->high_freq_.stop();
     ESP_LOGI(TAG, "LVGL Camera Display stopped");
   }
 }
@@ -223,6 +229,7 @@ void LVGLCameraDisplay::dump_config() {
   ESP_LOGCONFIG(TAG, "  Update interval: %u ms", (unsigned) this->update_interval_);
   ESP_LOGCONFIG(TAG, "  FPS cible: ~%d", (int) (1000 / this->update_interval_));
   ESP_LOGCONFIG(TAG, "  Canvas configure: %s", this->canvas_obj_ ? "OUI" : "NON");
+  ESP_LOGCONFIG(TAG, "  Fast loop: %s", this->fast_loop_ ? "on (the main loop does not sleep while the camera is shown)" : "off");
   if (this->direct_display_ != nullptr)
     ESP_LOGCONFIG(TAG, "  Direct mode: on, lvgl rotation %d, display %d bits", this->direct_rotation_,
                   this->direct_depth_);
