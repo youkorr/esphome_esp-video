@@ -52,7 +52,7 @@ logger:
 
 api:
   encryption:
-    key: "b6bgvC04gTOsEvAsLKP9GtIi61vzLLy5HCbVYpNbQFg="
+    key: ""
 
 ota:
   - platform: esphome
@@ -62,7 +62,7 @@ wifi:
   password: !secret wifi_password
   ap:
     ssid: ws-camera-ui Fallback Hotspot
-    password: "ic51qqMaFPT4"
+    password: ""
 
 captive_portal:
 
