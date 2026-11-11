@@ -4588,14 +4588,21 @@ class Screencast:
             self._asked_at = now
         if self._full:
             self._acked_while_full = True
-        for session_id in self._unacked[:give]:
+        # send() pumps Playwright's events while waiting for the CDP reply.
+        # A replacement frame can arrive there, after the browser accepted
+        # this ACK but before send() returned. Retire the acknowledged frames
+        # FIRST, or _on_frame counts old + replacement, learns a window of
+        # four for a browser that only holds three, and keeps all three slots
+        # forever. A touch frees them briefly; sound and decoding never stop.
+        acknowledged = self._unacked[:give]
+        del self._unacked[:give]
+        for session_id in acknowledged:
             try:
                 self._session.send(
                     "Page.screencastFrameAck", {"sessionId": session_id}
                 )
             except Exception:  # noqa: BLE001 - a closed page is handled by the caller
                 pass
-        del self._unacked[:give]
 
     def restart(self):
         """Ask for a picture of the page as it is now, whatever it is doing.

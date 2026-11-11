@@ -2420,8 +2420,16 @@ that exists. Set `user_agent:` on a link only where a site serves a
 *different interface* to a different device, which is what the television
 mode below is for.
 
-So Widevine is the only thing standing between a panel and Netflix, and the
-log line above is what says whether you have it.
+Widevine is required for playback, and the log line above says whether the
+browser has it.
+
+**Sound continues, but the picture only moves when touched:** update the
+add-on to 4.51.1 or newer. A capture acknowledgement could overcount frames
+and stop asking the browser for pictures. The reported Orange TV log showed
+video decoding at 50 frames/s with no drops, sound at 50 blocks/s, but
+`0.0 made/s`, `0.0 pictures/s` and `panel wait 0%`. That locates the stall
+before the panel's network link. This fix is in the add-on, so it does not
+require a firmware flash.
 
 **And on a box where Chrome installed, it plays -- reported from a panel:**
 *"Netflix fonctionne correctement car il fonctionne sur chrome ... et Widevine
