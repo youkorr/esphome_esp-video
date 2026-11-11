@@ -68,7 +68,7 @@ def browser_check(sender, browser, check):
         listener.listen(1)
         header = struct.Struct("<HBBHHHHI")
         ready = threading.Event()
-        arrivals, updates = [], []
+        arrivals, updates, decoded = [], [], []
 
         def receive():
             connection, _ = listener.accept()
@@ -88,6 +88,13 @@ def browser_check(sender, browser, check):
                         if len(data) < header.size + length:
                             break
                         if kind == 3:
+                            payload = bytes(data[header.size:header.size + length])
+                            try:
+                                with Image.open(io.BytesIO(payload)) as picture:
+                                    picture.load()
+                                    decoded.append((picture.size == (w, h), (w, h) == (800, 1280)))
+                            except (OSError, ValueError):
+                                decoded.append((False, False))
                             now, frame = time.monotonic(), packed & 1023
                             if frame != last:
                                 arrivals.append(now)
@@ -96,7 +103,8 @@ def browser_check(sender, browser, check):
                             updates.append((now, w * h, length))
                         del data[:header.size + length]
 
-        threading.Thread(target=receive, daemon=True).start()
+        receiver = threading.Thread(target=receive, daemon=True)
+        receiver.start()
         command = [sys.executable, "-u", str(sender), "--host", "127.0.0.1",
                    "--port", str(listener.getsockname()[1]),
                    "--url", f"http://127.0.0.1:{server.server_address[1]}/index.html",
@@ -119,12 +127,18 @@ def browser_check(sender, browser, check):
                     except ProcessLookupError:
                         pass
                     child.wait()
+                    receiver.join(timeout=5)
+                    if receiver.is_alive():
+                        raise RuntimeError("Picture receiver did not finish after the sender exited")
             count = sum(start <= t < end for t in arrivals)
             pixels = sum(area for t, area, _ in updates if start <= t < end)
             size = sum(size for t, _, size in updates if start <= t < end)
             per_picture = pixels / max(count, 1)
             check("real video windows keep delivering pictures", count >= 10,
                   f"{count / (end - start):.1f} pictures/s")
+            check("the sender's full-frame and region JPEGs decode to their wire dimensions",
+                  bool(decoded) and all(valid for valid, _ in decoded) and any(full for _, full in decoded),
+                  f"{len(decoded)} JPEGs, {sum(full for _, full in decoded)} full-frame")
             check("real sender avoids unnecessary whole-screen decodes", per_picture < 800 * 1280 * .8,
                   f"{per_picture:.0f} pixels/picture; {size / (1024 * (end - start)):.1f} KiB/s")
         finally:
@@ -206,20 +220,10 @@ def main():
     check("every changed pixel is delivered within bounds, including panel edges", valid,
           f"{cases} cases")
 
-    image = Image.fromarray(previous)
-    for source in (image, Image.open(io.BytesIO(_jpeg(image)))):
-        check("omitting a full-image crop keeps the exact JPEG bytes",
-              _jpeg(source) == _jpeg(source.crop((0, 0, source.width, source.height))))
     if args.browser:
         browser_check(args.sender.resolve(), args.browser, check)
     print("all good" if not failures else f"{failures} failure(s)")
     return int(bool(failures))
-
-
-def _jpeg(image):
-    data = io.BytesIO()
-    image.save(data, format="JPEG", quality=80)
-    return data.getvalue()
 
 
 if __name__ == "__main__":

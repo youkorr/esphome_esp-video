@@ -2015,7 +2015,8 @@ The source remains a separate limit: a 25-frame/s film provides 25 different
 pictures a second. Raising `fps` cannot create pictures between those frames.
 A 50-frame/s source can benefit from a link's `fps: 50` when the browser,
 network and panel can keep up; use the `Media:` and `pictures/s` lines to
-check the actual rate.
+check the actual rate. Enable `stats` and `show_media` in Diagnostics first;
+both are off by default.
 
 ### What video actually costs, and why 25 Mbit/s is not enough
 
