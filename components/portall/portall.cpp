@@ -5,6 +5,7 @@
 
 #include "esphome/core/log.h"
 #include "esphome/core/hal.h"
+#include "esphome/core/version.h"
 
 #include "esp_heap_caps.h"
 #include "esp_timer.h"
@@ -270,6 +271,7 @@ void Portall::setup() {
 #endif  // CONFIG_USB_DISPLAY_DEVICE
   // The draw task and the second decode buffer, before the decoder starts so
   // it never sees half a pipeline. See pipeline.cpp.
+  this->setup_panel_buffers_();
   this->pipelined_ = this->start_pipeline_();
   // Priority 2 for the decoder: above ESPHome's loop (1), BELOW
   // micro_wake_word's inference (3). It was 4, and during a video it is busy
@@ -790,11 +792,14 @@ void Portall::run_decode_task() {
       }
     }
 #endif
+    uint8_t *panel_frame = nullptr;
+    if (!canvas_mode)
+      panel_frame = this->acquire_panel_frame_(*frame, decode_room);
     // Plain mode decodes into whichever buffer the display is not reading.
     // With one buffer that is always the same one, and it is free: the draw
     // that read it ran on this task and finished before this line.
     if (!canvas_mode)
-      decode_into = this->take_decode_buffer_();
+      decode_into = panel_frame != nullptr ? panel_frame : this->take_decode_buffer_();
     uint32_t out_size = 0;
     const uint32_t decode_started = micros();
     esp_err_t err = jpeg_decoder_process(this->jpeg_, &decode_cfg, frame->data, frame->received, decode_into,
@@ -812,7 +817,9 @@ void Portall::run_decode_task() {
                  (unsigned) frame->received, (unsigned) frame->width, (unsigned) frame->height,
                  (unsigned) this->rgb_buffer_len_);
       }
-      if (!canvas_mode)
+      if (panel_frame != nullptr)
+        this->cancel_panel_frame_(panel_frame);
+      else if (!canvas_mode)
         this->give_back_(decode_into);
     }
 #ifdef USE_LVGL
@@ -856,7 +863,9 @@ void Portall::run_decode_task() {
       this->note_drawn_(*frame, dst_x, dst_y, dst_w, dst_h);
     }
 #endif
-    else {
+    else if (panel_frame != nullptr) {
+      this->present_panel_frame_(*frame, panel_frame);
+    } else {
       // To the draw task, which draws it while this one decodes the next --
       // or drawn right here when there is no draw task.
       this->hand_over_(*frame, decode_into, padded_w, padded_h);
@@ -867,7 +876,7 @@ void Portall::run_decode_task() {
     xQueueSend(this->empty_queue_, &frame, 0);
 
     // With a draw task the line is that task's: it is what finishes pictures.
-    if (!this->pipelined_)
+    if (!this->pipelined_ || panel_frame != nullptr)
       this->report_stats_();
   }
 }
@@ -901,8 +910,14 @@ void Portall::draw_decoded_(const Frame &frame, const uint8_t *decoded, uint16_t
     pixels = this->rot_buffer_;
     x_pad = 0;
   }
-  this->display_->draw_pixels_at(dst_x, dst_y, dst_w, dst_h, pixels, display::COLOR_ORDER_RGB, bitness, false, 0, 0,
-                                 x_pad);
+  // Since ESPHome 2026.11 the ColorOrder overload is the per-pixel fallback,
+  // not mipi_dsi's block transfer. With update_interval: never those pixels
+  // stay in its software buffer and never reach the panel.
+  this->display_->draw_pixels_at(dst_x, dst_y, dst_w, dst_h, pixels,
+#if ESPHOME_VERSION_CODE < VERSION_CODE(2026, 11, 0)
+                                 display::COLOR_ORDER_RGB,
+#endif
+                                 bitness, false, 0, 0, x_pad);
   this->draw_us_ += micros() - start;
   this->note_drawn_(frame, dst_x, dst_y, dst_w, dst_h);
 }
@@ -966,6 +981,9 @@ void Portall::report_stats_() {
                (unsigned) (this->canvas_wait_ms_ * 1000 / elapsed), (unsigned) this->canvas_swaps_.load(),
                (unsigned) this->video_drawn_);
 #endif
+    if (this->panel_buffers_active_)
+      ESP_LOGD(TAG, "  panel buffers: %u whole JPEGs decoded directly, %u ms/s waiting for buffers and earlier blits",
+               (unsigned) this->panel_frames_, (unsigned) (this->panel_wait_us_ / elapsed));
     this->logged_stats_ = true;
     this->last_fps_ = fps;
   }
@@ -979,6 +997,7 @@ void Portall::report_stats_() {
   this->dropped_rotate_ = 0;
   this->draw_us_ = 0;
   this->ppa_us_ = 0;
+  this->panel_frames_ = this->panel_wait_us_ = 0;
 #ifdef USE_LVGL
   this->canvas_wait_ms_ = 0;
   this->canvas_swaps_.store(0);
@@ -1320,8 +1339,11 @@ bool Portall::video_draw_(const uint8_t *src, uint16_t src_w, uint16_t src_h, ui
   if (px < 0 || py < 0)
     return false;
   if (this->canvas_rotation_ == 0) {
-    this->display_->draw_pixels_at(px, py, pw, ph, src, display::COLOR_ORDER_RGB, display::COLOR_BITNESS_565, false,
-                                   0, 0, src_w - w);
+    this->display_->draw_pixels_at(px, py, pw, ph, src,
+#if ESPHOME_VERSION_CODE < VERSION_CODE(2026, 11, 0)
+                                   display::COLOR_ORDER_RGB,
+#endif
+                                   display::COLOR_BITNESS_565, false, 0, 0, src_w - w);
     return true;
   }
   ppa_srm_oper_config_t srm = {};
@@ -1357,7 +1379,10 @@ bool Portall::video_draw_(const uint8_t *src, uint16_t src_w, uint16_t src_h, ui
     }
     return false;
   }
-  this->display_->draw_pixels_at(px, py, pw, ph, this->rot_buffer_, display::COLOR_ORDER_RGB,
+  this->display_->draw_pixels_at(px, py, pw, ph, this->rot_buffer_,
+#if ESPHOME_VERSION_CODE < VERSION_CODE(2026, 11, 0)
+                                 display::COLOR_ORDER_RGB,
+#endif
                                  display::COLOR_BITNESS_565, false, 0, 0, 0);
   return true;
 }
