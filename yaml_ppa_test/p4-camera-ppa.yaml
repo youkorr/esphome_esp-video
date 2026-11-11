@@ -1,0 +1,226 @@
+substitutions:
+  # Flip this to "false" for the second run.
+  ppa: "true"
+
+esphome:
+  name: p4-camera-ppa
+  friendly_name: p4-camera-ppa
+
+# Replace this with your actual platform if you aren't using ESP32.
+esp32:
+  board: esp32-p4-evboard
+  flash_size: 16MB
+  cpu_frequency: 360MHz
+  framework:
+    type: esp-idf
+    advanced:
+      enable_idf_experimental_features: true
+    sdkconfig_options:
+
+      CONFIG_COMPILER_OPTIMIZATION_PERF: y        # perf plutôt que taille
+      #CONFIG_CACHE_L2_CACHE_128KB: y              # + de cache L2
+      CONFIG_SPIRAM_XIP_FROM_PSRAM: y             # soulage le bus flash
+      #CONFIG_LCD_DSI_ISR_IRAM_SAFE: y             # pas de glitch DSI
+      CONFIG_GDMA_ISR_IRAM_SAFE: y    
+      
+      CONFIG_ESP_HOSTED_MEMPOOL_PREFER_SPIRAM: "y"
+      CONFIG_ESP_TASK_WDT_EN: "10"
+
+      CONFIG_SPIRAM_FETCH_INSTRUCTIONS: "n"
+      CONFIG_SPIRAM_RODATA: "n"
+      CONFIG_ESP32_SPIRAM_SUPPORT: "y"
+      CONFIG_SPIRAM_USE_MALLOC: "y"
+      CONFIG_FATFS_LFN_STACK: "y"
+      CONFIG_LWIP_SO_RCVBUF: "y"
+      CONFIG_LWIP_MAX_SOCKETS: "16"
+      CONFIG_VFS_SUPPORT_IO: "y"
+      CONFIG_VFS_MAX_COUNT: "16" 
+      CONFIG_ESP_MAIN_TASK_STACK_SIZE: "16384"
+      CONFIG_ESP_TIMER_TASK_STACK_SIZE: "4096"
+      #CONFIG_ESP_TASK_WDT_TIMEOUT_S: "60"
+      CONFIG_ESP_TASK_LOOP_STACK_SIZE: "16384"
+      CONFIG_FATFS_LFN_HEAP: "y"
+      #DCONFIG_USE_AUDIO_AAC_SUPPORT: "y"
+      DCONFIG_ESP_JPG_DECODE_ENABLE: "y"
+      DCONFIG_ESPHOME_ENABLE_PNGLE: "1"
+      CONFIG_SPIRAM_SPEED_200M: "y"  # ← NOUVEAU: 200 MHz au lieu de défaut
+      CONFIG_SPIRAM_SPEED: "200"
+
+      # Buffers WiFi distant (C6) + agrégation AMPDU = gros gain d'efficacité
+      CONFIG_WIFI_RMT_STATIC_RX_BUFFER_NUM: "16"
+      CONFIG_WIFI_RMT_DYNAMIC_RX_BUFFER_NUM: "64"
+      CONFIG_WIFI_RMT_DYNAMIC_TX_BUFFER_NUM: "64"
+      CONFIG_WIFI_RMT_AMPDU_TX_ENABLED: "y"
+      CONFIG_WIFI_RMT_TX_BA_WIN: "32"
+      CONFIG_WIFI_RMT_AMPDU_RX_ENABLED: "y"
+      CONFIG_WIFI_RMT_RX_BA_WIN: "32"
+      ## Buffers lwIP (UDP surtout pour toi)
+      CONFIG_LWIP_UDP_RECVMBOX_SIZE: "64"
+      CONFIG_LWIP_TCPIP_RECVMBOX_SIZE: "64"
+      CONFIG_LWIP_TCP_RECVMBOX_SIZE: "64"
+      CONFIG_LWIP_TCP_SND_BUF_DEFAULT: "65534"
+      CONFIG_LWIP_TCP_WND_DEFAULT: "65534"
+      CONFIG_LWIP_TCP_SACK_OUT: "y"    
+logger:
+  level: DEBUG
+  logs:
+    esp-idf: WARN                 # tout le bruit IDF d'un coup
+    esp_video_camera: DEBUG 
+
+api:
+  encryption:
+    key: "/1eEkde2dDe8x4u84xeIfH4nrFL+84klpvUg9fWceTs="
+
+ota:
+  - platform: esphome
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  ap:
+    ssid: p4-camera-ppa Fallback Hotspot
+    password: "zQBdXfqiVlsy"
+
+captive_portal:
+  
+external_components:
+
+  - source:
+      type: git
+      url: https://github.com/youkorr/esphome
+      ref: esp_video_camera-lvgl
+    components: [lvgl_camera_display, esp_video_camera]
+    refresh: 0s
+    
+
+  - source:
+      type: git
+      url: https://github.com/youkorr/lvgl_9.5
+      ref: claude/jolly-lamport-ERZOC
+    components: [lvgl]   
+    refresh: 0s
+    
+esp32_hosted:
+  variant: esp32c6
+  active_high: true
+  clk_pin: GPIO12
+  cmd_pin: GPIO13
+  d0_pin: GPIO11
+  d1_pin: GPIO10
+  d2_pin: GPIO9
+  d3_pin: GPIO8
+  reset_pin: GPIO15
+  use_psram: true
+  slot: 1
+  
+i2c:
+  - id: bsp_bus
+    sda: GPIO31
+    scl: GPIO32
+    scan: True
+    frequency: 400kHz   
+
+esp_ldo:
+  - voltage: 2.5V
+    channel: 3  
+psram:
+  mode: hex
+  speed: 200MHz
+
+pi4ioe5v6408:
+  - id: pi4ioe1
+    address: 0x43
+    # 0: O - wifi_antenna_int_ext
+    # 1: O - speaker_enable
+    # 2: O - external_5v_power
+    # 3: NC
+    # 4: O - lcd reset
+    # 5: O - touch panel reset
+    # 6: O - camera reset
+    # 7: I - headphone detect
+  - id: pi4ioe2
+    address: 0x44
+    # 0: O - wifi_power
+    # 1: NC
+    # 2: NC
+    # 3: O - usb_5v_power
+    # 4: O - poweroff pulse
+    # 5: O - quick charge enable (inverted)
+    # 6: I - charging status
+    # 7: O - charge enable
+
+display:
+  - platform: mipi_dsi
+    id: main_display
+    dimensions:
+      height: 1280
+      width: 720
+    model: M5Stack-Tab5
+    reset_pin:
+      pi4ioe5v6408: pi4ioe1
+      number: 4
+    color_order: rgb
+    
+output:
+  - platform: ledc
+    id: backlight_pwm
+    pin: GPIO22
+    frequency: 1000Hz
+
+light:
+  - platform: monochromatic
+    id: backlight
+    name: Backlight
+    output: backlight_pwm
+    restore_mode: RESTORE_DEFAULT_ON
+
+esp_video_camera:
+  id: video_camera
+  name: Camera
+  i2c_id: bsp_bus
+  device: jpeg
+  sensor_model: sc2356
+  resolution: 1280x720
+  jpeg_quality: 50
+  # Deliberately high: the point is to find the ceiling, not to sit under one.
+  max_framerate: 20
+
+lvgl:
+  displays:
+    - main_display
+  rotation: 270
+  color_depth: 16
+  rotation_buffers_internal: true
+  byte_order: little_endian
+  use_ppa: true
+  use_ppa_img: true
+  perf_monitor: true
+  pages:
+    - id: camera_page
+      widgets:
+        - canvas:
+            id: camera_canvas
+            width: 1280
+            height: 720
+
+lvgl_camera_display:
+  camera_id: video_camera
+  canvas_id: camera_canvas
+
+switch:
+  # Releases the sensor's reset. Nothing answers on the bus until it is let go.
+  - platform: gpio
+    id: camera_reset
+    name: Camera reset
+    pin:
+      pi4ioe5v6408: pi4ioe1
+      number: 6
+    restore_mode: ALWAYS_ON  
+  - platform: gpio
+    id: wifi_power
+    name: "WiFi"
+    internal: true
+    pin:
+      pi4ioe5v6408: pi4ioe2
+      number: 0
+    restore_mode: ALWAYS_ON  
