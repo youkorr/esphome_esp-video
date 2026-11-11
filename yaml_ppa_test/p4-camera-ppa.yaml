@@ -69,7 +69,7 @@ logger:
 
 api:
   encryption:
-    key: "/1eEkde2dDe8x4u84xeIfH4nrFL+84klpvUg9fWceTs="
+    key: ""
 
 ota:
   - platform: esphome
@@ -79,7 +79,7 @@ wifi:
   password: !secret wifi_password
   ap:
     ssid: p4-camera-ppa Fallback Hotspot
-    password: "zQBdXfqiVlsy"
+    password: ""
 
 captive_portal:
   
