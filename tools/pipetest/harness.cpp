@@ -21,6 +21,7 @@
  * 2D-DMA shares its channels, or what the board's own stats line will read.
  * That is one flash away. */
 #include "portall.h"
+#include "esphome/core/version.h"
 
 #include <algorithm>
 #include <atomic>
@@ -140,12 +141,19 @@ class FakeDisplay : public display::Display {
  public:
   FakeDisplay(int w, int h) : w_(w), h_(h) {}
   void update() override {}
-  void draw_pixel_at(int, int, Color) override {}
+  void draw_pixel_at(int, int, Color) override { pixel_calls_++; }
   display::DisplayType get_display_type() override { return display::DISPLAY_TYPE_COLOR; }
   int get_width_internal() override { return w_; }
   int get_height_internal() override { return h_; }
+#if ESPHOME_VERSION_CODE >= VERSION_CODE(2026, 11, 0) && !defined(PORTALL_TEST_LEGACY_DRIVER)
+  // Match current mipi_dsi: only the new hook transfers a block to the panel.
+  // An old call with ColorOrder instead runs Display's per-pixel fallback.
+  void draw_pixels_internal(int x, int y, int w, int h, const uint8_t *ptr, display::ColorBitness,
+                           bool, int, int, int) override {
+#else
   void draw_pixels_at(int x, int y, int w, int h, const uint8_t *ptr, display::ColorOrder, display::ColorBitness,
                       bool, int, int, int) override {
+#endif
     const uint64_t from = now_us();
     const uint32_t before = read_seq(ptr);
     sleep_us(g_draw_us);
@@ -159,6 +167,7 @@ class FakeDisplay : public display::Display {
     std::lock_guard<std::mutex> lock(lock_);
     return drawn_;
   }
+  std::atomic<unsigned> pixel_calls_{0};
 
  private:
   int w_, h_;
@@ -280,6 +289,15 @@ static bool in_order(const std::vector<Drawn> &drawn, uint32_t first, size_t cou
 }
 
 int main(int argc, char **argv) {
+  if (argc > 1 && strcmp(argv[1], "--display-api") == 0) {
+    Run run = start(2, 0);
+    send(run.panel, {42, 0, 0, W, H, 1, false});
+    const bool arrived = wait_for(run.display, 1, 500);
+    ok(arrived && run.display->pixel_calls_ == 0,
+       "a decoded frame reaches the display's block transfer without per-pixel drawing");
+    fflush(stdout);
+    std::_Exit(g_faults == 0 ? 0 : 1);
+  }
   const bool quick = argc > 1 && strcmp(argv[1], "--quick") == 0;
   const int N = 60;
 

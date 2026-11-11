@@ -5,6 +5,7 @@
 
 #include "esphome/core/log.h"
 #include "esphome/core/hal.h"
+#include "esphome/core/version.h"
 
 #include "esp_heap_caps.h"
 #include "esp_timer.h"
@@ -901,8 +902,14 @@ void Portall::draw_decoded_(const Frame &frame, const uint8_t *decoded, uint16_t
     pixels = this->rot_buffer_;
     x_pad = 0;
   }
-  this->display_->draw_pixels_at(dst_x, dst_y, dst_w, dst_h, pixels, display::COLOR_ORDER_RGB, bitness, false, 0, 0,
-                                 x_pad);
+  // Since ESPHome 2026.11 the ColorOrder overload is the per-pixel fallback,
+  // not mipi_dsi's block transfer. With update_interval: never those pixels
+  // stay in its software buffer and never reach the panel.
+  this->display_->draw_pixels_at(dst_x, dst_y, dst_w, dst_h, pixels,
+#if ESPHOME_VERSION_CODE < VERSION_CODE(2026, 11, 0)
+                                 display::COLOR_ORDER_RGB,
+#endif
+                                 bitness, false, 0, 0, x_pad);
   this->draw_us_ += micros() - start;
   this->note_drawn_(frame, dst_x, dst_y, dst_w, dst_h);
 }
@@ -1320,8 +1327,11 @@ bool Portall::video_draw_(const uint8_t *src, uint16_t src_w, uint16_t src_h, ui
   if (px < 0 || py < 0)
     return false;
   if (this->canvas_rotation_ == 0) {
-    this->display_->draw_pixels_at(px, py, pw, ph, src, display::COLOR_ORDER_RGB, display::COLOR_BITNESS_565, false,
-                                   0, 0, src_w - w);
+    this->display_->draw_pixels_at(px, py, pw, ph, src,
+#if ESPHOME_VERSION_CODE < VERSION_CODE(2026, 11, 0)
+                                   display::COLOR_ORDER_RGB,
+#endif
+                                   display::COLOR_BITNESS_565, false, 0, 0, src_w - w);
     return true;
   }
   ppa_srm_oper_config_t srm = {};
@@ -1357,7 +1367,10 @@ bool Portall::video_draw_(const uint8_t *src, uint16_t src_w, uint16_t src_h, ui
     }
     return false;
   }
-  this->display_->draw_pixels_at(px, py, pw, ph, this->rot_buffer_, display::COLOR_ORDER_RGB,
+  this->display_->draw_pixels_at(px, py, pw, ph, this->rot_buffer_,
+#if ESPHOME_VERSION_CODE < VERSION_CODE(2026, 11, 0)
+                                 display::COLOR_ORDER_RGB,
+#endif
                                  display::COLOR_BITNESS_565, false, 0, 0, 0);
   return true;
 }
