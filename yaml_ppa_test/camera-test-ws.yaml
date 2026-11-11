@@ -17,11 +17,6 @@ esp32:
   cpu_frequency: 360MHz
   framework:
     type: esp-idf
-    #version: 5.5.5
-    #sdkconfig_options:
-      #CONFIG_LOG_DYNAMIC_LEVEL_CONTROL: "y"
-      #CONFIG_LOG_TAG_LEVEL_IMPL_NONE: "n"
-      #CONFIG_LOG_TAG_LEVEL_IMPL_CACHE_AND_LINKED_LIST: "y"
     advanced:
       enable_idf_experimental_features: true
 
@@ -74,7 +69,7 @@ logger:
     esp_video_camera: DEBUG 
 api:
   encryption:
-    key: "kKGGqJApE9NGQgYks4v9y43NGJV1kRIEOMJRf3Jf6o8="
+    key: ""
 
 ota:
   - platform: esphome
@@ -84,7 +79,7 @@ wifi:
   password: !secret wifi_password
   ap:
     ssid: camera-test-ws Fallback Hotspot
-    password: "VxDaiycD1XD4"
+    password: ""
 
 captive_portal:
 
