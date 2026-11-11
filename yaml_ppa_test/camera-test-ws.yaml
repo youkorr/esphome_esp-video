@@ -1,0 +1,190 @@
+esphome:
+  name: camera-test-ws
+  friendly_name: Camera test Waveshare
+  #on_boot:
+    #then:
+      # Keeps the main loop from sleeping between passes, so each camera frame
+      # is taken as soon as it is ready (the same as fast_loop: true).
+      #- lambda: |-
+          #static esphome::HighFrequencyLoopRequester fast_loop;
+          #fast_loop.start();
+
+# Replace this with your actual platform if you aren't using ESP32.
+esp32:
+  variant: esp32p4
+  board: esp32-p4-evboard
+  flash_size: 32MB
+  cpu_frequency: 360MHz
+  framework:
+    type: esp-idf
+    #version: 5.5.5
+    #sdkconfig_options:
+      #CONFIG_LOG_DYNAMIC_LEVEL_CONTROL: "y"
+      #CONFIG_LOG_TAG_LEVEL_IMPL_NONE: "n"
+      #CONFIG_LOG_TAG_LEVEL_IMPL_CACHE_AND_LINKED_LIST: "y"
+    advanced:
+      enable_idf_experimental_features: true
+
+psram:
+  mode: hex
+  speed: 200MHz
+
+esp32_hosted:
+  variant: esp32c6
+  clk_pin: GPIO18
+  cmd_pin: GPIO19
+  d0_pin: GPIO14
+  d1_pin: GPIO15
+  d2_pin: GPIO16
+  d3_pin: GPIO17
+  reset_pin: GPIO54
+  use_psram: true
+  slot: 1
+
+esp_ldo:
+  - voltage: 2.5V
+    channel: 3
+
+
+i2c:
+  - id: bsp_bus
+    sda: GPIO7
+    scl: GPIO8
+    frequency: 400kHz
+
+display:
+  - platform: mipi_dsi
+    id: panel
+    # Its reset pin (33), timings and EK79007 init are in the model.
+    model: WAVESHARE-ESP32-P4-WIFI6-TOUCH-LCD-7B
+    pixel_mode: 16
+    framebuffers: 3
+
+output:
+  - platform: ledc
+    id: backlight_pwm
+    pin: GPIO32
+    frequency: 1000Hz
+    inverted: true
+
+logger:
+  level: DEBUG
+  logs:
+    esp-idf: WARN #DEBUG #WARN                # tout le bruit IDF d'un coup
+    esp_video_camera: DEBUG 
+api:
+  encryption:
+    key: "kKGGqJApE9NGQgYks4v9y43NGJV1kRIEOMJRf3Jf6o8="
+
+ota:
+  - platform: esphome
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  ap:
+    ssid: camera-test-ws Fallback Hotspot
+    password: "VxDaiycD1XD4"
+
+captive_portal:
+
+external_components:
+  - source:
+      type: git
+      url: https://github.com/youkorr/lvgl_9.5
+      ref: claude/jolly-lamport-ERZOC
+    components: [lvgl, mipi_dsi]
+    refresh: 0s 
+
+  - source: github://youkorr/ppa-alternative-@main
+    components: [lvgl_ortho]
+    refresh: 0s 
+    
+  - source:
+      type: git
+      url: https://github.com/youkorr/esphome
+      ref: esp_video_camera-lvgl
+    components: [lvgl_camera_display, esp_video_camera]
+    refresh: 0s 
+    
+http_request:
+  
+update:
+  - platform: esp32_hosted
+    id: c6_firmware_update
+    name: "ESP32-C6 Firmware"
+    type: http
+    source: https://esphome.github.io/esp-hosted-firmware/manifest/esp32c6.json
+    update_interval: 6h
+    
+light:
+  - platform: monochromatic
+    id: backlight
+    name: "Backlight"
+    output: backlight_pwm
+    restore_mode: ALWAYS_ON
+
+switch:
+  # Off and on again in Home Assistant: the camera stops and starts, so the
+  # same firmware also shows what the screen costs without it.
+  - platform: template
+    name: "Camera on screen"
+    optimistic: true
+    restore_mode: ALWAYS_ON
+
+
+# ---- The camera (as in esphome_esp-video's yaml/lvgl-kawaii.yaml) ---------
+esp_video_camera:
+  id: ws_cam
+  i2c_id: bsp_bus
+  xclk_pin: GPIO36
+  device: jpeg
+  sensor_model: ov5647
+  resolution: 1280x960
+  jpeg_quality: 15
+  max_framerate: 45
+
+lvgl_camera_display:
+  camera_id: ws_cam
+  canvas_id: camera_canvas
+  fast_loop: true
+
+
+
+  # Left out so LVGL draws each frame as a picture, which split shares
+  # between the PPA and the CPU. Put back to send frames into lvgl_ortho's
+  # video window instead: the PPA alone (15 frames/s on the Tab5 at 1280x720).
+  # ortho_id: ortho
+lvgl_ortho:
+  id: ortho
+  rotation: 180          # the 7B turned over (ESPHome's degrees)
+  ppa: true
+  cores: 2
+  # true shares each frame's turn between the PPA and both cores: measured
+  # slower on a Tab5 (14.0 frames/s against 15.6), the PSRAM being the limit.
+  # Worth one try here: at 180 the PPA's share is larger.
+  split: false
+# The whole landscape screen is the camera's window.
+lvgl:
+  displays:
+    - panel
+  buffer_size: 100%
+  color_depth: 16
+  fps_benchmark: true
+  perf_monitor: true
+  byte_order: little_endian
+  use_ppa: false
+  use_ppa_img: false
+  pages:
+    - id: camera_page
+      bg_color: 0x000000
+      widgets:
+        - canvas:
+            id: camera_canvas
+            x: 0
+            y: 0
+            width: 1024
+            height: 600
+            bg_color: 0x203040
+
+    
