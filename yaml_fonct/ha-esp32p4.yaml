@@ -70,7 +70,7 @@ update:
 
 api:
   encryption:
-    key: "k5W1m8ug2wUNSsVuQkpHnaStm6HyK5BWKrunv6vaMUU="
+    key: ""
 
 ota:
   - platform: esphome
@@ -82,7 +82,7 @@ wifi:
   post_connect_roaming: false
   ap:
     ssid: HA_ESP32P4 Fallback Hotspot
-    password: "CEKYolvf0Q1d"
+    password: ""
 
 captive_portal:
   
