@@ -68,7 +68,7 @@ def browser_check(sender, browser, check):
         listener.listen(1)
         header = struct.Struct("<HBBHHHHI")
         ready = threading.Event()
-        arrivals, updates, decoded = [], [], []
+        arrivals, updates, payloads = [], [], []
 
         def receive():
             connection, _ = listener.accept()
@@ -88,19 +88,13 @@ def browser_check(sender, browser, check):
                         if len(data) < header.size + length:
                             break
                         if kind == 3:
-                            payload = bytes(data[header.size:header.size + length])
-                            try:
-                                with Image.open(io.BytesIO(payload)) as picture:
-                                    picture.load()
-                                    decoded.append((picture.size == (w, h), (w, h) == (800, 1280)))
-                            except (OSError, ValueError):
-                                decoded.append((False, False))
                             now, frame = time.monotonic(), packed & 1023
                             if frame != last:
                                 arrivals.append(now)
                                 last = frame
                                 ready.set()
                             updates.append((now, w * h, length))
+                            payloads.append((w, h, bytes(data[header.size:header.size + length])))
                         del data[:header.size + length]
 
         receiver = threading.Thread(target=receive, daemon=True)
@@ -134,6 +128,16 @@ def browser_check(sender, browser, check):
             pixels = sum(area for t, area, _ in updates if start <= t < end)
             size = sum(size for t, _, size in updates if start <= t < end)
             per_picture = pixels / max(count, 1)
+            # Validate after reception so JPEG decoding does not slow the
+            # measured wire traffic or delay its timestamps.
+            decoded = []
+            for w, h, payload in payloads:
+                try:
+                    with Image.open(io.BytesIO(payload)) as picture:
+                        picture.load()
+                        decoded.append((picture.size == (w, h), (w, h) == (800, 1280)))
+                except (OSError, ValueError):
+                    decoded.append((False, False))
             check("real video windows keep delivering pictures", count >= 10,
                   f"{count / (end - start):.1f} pictures/s")
             check("the sender's full-frame and region JPEGs decode to their wire dimensions",
