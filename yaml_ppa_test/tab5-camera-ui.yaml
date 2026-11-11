@@ -1,0 +1,451 @@
+esphome:
+  name: tab5-camera-ui
+  friendly_name: Tab5 camera UI
+
+
+# Replace this with your actual platform if you aren't using ESP32.
+esp32:
+  variant: esp32p4
+  board: esp32-p4-evboard
+  flash_size: 16MB
+  cpu_frequency: 360MHz
+  framework:
+    type: esp-idf
+    #version: 5.5.5
+    advanced:
+      enable_idf_experimental_features: true
+
+logger:
+  level: DEBUG
+  logs:
+    esp-idf: WARN #DEBUG #WARN                # tout le bruit IDF d'un coup
+    esp_video_camera: DEBUG 
+
+api:
+  encryption:
+    key: "SsRZtLjVBMhdgxsJVKAP+fag0KDyvErAQiV7Y4q+jZA="
+
+ota:
+  - platform: esphome
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  ap:
+    ssid: tab5-camera-ui Fallback Hotspot
+    password: "MoirXejg1mMo"
+
+captive_portal:
+
+http_request:
+    
+update:
+  - platform: esp32_hosted
+    id: c6_firmware_update
+    name: "ESP32-C6 Firmware"
+    type: http
+    source: https://esphome.github.io/esp-hosted-firmware/manifest/esp32c6.json
+    update_interval: 6h 
+    
+external_components:
+  - source:
+      type: git
+      url: https://github.com/youkorr/esphome
+      ref: esp_video_camera-lvgl
+    components: [lvgl_camera_display, esp_video_camera]
+    refresh: 0s
+  - source:
+      type: git
+      url: https://github.com/youkorr/lvgl_9.5
+      ref: claude/jolly-lamport-ERZOC
+    components: [lvgl, mipi_dsi]
+    refresh: 0s
+  - source: github://youkorr/ppa-alternative-@main
+    components: [lvgl_ortho]
+    refresh: 0s
+
+time:
+  - platform: homeassistant
+    id: ha_time
+    on_time_sync:
+      - script.execute: update_clock
+    on_time:
+      - seconds: 0
+        then:
+          - script.execute: update_clock
+
+script:
+  # The clock, the date and the wallpaper's colours. Run once a minute: a
+  # label rewritten every second would redraw it every second for nothing.
+  - id: update_clock
+    then:
+      - lambda: |-
+          auto now = id(ha_time).now();
+          if (!now.is_valid())
+            return;
+          static const char *const DAYS[] = {"dimanche", "lundi", "mardi", "mercredi", "jeudi", "vendredi",
+                                             "samedi"};
+          static const char *const MONTHS[] = {"janvier", "février", "mars", "avril", "mai", "juin", "juillet",
+                                               "août", "septembre", "octobre", "novembre", "décembre"};
+          char buf[64];
+          snprintf(buf, sizeof(buf), "%02d:%02d", now.hour, now.minute);
+          lv_label_set_text(id(clock_label), buf);
+          snprintf(buf, sizeof(buf), "%s %d %s", DAYS[now.day_of_week - 1], now.day_of_month,
+                   MONTHS[now.month - 1]);
+          lv_label_set_text(id(date_label), buf);
+          // The sky behind the lights follows the hour: dawn, day, dusk, night.
+          // Changed only when the hour band changes, since it redraws the screen.
+          static int last_band = -1;
+          const int h = now.hour;
+          const int band = h < 6 ? 3 : h < 10 ? 0 : h < 17 ? 1 : h < 21 ? 2 : 3;
+          if (band == last_band)
+            return;
+          last_band = band;
+          static const uint32_t TOP[] = {0x2B2F77, 0x1565C0, 0x4A1F5C, 0x070B1F};
+          static const uint32_t BOTTOM[] = {0xF2994A, 0x4FC3F7, 0xF2709C, 0x1B2A49};
+          lv_obj_t *page = id(home_page)->obj;
+          lv_obj_set_style_bg_color(page, lv_color_hex(TOP[band]), 0);
+          lv_obj_set_style_bg_grad_color(page, lv_color_hex(BOTTOM[band]), 0);
+  - id: hide_back_button
+    mode: restart
+    then:
+      - delay: 4s
+      - lvgl.widget.hide: back_button
+font:
+  - file: "gfonts://Montserrat@300"
+    id: font_clock
+    size: 140
+    glyphs: "0123456789:"
+  - file: "gfonts://Montserrat@500"
+    id: font_date
+    size: 32
+    glyphsets: [GF_Latin_Kernel]
+  - file: "gfonts://Montserrat@600"
+    id: font_button
+    size: 34
+    glyphsets: [GF_Latin_Kernel]
+
+lvgl_ortho:
+  id: ortho
+  rotation: 270          # the Tab5 in landscape (ESPHome's degrees)
+  ppa: true
+  cores: 2
+  split: false
+  
+psram:
+  mode: hex
+  speed: 200MHz
+
+esp32_hosted:
+  variant: esp32c6
+  clk_pin: GPIO12
+  cmd_pin: GPIO13
+  d0_pin: GPIO11
+  d1_pin: GPIO10
+  d2_pin: GPIO9
+  d3_pin: GPIO8
+  reset_pin: GPIO15
+  use_psram: true
+  slot: 1
+
+esp_ldo:
+  - voltage: 2.5V
+    channel: 3
+
+i2c:
+  - id: bsp_bus
+    sda: GPIO31
+    scl: GPIO32
+    frequency: 400kHz
+
+pi4ioe5v6408:
+  - id: pi4ioe1
+    address: 0x43
+    # 0: O - wifi_antenna_int_ext
+    # 1: O - speaker_enable
+    # 2: O - external_5v_power
+    # 3: NC
+    # 4: O - lcd reset
+    # 5: O - touch panel reset
+    # 6: O - camera reset
+    # 7: I - headphone detect
+  - id: pi4ioe2
+    address: 0x44
+    # 0: O - wifi_power
+    # 1: NC
+    # 2: NC
+    # 3: O - usb_5v_power
+    # 4: O - poweroff pulse
+    # 5: O - quick charge enable (inverted)
+    # 6: I - charging status
+    # 7: O - charge enable
+switch:
+
+  - platform: gpio
+    id: wifi_power
+    name: "WiFi"
+    internal: true
+    pin:
+      pi4ioe5v6408: pi4ioe2
+      number: 0
+    restore_mode: ALWAYS_ON
+
+  - platform: gpio
+    id: speaker_enable
+    name: "Speaker Enable"
+    pin:
+      pi4ioe5v6408: pi4ioe1
+      number: 1
+    restore_mode: ALWAYS_ON
+    inverted: False
+
+  - platform: gpio
+    id: wifi_antenna_int_ext
+    internal: True
+    pin:
+      pi4ioe5v6408: pi4ioe1
+      number: 0
+
+  - platform: gpio
+    id: usb_5v_power
+    name: USB-A Power
+    pin:
+      pi4ioe5v6408: pi4ioe2
+      number: 3
+    restore_mode: ALWAYS_ON      
+  - platform: gpio
+    id: camera_reset
+    pin:
+      pi4ioe5v6408: pi4ioe1
+      number: 6
+    restore_mode: ALWAYS_ON  
+
+  - platform: gpio
+    id: interrupt_pin_toushsreen
+    name: "interrupt_pin_toushscreen"
+    pin:
+      inverted: true
+      number: GPIO23
+    restore_mode: ALWAYS_ON  
+
+display:
+  - platform: mipi_dsi
+    id: main_display
+    pixel_mode: 16
+    dimensions:
+      height: 1280
+      width: 720
+    model: M5Stack-Tab5
+    reset_pin:
+      pi4ioe5v6408: pi4ioe1
+      number: 4
+    framebuffers: 3      # LVGL draws into the panel's own buffers
+    color_order: rgb
+
+# The glass's own coordinates (720x1280 portrait): lvgl_ortho turns each
+# touch into the landscape screen, as it turns the picture.
+touchscreen:
+  - platform: gt911
+    id: touch_screen
+    i2c_id: bsp_bus
+    update_interval: 8ms
+    reset_pin:
+      pi4ioe5v6408: pi4ioe1
+      number: 5
+    calibration:
+      x_min: 0
+      x_max: 720
+      y_min: 0
+      y_max: 1280
+
+light:
+  - platform: monochromatic
+    id: backlight
+    name: "Backlight"
+    output: backlight_pwm
+    restore_mode: ALWAYS_ON
+
+output:
+  - platform: ledc
+    id: backlight_pwm
+    pin: GPIO22
+    frequency: 1000Hz
+
+
+
+# ---- The camera (as in test-camer-tab5-ppa-alternative.yaml) ----------------
+esp_video_camera:
+  id: video_camera
+  name: Camera
+  i2c_id: bsp_bus
+  device: jpeg
+  sensor_model: sc2356
+  resolution: 1280x720
+  jpeg_quality: 15
+  max_framerate: 30
+
+lvgl_camera_display:
+  id: camera_display
+  camera_id: video_camera
+  canvas_id: camera_canvas
+  # Off until the button is pressed: the sensor sleeps while home is shown.
+  #enabled: false
+  # The camera is taken from the main loop: keep it awake while it is shown.
+  fast_loop: true    
+    
+lvgl:
+  displays:
+    - main_display
+  touchscreens:
+    - touch_screen
+  # no rotation: here; lvgl_ortho turns the screen and the touches
+  color_depth: 16
+  buffer_size: 100%
+  byte_order: little_endian
+  # false beside lvgl_ortho: with them on, the PPA stalled on a Tab5
+  use_ppa: false
+  use_ppa_img: false
+  fps_benchmark: true
+  perf_monitor: true
+  pages:
+    # ---- Home ----------------------------------------------------------------
+    - id: home_page
+      bg_color: 0x1565C0
+      bg_grad_color: 0x4FC3F7
+      bg_grad_dir: VER
+      scrollable: false
+      widgets:
+        # The wallpaper's three lights: large soft circles, half see-through,
+        # moved by the animations started on boot.
+        - obj:
+            id: light_a
+            x: -120
+            y: -80
+            width: 520
+            height: 520
+            radius: 260
+            bg_color: 0x7C4DFF
+            bg_opa: 35%
+            border_width: 0
+            clickable: false
+            scrollable: false
+        - obj:
+            id: light_b
+            x: 900
+            y: 300
+            width: 460
+            height: 460
+            radius: 230
+            bg_color: 0x00E5FF
+            bg_opa: 30%
+            border_width: 0
+            clickable: false
+            scrollable: false
+        - obj:
+            id: light_c
+            x: 260
+            y: 420
+            width: 400
+            height: 400
+            radius: 200
+            bg_color: 0xFF4081
+            bg_opa: 25%
+            border_width: 0
+            clickable: false
+            scrollable: false
+
+        # Clock and date, top left.
+        - label:
+            id: clock_label
+            x: 70
+            y: 60
+            text: "--:--"
+            text_font: font_clock
+            text_color: 0xFFFFFF
+        - label:
+            id: date_label
+            x: 78
+            y: 230
+            text: ""
+            text_font: font_date
+            text_color: 0xFFFFFF
+            text_opa: 85%
+
+        # The camera button: a frosted card, bottom right.
+        - button:
+            id: camera_button
+            x: 820
+            y: 430
+            width: 380
+            height: 210
+            radius: 36
+            bg_color: 0xFFFFFF
+            bg_opa: 22%
+            border_width: 2
+            border_color: 0xFFFFFF
+            border_opa: 45%
+            shadow_width: 0
+            pressed:
+              bg_opa: 40%
+              transform_width: -6
+              transform_height: -6
+            widgets:
+              - label:
+                  align: TOP_MID
+                  y: 34
+                  text: ""
+                  text_font: montserrat_48
+                  text_color: 0xFFFFFF
+              - label:
+                  align: BOTTOM_MID
+                  y: -34
+                  text: "Camera"
+                  text_font: font_button
+                  text_color: 0xFFFFFF
+            on_click:
+              - lvgl_camera_display.start: camera_display
+              - lvgl.page.show: camera_page
+              - lvgl.widget.show: back_button
+              - script.execute: hide_back_button                
+
+    # ---- Camera --------------------------------------------------------------
+    - id: camera_page
+      bg_color: 0x000000
+      scrollable: false
+      widgets:
+        - canvas:
+            id: camera_canvas
+            x: 130
+            y: 60
+            width: 800
+            height: 600
+            clickable: true
+            on_press:
+              - lvgl.widget.show: back_button
+              - script.execute: hide_back_button
+        - button:
+            id: back_button
+            x: 28
+            y: 28
+            width: 84
+            height: 84
+            radius: 42
+            bg_color: 0x000000
+            bg_opa: 45%
+            border_width: 2
+            border_color: 0xFFFFFF
+            border_opa: 60%
+            shadow_width: 0
+            widgets:
+              - label:
+                  align: CENTER
+                  text: ""
+                  text_font: montserrat_36
+                  text_color: 0xFFFFFF
+            on_click:
+              - lvgl.page.show: home_page
+              - lvgl_camera_display.stop: camera_display
+
+
+
+    
