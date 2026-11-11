@@ -2,14 +2,12 @@ esphome:
   name: camera-test-guition
   friendly_name: camera-test-guition
 
-# Replace this with your actual platform if you aren't using ESP32.
 esp32:
   board: esp32-p4-evboard
   cpu_frequency: 360MHz
   flash_size: 16MB
   framework:
     type: esp-idf
-    #version: 5.5.5
     advanced:
       enable_idf_experimental_features: yes
 logger:
@@ -19,7 +17,7 @@ logger:
 
 api:
   encryption:
-    key: "oTlmaJYOiX0qyMk4jGQl49rYDuFzCU3W1OixyPh9jOY="
+    key: ""
 
 ota:
   - platform: esphome
@@ -29,7 +27,7 @@ wifi:
   password: !secret wifi_password
   ap:
     ssid: camera-test-gui Fallback Hotspot
-    password: "tlQhGNyTSJnl"
+    password: ""
 
 captive_portal:
 
@@ -115,11 +113,6 @@ lvgl_camera_display:
   id: camera_display
   camera_id: ws_cam
   canvas_id: camera_canvas
-  #update_interval: 16ms
-  # Keeps ESPHome's main loop awake while the camera is shown. Without it the
-  # loop sleeps up to 16 ms between passes and a ready frame waits: measured
-  # here, 20 frames/s at WARN against 25 when the ISP's DEBUG lines happened
-  # to wake it. false to see the difference.
   fast_loop: true
   
 switch:
@@ -278,8 +271,6 @@ lvgl:
             // Optionnel: démarrer automatiquement le streaming
             // Décommentez les lignes ci-dessous pour auto-start:
             if (id(ws_cam).start_streaming()) {
-            #//lv_label_set_text(id(camera_status_label), "LIVE");
-            #//lv_obj_set_style_text_color(id(camera_status_label), lv_color_hex(0x00FF00), 0);
             }
       widgets:
         - canvas:
