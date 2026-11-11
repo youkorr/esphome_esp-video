@@ -1,5 +1,14 @@
 # Changelog
 
+## 4.51.1
+
+- **Fix a capture freeze where sound keeps playing and touching the screen
+  briefly brings the picture back**, reported on Netflix and Orange TV.
+  A frame arriving during its acknowledgement could make Portall overestimate
+  the browser's frame window and then stop requesting pictures. The frame is
+  now removed from that count before sending its acknowledgement.
+- This correction is in the add-on; it does not require flashing the panel.
+
 ## 4.51.0
 
 - **Notifications on the screens.** Any automation fires `portall_notify`
