@@ -109,11 +109,14 @@ def main():
         # read them back through the shipped touch conversion, which is itself
         # checked against ESPHome's rotation loops below.
         (tmp / "turn.inc").write_text(turn())
-        binary = tmp / "harness"
-        subprocess.run(["g++", "-std=c++17", "-O0", "-Wall", "-Wno-unused-function", *flags,
-                        f"-I{tmp}", str(HERE / "harness.cpp"), *map(str, objects), "-o", str(binary),
-                        "-lm"], check=True)
-        failed = subprocess.run([str(binary)]).returncode
+        failed = 0
+        for api, extra in (("legacy", []), ("current", ["-DPORTALL_TEST_MODERN_DISPLAY"])):
+            print(f"Canvas video with the {api} display API:", flush=True)
+            binary = tmp / f"harness-{api}"
+            subprocess.run(["g++", "-std=c++17", "-O0", "-Wall", "-Wno-unused-function", *flags,
+                            *extra, f"-I{tmp}", str(HERE / "harness.cpp"), *map(str, objects), "-o", str(binary),
+                            "-lm"], check=True)
+            failed |= subprocess.run([str(binary)]).returncode
         # The touch half: the shipped canvas_turn_() against ESPHome's own
         # rotation loops. Needs no LVGL.
         (tmp / "turn.inc").write_text(turn())

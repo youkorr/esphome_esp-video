@@ -32,6 +32,7 @@ What it does not say: anything about the P4 -- its memory bandwidth, how the
 import argparse
 import os
 import pathlib
+import re
 import shutil
 import subprocess
 import sys
@@ -79,6 +80,23 @@ def stage(esphome_root, into):
     (dst / "components" / "lvgl").mkdir(parents=True)
     shutil.copy(src / "components" / "lvgl" / "lvgl_proxy.h", dst / "components" / "lvgl")
     (dst / "core" / "defines.h").write_text(DEFINES)
+    # Display's per-pixel fallback now feeds the application watchdog. There
+    # is no application loop on this workstation; keep that one call inert.
+    (dst / "core" / "application.h").write_text(
+        "#pragma once\nnamespace esphome {\n"
+        "struct Application { void feed_wdt() {} };\ninline Application App;\n}\n"
+    )
+    # A source checkout's version.h says 2099.12.0, even at an old tag.
+    # Firmware codegen replaces it with the real version; do the same here.
+    version = (src / "const.py").read_text()
+    match = re.search(r'__version__ = "(\d+)\.(\d+)\.(\d+)', version)
+    assert match, "ESPHome's version was not found"
+    major, minor, patch = match.groups()
+    (dst / "core" / "version.h").write_text(
+        '#pragma once\n#include "macros.h"\n'
+        f'#define ESPHOME_VERSION "{major}.{minor}.{patch}"\n'
+        f'#define ESPHOME_VERSION_CODE VERSION_CODE({major}, {minor}, {patch})\n'
+    )
     return into
 
 
@@ -104,13 +122,14 @@ def broken_pipeline(into):
     return into / "pipeline.cpp"
 
 
-def build(esphome_dir, portall_cpp, pipeline_cpp, out):
+def build(esphome_dir, portall_cpp, pipeline_cpp, out, extra=()):
     inc = [f"-I{HERE / 'stub'}", f"-I{esphome_dir}", f"-I{PORTALL}",
            f"-I{ROOT / 'components' / 'usb_display_tusb'}"]
     sources = [HERE / "harness.cpp", HERE / "rtos.cpp", HERE / "core.cpp", portall_cpp, pipeline_cpp,
+               esphome_dir / "esphome" / "core" / "color.cpp",
                esphome_dir / "esphome" / "components" / "display" / "display.cpp",
                esphome_dir / "esphome" / "components" / "display" / "rect.cpp"]
-    cmd = ["g++", "-std=gnu++20", "-O1", "-pthread", "-Wall", "-Wno-unused", *inc, *map(str, sources), "-o",
+    cmd = ["g++", "-std=gnu++20", "-O1", "-pthread", "-Wall", "-Wno-unused", *extra, *inc, *map(str, sources), "-o",
            str(out)]
     done = subprocess.run(cmd, capture_output=True, text=True)
     if done.returncode != 0:
@@ -166,9 +185,27 @@ def main():
         if not build(es, patched_portall(tmp / "real"), PORTALL / "pipeline.cpp", binary):
             print("  ECHEC  the harness did not build")
             return 1
+        api = subprocess.run([str(binary), "--display-api"], capture_output=True, text=True, timeout=10)
+        print(api.stdout.rstrip())
+        if api.returncode != 0:
+            print("  ECHEC  frames bypass the display's block transfer; stopping before the timing cases")
+            return 1
         run = subprocess.run([str(binary)], capture_output=True, text=True, timeout=300)
         print(run.stdout.rstrip())
         good = good and run.returncode == 0
+
+        # A current Display base must also reach an external driver that
+        # still overrides the old API (for example, an older jd9365 fork).
+        header = (es / "esphome" / "components" / "display" / "display.h").read_text()
+        if "virtual void draw_pixels_internal(" in header:
+            print("\nA legacy external driver with the current ESPHome display base:")
+            legacy = tmp / "legacy-driver"
+            if not build(es, patched_portall(tmp / "real"), PORTALL / "pipeline.cpp", legacy,
+                         ["-DPORTALL_TEST_LEGACY_DRIVER"]):
+                return 1
+            run = subprocess.run([str(legacy), "--display-api"], capture_output=True, text=True, timeout=10)
+            print(run.stdout.rstrip())
+            good = good and run.returncode == 0
 
         print("\nThe torn-buffer case against a pipeline that gives a buffer back before drawing it:")
         (tmp / "broken").mkdir()

@@ -5,6 +5,7 @@
 
 #include "esphome/core/log.h"
 #include "esphome/core/hal.h"
+#include "esphome/core/version.h"
 
 #include "esp_heap_caps.h"
 #include "esp_timer.h"
@@ -690,7 +691,12 @@ void WiredPortall::run_decode_task() {
         pixels = this->rot_buffer_;
         x_pad = 0;
       }
-      this->display_->draw_pixels_at(dst_x, dst_y, dst_w, dst_h, pixels, display::COLOR_ORDER_RGB,
+      // The ColorOrder overload bypasses mipi_dsi's block transfer on
+      // ESPHome 2026.11+, leaving pixels in a buffer that is never flushed.
+      this->display_->draw_pixels_at(dst_x, dst_y, dst_w, dst_h, pixels,
+#if ESPHOME_VERSION_CODE < VERSION_CODE(2026, 11, 0)
+                                     display::COLOR_ORDER_RGB,
+#endif
                                      display::COLOR_BITNESS_565, false, 0, 0, x_pad);
       this->draw_us_ += micros() - start;
       this->frames_drawn_++;
@@ -1002,7 +1008,10 @@ void WiredPortall::draw_waiting_screen_() {
         strip[at - first] = ink;
     }
     this->display_->draw_pixels_at(0, y0, this->width_, rows, (const uint8_t *) strip.data(),
-                                   display::COLOR_ORDER_RGB, display::COLOR_BITNESS_565, false, 0, 0, 0);
+#if ESPHOME_VERSION_CODE < VERSION_CODE(2026, 11, 0)
+                                   display::COLOR_ORDER_RGB,
+#endif
+                                   display::COLOR_BITNESS_565, false, 0, 0, 0);
   }
   ESP_LOGI(TAG, "Nothing is feeding this panel, so it is saying so on its own screen.");
 }

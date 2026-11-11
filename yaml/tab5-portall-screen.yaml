@@ -24,6 +24,8 @@ api:
 psram:
   mode: hex
   speed: 200MHz
+  # Required for ESPHome's 512 KB TCP receive window used by Portall video.
+  ignore_not_found: false
 
 esp_ldo:
   - voltage: 2.5V
