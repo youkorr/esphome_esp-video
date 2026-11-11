@@ -23,7 +23,7 @@ logger:
 
 api:
   encryption:
-    key: "SsRZtLjVBMhdgxsJVKAP+fag0KDyvErAQiV7Y4q+jZA="
+    key: ""
 
 ota:
   - platform: esphome
@@ -33,7 +33,7 @@ wifi:
   password: !secret wifi_password
   ap:
     ssid: tab5-camera-ui Fallback Hotspot
-    password: "MoirXejg1mMo"
+    password: ""
 
 captive_portal:
 
