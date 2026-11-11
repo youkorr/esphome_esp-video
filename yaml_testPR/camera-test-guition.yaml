@@ -19,7 +19,7 @@ logger:
 
 api:
   encryption:
-    key: "oTlmaJYOiX0qyMk4jGQl49rYDuFzCU3W1OixyPh9jOY="
+    key: ""
 
 ota:
   - platform: esphome
@@ -29,7 +29,7 @@ wifi:
   password: !secret wifi_password
   ap:
     ssid: camera-test-gui Fallback Hotspot
-    password: "tlQhGNyTSJnl"
+    password: ""
 
 captive_portal:
 
