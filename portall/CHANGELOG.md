@@ -1,5 +1,16 @@
 # Changelog
 
+## 4.51.2
+
+- **Less work for the panel when only parts of the screen move.** Independent
+  moving regions are merged correctly instead of becoming many strips that
+  trigger a whole-screen redraw. Fragmented changes in one window can also
+  be sent as that window, keeping the rest of the screen untouched.
+- Full-screen pictures avoid an unnecessary copy before JPEG encoding.
+- Resolution, JPEG quality settings and frame limits are unchanged. A film
+  that supplies 25 pictures/s still supplies 25; this update adds no invented
+  frames. These changes are in the add-on and require no panel flash.
+
 ## 4.51.1
 
 - **Fix a capture freeze where sound keeps playing and touching the screen

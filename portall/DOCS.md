@@ -1991,6 +1991,32 @@ is not sent -- so raising it only costs anything where something moves, which
 is exactly where the smoothness is wanted. Lower it for a panel that only ever
 shows a dashboard, or for a machine with other work to do.
 
+### Keeping moving windows small
+
+From 4.51.2, independent moving regions are merged down the screen even when
+other regions sit between them in the update list. Previously, two moving
+columns became dozens of strips, whose fixed decode cost made the sender
+redraw the whole panel. On an 800x1280 test, those two columns now send two
+rectangles covering 262144 pixels instead of the panel's 1024000 pixels.
+
+Before falling back to a whole-screen redraw, the sender also considers one
+rectangle enclosing the changes. A fragmented video window can therefore
+remain a window. Already-cheap sparse updates stay sparse, and the picture
+sent when a page becomes still uses the same selection.
+
+With two local video windows in Chrome at 800x1280, the real sender requested
+about 624000 pixels per picture instead of 1024000, around 39% less decoding
+and copying area. This measures work sent to the panel, not a frame-rate
+measurement on physical hardware. A full-screen JPEG also avoids a redundant
+copy before encoding, without changing its bytes.
+
+These changes keep the configured resolution, quality and frame limit.
+The source remains a separate limit: a 25-frame/s film provides 25 different
+pictures a second. Raising `fps` cannot create pictures between those frames.
+A 50-frame/s source can benefit from a link's `fps: 50` when the browser,
+network and panel can keep up; use the `Media:` and `pictures/s` lines to
+check the actual rate.
+
 ### What video actually costs, and why 25 Mbit/s is not enough
 
 Even with every codec, video is what this pipeline is worst at, and the reason

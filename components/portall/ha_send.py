@@ -3405,15 +3405,19 @@ def tile_rectangles(mask, width, height, tile=TILE):
         if run_start is not None:
             rectangles.append((run_start, top, width - run_start, bottom - top))
 
-    # Stack rows that cover the same columns and touch. The rows are produced in
-    # order, so the candidate is always the one just added.
+    # Stack touching rows with the same horizontal span. Several independent
+    # regions can move at once: the matching span need not be the last one
+    # appended (two columns used to become dozens of small strips).
     merged = []
+    last_span = {}
     for x, y, w, h in rectangles:
-        if merged:
-            mx, my, mw, mh = merged[-1]
-            if mx == x and mw == w and my + mh == y:
-                merged[-1] = (mx, my, mw, mh + h)
+        index = last_span.get((x, w))
+        if index is not None:
+            mx, my, mw, mh = merged[index]
+            if my + mh == y:
+                merged[index] = (mx, my, mw, mh + h)
                 continue
+        last_span[(x, w)] = len(merged)
         merged.append((x, y, w, h))
 
     # Widen anything the decoder would choke on, backwards so it stays inside
@@ -3426,6 +3430,30 @@ def tile_rectangles(mask, width, height, tile=TILE):
             y, h = min(y, height - MIN_RECT), MIN_RECT
         grown.append((x, y, w, h))
     return grown
+
+
+def choose_rectangles(rectangles, width, height, rect_cost):
+    """Keep cheap pieces; before falling back to a full panel, try their box.
+
+    Fragmented changes within one video or dialog can cost many decodes but
+    still occupy a small part of the screen. One enclosing rectangle saves
+    that setup cost without decoding all the unchanged pixels outside it.
+    Already-cheap sparse updates stay sparse, keeping sharp areas untouched.
+    """
+    if not rectangles:
+        return rectangles
+    panel = width * height
+    covered = sum(w * h for _, _, w, h in rectangles)
+    if covered / panel + rect_cost * len(rectangles) <= 1.0:
+        return rectangles
+    left = min(x for x, _, _, _ in rectangles)
+    top = min(y for _, y, _, _ in rectangles)
+    right = max(x + w for x, _, w, _ in rectangles)
+    bottom = max(y + h for _, y, _, h in rectangles)
+    w, h = right - left, bottom - top
+    if w * h / panel + rect_cost < 1.0:
+        return [(left, top, w, h)]
+    return [(0, 0, width, height)]
 
 
 class TouchMap:
@@ -7966,9 +7994,7 @@ def main():
             rectangles = tile_rectangles(soft, send_w, send_h)
             if not rectangles:
                 return None
-            covered = sum(w * h for _, _, w, h in rectangles)
-            if covered / (send_w * send_h) + rect_cost * len(rectangles) > 1.0:
-                rectangles = [(0, 0, send_w, send_h)]
+            rectangles = choose_rectangles(rectangles, send_w, send_h, rect_cost)
             data = capture.screenshot()
             if data is None:
                 if "shot" not in refine_said:
@@ -8521,14 +8547,10 @@ def main():
                             fulls += 1
                         else:
                             rectangles = changed_rectangles(previous, current)
-                            covered = sum(w * h for _, _, w, h in rectangles)
                             # Redraw everything only when doing so is actually
-                            # cheaper than the pieces.
-                            panel = send_w * send_h
-                            if covered / panel + rect_cost * len(
-                                rectangles
-                            ) > 1.0:
-                                rectangles = [(0, 0, send_w, send_h)]
+                            # cheaper than the pieces or their enclosing box.
+                            rectangles = choose_rectangles(rectangles, send_w, send_h, rect_cost)
+                            if rectangles == [(0, 0, send_w, send_h)]:
                                 last_full = started
                                 fulls += 1
 
@@ -8537,7 +8559,9 @@ def main():
                         picture_bytes = 0
                         for x, y, w, h in rectangles:
                             buffer = io.BytesIO()
-                            image.crop((x, y, x + w, y + h)).save(
+                            part = (image if (x, y, w, h) == (0, 0, send_w, send_h)
+                                    else image.crop((x, y, x + w, y + h)))
+                            part.save(
                                 buffer, format="JPEG", quality=picture_quality
                             )
                             payload = buffer.getvalue()
