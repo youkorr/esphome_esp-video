@@ -1,5 +1,20 @@
 # Changelog
 
+## 4.52.1
+
+- **Settings can be changed from the panel.** Native dropdown menus opened,
+  but replayed touches reached the page beneath their options. The appearance
+  editor now uses controls drawn inside the page, tested through Portall's
+  real touch injector rather than programmatic dropdown selection.
+- **Appearance of the page of links** now contains the layout, theme,
+  columns, tile styles and colours, clock/date, weather visibility and style,
+  robot visibility and wallpaper controls. Apply saves this launcher's
+  choices; Cancel leaves them unchanged and Reset restores configured values.
+- Settings remains accessible in the classic layout. Existing 4.52.0 theme
+  and column choices are kept, and links and account sessions are unchanged.
+- Voice services, weather entities and screen-saver activation remain in
+  the add-on configuration. No panel firmware flash is required.
+
 ## 4.52.0
 
 - **An optional Cinema home screen.** Choose `launcher: layout: dashboard`

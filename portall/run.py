@@ -907,6 +907,8 @@ def start_launcher(config, port=None, house_links=(), label=""):
         status=STATUS,
         choice_file=avatar_file(label).replace(AVATAR_DIR, WALLPAPER_DIR),
         voice=follow_voice(config, list(links) + list(house_links), label),
+        voice_factory=lambda: follow_voice(
+            {**config, "launcher_avatar": True}, list(links) + list(house_links), label),
         motion=truthy(config.get("launcher_background_motion", False)),
         slideshow=truthy(config.get("launcher_slideshow", False)),
         every=config.get("launcher_slideshow_seconds", 30),

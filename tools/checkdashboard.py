@@ -2,7 +2,7 @@
 """The dashboard's nine apps fit the panel, and its local settings work.
 
 Serves the real launcher at three landscape panel sizes and in portrait,
-then drives the appearance dialog and checks its same-origin JSON endpoint.
+then checks its JSON endpoint and the real sender’s injected touch controls.
 The preference file lives in a temporary directory; no installed settings
 are read or changed. Needs Playwright and Chromium:
 
@@ -26,7 +26,6 @@ sys.path.insert(0, str(ROOT / "portall"))
 
 import appearance  # noqa: E402
 import launcher  # noqa: E402
-from playwright.sync_api import TimeoutError as BrowserTimeoutError  # noqa: E402
 from playwright.sync_api import sync_playwright  # noqa: E402
 
 
@@ -40,7 +39,8 @@ LINKS = [
         ("AList", "alist"),
     ])
 ]
-DEFAULTS = {"theme": "dark", "columns": 3}
+DEFAULTS = {**appearance.DEFAULTS, "layout": "dashboard", "theme": "dark",
+            "columns": 3, "avatar": True, "clock": True}
 WEATHER = {"condition": "sunny", "temperature": 21, "unit": "°C",
            "text": "21°C"}
 
@@ -110,7 +110,7 @@ def start(preferences=None, layout="dashboard"):
     address = launcher.start(
         LINKS, port=0, layout=layout, theme="dark", columns=3,
         avatar=True, clock=True, weather=lambda: dict(WEATHER),
-        appearance_file=preferences)
+        appearance_file=os.fspath(preferences) if preferences is not None else None)
     if not address:
         raise RuntimeError("launcher did not start")
     return address
@@ -201,9 +201,10 @@ def endpoint_checks(address, checks):
     origin = address.rstrip("/")
     checks.check("appearance GET returns the configured defaults",
                  request(address) == (200, DEFAULTS))
-    changed = {"theme": "light", "columns": 2}
+    changes = {"theme": "light", "columns": 2}
+    changed = {**DEFAULTS, **changes}
     checks.check("same-origin JSON POST saves theme and columns",
-                 request(address, changed, origin=origin) == (200, changed)
+                 request(address, changes, origin=origin) == (200, changed)
                  and request(address) == (200, changed))
     invalid = [
         ({"theme": "dark", "unknown": "value"}, 400), ({"theme": "pink"}, 400),
@@ -236,79 +237,26 @@ def endpoint_checks(address, checks):
                  request(address, {"reset": True}, origin=origin) == (200, DEFAULTS))
 
 
-def dialog_checks(browser, address, preference_file, checks):
-    page = browser.new_page(viewport={"width": 1280, "height": 800}, locale="fr-FR")
-    errors = []
-    page.on("pageerror", lambda error: errors.append(str(error)))
-    try:
-        load(page, address)
-        button = page.locator("#appearance-open")
-        button.focus()
-        button.click()
-        page.wait_for_function("document.getElementById('appearance-dialog').open")
-        checks.check("settings opens a labelled modal and focuses the theme chooser",
-                     page.locator("#appearance-dialog[aria-labelledby]").count() == 1
-                     and page.evaluate("document.activeElement.id") == "appearance-theme"
-                     and page.locator("#appearance-theme").input_value() == "dark"
-                     and page.locator("#appearance-columns").input_value() == "3")
-        page.keyboard.press("Escape")
-        page.wait_for_function("!document.getElementById('appearance-dialog').open")
-        checks.check("Escape closes settings and restores focus to its button",
-                     page.evaluate("document.activeElement.id") == "appearance-open")
-        button.click()
-        page.wait_for_function("document.getElementById('appearance-dialog').open")
-        page.locator("#appearance-theme").select_option("light")
-        page.locator("#appearance-columns").select_option("2")
-        try:
-            with page.expect_navigation(wait_until="domcontentloaded", timeout=5000):
-                page.locator("#appearance-apply").click()
-        except BrowserTimeoutError:
-            checks.check("applying settings reloads the dashboard", False,
-                         page.locator("#appearance-error").inner_text())
-            return
-        page.wait_for_selector("a.tile")
-        geometry = page.evaluate(GEOMETRY)
-        saved = {"theme": "light", "columns": 2}
-        checks.check("applying settings reloads with the chosen theme and columns",
-                     geometry["scheme"] == "light" and geometry["across"] == 2
-                     and request(address) == (200, saved))
-        checks.check("appearance choices are persisted in the launcher's own file",
-                     json.loads(preference_file.read_text()) == saved)
-        restarted = start(preference_file)
-        checks.check("a restarted launcher restores the saved choices",
-                     request(restarted) == (200, saved))
-        page.goto(restarted, wait_until="domcontentloaded")
-        page.locator("#appearance-open").click()
-        page.wait_for_function("document.getElementById('appearance-dialog').open")
-        try:
-            with page.expect_navigation(wait_until="domcontentloaded", timeout=5000):
-                page.locator("#appearance-reset").click()
-        except BrowserTimeoutError:
-            checks.check("dialog reset reloads the dashboard", False,
-                         page.locator("#appearance-error").inner_text())
-            return
-        page.wait_for_selector("a.tile")
-        geometry = page.evaluate(GEOMETRY)
-        checks.check("dialog reset restores dark, three columns and clears overrides",
-                     geometry["scheme"] == "dark" and geometry["across"] == 3
-                     and request(restarted) == (200, DEFAULTS)
-                     and json.loads(preference_file.read_text()) == {})
-        checks.check("dashboard and appearance dialog run without JavaScript errors",
-                     not errors, str(errors))
-    finally:
-        page.close()
+def dialog_checks(playwright, address, preference_file, checks, executable=None):
+    # Keep the regression on the sender's real panel path. Native <select>
+    # popups can pass Playwright select_option while dropping injected taps.
+    from checkappearancetouch import run
+    run(playwright, address, preference_file, checks, executable=executable)
 
 
 def other_pages(browser, dashboard, checks):
-    for label, address in (("classic", start(layout="classic")),
-                           ("screen saver", urllib.parse.urljoin(dashboard, launcher.SAVER_PATH))):
-        page = browser.new_page()
-        try:
-            page.goto(address, wait_until="domcontentloaded")
-            checks.check(f"{label} has no dashboard settings or dashboard layout",
-                         page.locator("#appearance-open, #appearance-dialog, body.dashboard").count() == 0)
-        finally:
-            page.close()
+    page = browser.new_page()
+    try:
+        page.goto(start(layout="classic"), wait_until="domcontentloaded")
+        checks.check("classic keeps the local appearance settings accessible",
+                     page.locator("#appearance-open").is_visible()
+                     and page.locator("body.dashboard").count() == 0)
+        page.goto(urllib.parse.urljoin(dashboard, launcher.SAVER_PATH),
+                  wait_until="domcontentloaded")
+        checks.check("screen saver has no link-page settings or dashboard layout",
+                     page.locator("#appearance-open, #appearance-dialog, body.dashboard").count() == 0)
+    finally:
+        page.close()
 
 
 def main():
@@ -325,7 +273,7 @@ def main():
             try:
                 panel_checks(browser, address, checks)
                 endpoint_checks(address, checks)
-                dialog_checks(browser, address, preference_file, checks)
+                dialog_checks(playwright, address, preference_file, checks, arguments.browser)
                 other_pages(browser, address, checks)
             finally:
                 browser.close()
