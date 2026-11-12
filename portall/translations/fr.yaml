@@ -160,6 +160,11 @@ configuration:
     description: Couleurs, horloge, météo, fond d'écran. S'applique à tous les écrans ; un écran peut
       changer ce qu'il veut en 5.
     fields:
+      layout:
+        name: Présentation
+        description: 'classic : la présentation habituelle. dashboard : heure, avatar et météo à gauche,
+          applications à droite, icône au-dessus du nom. Pour l''essai Cinéma : thème dark, 3 colonnes,
+          taille medium et avatar activé. light reste possible.'
       theme:
         name: Thème
         description: Sombre (dark) ou clair (light).
@@ -171,8 +176,9 @@ configuration:
         description: À gauche, au centre ou à droite.
       tiles:
         name: Forme des liens
-        description: 'cards : grandes cartes, icône à côté du nom. buttons : petits boutons, icône en
-          haut et nom en dessous.'
+        description: 'En présentation classic : cards = grandes cartes, icône à côté du nom ; buttons
+          = petits boutons, icône en haut. dashboard garde sa forme propre, icône au-dessus du nom : ce
+          réglage y est sans effet.'
       focus_color:
         name: 🎯 Couleur de la sélection
         description: Le cadre autour du lien choisi à la télécommande ou à la manette. Sur un fond clair,
@@ -190,9 +196,9 @@ configuration:
         description: theme = la couleur du thème. Sur un fond clair, prenez black par exemple.
       avatar:
         name: 😊 Avatar
-        description: Un petit robot au visage d'écran, avec son casque, de la taille d'un bouton, en bas
-          à droite. Ses yeux changent de forme pour chaque expression. Glissez-le du doigt pour le mettre
-          où vous voulez ; il y reste.
+        description: Le robot assistant, au visage d'écran et avec son casque. En dashboard, il occupe
+          la colonne gauche. En classic, il apparaît en bas à droite ; glissez-le du doigt pour le placer,
+          il y reste. Ses yeux suivent ses expressions.
       avatar_voice:
         name: 🎙️ Assistant vocal de l'avatar
         description: 'Le visage écoute, réfléchit et répond avec lui. Vide : le seul assistant vocal de
@@ -377,6 +383,11 @@ configuration:
             name: 🗣️ Autres noms à dire
             description: 'Pour l''ouvrir à la voix : ce que l''assistant vocal comprend quand vous dites
               le nom, séparé par des virgules. Par exemple « gelée fine, jelly fin » pour Jellyfin.'
+      layout:
+        name: Présentation
+        description: 'classic : la présentation habituelle. dashboard : heure, avatar et météo à gauche,
+          applications à droite, icône au-dessus du nom. Pour l''essai Cinéma : thème dark, 3 colonnes,
+          taille medium et avatar activé. light reste possible.'
       theme:
         name: Thème
         description: Sombre (dark) ou clair (light).
@@ -388,8 +399,9 @@ configuration:
         description: À gauche, au centre ou à droite.
       tiles:
         name: Forme des liens
-        description: 'cards : grandes cartes, icône à côté du nom. buttons : petits boutons, icône en
-          haut et nom en dessous.'
+        description: 'En présentation classic : cards = grandes cartes, icône à côté du nom ; buttons
+          = petits boutons, icône en haut. dashboard garde sa forme propre, icône au-dessus du nom : ce
+          réglage y est sans effet.'
       focus_color:
         name: 🎯 Couleur de la sélection
         description: Le cadre autour du lien choisi à la télécommande ou à la manette. Sur un fond clair,
@@ -407,9 +419,9 @@ configuration:
         description: theme = la couleur du thème. Sur un fond clair, prenez black par exemple.
       avatar:
         name: 😊 Avatar
-        description: Un petit robot au visage d'écran, avec son casque, de la taille d'un bouton, en bas
-          à droite. Ses yeux changent de forme pour chaque expression. Glissez-le du doigt pour le mettre
-          où vous voulez ; il y reste.
+        description: Le robot assistant, au visage d'écran et avec son casque. En dashboard, il occupe
+          la colonne gauche. En classic, il apparaît en bas à droite ; glissez-le du doigt pour le placer,
+          il y reste. Ses yeux suivent ses expressions.
       avatar_voice:
         name: 🎙️ Assistant vocal de l'avatar
         description: 'Le visage écoute, réfléchit et répond avec lui. Vide : le seul assistant vocal de

@@ -1,5 +1,5 @@
 name: Portall
-version: "4.51.2"
+version: "4.52.0"
 # Home Assistant identifies an add-on by its slug, so this one moving from
 # usb_display_panel to portall makes the Supervisor see a NEW add-on: options
 # are not carried over and /data starts empty, which means the browser
@@ -206,15 +206,19 @@ options:
     # difference. Measured on full motion at 800x1280, quality 60 costs
     # 1123 KiB/s and quality 40 costs 930. It applies while that page is open
     # and goes back to the panel's own quality everywhere else.
-    # dark or light.
+    # classic keeps the existing page; dashboard puts the clock, robot and
+    # weather in a left column, with the app grid on the right.
+    layout: classic
+    # dark or light, independently of the page's layout.
     theme: dark
     # How many links across. 0 lets the panel decide, which is what a launcher
     # shown on three shapes of screen wants.
     columns: 0
     # Where the bar sits: left, center or right.
     align: left
-    # cards: wide cards, the icon beside the name and a description.
-    # buttons: smaller buttons, the icon on top and the name underneath.
+    # In classic: cards show the icon beside the name and a description;
+    # buttons show the icon above the name. dashboard has its own fixed
+    # tile shape, with the icon above the name, whatever this setting is.
     tiles: cards
     # The ring around the tile a remote or a gamepad is on. "theme" is the
     # theme's own colour; on a light theme or a pale wallpaper pick one that
@@ -480,6 +484,7 @@ schema:
       user_agent: str?
       voice: str?
   launcher:
+    layout: list(classic|dashboard)?
     theme: list(dark|light)?
     columns: int(0,6)?
     align: list(left|center|right)?
@@ -548,6 +553,7 @@ schema:
           max_rate: int(0,20000)?
           user_agent: str?
           voice: str?
+      layout: list(classic|dashboard)?
       theme: list(dark|light)?
       columns: int(0,6)?
       align: list(left|center|right)?

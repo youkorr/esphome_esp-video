@@ -23,6 +23,7 @@ without turning the others off.
 """
 
 import json
+import hashlib
 import re
 import os
 import shlex
@@ -719,7 +720,7 @@ SAVER_LOOK_KEYS = (
     "avatar_position", "avatar_size", "shade",
 )
 LAUNCHER_OWN = (
-    "theme", "columns", "align", "tiles", "focus_color", "tile_background",
+    "layout", "theme", "columns", "align", "tiles", "focus_color", "tile_background",
     "tile_size", "tile_text_color", "avatar",
     "avatar_voice", "clock", "clock_size", "clock_color", "date_size", "date_color",
     "weather", "weather_size", "weather_color",
@@ -807,6 +808,14 @@ def avatar_file(label):
     return os.path.join(AVATAR_DIR, (safe or "house") + ".json")
 
 
+def appearance_file(label):
+    """A distinct namespace for the shared home and every panel's home."""
+    identity = str(label).strip()
+    name = ("panel-" + hashlib.sha256(identity.encode()).hexdigest()
+            if identity else "shared")
+    return os.path.join(AVATAR_DIR, "appearance", name + ".json")
+
+
 def follow_voice(config, links, label=""):
     """The voice assistant this launcher's face follows, or None.
 
@@ -859,6 +868,7 @@ def start_launcher(config, port=None, house_links=(), label=""):
         return None
     where = launcher.start(
         links,
+        layout=str(config.get("launcher_layout") or "classic"),
         theme=str(config.get("launcher_theme") or "dark"),
         background=str(config.get("launcher_background") or ""),
         blur=str(config.get("launcher_background_blur") or "off"),
@@ -889,6 +899,7 @@ def start_launcher(config, port=None, house_links=(), label=""):
                             or launcher.FOLLOW_THEME),
         avatar=truthy(config.get("launcher_avatar", False)),
         avatar_file=avatar_file(label),
+        appearance_file=appearance_file(label),
         # Every screen's downloads, opened on the glass from a link whose url
         # is "files", and the picture chosen there as this launcher's
         # wallpaper -- kept beside the avatar's spot, for the same reason.
@@ -1003,6 +1014,7 @@ _config = {}
 # file, launcher.py and ha_send.py all still speak.
 _GROUPED = {
     "launcher": {
+        "layout": "launcher_layout",
         "theme": "launcher_theme",
         "columns": "launcher_columns",
         "align": "launcher_align",

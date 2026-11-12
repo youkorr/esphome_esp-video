@@ -39,6 +39,7 @@ import urllib.request
 from urllib.parse import parse_qs, urlsplit
 
 import logos
+import appearance
 
 try:
     import files as library
@@ -742,12 +743,142 @@ PAGE = """<!doctype html>
  .st .net[data-bars="1"] .w4, .st .net[data-bars="2"] .w3,
  .st .net[data-bars="2"] .w4, .st .net[data-bars="3"] .w4 { opacity: .28; }
 %(css)s</style></head>
-<body>
+<body class="%(page_class)s">
 <div class="wall" id="wa">%(movie)s</div><div class="wall b" id="wb"></div>
-<header>%(now)s%(heading)s</header>
-<main class="%(tiles)s">%(groups)s</main>
-%(clockjs)s</body></html>
+<header>%(brand)s%(now)s%(heading)s%(settings_button)s</header>
+<main class="%(tiles)s">%(main_heading)s%(groups)s</main>
+%(settings_dialog)s%(clockjs)s</body></html>
 """
+
+# A separate layout so existing light launchers keep their spacing. These
+# shapes are all still: only the clock, weather and existing avatar update.
+DASHBOARD_CSS = """
+ body.dashboard {
+   --rail: clamp(240px, 27vw, 350px);
+   --assistant-width: min(255px, calc(var(--rail) - 2 * clamp(22px, 3vw, 38px)));
+   display: grid; grid-template-columns: var(--rail) minmax(0, 1fr);
+   background-image: radial-gradient(ellipse at 100% 0%, color-mix(in srgb, #713ddd 12%, transparent), transparent 45%),
+                     radial-gradient(ellipse at 0% 100%, color-mix(in srgb, #147de0 10%, transparent), transparent 42%);
+ }
+ .dashboard.plain .wall {
+   background-image: radial-gradient(ellipse at 100% 0%, #502b7e44, transparent 44%),
+                     radial-gradient(ellipse at 0% 100%, #124fae44, transparent 36%);
+ }
+ .dashboard header {
+   grid-column: 1; grid-row: 1; position: sticky; top: 0;
+   display: flex; flex-direction: column; gap: clamp(18px, 3vh, 26px);
+   height: 100vh; min-height: 540px; padding: 26px clamp(22px, 3vw, 38px);
+   border-right: 1px solid var(--edge); background: color-mix(in srgb, var(--ground) 88%, transparent);
+ }
+ .dashboard .identity {
+   display: flex; align-items: center; justify-content: space-between; gap: 16px;
+   font-size: clamp(28px, 3.5vw, 45px); font-weight: 750; letter-spacing: -.04em;
+ }
+ .dashboard .identity .st { margin: 0; font-size: 21px; color: var(--ink); }
+ .dashboard .now { display: contents; }
+ .dashboard .when { gap: 8px; }
+ .dashboard .time {
+   font-size: clamp(52px, 6.2vw, 80px); font-weight: 600; letter-spacing: -.055em;
+ }
+ .dashboard .date {
+   font-size: clamp(20px, 2.1vw, 28px); text-transform: none;
+   line-height: 1.45; color: var(--ink); font-weight: 500;
+ }
+ .dashboard .date::first-letter { text-transform: uppercase; }
+ .dashboard .dashboard-assistant {
+   display: grid; place-items: center; flex: 1; min-height: 90px;
+ }
+ .dashboard .brand-mark {
+   display: block; position: relative; width: var(--assistant-width); max-width: 100%;
+   aspect-ratio: 174 / 142;
+ }
+ .dashboard .brand-mark > svg { display: block; width: 100%; height: 100%; }
+ .dashboard .brand-mark #av {
+   position: absolute; inset: 0; width: 100%; height: 100%;
+ }
+ .dashboard .brand-mark #av svg { filter: none; }
+ .dashboard .brand-mark #av svg > path:first-of-type { stroke: #267bff; }
+ .dashboard .brand-mark #av svg > rect:nth-of-type(1) { fill: #1454bd; stroke: #429fff; }
+ .dashboard .brand-mark #av svg > rect:nth-of-type(3),
+ .dashboard .brand-mark #av svg > rect:nth-of-type(4) { fill: #1764d9; }
+ .dashboard .wx {
+   margin: 0; align-self: flex-start; gap: 12px;
+   font-size: clamp(28px, 3.2vw, 42px); white-space: nowrap;
+ }
+ .dashboard .wx .out { color: var(--ink); font-size: 1em; font-weight: 600; }
+ .dashboard .wx:not(:has(.sky:not(:empty), .out:not(:empty))) { display: none; }
+ .dashboard main {
+   grid-column: 2; grid-row: 1; min-width: 0;
+   padding: 26px clamp(20px, 2.7vw, 38px);
+ }
+ .dashboard .dashboard-heading { margin-bottom: 24px; }
+ .dashboard .dashboard-heading h1 {
+   font-size: clamp(28px, 3.5vw, 44px); font-weight: 700; letter-spacing: -.035em;
+ }
+ .dashboard .dashboard-heading p { margin: 8px 0 0; color: var(--faint); }
+ .dashboard section { margin-top: 0; margin-bottom: 20px; }
+ .dashboard section:last-child { margin-bottom: 0; }
+ .dashboard h2 { font-size: 17px; letter-spacing: .03em; }
+ .dashboard .group { gap: clamp(14px, 1.8vw, 24px); }
+ .dashboard a.tile {
+   min-height: clamp(142px, calc((100vh - 184px) / 3), 235px);
+   border-radius: 22px; border-color: color-mix(in srgb, var(--tile-accent, #188bea) 62%, var(--card));
+   background: radial-gradient(ellipse at 50% 0%, color-mix(in srgb, var(--tile-accent, #188bea) 10%, transparent), transparent 80%), var(--card);
+   box-shadow: inset 0 1px 0 color-mix(in srgb, var(--tile-accent, #188bea) 16%, transparent);
+   backdrop-filter: none; -webkit-backdrop-filter: none;
+ }
+ .dashboard .in {
+   flex-direction: column; align-items: center; justify-content: center;
+   gap: clamp(10px, 1.8vh, 16px); padding: 18px 14px; height: 100%; text-align: center;
+ }
+ .dashboard .icon { --side: clamp(56px, 7.3vw, 94px); background: none; }
+ .dashboard .name {
+   font-size: clamp(18px, 1.9vw, 26px); font-weight: 650;
+   line-height: 1.2; overflow-wrap: normal; word-break: normal;
+ }
+ .dashboard .desc { font-size: 14px; }
+ .dashboard a.tile:active, .dashboard a.tile.press {
+   background: var(--edge); border-color: var(--ring); transform: scale(.96);
+ }
+ .dashboard a.tile:focus-visible, .dashboard a.tile.chosen {
+   border-color: var(--ring); box-shadow: 0 0 0 3px var(--ring);
+ }
+ .dashboard header > .appearance-open { margin-top: auto; align-self: flex-start; }
+ @container (max-width: 217px) {
+   .dashboard .in { padding: 14px 10px; }
+   .dashboard .icon { --side: clamp(48px, 34cqi, 76px); }
+   .dashboard .name { font-size: clamp(15px, 10cqi, 23px); }
+ }
+ @container (max-width: 155px) {
+   .dashboard .name { overflow-wrap: anywhere; }
+ }
+ @media (max-width: 900px) {
+   body.dashboard { display: flex; --assistant-width: 100px; }
+   .dashboard header {
+     position: relative; height: auto; min-height: 0;
+     display: grid; grid-template-columns: 1fr auto;
+     padding: 22px; gap: 18px; border-right: 0; border-bottom: 1px solid var(--edge);
+   }
+   .dashboard .identity { grid-column: 1 / -1; }
+   .dashboard .when { grid-column: 1; grid-row: 2; }
+   .dashboard .time { font-size: 58px; }
+   .dashboard .date { font-size: 19px; }
+   .dashboard .dashboard-assistant { grid-column: 2; grid-row: 2; width: 100px; }
+   .dashboard .wx { grid-column: 1; grid-row: 3; align-self: center; font-size: 28px; }
+   .dashboard .appearance-open { grid-column: 2; grid-row: 3; }
+   .dashboard main { padding: 24px 22px; }
+   .dashboard .group { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+   .dashboard a.tile { min-height: 155px; }
+ }
+"""
+
+DASHBOARD_JS = """<script>
+(() => {
+  const heading = document.getElementById('dashboard-title');
+  if (heading) heading.textContent = 'Applications';
+  document.documentElement.lang = navigator.language || 'en';
+})();
+</script>"""
 
 # The clock, written to tick on the MINUTE rather than on a timer that drifts.
 # Formatted by the browser, so it follows the panel's `locale:` -- a French
@@ -761,6 +892,9 @@ CLOCK_JS = """<script>
     try {
       t.textContent = now.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
       d.textContent = now.toLocaleDateString([], {weekday: 'long', day: 'numeric', month: 'long', year: 'numeric'});
+      if (document.body.classList.contains('dashboard')) {
+        d.textContent = d.textContent.charAt(0).toLocaleUpperCase() + d.textContent.slice(1);
+      }
     } catch (e) { /* a page that will not format is a page with no clock */ }
     // To the next minute, not every 60000 ms from now: a timer that starts
     // half a minute late stays half a minute late for ever, and the minute
@@ -1867,6 +2001,11 @@ AVATAR_JS = """<script>
                 Math.max(1, innerHeight - r.height)];
     var x = Math.min(room[0], Math.max(0, r.left - e.deltaX));
     var y = Math.min(room[1], Math.max(0, r.top - e.deltaY));
+    if (box.closest('.brand-mark')) {
+      box.style.width = r.width + 'px';
+      box.style.height = r.height + 'px';
+    }
+    box.style.position = 'fixed';
     box.style.left = x + 'px';
     box.style.top = y + 'px';
     box.style.right = 'auto';
@@ -1909,17 +2048,17 @@ AVATAR_VOICE_JS = """<script>
 </script>"""
 
 
-def _avatar_place(at):
+def _avatar_place(at, width="26vmin", height=AVATAR_HEIGHT):
     """Where the face goes: its saved spot, or the bottom right corner."""
     if not at:
         return ""
     x, y = at
     return ("right: auto; bottom: auto; "
-            f"left: calc((100vw - 26vmin) * {x:.4f}); "
-            f"top: calc((100vh - {AVATAR_HEIGHT}) * {y:.4f});")
+            f"left: calc((100vw - {width}) * {x:.4f}); "
+            f"top: calc((100vh - {height}) * {y:.4f});")
 
 
-TILE = ('<a class="tile" href="%(url)s"><span class="in">'
+TILE = ('<a class="tile" href="%(url)s"%(tile_style)s><span class="in">'
         '<span class="icon%(icon_long)s">%(icon)s</span>'
         '<span class="text"><span class="name">%(name)s</span>%(desc)s</span>'
         '</span></a>')
@@ -2230,7 +2369,8 @@ def render(links, title="", subtitle="", theme="dark",
            weather_color=FOLLOW_THEME,
            tile_background="solid", tile_size=DEFAULT_SIZE,
            tile_text_color=FOLLOW_THEME, status=False,
-           saver=False, saver_date=True, saver_clock=True, look=None):
+           saver=False, saver_date=True, saver_clock=True, look=None,
+           layout="classic", settings=False):
     """The page, as one string.
 
     `saver` draws the screen saver instead of the page of links: the
@@ -2244,6 +2384,7 @@ def render(links, title="", subtitle="", theme="dark",
     """
     dark = str(theme).lower() != "light"
     accent = PALETTES.get(str(color).lower(), PALETTES[DEFAULT_PALETTE])
+    dashboard = str(layout).lower() == "dashboard" and not saver
 
     addresses = _addresses(urls)
     if addresses:
@@ -2316,6 +2457,9 @@ def render(links, title="", subtitle="", theme="dark",
                 # what will be drawn, not on what was typed: a name from the
                 # list is one glyph however long the name is.
                 "icon_long": icon_kind(entry.get("icon"), dark),
+                "tile_style": (f' style="--tile-accent: '
+                               f'{logos.LOGOS.get(str(entry.get("icon") or "").strip().lower(), ("#188bea", ""))[0]}"'
+                               if dashboard else ""),
                 "name": html.escape(str(entry.get("name") or entry["url"])),
                 "desc": (
                     '<span class="desc">%s</span>'
@@ -2339,10 +2483,12 @@ def render(links, title="", subtitle="", theme="dark",
             else "repeat(auto-fit, minmax(min(42vw, 300px), 1fr))")
     # Buttons keep their own size: a column count says how many may sit on
     # a row, and each is 26vmin or its share of the row, whichever is less.
-    buttons = str(shape or "").strip().lower() == "buttons"
+    buttons = str(shape or "").strip().lower() == "buttons" and not dashboard
     if buttons:
         grid = (f"repeat({columns}, minmax(0, 26vmin))" if columns > 0
                 else "repeat(auto-fill, 26vmin)")
+    elif dashboard:
+        grid = f"repeat({max(1, min(6, columns or 3))}, minmax(0, 1fr))"
 
     try:
         dim = max(0, min(100, int(dim)))
@@ -2383,10 +2529,13 @@ def render(links, title="", subtitle="", theme="dark",
             saver_avatar = avatar_html(avatar_weather(weather))
             parts.append(("avatar", saver_avatar))
         now, saver_rules = _saver_layout(look, parts)
+    status_bar = ""
     if status and not saver:
-        now = (f'<div class="st"><span class="net" id="net" hidden>'
+        status_bar = (f'<div class="st"><span class="net" id="net" hidden>'
                f'{WIFI_SVG}</span><span class="bt" id="bt" hidden>'
-               f'{BLUETOOTH_SVG}</span></div>') + now
+               f'{BLUETOOTH_SVG}</span></div>')
+        if not dashboard:
+            now = status_bar + now
     # Always, and not behind an option. It costs one listener that fires on a
     # key nobody presses unless there is a remote, and an option for it would
     # be one more thing to read past -- which this add-on has already had to
@@ -2404,9 +2553,18 @@ def render(links, title="", subtitle="", theme="dark",
     # the maintainer's convenience, not the household's. Homepage names the
     # size of each widget on a fixed scale and has no CSS field at all, which
     # is the shape this follows now.
-    sheet = _bar(clock_size, clock_color, date_size, date_color,
+    bar_rules = _bar(clock_size, clock_color, date_size, date_color,
                  weather_size, align, focus_color, weather_color,
                  tile_background, tile_size, tile_text_color)
+    if dashboard:
+        # Keep named customisations effective over the dashboard's more
+        # specific selectors, including transparent cards and widget colours.
+        for selector in ("main", ".group", ".time", ".date", ".wx", ".now"):
+            bar_rules = bar_rules.replace(" " + selector, " .dashboard " + selector)
+        ring = PALETTES.get(str(focus_color).lower(), "#72b9ff" if dark else "#075de0")
+        sheet = DASHBOARD_CSS + bar_rules + f" .dashboard {{ --ring: {ring}; }}\n"
+    else:
+        sheet = bar_rules
     if saver:
         sheet += SAVER_CSS + saver_rules
 
@@ -2437,14 +2595,49 @@ def render(links, title="", subtitle="", theme="dark",
         sheet += AVATAR_CSS % {"place": _avatar_place(avatar_at),
                                "height": AVATAR_HEIGHT}
         # On the screen saver the face is already in its corner.
-        moving.append(("" if saver_avatar else
+        moving.append(("" if saver_avatar or dashboard else
                        avatar_html(avatar_weather(weather)))
                       + AVATAR_JS % {"path": AVATAR_PATH} + FACE_JS)
         if voice:
             moving.append(AVATAR_VOICE_JS % {"path": VOICE_PATH})
 
+    heading = ((f"<h1>{html.escape(title)}</h1>" if str(title).strip() else "")
+               + (f"<p>{html.escape(subtitle)}</p>" if str(subtitle).strip() else ""))
+    brand = main_heading = ""
+    if dashboard:
+        brand = f'<div class="identity"><span>Portall</span>{status_bar}</div>'
+        robot = (f'<span class="brand-mark">{avatar_html(avatar_weather(weather))}</span>'
+                 if avatar else "")
+        assistant = f'<div class="dashboard-assistant">{robot}</div>'
+        # Keep the actual assistant and its voice state. Its place in the rail
+        # is the starting point; dragging still moves it over the whole screen.
+        if avatar and avatar_at is not None:
+            width = "var(--assistant-width)"
+            height = "calc(var(--assistant-width) * 142 / 174)"
+            sheet += (" .dashboard .brand-mark #av { position: fixed; right: auto; bottom: auto;"
+                      f" width: {width}; height: {height}; "
+                      + _avatar_place(avatar_at, width, height) + " }\n")
+        if '<span class="wx">' in now:
+            now = now.replace('<span class="wx">', assistant + '<span class="wx">', 1)
+        else:
+            now += assistant
+        main_heading = ('<div class="dashboard-heading">' +
+                        (f'<h1>{html.escape(title)}</h1>' if str(title).strip()
+                         else '<h1 id="dashboard-title">Applications</h1>') +
+                        (f'<p>{html.escape(subtitle)}</p>' if str(subtitle).strip() else '') + '</div>')
+        heading = ""
+        moving.append(DASHBOARD_JS)
+        if settings:
+            sheet += appearance.CSS
+            moving.append(appearance.JS)
+
     return PAGE % {
         "css": sheet,
+        "page_class": ("dashboard" + (" plain" if not has_wall else "")) if dashboard else "",
+        "brand": brand,
+        "main_heading": main_heading,
+        "settings_button": appearance.OPEN_BUTTON if dashboard and settings else "",
+        "settings_dialog": appearance.HTML if dashboard and settings else "",
         "now": now,
         "clockjs": scripts + "".join(moving),
         # The tab's name, which no panel ever shows -- but a page with no
@@ -2453,10 +2646,7 @@ def render(links, title="", subtitle="", theme="dark",
         # No heading at all when there is nothing to head: a page whose
         # every tile is labelled does not need the word "Panel" over it, and
         # a title nobody set is exactly that.
-        "heading": (
-            (f"<h1>{html.escape(title)}</h1>" if str(title).strip() else "")
-            + (f"<p>{html.escape(subtitle)}</p>"
-               if str(subtitle).strip() else "")),
+        "heading": heading,
         "movie": movie,
         "fade": max(0.0, fade),
         "groups": "".join(body) or ("" if saver else EMPTY),
@@ -2466,11 +2656,11 @@ def render(links, title="", subtitle="", theme="dark",
         "accent": accent,
         # The end of the scale everything is mixed towards, and a plain value
         # first for anything that cannot mix.
-        "ground_end": "#0b0e14" if dark else "#f4f6fa",
+        "ground_end": ("#080c1a" if dark else "#f3f4f1") if dashboard else ("#0b0e14" if dark else "#f4f6fa"),
         "ground_fallback": "#0b0e14" if dark else "#f4f6fa",
-        "card_end": "#161b26" if dark else "#ffffff",
+        "card_end": ("#10192c" if dark else "#ffffff") if dashboard else ("#161b26" if dark else "#ffffff"),
         "card_fallback": "#161b26" if dark else "#ffffff",
-        "ink": "#e8ecf4" if dark else "#161b26",
+        "ink": "#edf3ff" if dark and dashboard else "#e8ecf4" if dark else "#161b26",
         "wall": wall_css,
         # Both belong to the picture and only to the picture. Left applied
         # with no wallpaper set, the dim darkened the plain colour instead --
@@ -2507,7 +2697,8 @@ def start(links, title="", subtitle="", theme="dark",
           tile_background="solid", tile_size=DEFAULT_SIZE,
           tile_text_color=FOLLOW_THEME, files_root=None, choice_file=None,
           status=None, saver_after=0, saver_clock=True, saver_date=True,
-          saver_weather=True, saver_avatar=True, saver_layout=None):
+          saver_weather=True, saver_avatar=True, saver_layout=None,
+          layout="classic", appearance_file=None):
     """Serve the page for as long as the add-on runs. Returns its address.
 
     One call is one launcher: its links, its look, its weather, its
@@ -2521,6 +2712,19 @@ def start(links, title="", subtitle="", theme="dark",
     # picture or a video chosen on the panel's own Files page, which
     # wins until it is taken away. A function, so a choice made while
     # the add-on runs is shown without restarting it.
+    try:
+        preference_columns = max(0, min(6, int(columns)))
+    except (TypeError, ValueError):
+        preference_columns = 0
+    preferences = appearance.Preferences(
+        {"theme": "light" if str(theme).lower() == "light" else "dark",
+         "columns": preference_columns}, appearance_file)
+    dashboard = str(layout).lower() == "dashboard"
+    # The assistant can be moved in either layout without carrying a position
+    # from the old home over the dashboard's application tiles.
+    if dashboard and avatar_file:
+        avatar_file = (appearance_file + ".avatar" if appearance_file
+                       else avatar_file + ".dashboard")
     kind = where = files = picture = addresses = None
     mime, mirrored = "application/octet-stream", False
     configured = (background, urls, motion)
@@ -2655,18 +2859,20 @@ def start(links, title="", subtitle="", theme="dark",
 
     def page(saver=False):
         state = weather() if weather is not None else None
+        look_preferences = preferences.snapshot() if dashboard and not saver else {
+            "theme": theme, "columns": columns}
         # The avatar's spot is part of the page: a panel coming home finds
         # the face where it was left, drawn there from the first frame rather
         # than jumping there after a script has run.
         key = (weather_block(state) if state else None, spot["at"],
-               wall_rev["n"])
+               wall_rev["n"], look_preferences["theme"], look_preferences["columns"])
         which = "saver" if saver else "page"
         held = cache.get(which)
         if held is None or held[0] != key:
             shown = saver_weather if saver else True
             body = render(
-                links, title, subtitle, theme, color,
-                background, blur, dim, columns,
+                links, title, subtitle, look_preferences["theme"], color,
+                background, blur, dim, look_preferences["columns"],
                 (saver_clock or saver_date) if saver else clock,
                 state if weather is not None and shown else None,
                 clock_size, clock_color, date_size, date_color,
@@ -2686,7 +2892,7 @@ def start(links, title="", subtitle="", theme="dark",
                 tile_text_color=tile_text_color,
                 status=status is not None,
                 saver=saver, saver_date=saver_date, saver_clock=saver_clock,
-                look=saver_layout).encode()
+                look=saver_layout, layout=layout, settings=dashboard).encode()
             held = cache[which] = (key, body)
         return held[1]
 
@@ -2746,7 +2952,42 @@ def start(links, title="", subtitle="", theme="dark",
             self.end_headers()
             self.wfile.write(payload)
 
+        def _appearance_post(self):
+            if not dashboard or self.path != appearance.PATH:
+                self.send_error(404)
+                return
+            # Only this launcher's own page may save its appearance. Another
+            # site opened on the panel must not change the home via a form.
+            if self.headers.get("Origin") != "http://" + self.headers.get("Host", ""):
+                self.send_error(403)
+                return
+            if self.headers.get_content_type() != "application/json":
+                self.send_error(415)
+                return
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+                if not 0 < length <= 4096:
+                    self.send_error(413)
+                    return
+                requested = json.loads(self.rfile.read(length))
+                if (isinstance(requested, dict) and set(requested) == {"reset"}
+                        and requested["reset"] is True):
+                    result = preferences.reset()
+                else:
+                    result = preferences.update(requested)
+            except (ValueError, TypeError, UnicodeError):
+                self.send_error(400, "Invalid appearance settings")
+                return
+            except OSError:
+                self.send_error(500, "Could not save appearance settings")
+                return
+            self._reply(json.dumps(result).encode(), "application/json")
+
         def do_GET(self):
+            if dashboard and self.path.split("?")[0] == appearance.PATH:
+                self._reply(json.dumps(preferences.snapshot()).encode(),
+                            "application/json")
+                return
             if self.path.split("?")[0] == WEATHER_PATH:
                 # Whatever the add-on last read, as it stands. A reading that
                 # has not arrived yet is an empty object rather than an error:
@@ -2896,6 +3137,9 @@ def start(links, title="", subtitle="", theme="dark",
                 self.send_error(404)
 
         def do_POST(self):
+            if self.path == appearance.PATH:
+                self._appearance_post()
+                return
             if library is None or not self.path.startswith(FILES_HREF + "/"):
                 self.send_error(404)
                 return

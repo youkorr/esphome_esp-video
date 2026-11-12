@@ -156,6 +156,11 @@ configuration:
     description: Colours, clock, weather, wallpaper. Applies to every screen; a screen can change any
       of it in 5.
     fields:
+      layout:
+        name: Layout
+        description: 'classic: the existing layout. dashboard: time, avatar and weather on the left, apps
+          on the right, with icons above names. For the Cinema trial: dark theme, 3 columns, medium tile
+          size and avatar on. light also works.'
       theme:
         name: Theme
         description: Dark or light.
@@ -167,8 +172,9 @@ configuration:
         description: Left, centre or right.
       tiles:
         name: Shape of the links
-        description: 'cards: wide cards, the icon beside the name. buttons: small buttons, the icon on
-          top and the name underneath.'
+        description: 'In the classic layout: cards are wide cards with the icon beside the name; buttons
+          put the icon on top. dashboard keeps its own shape, with the icon above the name: this setting
+          has no effect there.'
       focus_color:
         name: 🎯 Selection colour
         description: The ring around the link chosen with a remote or a gamepad. On a light background,
@@ -186,9 +192,9 @@ configuration:
         description: theme = the theme's own colour. On a light wallpaper, pick black for example.
       avatar:
         name: 😊 Avatar
-        description: A small robot with a screen for a face and headphones on, the size of a button, in
-          the bottom right corner. Its eyes change shape for each expression. Drag it with a finger to
-          put it anywhere; it stays there.
+        description: The assistant robot, with a screen for a face and headphones. In dashboard, it sits
+          in the left column. In classic, it starts at the bottom right; drag it to place it and it stays
+          there. Its eyes follow its expressions.
       avatar_voice:
         name: 🎙️ The avatar's voice assistant
         description: 'The face listens, thinks and answers with it. Empty: Home Assistant''s only voice
@@ -365,6 +371,11 @@ configuration:
             name: 🗣️ Other names to say
             description: 'To open it by voice: what the voice assistant writes when you say the name,
               separated by commas. For example "jelly fin, jellyfish" for Jellyfin.'
+      layout:
+        name: Layout
+        description: 'classic: the existing layout. dashboard: time, avatar and weather on the left, apps
+          on the right, with icons above names. For the Cinema trial: dark theme, 3 columns, medium tile
+          size and avatar on. light also works.'
       theme:
         name: Theme
         description: Dark or light.
@@ -376,8 +387,9 @@ configuration:
         description: Left, centre or right.
       tiles:
         name: Shape of the links
-        description: 'cards: wide cards, the icon beside the name. buttons: small buttons, the icon on
-          top and the name underneath.'
+        description: 'In the classic layout: cards are wide cards with the icon beside the name; buttons
+          put the icon on top. dashboard keeps its own shape, with the icon above the name: this setting
+          has no effect there.'
       focus_color:
         name: 🎯 Selection colour
         description: The ring around the link chosen with a remote or a gamepad. On a light background,
@@ -395,9 +407,9 @@ configuration:
         description: theme = the theme's own colour. On a light wallpaper, pick black for example.
       avatar:
         name: 😊 Avatar
-        description: A small robot with a screen for a face and headphones on, the size of a button, in
-          the bottom right corner. Its eyes change shape for each expression. Drag it with a finger to
-          put it anywhere; it stays there.
+        description: The assistant robot, with a screen for a face and headphones. In dashboard, it sits
+          in the left column. In classic, it starts at the bottom right; drag it to place it and it stays
+          there. Its eyes follow its expressions.
       avatar_voice:
         name: 🎙️ The avatar's voice assistant
         description: 'The face listens, thinks and answers with it. Empty: Home Assistant''s only voice
