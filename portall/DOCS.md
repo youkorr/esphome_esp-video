@@ -326,8 +326,26 @@ puts Portall, the clock and date, the assistant robot and the weather in a
 left column (about 26% of the width), with the apps in the remaining space.
 Nine links form a three-by-three grid, with each icon above its name. The
 Settings button is at the bottom left, under the weather. It opens the
-appearance dialog to choose a theme and column count. These choices are
-saved for this launcher; **Reset** restores the add-on's configured values.
+**Appearance of the page of links** editor. Its six sections cover the layout,
+theme and columns; tile styles, sizes and colours; clock and date; weather
+visibility and style; robot visibility; and the background source, movement,
+blur and dimming. Every choice is drawn inside the page, so a touch sent from
+the panel can reach it. Native browser dropdowns could open in 4.52.0 but
+could not be selected through the touch stream.
+
+**Apply** saves the changed appearance values for this launcher and reloads
+the home page. **Cancel** keeps the previous values. **Reset** restores the
+add-on's configured values. The editor also stays available in the classic
+layout. Existing 4.52.0 theme and column choices are kept. A source explicitly
+chosen in this editor replaces a background selected in Files; other appearance
+changes keep that selection. Local videos are streamed rather than read into
+memory in full.
+
+The voice assistant, weather entity, morning automation and screen-saver
+activation are still configured in the add-on. A launcher shared by several
+panels shares its saved appearance; use a panel's own `launchers:` entry for
+independent appearance choices. On-screen appearance values are overrides;
+use Reset to follow edited add-on defaults again.
 
 In Configuration, under **4 · Look of the page of links**, choose the values
 below and restart the add-on. `tiles: cards` or `tiles: buttons` makes no

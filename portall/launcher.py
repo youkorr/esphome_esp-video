@@ -2385,6 +2385,7 @@ def render(links, title="", subtitle="", theme="dark",
     dark = str(theme).lower() != "light"
     accent = PALETTES.get(str(color).lower(), PALETTES[DEFAULT_PALETTE])
     dashboard = str(layout).lower() == "dashboard" and not saver
+    settings = bool(settings) and not saver
 
     addresses = _addresses(urls)
     if addresses:
@@ -2627,17 +2628,23 @@ def render(links, title="", subtitle="", theme="dark",
                         (f'<p>{html.escape(subtitle)}</p>' if str(subtitle).strip() else '') + '</div>')
         heading = ""
         moving.append(DASHBOARD_JS)
-        if settings:
-            sheet += appearance.CSS
-            moving.append(appearance.JS)
+    if settings:
+        sheet += appearance.CSS
+        moving.append(appearance.JS)
+    settings_dialog = ""
+    if settings:
+        fields = json.dumps(appearance.FIELDS, ensure_ascii=True).replace("<", "\\u003c")
+        settings_dialog = (appearance.HTML +
+                          '<script id="appearance-fields" type="application/json">' +
+                          fields + '</script>')
 
     return PAGE % {
         "css": sheet,
         "page_class": ("dashboard" + (" plain" if not has_wall else "")) if dashboard else "",
         "brand": brand,
         "main_heading": main_heading,
-        "settings_button": appearance.OPEN_BUTTON if dashboard and settings else "",
-        "settings_dialog": appearance.HTML if dashboard and settings else "",
+        "settings_button": appearance.OPEN_BUTTON if settings else "",
+        "settings_dialog": settings_dialog,
         "now": now,
         "clockjs": scripts + "".join(moving),
         # The tab's name, which no panel ever shows -- but a page with no
@@ -2698,7 +2705,7 @@ def start(links, title="", subtitle="", theme="dark",
           tile_text_color=FOLLOW_THEME, files_root=None, choice_file=None,
           status=None, saver_after=0, saver_clock=True, saver_date=True,
           saver_weather=True, saver_avatar=True, saver_layout=None,
-          layout="classic", appearance_file=None):
+          layout="classic", appearance_file=None, voice_factory=None):
     """Serve the page for as long as the add-on runs. Returns its address.
 
     One call is one launcher: its links, its look, its weather, its
@@ -2716,18 +2723,45 @@ def start(links, title="", subtitle="", theme="dark",
         preference_columns = max(0, min(6, int(columns)))
     except (TypeError, ValueError):
         preference_columns = 0
+    if appearance_file is not None:
+        appearance_file = os.fspath(appearance_file)
+    if avatar_file is not None:
+        avatar_file = os.fspath(avatar_file)
     preferences = appearance.Preferences(
-        {"theme": "light" if str(theme).lower() == "light" else "dark",
-         "columns": preference_columns}, appearance_file)
-    dashboard = str(layout).lower() == "dashboard"
+        {"layout": layout, "theme": "light" if str(theme).lower() == "light" else "dark",
+         "columns": preference_columns, "align": align, "tiles": tiles,
+         "focus_color": focus_color, "tile_background": tile_background,
+         "tile_size": tile_size, "tile_text_color": tile_text_color,
+         "avatar": bool(avatar), "clock": bool(clock), "clock_size": clock_size,
+         "clock_color": clock_color, "date_size": date_size, "date_color": date_color,
+         "weather_size": weather_size, "weather_color": weather_color,
+         "background": background, "background_motion": bool(motion),
+         "background_blur": blur, "background_dim": int(dim)}, appearance_file)
+    look_lock = threading.RLock()
+    voice_attempted = voice is not None
+
+    def follow_assistant(look_preferences):
+        nonlocal voice, voice_attempted
+        if look_preferences["avatar"] and not voice_attempted and voice_factory:
+            voice_attempted = True
+            try:
+                voice = voice_factory()
+            except Exception as err:  # an accessory must not cost the home page
+                print(f"Launcher: the assistant could not be followed ({err})", flush=True)
+
+    follow_assistant(preferences.snapshot())
     # The assistant can be moved in either layout without carrying a position
     # from the old home over the dashboard's application tiles.
-    if dashboard and avatar_file:
-        avatar_file = (appearance_file + ".avatar" if appearance_file
-                       else avatar_file + ".dashboard")
+    avatar_files = {"classic": avatar_file,
+                    "dashboard": (appearance_file + ".avatar" if appearance_file
+                                  else avatar_file + ".dashboard" if avatar_file else None)}
     kind = where = files = picture = addresses = None
     mime, mirrored = "application/octet-stream", False
-    configured = (background, urls, motion)
+    initial_look = preferences.snapshot()
+    original_urls = tuple(urls)
+    configured = (initial_look["background"],
+                  () if preferences.has_override("background") else original_urls,
+                  initial_look["background_motion"])
 
     # With a screen saver the slideshow is the SAVER's, and the page of links
     # keeps its first picture still: the pictures changing behind the tiles
@@ -2797,7 +2831,7 @@ def start(links, title="", subtitle="", theme="dark",
         # disk seek where there is no need for one.
         if not mirrored:
             picture, mime = None, "application/octet-stream"
-        if kind == "file" and not chosen:
+        if kind == "file" and not chosen and not (_is_movie(where or "") and library is not None):
             try:
                 with open(where, "rb") as handle:
                     picture = handle.read()
@@ -2819,7 +2853,7 @@ def start(links, title="", subtitle="", theme="dark",
         elif kind == "file":
             # Chosen: served from disk a piece at a time, since it can be a
             # film and the add-on has no business holding it.
-            print(f"Launcher: wallpaper {where}, chosen on the Files page",
+            print(f"Launcher: wallpaper {where}, streamed from disk",
                   flush=True)
 
     def chosen_path():
@@ -2847,54 +2881,64 @@ def start(links, title="", subtitle="", theme="dark",
 
     # Where the avatar was last put, read once and kept in memory. A spot that
     # cannot be read is the corner it starts in -- never a reason to fail.
-    spot = {"at": None}
-    if avatar and avatar_file:
-        try:
-            with open(avatar_file, encoding="utf-8") as handle:
-                saved = json.load(handle)
-            spot["at"] = (min(1.0, max(0.0, float(saved["x"]))),
-                          min(1.0, max(0.0, float(saved["y"]))))
-        except (OSError, ValueError, KeyError, TypeError):
-            pass
+    spots = {"classic": None, "dashboard": None}
+    for name, stored_file in avatar_files.items():
+        if stored_file:
+            try:
+                with open(stored_file, encoding="utf-8") as handle:
+                    saved = json.load(handle)
+                spots[name] = (min(1.0, max(0.0, float(saved["x"]))),
+                               min(1.0, max(0.0, float(saved["y"]))))
+            except (OSError, ValueError, KeyError, TypeError):
+                pass
 
-    def page(saver=False):
+    def make_page(saver=False):
         state = weather() if weather is not None else None
-        look_preferences = preferences.snapshot() if dashboard and not saver else {
-            "theme": theme, "columns": columns}
+        current_look = preferences.snapshot()
+        look_preferences = initial_look if saver else current_look
+        spot = spots[current_look["layout"]]
         # The avatar's spot is part of the page: a panel coming home finds
         # the face where it was left, drawn there from the first frame rather
         # than jumping there after a script has run.
-        key = (weather_block(state) if state else None, spot["at"],
-               wall_rev["n"], look_preferences["theme"], look_preferences["columns"])
+        key = (weather_block(state) if state else None, spot,
+               wall_rev["n"], json.dumps(look_preferences, sort_keys=True))
         which = "saver" if saver else "page"
         held = cache.get(which)
         if held is None or held[0] != key:
             shown = saver_weather if saver else True
             body = render(
                 links, title, subtitle, look_preferences["theme"], color,
-                background, blur, dim, look_preferences["columns"],
-                (saver_clock or saver_date) if saver else clock,
-                state if weather is not None and shown else None,
-                clock_size, clock_color, date_size, date_color,
-                weather_size, align,
+                background, look_preferences["background_blur"],
+                look_preferences["background_dim"], look_preferences["columns"],
+                (saver_clock or saver_date) if saver else look_preferences["clock"],
+                (state or {}) if weather is not None and shown and
+                (saver or look_preferences["weather_visible"]) else None,
+                look_preferences["clock_size"], look_preferences["clock_color"],
+                look_preferences["date_size"], look_preferences["date_color"],
+                look_preferences["weather_size"], look_preferences["align"],
                 # Already sifted just above, so the page does not repeat
                 # the complaint about an address that is not one.
                 motion, slideshow and (saver or not saving), every, fade,
                 # The saver takes the slideshow's addresses; the page of
                 # links only when they are its wallpaper (settle() says).
-                rescan, addresses if saver or kind == "urls" else (),
-                mirrored, shape=tiles, focus_color=focus_color,
-                avatar=avatar and (saver_avatar or not saver),
-                avatar_at=spot["at"],
+                rescan, (original_urls if saver and saving and original_urls
+                         else addresses if saver or kind == "urls" else ()),
+                mirrored, shape=look_preferences["tiles"], focus_color=look_preferences["focus_color"],
+                avatar=look_preferences["avatar"] and (saver_avatar or not saver),
+                avatar_at=spot,
                 voice=voice is not None,
-                weather_color=weather_color,
-                tile_background=tile_background, tile_size=tile_size,
-                tile_text_color=tile_text_color,
+                weather_color=look_preferences["weather_color"],
+                tile_background=look_preferences["tile_background"], tile_size=look_preferences["tile_size"],
+                tile_text_color=look_preferences["tile_text_color"],
                 status=status is not None,
                 saver=saver, saver_date=saver_date, saver_clock=saver_clock,
-                look=saver_layout, layout=layout, settings=dashboard).encode()
+                look=saver_layout, layout=look_preferences["layout"], settings=True).encode()
             held = cache[which] = (key, body)
         return held[1]
+
+    def page(saver=False):
+        with look_lock:
+            return make_page(saver)
 
     # Once here, so a fault in the page is reported at startup rather than
     # the first time somebody comes home to it.
@@ -2953,7 +2997,8 @@ def start(links, title="", subtitle="", theme="dark",
             self.wfile.write(payload)
 
         def _appearance_post(self):
-            if not dashboard or self.path != appearance.PATH:
+            nonlocal configured
+            if self.path != appearance.PATH:
                 self.send_error(404)
                 return
             # Only this launcher's own page may save its appearance. Another
@@ -2966,15 +3011,38 @@ def start(links, title="", subtitle="", theme="dark",
                 return
             try:
                 length = int(self.headers.get("Content-Length", "0"))
-                if not 0 < length <= 4096:
+                if not 0 < length <= 16384:
                     self.send_error(413)
                     return
                 requested = json.loads(self.rfile.read(length))
-                if (isinstance(requested, dict) and set(requested) == {"reset"}
-                        and requested["reset"] is True):
-                    result = preferences.reset()
-                else:
-                    result = preferences.update(requested)
+                with look_lock:
+                    previous = preferences.snapshot()
+                    if (isinstance(requested, dict) and "background_motion" in requested
+                            and "background" not in requested):
+                        selected = chosen_path()[1]
+                        if selected:
+                            requested = {**requested, "background": selected}
+                    if (isinstance(requested, dict) and set(requested) == {"reset"}
+                            and requested["reset"] is True):
+                        result = preferences.reset()
+                    else:
+                        result = preferences.update(requested)
+                    next_background = (result["background"],
+                                       () if preferences.has_override("background") else original_urls,
+                                       result["background_motion"])
+                    background_requested = isinstance(requested, dict) and "background" in requested
+                    if next_background != configured or background_requested:
+                        configured = next_background
+                        # Choosing a background here is an explicit choice,
+                        # just as choosing one on Files is. Unrelated look
+                        # changes keep the existing Files selection intact.
+                        if background_requested and library is not None and choice_file:
+                            library.write_choice(choice_file, None)
+                        settle(chosen_path()[1])
+                        wall_rev["n"] += 1
+                    follow_assistant(result)
+                    if previous != result:
+                        cache.clear()
             except (ValueError, TypeError, UnicodeError):
                 self.send_error(400, "Invalid appearance settings")
                 return
@@ -2984,7 +3052,7 @@ def start(links, title="", subtitle="", theme="dark",
             self._reply(json.dumps(result).encode(), "application/json")
 
         def do_GET(self):
-            if dashboard and self.path.split("?")[0] == appearance.PATH:
+            if self.path.split("?")[0] == appearance.PATH:
                 self._reply(json.dumps(preferences.snapshot()).encode(),
                             "application/json")
                 return
@@ -3035,16 +3103,18 @@ def start(links, title="", subtitle="", theme="dark",
                 try:
                     x = float((asked.get("x") or [""])[0])
                     y = float((asked.get("y") or [""])[0])
-                    ok = avatar and 0.0 <= x <= 1.0 and 0.0 <= y <= 1.0
+                    ok = preferences.snapshot()["avatar"] and 0.0 <= x <= 1.0 and 0.0 <= y <= 1.0
                 except ValueError:
                     ok = False
                 if ok:
-                    spot["at"] = (x, y)
-                    if avatar_file:
+                    current_layout = preferences.snapshot()["layout"]
+                    spots[current_layout] = (x, y)
+                    stored_file = avatar_files[current_layout]
+                    if stored_file:
                         try:
-                            os.makedirs(os.path.dirname(avatar_file) or ".",
+                            os.makedirs(os.path.dirname(stored_file) or ".",
                                         exist_ok=True)
-                            with open(avatar_file, "w", encoding="utf-8") as h:
+                            with open(stored_file, "w", encoding="utf-8") as h:
                                 json.dump({"x": x, "y": y}, h)
                         except OSError as err:
                             if "avatar" not in said:
