@@ -267,6 +267,7 @@ in a panel's `url:` and it starts there:
 
 ```yaml
 launcher:
+  layout: classic             # classic (existing page), or dashboard
   theme: dark                 # dark or light
   columns: 0                  # 0 lets the panel decide
   align: left                 # left, center, right
@@ -320,7 +321,46 @@ panels:
     height: 1280
 ```
 
-**Two shapes of link, `tiles:`.** `cards` (the default) are wide cards with
+**Try the Cinema dashboard.** On a landscape panel, `layout: dashboard`
+puts Portall, the clock and date, the assistant robot and the weather in a
+left column (about 26% of the width), with the apps in the remaining space.
+Nine links form a three-by-three grid, with each icon above its name. The
+Settings button is at the bottom left, under the weather. It opens the
+appearance dialog to choose a theme and column count. These choices are
+saved for this launcher; **Reset** restores the add-on's configured values.
+
+In Configuration, under **4 · Look of the page of links**, choose the values
+below and restart the add-on. `tiles: cards` or `tiles: buttons` makes no
+difference in this layout: the dashboard uses its own tile shape. A light
+theme is also available by choosing `theme: light`.
+
+```yaml
+launcher:
+  layout: dashboard
+  theme: dark
+  columns: 3
+  tile_size: medium
+  tile_text_color: theme
+  tile_background: solid
+  avatar: true
+  tiles: cards
+  clock:
+    show: true
+    size: medium
+    color: theme
+  date:
+    size: medium
+    color: theme
+  background:
+    source: ""
+```
+
+These settings also work in a screen's own `launchers:` entry under
+**5 · A screen's own page of links**. Existing configurations keep
+`layout: classic` by default. To return to the existing presentation, set
+`layout: classic` and restart. Your links stay configured.
+
+**Two shapes of link in the classic layout, `tiles:`.** `cards` (the default) are wide cards with
 the icon beside the name and the description underneath. `buttons` are
 smaller buttons, laid out like a panel built with LVGL: the icon on top, the
 name underneath, a light gradient, and a press that pushes the button down.

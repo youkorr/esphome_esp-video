@@ -1,5 +1,16 @@
 # Changelog
 
+## 4.52.0
+
+- **An optional Cinema home screen.** Choose `launcher: layout: dashboard`
+  for a left column with the clock, date, assistant robot and weather, and
+  large application tiles to the right. The existing layout stays the default.
+- **Settings on the screen**, at the bottom left: choose a dark or light
+  theme and the number of columns. Choices are saved for this launcher;
+  Reset follows the add-on settings again.
+- Photos and AList have local vector icons, with no icon service to contact.
+- This changes the add-on's home page and requires no panel firmware flash.
+
 ## 4.51.2
 
 - **Less work for the panel when only parts of the screen move.** Independent
