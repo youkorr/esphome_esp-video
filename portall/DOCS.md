@@ -1439,6 +1439,12 @@ A screen whose width is not a multiple of 16 -- a Waveshare 7B drawn portrait,
 600 wide -- gets the sharp picture with the colour halved: its decoder lays a
 full-colour picture out 8 pixels off per row there.
 
+**Experimental firmware: direct JPEG decode into panel buffers.** A Guition
+800x1280 can test `panel_buffers: true` with the synchronized three-buffer
+MIPI DSI driver. This avoids the display copy for full native pictures and
+keeps normal blits for partial rectangles. It requires a firmware rebuild;
+the option is off by default. See [the test configuration and A/B procedure](PANEL_BUFFERS.md).
+
 **Lines across the buttons and the wallpaper: 16 or 24 bits.** A screen whose
 display is drawn in 16 bits (`pixel_mode: 16`, the default) has 32 levels of
 red and blue, so a dark gradient -- a button's shading, a dimmed and blurred
@@ -1936,6 +1942,43 @@ browser, so an old one there means the image was built long ago and rebuilt
 from cache.
 
 ## Video, and why it is the worst thing to ask of this
+
+### No picture after an ESPHome update, or video that stalls
+
+ESPHome 2026.11 changed the block display API. Older Portall firmware calls
+the form with `ColorOrder`, which now draws pixel by pixel instead of using
+`mipi_dsi`'s block transfer. With `update_interval: never`, the pixels stay in
+a software buffer and the panel remains blank, even though Portall reports
+that it decoded and drew frames. Rebuild and flash the panel with the current
+`portall` component (or `wired_portall` if that is what its YAML uses).
+Updating the Home Assistant add-on alone cannot change this firmware code.
+The correction also covers Portall's canvas video mode and still builds on
+ESPHome 2026.10.
+
+For a network panel using `portall`, also check its ESPHome YAML:
+
+```yaml
+psram:
+  # Keep the board's existing mode and speed.
+  ignore_not_found: false
+```
+
+Portall requests ESPHome's high-performance networking. Without that PSRAM
+setting, ESPHome uses a 65534-byte TCP receive window instead of 512000 bytes;
+this can limit video throughput. Remove any old manual
+`CONFIG_LWIP_TCP_WND_DEFAULT` override if it is keeping the smaller window.
+Keep the board's `esp32_hosted` pin configuration; 2.x `CONFIG_ESP_HOSTED_*`
+tuning options do not configure esp_hosted 3.x's renamed options.
+
+If an old binary shows a picture but all pages still stutter, the remaining
+cause needs measurements. Enable Portall's diagnostic statistics and collect
+the add-on's `Browser:`, `Media:`, `Network:` and `pictures/s` lines together
+with the panel's `portall` / `portall.net` statistics during the same video.
+They distinguish browser rendering, network backpressure and decode/draw
+time. A Home Assistant or esp_hosted version change alone does not establish
+which stage is stalling.
+
+### Browser codecs
 
 Measured on the Chromium Playwright downloads, 141.0.7390.37: **no H.264, no
 AAC, no HLS**, and `navigator.requestMediaKeySystemAccess` does not even exist,

@@ -25,6 +25,13 @@
 #include <atomic>
 #include <cstdint>
 
+#if __has_include("esphome/components/mipi_dsi/mipi_dsi_direct.h")
+#include "esphome/components/mipi_dsi/mipi_dsi_direct.h"
+#define PORTALL_HAS_DIRECT_PANEL 1
+#else
+#define PORTALL_HAS_DIRECT_PANEL 0
+#endif
+
 /* What a PCM payload carries, and what the USB audio class is configured for:
  * the two must agree, because they share one speaker and one block buffer.
  * Mono because these panels have one speaker and it halves what the network
@@ -120,6 +127,7 @@ class Portall : public Component
   /// as it was, decode then draw then decode. The second costs one decoded
   /// panel of PSRAM, taken at boot.
   void set_decode_buffers(uint8_t count) { this->decode_buffers_ = count; }
+  void set_panel_buffers(bool enabled) { this->panel_buffers_requested_ = enabled; }
   void set_max_frame_bytes(size_t bytes) { this->max_frame_bytes_ = bytes; }
   /// Also enforced here, not only advertised: a host that ignores the figure
   /// otherwise spends this board's whole budget on frames it cannot draw.
@@ -348,6 +356,10 @@ class Portall : public Component
   void hand_over_(const Frame &frame, uint8_t *decoded, uint16_t padded_width, uint16_t padded_height);
   // Plain mode's draw: turn or scale it if asked, then onto the display.
   void draw_decoded_(const Frame &frame, const uint8_t *decoded, uint16_t padded_width, uint16_t padded_height);
+  void setup_panel_buffers_();
+  uint8_t *acquire_panel_frame_(const Frame &frame, size_t &room);
+  void cancel_panel_frame_(uint8_t *buffer);
+  void present_panel_frame_(const Frame &frame, uint8_t *buffer);
   // Counts a picture drawn, whichever way it was drawn.
   void note_drawn_(const Frame &frame, uint16_t x, uint16_t y, uint16_t w, uint16_t h);
   // The five-second line. Called by whichever task finishes a picture.
@@ -589,6 +601,15 @@ class Portall : public Component
   uint8_t *rgb_spare_{nullptr};
   QueueHandle_t spare_queue_{nullptr};
   QueueHandle_t draw_queue_{nullptr};
+  // A direct frame must wait until earlier rectangle blits and their stats
+  // are finished, before it can change the panel driver's target buffer.
+  std::atomic<uint32_t> draws_queued_{0}, draws_finished_{0};
+  bool panel_buffers_requested_{false};
+  bool panel_buffers_active_{false};
+  uint32_t panel_frames_{0}, panel_wait_us_{0};
+#if PORTALL_HAS_DIRECT_PANEL
+  const mipi_dsi::DirectPanel *direct_panel_{nullptr};
+#endif
 
   // Rotation, for a panel that is not mounted the way the host sends its
   // frames. Null client means none was asked for and nothing is allocated.
