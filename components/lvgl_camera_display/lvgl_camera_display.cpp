@@ -23,6 +23,35 @@ namespace lvgl_camera_display {
 
 static const char *const TAG = "lvgl_camera_display";
 
+// The canvas's own buffer is what ESPHome's lvgl allocated for it, and nothing
+// clears it: PSRAM keeps its contents across a reset and a flash, so until the
+// first frame replaces it the canvas shows whatever an earlier firmware drew
+// there -- a dashboard, a test picture. Painted once, with the canvas's own
+// bg_color when the YAML gave it one (the colour it meant to be seen before the
+// camera starts) and black otherwise; a format with alpha is made transparent.
+static bool paint_own_buffer(lv_obj_t *canvas) {
+  if (!lv_obj_check_type(canvas, &lv_canvas_class))
+    return false;
+  lv_draw_buf_t *buf = lv_canvas_get_draw_buf(canvas);
+  if (buf == nullptr || buf->data == nullptr)
+    return false;
+  lv_color_t color = lv_color_black();
+  lv_opa_t opa = LV_OPA_COVER;
+  lv_style_value_t value;
+  if (lv_color_format_has_alpha((lv_color_format_t) buf->header.cf)) {
+    opa = LV_OPA_TRANSP;
+  } else if (lv_obj_get_local_style_prop(canvas, LV_STYLE_BG_COLOR, &value, LV_PART_MAIN) == LV_STYLE_RES_FOUND) {
+    color = value.color;
+  }
+  lv_canvas_fill_bg(canvas, color, opa);  // invalidates the canvas too
+  // The fill went through the data cache, and a PPA draw unit reads the buffer
+  // by DMA straight from PSRAM: it would still find the old picture there.
+  if (esp_ptr_external_ram(buf->data))
+    esp_cache_msync(buf->data, buf->data_size,
+                    ESP_CACHE_MSYNC_FLAG_DIR_C2M | ESP_CACHE_MSYNC_FLAG_TYPE_DATA | ESP_CACHE_MSYNC_FLAG_UNALIGNED);
+  return true;
+}
+
 void LVGLCameraDisplay::setup() {
   ESP_LOGCONFIG(TAG, "Configuration LVGL Camera Display...");
   ESP_LOGI(TAG, "Display is DISABLED by default - enable via switch in Home Assistant");
@@ -535,6 +564,11 @@ void LVGLCameraDisplay::configure_canvas(lv_obj_t *canvas) {
     lv_coord_t w = lv_obj_get_width(canvas);
     lv_coord_t h = lv_obj_get_height(canvas);
     ESP_LOGI(TAG, "   Taille canvas: %dx%d", (int) w, (int) h);
+    // Only while the canvas still has its own buffer: once a frame has been
+    // shown it draws from the camera's, which is not ours to paint over.
+    if (lv_obj_check_type(canvas, &lv_canvas_class) && lv_canvas_get_draw_buf(canvas) != &this->camera_draw_buf_ &&
+        paint_own_buffer(canvas))
+      ESP_LOGI(TAG, "   Canvas cleared until the first frame");
   }
 }
 
