@@ -250,6 +250,7 @@ async def portall_set_volume_to_code(config, action_id, template_arg, args):
 CONF_DISPLAY_ID = "display_id"
 CONF_FRAME_BUFFERS = "frame_buffers"
 CONF_DECODE_BUFFERS = "decode_buffers"
+CONF_PANEL_BUFFERS = "panel_buffers"
 CONF_MAX_FRAME_BYTES = "max_frame_bytes"
 CONF_MANUFACTURER = "manufacturer"
 CONF_PRODUCT = "product"
@@ -715,6 +716,7 @@ CONFIG_SCHEMA = cv.All(
             # bits). One is the board as it was: decode, then draw. Canvas mode
             # has its own pair and ignores this.
             cv.Optional(CONF_DECODE_BUFFERS, default=2): cv.int_range(min=1, max=2),
+            cv.Optional(CONF_PANEL_BUFFERS, default=False): cv.boolean,
             # Upper bound on one compressed frame. A 1024x600 JPEG of a desktop
             # is tens of kilobytes; 128 KB leaves room for a busy screen.
             cv.Optional(CONF_MAX_FRAME_BYTES, default=131072): cv.int_range(
@@ -855,9 +857,54 @@ def _depth_fits(config):
     return config
 
 
+def _validate_panel_buffers(config):
+    if not config[CONF_PANEL_BUFFERS]:
+        return config
+    full = fv.full_config.get()
+    if full.get("lvgl") or CONF_CANVAS in config:
+        raise cv.Invalid("panel_buffers: needs an exclusive full-screen Portall display, without LVGL/canvas")
+    if config[CONF_ROTATION] or CONF_RENDER_WIDTH in config:
+        raise cv.Invalid("panel_buffers: needs rotation: 0 and the panel's native render size")
+    if config[CONF_WIDTH] % 16 or config[CONF_HEIGHT] % 16:
+        raise cv.Invalid("panel_buffers: width and height must be multiples of 16 for the JPEG DMA output")
+    if display_depth(full, config[CONF_DISPLAY_ID]) != 16:
+        raise cv.Invalid("panel_buffers: currently needs color_depth: 16 (RGB565)")
+    wanted = getattr(config[CONF_DISPLAY_ID], "id", config[CONF_DISPLAY_ID])
+    for block in full.get("display") or []:
+        if getattr(block.get(CONF_ID), "id", None) != wanted:
+            continue
+        if block.get("platform") != "mipi_dsi" or block.get("framebuffers") != 3:
+            raise cv.Invalid("panel_buffers: use the synchronized mipi_dsi driver with framebuffers: 3")
+        # Named one by one: "the display must have ..." over six keys sends
+        # somebody to check the five that are fine.
+        problems = []
+        if block.get(CONF_ROTATION, 0):
+            problems.append(
+                f"rotation: {block.get(CONF_ROTATION)} (leave it out; the add-on's rotate: turns the picture)"
+            )
+        if block.get("lambda"):
+            problems.append("a lambda")
+        if block.get("pages"):
+            problems.append("pages")
+        # Not written, ESPHome stores the word "unspecified", which it reads as
+        # off for a display with no lambda and no pages. Only a written true
+        # clears the screen behind Portall's back.
+        if block.get("auto_clear_enabled") is True:
+            problems.append("auto_clear_enabled: true")
+        if block.get("show_test_card"):
+            problems.append("show_test_card: true")
+        if block.get("byte_order", "little_endian") != "little_endian":
+            problems.append(f"byte_order: {block.get('byte_order')}")
+        if problems:
+            raise cv.Invalid(
+                f"panel_buffers: display '{wanted}' must not have " + ", ".join(problems)
+            )
+    return config
+
+
 def _final_validate(config):
     config = _video_keeps_lvgl_paused(config)
-    return _depth_fits(config)
+    return _validate_panel_buffers(_depth_fits(config))
 
 
 FINAL_VALIDATE_SCHEMA = _final_validate
@@ -874,6 +921,7 @@ async def to_code(config):
         cg.add(var.set_render_resolution(render_w, config[CONF_RENDER_HEIGHT]))
     cg.add(var.set_frame_buffers(config[CONF_FRAME_BUFFERS]))
     cg.add(var.set_decode_buffers(config[CONF_DECODE_BUFFERS]))
+    cg.add(var.set_panel_buffers(config[CONF_PANEL_BUFFERS]))
     cg.add(var.set_max_frame_bytes(config[CONF_MAX_FRAME_BYTES]))
     cg.add(var.set_rotation(config[CONF_ROTATION]))
     cg.add(var.set_ppa_burst(config[CONF_PPA_BURST]))

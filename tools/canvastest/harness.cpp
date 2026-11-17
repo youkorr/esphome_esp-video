@@ -46,10 +46,20 @@ static int g_pw = 0, g_ph = 0;
 static std::vector<uint16_t> g_phys;
 static int g_draws = 0;
 namespace display {
+#define VERSION_CODE(major, minor, patch) (((major) << 16) | ((minor) << 8) | (patch))
+#ifdef PORTALL_TEST_MODERN_DISPLAY
+#define ESPHOME_VERSION_CODE VERSION_CODE(2026, 12, 0)
+#else
+#define ESPHOME_VERSION_CODE VERSION_CODE(2026, 10, 0)
+#endif
 enum ColorOrder { COLOR_ORDER_RGB };
 enum ColorBitness { COLOR_BITNESS_565 };
 struct Display {
-  void draw_pixels_at(int x, int y, int w, int h, const uint8_t *ptr, ColorOrder, ColorBitness, bool, int, int,
+  void draw_pixels_at(int x, int y, int w, int h, const uint8_t *ptr,
+#ifndef PORTALL_TEST_MODERN_DISPLAY
+                      ColorOrder,
+#endif
+                      ColorBitness, bool, int, int,
                       int x_pad) {
     g_draws++;
     const uint16_t *px = (const uint16_t *) ptr;
