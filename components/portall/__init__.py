@@ -875,10 +875,30 @@ def _validate_panel_buffers(config):
             continue
         if block.get("platform") != "mipi_dsi" or block.get("framebuffers") != 3:
             raise cv.Invalid("panel_buffers: use the synchronized mipi_dsi driver with framebuffers: 3")
-        if (block.get(CONF_ROTATION, 0) or block.get("lambda") or block.get("pages")
-                or block.get("auto_clear_enabled") or block.get("show_test_card")
-                or block.get("byte_order", "little_endian") != "little_endian"):
-            raise cv.Invalid("panel_buffers: the display must have rotation: 0, auto_clear_enabled: false and no writer/pages")
+        # Named one by one: "the display must have ..." over six keys sends
+        # somebody to check the five that are fine.
+        problems = []
+        if block.get(CONF_ROTATION, 0):
+            problems.append(
+                f"rotation: {block.get(CONF_ROTATION)} (leave it out; the add-on's rotate: turns the picture)"
+            )
+        if block.get("lambda"):
+            problems.append("a lambda")
+        if block.get("pages"):
+            problems.append("pages")
+        # Not written, ESPHome stores the word "unspecified", which it reads as
+        # off for a display with no lambda and no pages. Only a written true
+        # clears the screen behind Portall's back.
+        if block.get("auto_clear_enabled") is True:
+            problems.append("auto_clear_enabled: true")
+        if block.get("show_test_card"):
+            problems.append("show_test_card: true")
+        if block.get("byte_order", "little_endian") != "little_endian":
+            problems.append(f"byte_order: {block.get('byte_order')}")
+        if problems:
+            raise cv.Invalid(
+                f"panel_buffers: display '{wanted}' must not have " + ", ".join(problems)
+            )
     return config
 
 
