@@ -14,6 +14,9 @@ import sys
 import tempfile
 from pathlib import Path
 
+if not __debug__:
+    raise RuntimeError("Run this fixture without -O: its assertion checks must stay enabled")
+
 from playwright.sync_api import sync_playwright
 
 ROOT = Path(__file__).resolve().parents[1]
