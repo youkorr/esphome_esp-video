@@ -1,5 +1,19 @@
 # Changelog
 
+## 4.52.3
+
+- **YouTube TV format checks in the experimental HD mode.** Validate the
+  size, frame-rate and other extended MIME parameters used by TV players,
+  then let Chromium decide the actual codec/container support. This lets
+  those checks distinguish a valid 1080p format from impossible parameters
+  that Chromium otherwise ignores.
+- This adaptation is limited to YouTube TV with `youtube_tv_hd` enabled.
+  Media diagnostics report when it is installed and a few rejected probes.
+  The panel image dimensions and firmware are unchanged.
+- Local Chrome fixtures verify valid 1080p queries, rejection of impossible
+  queries, native codec decisions, scope and unchanged EME/MediaCapabilities
+  APIs. Actual YouTube 1080p playback still needs to be verified on a panel.
+
 ## 4.52.2
 
 - Optional **YouTube TV HD (experimental)** under each screen's Advanced

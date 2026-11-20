@@ -3470,6 +3470,124 @@ def is_youtube_tv(url):
         return False
 
 
+TV_MEDIA_INIT_TEMPLATE = r"""
+(() => {
+  const inTV = () => {
+    try {
+      return window === window.top && /^https?:$/.test(location.protocol)
+        && ['youtube.com', 'www.youtube.com'].includes(location.hostname)
+        && (location.pathname === '/tv' || location.pathname.startsWith('/tv/'));
+    } catch (_) { return false; }
+  };
+  if (!inTV() || !window.MediaSource) return false;
+  const source = window.MediaSource;
+  const original = source.isTypeSupported;
+  if (typeof original !== 'function') return false;
+  if (original.__portallTVMime) return true;
+  let notes = 8;
+  const note = message => {
+    if (!__DIAGNOSTICS__ || notes <= 0) return;
+    notes--;
+    try {
+      const task = window.__udispMediaError('TV capabilities: ' + message);
+      if (task && task.catch) task.catch(() => {});
+    } catch (_) {}
+  };
+  // Split MIME parameters without splitting quoted values at a semicolon.
+  const fieldsOf = text => {
+    const fields = [];
+    let start = 0, quoted = false, escaped = false;
+    for (let i = 0; i < text.length; i++) {
+      const ch = text[i];
+      if (escaped) { escaped = false; continue; }
+      if (quoted && ch === '\\') { escaped = true; continue; }
+      if (ch === '"') quoted = !quoted;
+      if (ch === ';' && !quoted) { fields.push(text.slice(start, i)); start = i + 1; }
+    }
+    if (quoted || escaped) return null;
+    fields.push(text.slice(start));
+    return fields;
+  };
+  const numeric = (value, maximum, integral = false, minimum = 0) => {
+    if (!value || !/^[+]?\d*\.?\d+(?:e[+-]?\d+)?$/i.test(value)) return null;
+    const n = Number(value);
+    return Number.isFinite(n) && n >= minimum && n <= maximum
+      && (!integral || Number.isInteger(n)) ? n : null;
+  };
+  function isTypeSupported(type) {
+    if (!inTV() || typeof type !== 'string')
+      return Reflect.apply(original, this, arguments);
+    const fields = fieldsOf(type);
+    if (!fields || !/^(?:audio|video)\//i.test(fields[0].trim()))
+      return Reflect.apply(original, this, arguments);
+    const video = /^video\//i.test(fields[0].trim());
+    const kept = [fields[0]];
+    const dimensions = {};
+    let extended = false;
+    for (const field of fields.slice(1)) {
+      const equal = field.indexOf('=');
+      if (equal < 0) { kept.push(field); continue; }
+      const key = field.slice(0, equal).trim().toLowerCase();
+      let value = field.slice(equal + 1).trim();
+      if (value.startsWith('"') && value.endsWith('"'))
+        value = value.slice(1, -1).replace(/\\(.)/g, '$1');
+      let valid = null;
+      if (video && (key === 'width' || key === 'height')) {
+        const n = numeric(value, 1920, true);
+        valid = n !== null;
+        dimensions[key] = n;
+      } else if (video && key === 'framerate') {
+        // This is a query sanity limit (including 2x 60fps), not a claim
+        // that decoding is hardware accelerated or smooth at that rate.
+        valid = numeric(value, 120) !== null;
+      } else if (key === 'bitrate') {
+        valid = numeric(value, 200000000, true) !== null;
+      } else if (!video && key === 'channels') {
+        valid = numeric(value, 8, true, 1) !== null;
+      } else if (video && key === 'eotf') {
+        valid = value === '' || value === 'bt709'
+          || (['smpte2084', 'arib-std-b67'].includes(value)
+          && window.matchMedia('(dynamic-range: high)').matches);
+      } else if (video && key === 'decode-to-texture') {
+        valid = value === 'true' || value === 'false';
+      } else if (video && key === 'cryptoblockformat') {
+        valid = value === '' || (fields[0].trim().toLowerCase() === 'video/webm'
+          && value === 'subsample');
+      }
+      if (valid === null) { kept.push(field); continue; }
+      extended = true;
+      if (!valid) {
+        note('rejected ' + key + '=' + value.slice(0, 24));
+        return false;
+      }
+    }
+    if (dimensions.width && dimensions.height
+        && dimensions.width * dimensions.height > 1920 * 1080) {
+      note('rejected dimensions above the 1080p profile');
+      return false;
+    }
+    if (!extended) return Reflect.apply(original, this, arguments);
+    // Chromium still decides codec/container support. Never modify EME or
+    // MediaCapabilities, or claim hardware decoding on behalf of the host.
+    return Reflect.apply(original, this, [kept.join(';')]);
+  }
+  try {
+    Object.defineProperty(isTypeSupported, '__portallTVMime', {value: true});
+    const descriptor = Object.getOwnPropertyDescriptor(source, 'isTypeSupported');
+    Object.defineProperty(source, 'isTypeSupported', {...descriptor, value: isTypeSupported});
+  } catch (_) { note('adapter unavailable'); return false; }
+  note('extended MIME adapter installed (1080p profile)');
+  return true;
+})();
+"""
+
+
+def youtube_tv_media_init_js(show_diagnostics=False):
+    """TV-specific MIME checks; actual decoded size remains a separate fact."""
+    return TV_MEDIA_INIT_TEMPLATE.replace(
+        "__DIAGNOSTICS__", "true" if show_diagnostics else "false")
+
+
 class YouTubeTVView:
     """An opt-in HD browser layout, with the panel's capture/input space kept.
 
@@ -3478,7 +3596,7 @@ class YouTubeTVView:
     The screencast reduces the larger layout before it leaves the browser.
     """
 
-    def __init__(self, page, width, height):
+    def __init__(self, page, width, height, media_diagnostics=False):
         self.page = page
         self._session = page.context.new_cdp_session(page)
         self.native_width, self.native_height = width, height
@@ -3488,6 +3606,9 @@ class YouTubeTVView:
         self._applied = None
         self._applying = False
         self._disabled = False
+        self._media_script = youtube_tv_media_init_js(media_diagnostics)
+        self._media_url = None
+        self._media_warned = False
         page.on("framenavigated", self._arrived)
 
     def _arrived(self, frame):
@@ -3503,6 +3624,14 @@ class YouTubeTVView:
             return
         active = (not self._disabled
                   and is_youtube_tv(self.page.url if url is None else url))
+        if url is None and active and self._media_url != self.page.url:
+            try:
+                self.page.evaluate(self._media_script)
+                self._media_url = self.page.url
+            except Exception as err:  # noqa: BLE001 - keep native codec queries
+                if not self._media_warned:
+                    self._media_warned = True
+                    print(f"YouTube TV: MIME adapter unavailable ({err})")
         factor = (max(1.0, 1920 / self.native_width,
                       1080 / self.native_height) if active else 1.0)
         width = round(self.native_width * factor)
@@ -7840,6 +7969,8 @@ def main():
         context.add_init_script(SPATNAV_JS)
         # Play, pause and next for whatever plays, from every remote there is.
         context.add_init_script(MEDIA_CONTROL_JS)
+        if args.youtube_tv_hd:
+            context.add_init_script(youtube_tv_media_init_js(args.show_media))
         # Which requests the page could not make. Silent on a page that works.
         watch_failed_requests(context)
         # The panel's own token first, so a panel that sets one keeps it over
@@ -7915,7 +8046,8 @@ def main():
         # One session for both: an override belongs to the session that set
         # it, so route_agents puts back what present_browser set through it.
         agent_session = context.new_cdp_session(page)
-        tv_view = (YouTubeTVView(page, page_w, page_h)
+        tv_view = (YouTubeTVView(page, page_w, page_h,
+                                 media_diagnostics=args.show_media)
                    if args.youtube_tv_hd else None)
         user_agent = present_browser(
             agent_session, page, args.keyboard != "off",

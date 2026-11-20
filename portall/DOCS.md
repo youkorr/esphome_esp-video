@@ -2329,6 +2329,17 @@ and does not promise smoother playback. With Diagnostics `show_media` on,
 look for `decoded=1920x1080` during playback; a menu label alone is not proof
 of that resolution. Set `youtube_tv_hd: false` to return to the native layout.
 
+Since 4.52.3 this mode also validates the extended MIME parameters used by
+TV format queries (`width`, `height`, `framerate` and related parameters).
+Chromium normally ignores these extensions, so it can accept even impossible
+values in capability tests. The adapter rejects those values under a 1080p
+profile and leaves the codec/container decision to Chromium. It does not
+change EME or `MediaCapabilities`, or promise hardware acceleration.
+
+With `show_media` enabled, `Media: TV capabilities:` confirms installation
+and reports a bounded number of rejected probes. The real `decoded=` size
+remains the check for successful YouTube 1080p playback.
+
 #### Why `fps: 15`, and why quality alone did not fix it
 
 Quality was lowered from 40 to 20 on a panel and the video still stuttered.
