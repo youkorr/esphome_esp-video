@@ -1,5 +1,18 @@
 # Changelog
 
+## 4.52.2
+
+- Optional **YouTube TV HD (experimental)** under each screen's Advanced
+  settings. YouTube TV receives a real browser layout of at least 1920x1080;
+  captures are reduced to the panel's current size and touches are mapped to
+  the larger layout. Other sites use the native layout. Off by default.
+- Media diagnostics report the video dimensions actually decoded. The HD
+  option does not force YouTube to provide 1080p: this remains to be checked
+  on a real YouTube session. Local browser fixtures cover capture size,
+  scrolling, touch, keyboard and navigation; they are not a YouTube benchmark.
+- No panel firmware update is required. Drawing a larger browser page uses
+  more server resources and does not promise a higher frame rate.
+
 ## 4.52.1
 
 - **Settings can be changed from the panel.** Native dropdown menus opened,
@@ -2062,3 +2075,4 @@ The panels' firmware is untouched -- nothing to reflash.
 ## 1.54.0
 
 - A blank token field no longer stops a panel starting.
+

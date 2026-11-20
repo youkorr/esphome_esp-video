@@ -1560,6 +1560,8 @@ def command_for(panel):
         "stats",
         "show_media",
         "show_touches",
+        # A panel's opt-in YouTube TV profile. It has no effect on other pages.
+        "youtube_tv_hd",
     ):
         # Accept the string forms a hand-written JSON file may carry.
         value = panel.get(key)
@@ -2757,3 +2759,4 @@ def main():
 
 if __name__ == "__main__":
     sys.exit(main())
+
