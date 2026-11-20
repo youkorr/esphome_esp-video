@@ -6,6 +6,7 @@ import json
 import os
 import shutil
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -14,7 +15,9 @@ from playwright.sync_api import sync_playwright
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT/'components/portall/ha_send.py'
-OUTPUT = Path(os.environ.get('PORTALL_TEST_REPORT', '/tmp/portall-youtube-hd-fixture.json'))
+OUTPUT = (Path(os.environ['PORTALL_TEST_REPORT'])
+          if os.environ.get('PORTALL_TEST_REPORT')
+          else Path(tempfile.mkdtemp(prefix='portall-youtube-hd-'))/'report.json')
 sys.path.append(str(SOURCE.parent))
 spec = importlib.util.spec_from_file_location('portall_hd_fixture', SOURCE)
 SOURCE_SHA256 = hashlib.sha256(SOURCE.read_bytes()).hexdigest()
@@ -176,6 +179,21 @@ try:
             }''')
             page.wait_for_timeout(100)
             assert page.evaluate('scrollY') == 1500
+            markers = [(48,48,'#ff0000',(255,0,0)),
+                       (1232,48,'#00ffff',(0,255,255)),
+                       (48,692,'#00ff00',(0,255,0)),
+                       (1232,692,'#ffff00',(255,255,0))]
+            page.evaluate('''args => {
+                for (const [x,y,color] of args.markers) {
+                    const m=document.createElement('div');
+                    Object.assign(m.style, {position:'absolute',
+                        left:((x-16)*args.x)+'px',
+                        top:(1500+(y-16)*args.y)+'px',
+                        width:(32*args.x)+'px',height:(32*args.y)+'px',
+                        background:color});
+                    document.body.appendChild(m);
+                }
+            }''',{'markers':[list(m[:3]) for m in markers],'x':view.x,'y':view.y})
             visible = Image.open(io.BytesIO(capture.screenshot())).convert('RGB')
             pixel = visible.getpixel((640,370))
             reference = Image.open(io.BytesIO(base64.b64decode(capture._session.send('Page.captureScreenshot',{'format':'png'})['data']))).convert('RGB')
@@ -184,6 +202,13 @@ try:
                                            'unscaled_reference_center_rgb':list(reference_pixel)}
             assert reference_pixel[2] > 240 and reference_pixel[0] < 15,checks['scrolled_fallback']
             assert pixel[2] > 240 and pixel[0] < 15, checks['scrolled_fallback']
+            assert list(visible.size) == [1280,740]
+            for x,y,_,color in markers:
+                for dx,dy in [(0,0),(-12,0),(12,0),(0,-12),(0,12)]:
+                    assert visible.getpixel((x+dx,y+dy)) == color,(x,y,dx,dy)
+                for dx,dy in [(-20,0),(20,0),(0,-20),(0,20)]:
+                    assert visible.getpixel((x+dx,y+dy)) == (0,0,255),(x,y,dx,dy)
+            checks['scrolled_fallback']['marker_checks'] = len(markers)*9
             capture.stop()
 
             accepted = ['https://www.youtube.com/tv','https://youtube.com/tv/','https://www.youtube.com/tv#/watch?v=x']
