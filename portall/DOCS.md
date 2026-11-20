@@ -2248,16 +2248,18 @@ back.
 
 ### YouTube: television mode, and the phone as its remote
 
-**This is the only arrangement that works, and it works completely.** Use it as
-written rather than as a starting point -- every other route was tried and each
-one fails in its own way, listed at the end.
+Use `/tv` with a television user agent for the TV interface and phone pairing.
+The qualities YouTube offers also depend on the video and browser environment;
+this configuration alone does not guarantee 1080p.
 
 ```yaml
 links:
   - name: YouTube
     url: https://www.youtube.com/tv
     icon: youtube
-    user_agent: "Mozilla/5.0 (SMART-TV; Linux; Tizen 6.0) AppleWebKit/537.36 (KHTML, like Gecko) 85.0.4183.93/6.0 TV Safari/537.36"
+    user_agent: >-
+      Mozilla/5.0 (SMART-TV; LINUX; Tizen 9.0) AppleWebKit/537.36
+      (KHTML, like Gecko) 120.0.6099.5/9.0 TV Safari/537.36
     quality: 20
     fps: 15
 ```
@@ -2301,6 +2303,31 @@ all: with `hid: true` and `keys: true` on the board, a Bluetooth remote's
 arrows, OK and Back drive the television interface directly, and its Menu
 button brings the panel back to your launcher. See *A Bluetooth remote, and
 what it does inside a link* above.
+
+#### Trying HD when YouTube TV only offers 720p
+
+Since 4.52.2, the optional **YouTube TV HD (experimental)** switch belongs to
+the screen's Advanced settings:
+
+```yaml
+panels:
+  - name: salon
+    # Keep this screen's existing host, size, rotation and touch settings.
+    advanced:
+      youtube_tv_hd: true
+```
+
+Merge this setting into the existing screen entry, then restart the add-on.
+It gives only YouTube TV a real browser layout of at least 1920x1080, reduces
+captures to the current panel size and converts touch coordinates. Returning
+to another site restores the native layout. The panel firmware is unchanged.
+
+The option is off by default. It is an experiment: local browser fixtures
+verify capture dimensions, input, scrolling and navigation, but actual YouTube
+1080p playback is not yet verified. It uses more server rendering resources
+and does not promise smoother playback. With Diagnostics `show_media` on,
+look for `decoded=1920x1080` during playback; a menu label alone is not proof
+of that resolution. Set `youtube_tv_hd: false` to return to the native layout.
 
 #### Why `fps: 15`, and why quality alone did not fix it
 
@@ -2728,4 +2755,5 @@ does not need to be, either: Home Assistant is on the same machine.
 
 Outside an add-on, any address that resolves where the sender runs will do:
 the machine's hostname, or Home Assistant's IP and port.
+
 

@@ -729,6 +729,9 @@ MEDIA_INIT_TEMPLATE = """
           // has nothing to say about fetching ahead.
           if (el.paused || el.ended || !el.duration) continue;
           let line = 'playing: ' + state(el);
+          if (el.tagName === 'VIDEO') {
+            line += ' decoded=' + el.videoWidth + 'x' + el.videoHeight;
+          }
           // Frames the compositor threw away. "Perte de trame" has two quite
           // different causes and this separates them: dropped here is the
           // BROWSER failing to keep up, and nothing the panel or the link
@@ -3456,6 +3459,98 @@ def choose_rectangles(rectangles, width, height, rect_cost):
     return [(0, 0, width, height)]
 
 
+def is_youtube_tv(url):
+    """Only the TV application, including its hash-based watch addresses."""
+    try:
+        parsed = urllib.parse.urlsplit(url)
+        return (parsed.scheme in ("http", "https")
+                and parsed.hostname in ("youtube.com", "www.youtube.com")
+                and (parsed.path == "/tv" or parsed.path.startswith("/tv/")))
+    except ValueError:
+        return False
+
+
+class YouTubeTVView:
+    """An opt-in HD browser layout, with the panel's capture/input space kept.
+
+    This uses real browser metrics, not replacements for videoWidth or DOM
+    geometry. It does not assert that YouTube will offer a particular format.
+    The screencast reduces the larger layout before it leaves the browser.
+    """
+
+    def __init__(self, page, width, height):
+        self.page = page
+        self._session = page.context.new_cdp_session(page)
+        self.native_width, self.native_height = width, height
+        self.width, self.height = width, height
+        self.x = self.y = 1.0
+        self.generation = 0
+        self._applied = None
+        self._applying = False
+        self._disabled = False
+        page.on("framenavigated", self._arrived)
+
+    def _arrived(self, frame):
+        if frame == self.page.main_frame:
+            self.reconcile()
+
+    def set_view(self, width, height):
+        self.native_width, self.native_height = width, height
+        self.reconcile()
+
+    def reconcile(self, url=None):
+        if self._applying:
+            return
+        active = (not self._disabled
+                  and is_youtube_tv(self.page.url if url is None else url))
+        factor = (max(1.0, 1920 / self.native_width,
+                      1080 / self.native_height) if active else 1.0)
+        width = round(self.native_width * factor)
+        height = round(self.native_height * factor)
+        # An unusual aspect ratio must not create an unbounded browser surface.
+        if max(width, height) > 8192:
+            active, width, height = (False, self.native_width,
+                                     self.native_height)
+        wanted = (active, width, height, self.native_width, self.native_height)
+        if wanted == self._applied:
+            return
+        self._applying = True
+        try:
+            try:
+                if self._disabled:
+                    self.page.set_viewport_size({"width": width,
+                                                 "height": height})
+                else:
+                    self._session.send("Emulation.setDeviceMetricsOverride", {
+                        "width": width, "height": height,
+                        "screenWidth": width, "screenHeight": height,
+                        "deviceScaleFactor": 1, "mobile": False,
+                    })
+            except Exception as err:  # noqa: BLE001 - an optional trial
+                self._disabled = True
+                self.page.set_viewport_size({"width": self.native_width,
+                                             "height": self.native_height})
+                active, width, height = (False, self.native_width,
+                                         self.native_height)
+                wanted = (active, width, height, self.native_width,
+                          self.native_height)
+                print(f"YouTube TV: HD trial unavailable ({err}); "
+                      "native layout restored", flush=True)
+            self.width, self.height = width, height
+            self.x = width / self.native_width
+            self.y = height / self.native_height
+            self._applied = wanted
+            self.generation += 1
+            print(f"YouTube TV: {'HD trial' if active else 'native layout'} "
+                  f"{width}x{height}; page pictures stay "
+                  f"{self.native_width}x{self.native_height}", flush=True)
+        finally:
+            self._applying = False
+
+    def point(self, x, y):
+        return x * self.x, y * self.y
+
+
 class TouchMap:
     """Where a contact on the panel is on the page.
 
@@ -4427,8 +4522,9 @@ class Screencast:
     inside Playwright's own dispatch -- but from the loop, right after pumping.
     """
 
-    def __init__(self, page, width, height, quality):
+    def __init__(self, page, width, height, quality, space=None):
         self._session = page.context.new_cdp_session(page)
+        self._space = space
         self._width = width
         self._height = height
         self._quality = quality
@@ -4510,7 +4606,6 @@ class Screencast:
             # so it follows the page it is actually on.
             self.lead = 0.7 * self.lead + 0.3 * (time.monotonic() - self._asked_at)
             self._asked_at = None
-        self._latest = base64.b64decode(params["data"])
         self.produced += 1
         sid = params["sessionId"]
         if self._sid is None or sid > self._sid:
@@ -4520,6 +4615,7 @@ class Screencast:
             # Sent before the screencast was started again: a picture worth
             # having, and a slot nothing can give back.
             return
+        self._latest = base64.b64decode(params["data"])
         if self._acked_while_full:
             # Captured after a slot was given back, so it shows the page as it
             # stands, after anything the browser skipped while it was full.
@@ -4737,6 +4833,19 @@ class Screencast:
         """
         shape = ({"format": "jpeg", "quality": quality} if quality
                  else {"format": "png"})
+        if self._space is not None and self._space.x != 1:
+            try:
+                layout = self._session.send("Page.getLayoutMetrics")
+                viewport = layout.get("cssVisualViewport",
+                                      layout.get("visualViewport", {}))
+            except Exception:  # noqa: BLE001 - keep the moving pictures
+                return None
+            shape["clip"] = {"x": viewport.get("pageX", 0),
+                             "y": viewport.get("pageY", 0),
+                             "width": self._space.width,
+                             "height": self._space.height,
+                             "scale": 1 / self._space.x}
+            shape["captureBeyondViewport"] = False
         for options in (dict(shape, optimizeForSpeed=True), shape):
             try:
                 got = self._session.send("Page.captureScreenshot", options)
@@ -5264,8 +5373,11 @@ class HomeHint:
     rectangle on the wire for as long as the panel is awake.
     """
 
-    def __init__(self, page, page_w, page_h, fraction=HOME_CORNER_FRACTION):
+    def __init__(self, page, page_w, page_h, fraction=HOME_CORNER_FRACTION,
+                 space=None):
         self._page = page
+        self._space = space
+        self._scale_at = ((space.x, space.y) if space is not None else (1, 1))
         # The same fraction the sender tests, handed in rather than read from
         # the constant: a panel may ask for a larger corner, and the mark and
         # the hit test must move together or the mark becomes a promise the
@@ -5307,11 +5419,13 @@ class HomeHint:
         # The wedge is anchored in the corner and drawn no larger than the
         # rectangle that is actually tested, so it is never a promise the
         # gesture does not keep.
-        size = min(self._w, self._h)
+        size = round(min(self._w, self._h))
+        width = size * (self._space.x if self._space is not None else 1)
+        height = size * (self._space.y if self._space is not None else 1)
         return f"""
         #__portall_home {{
           position: fixed; top: 0; left: 0; margin: 0; padding: 0; border: 0;
-          width: {size:.0f}px; height: {size:.0f}px;
+          width: {width:.1f}px; height: {height:.1f}px;
           pointer-events: none;
           background: transparent;
           overflow: visible; z-index: 2147483646;
@@ -5349,9 +5463,12 @@ class HomeHint:
         # and every change is a round trip into the browser and a rectangle on
         # the wire.
         step = None if fraction is None else round(min(1.0, max(0.0, fraction)), 1)
-        if step == self._at:
+        scale = ((self._space.x, self._space.y)
+                 if self._space is not None else (1, 1))
+        if step == self._at and scale == self._scale_at:
             return
         self._at = step
+        self._scale_at = scale
         try:
             if step is None:
                 self._page.evaluate("window.__portallHome.hide()")
@@ -5833,7 +5950,8 @@ class Keyboard:
     to the page.
     """
 
-    def __init__(self, page, page_w, page_h, layout):
+    def __init__(self, page, page_w, page_h, layout, space=None):
+        self._space = space
         self._page = page
         self._letters = KEYBOARD_LAYOUTS[layout]
         self._symbols = False
@@ -5979,6 +6097,12 @@ class Keyboard:
                       f'width:{key["w"] - 2 * GAP:.1f}px;'
                       f'height:{key["h"] - 2 * GAP}px'),
             })
+        if self._space is not None:
+            # Hit testing stays in panel pixels. Scale only the decoration
+            # in the larger browser layout, anchored to the same lower edge.
+            css += (f"#__udisp_kb{{right:auto;width:{self.width}px;"
+                    f"max-width:none;transform:scale({self._space.x},"
+                    f"{self._space.y});transform-origin:left bottom;}}")
         return css, keys
 
     def _show(self):
@@ -6286,8 +6410,9 @@ class Injector:
 
     def __init__(self, page, touch_map, keyboard=None, page_w=0, page_h=0,
                  corner=HOME_CORNER_FRACTION, hold=HOME_HOLD_S,
-                 press_hold=PRESS_HOLD_S, bar=None, glide=False):
+                 press_hold=PRESS_HOLD_S, bar=None, glide=False, space=None):
         self._page = page
+        self._space = space
         # --glide (see GLIDE_TAU_S). Where the finger was seen while it
         # dragged, as (when read, x, y); the glide's speed in page pixels a
         # second, already in the direction the page goes; and the part of a
@@ -6436,8 +6561,8 @@ class Injector:
                     # The finger has just landed. Put the pointer there so a
                     # scroll goes to whatever is under it -- a dashboard has
                     # panes that scroll on their own -- but do not press yet.
-                    self._page.mouse.move(x, y)
-                    self._pointer = (x, y)
+                    self._page.mouse.move(*self._page_point(x, y))
+                    self._pointer = self._page_point(x, y)
                 if self.verbose:
                     print(f"[{stamp()}] contact at "
                           f"({point[0]:.0f},{point[1]:.0f}) on the panel -> "
@@ -6678,7 +6803,7 @@ class Injector:
             self._stop_glide()
         if dx or dy:
             try:
-                self._page.mouse.wheel(dx, dy)
+                self._page.mouse.wheel(*self._page_point(dx, dy))
             except Exception:  # noqa: BLE001 - a page going away
                 self._stop_glide()
 
@@ -6692,7 +6817,10 @@ class Injector:
         self._wheel_at = now
         dx, dy = self._wheel
         self._wheel = [0, 0]
-        self._page.mouse.wheel(dx, dy)
+        self._page.mouse.wheel(*self._page_point(dx, dy))
+
+    def _page_point(self, x, y):
+        return self._space.point(x, y) if self._space is not None else (x, y)
 
     def _press(self, x, y):
         """Put the button down. tick() is what lets it go again."""
@@ -6700,9 +6828,10 @@ class Injector:
         # what a still finger does: the pointer was put there when it landed,
         # and every dispatch waits for the browser's next frame (16 ms,
         # measured) -- time a tapped link's page is waiting behind.
-        if getattr(self, "_pointer", None) != (x, y):
-            self._page.mouse.move(x, y)
-            self._pointer = (x, y)
+        point = self._page_point(x, y)
+        if getattr(self, "_pointer", None) != point:
+            self._page.mouse.move(*point)
+            self._pointer = point
         self._page.mouse.down()
         if not self.press_hold:
             # Asked for the old behaviour: both halves in one go, and nothing
@@ -6845,7 +6974,7 @@ class Injector:
                         + (target.href ? " -> " + target.href : "")
                         + (text ? "  [" + text + "]" : "");
                 }""",
-                [x, y],
+                list(self._page_point(x, y)),
             )
         except Exception as err:  # noqa: BLE001 - a diagnostic, never the picture
             what = f"the page would not say ({err})"
@@ -7279,6 +7408,12 @@ def main():
         help="print every contact: where it landed on the panel, where that is "
         "on the page, and what the page has at that point. This is what "
         "answers a tap that opens the wrong thing",
+    )
+    parser.add_argument(
+        "--youtube-tv-hd", action="store_true",
+        help="experimental: give YouTube TV a browser layout of at least "
+        "1920x1080, reducing captures to the panel size and mapping touches. "
+        "Does not force a format or alter other sites",
     )
     parser.add_argument(
         "--stats", action="store_true", help="print what is being sent every 5 seconds"
@@ -7780,6 +7915,8 @@ def main():
         # One session for both: an override belongs to the session that set
         # it, so route_agents puts back what present_browser set through it.
         agent_session = context.new_cdp_session(page)
+        tv_view = (YouTubeTVView(page, page_w, page_h)
+                   if args.youtube_tv_hd else None)
         user_agent = present_browser(
             agent_session, page, args.keyboard != "off",
             args.user_agent, launched.get("used"),
@@ -7809,6 +7946,15 @@ def main():
             )
             for prefix, agent in page_agent:
                 print(f"Agent: {prefix[:48]} is told {agent[:48]}...")
+        if tv_view is not None:
+            before_agent = BEFORE_GOING[0]
+
+            def prepare_tv_view(url):
+                if before_agent is not None:
+                    before_agent(url)
+                tv_view.reconcile(url)
+
+            BEFORE_GOING[0] = prepare_tv_view
         report_media(page)
         if user_agent is not None:
             # The other half of the same tell. A page that reads one usually
@@ -7880,7 +8026,7 @@ def main():
         keyboard = (
             None
             if args.keyboard == "off" or args.no_touch
-            else Keyboard(page, page_w, page_h, args.keyboard)
+            else Keyboard(page, page_w, page_h, args.keyboard, space=tv_view)
         )
         if keyboard is not None:
             keyboard_holder["kb"] = keyboard
@@ -7912,14 +8058,19 @@ def main():
             bar.shown = want
             strip = bar.height if want else 0
             try:
-                page.set_viewport_size({"width": page_w,
-                                        "height": page_h - strip})
+                if tv_view is not None:
+                    tv_view.set_view(page_w, page_h - strip)
+                else:
+                    page.set_viewport_size({"width": page_w,
+                                            "height": page_h - strip})
             except Exception as err:  # noqa: BLE001
                 print(f"Bar: the page could not be made room for ({err})")
             if injector is not None:
                 injector.set_strip(strip)
             if keyboard is not None:
                 keyboard.set_view(page_h - strip)
+                if tv_view is not None and keyboard.visible:
+                    keyboard._show()
             # A page of another height: nothing of the last picture is worth
             # diffing against or showing.
             previous = pending = image = None
@@ -8103,7 +8254,7 @@ def main():
             else Injector(page, touch_map, keyboard, page_w, page_h,
                           corner_fraction, args.home_hold,
                           max(0.0, args.press_hold) / 1000.0, bar,
-                          glide=args.glide)
+                          glide=args.glide, space=tv_view)
         )
         if injector is not None:
             injector.verbose = args.show_touches
@@ -8126,7 +8277,8 @@ def main():
         # The panel's own limits, to return to when a page asks for nothing.
         base_interval, base_urgent = interval, urgent_interval
         hint = (None if args.no_touch
-                else HomeHint(page, page_w, page_h, corner_fraction))
+                else HomeHint(page, page_w, page_h, corner_fraction,
+                              space=tv_view))
         if injector is not None:
             print(
                 f"Home: corner {args.home_corner}% "
@@ -8166,7 +8318,9 @@ def main():
         tapped = False
         # A tap on the bookmarks page rather than on the launcher (see Follow).
         from_shelf = False
-        capture = Screencast(page, page_w, page_h, args.capture_quality)
+        capture = Screencast(page, page_w, page_h, args.capture_quality,
+                             space=tv_view)
+        tv_generation = tv_view.generation if tv_view is not None else 0
         # The panel's page's own screencast. `capture` is the saver's while
         # the screen saver shows, and this is what it goes back to.
         main_capture = capture
@@ -8295,6 +8449,18 @@ def main():
                         (NEW_PAGE_PUMP_MS if hurry else PUMP_MS)
                         if awake else SLEEP_PUMP_MS)
                     started = time.monotonic()
+                    if tv_view is not None:
+                        tv_view.reconcile()
+                        if tv_generation != tv_view.generation:
+                            tv_generation = tv_view.generation
+                            main_capture.restart()
+                            if not overlaid():
+                                previous = pending = image = None
+                                last_shot = composed_look = None
+                                refined_image = refined_payload = None
+                                refined_for = None
+                            if hint is not None:
+                                hint.forget()
                     if awake:
                         worst_turn = max(worst_turn, started - turn_at)
                     turn_at = started

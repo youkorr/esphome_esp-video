@@ -110,6 +110,11 @@ configuration:
             description: 'On when empty. Half a second after the last change, the screen is sent a lossless
               picture in full colour: icons, text and photos sharp. Turn off only if the screen does not
               show it.'
+          youtube_tv_hd:
+            name: YouTube TV HD (experimental)
+            description: 'Try when YouTube TV only offers 720p. The server draws a larger page
+              and reduces it for your screen. Off by default; 1080p remains to be verified
+              and the server has more work to do.'
   links:
     name: 🔗 3 · Shared links
     description: The tiles of the page of links, for every screen without its own (see 5).
@@ -535,3 +540,4 @@ configuration:
         name: Follow videos
       show_touches:
         name: Show every touch
+
