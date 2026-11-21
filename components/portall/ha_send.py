@@ -3340,62 +3340,37 @@ def explain_unreachable(url, error):
 
 
 def changed_rectangles(previous, current, tile=TILE):
-    """Find the same dirty tiles while reducing whole row bands at once."""
+    """Where the two pictures differ, as few rectangles as reasonable.
+
+    Tiles that differ are found first, then merged along each row, and rows that
+    ended up with the same run merged down the columns -- a card that grew, a
+    dialog that opened. One rectangle costs a header, a JPEG's own tables and a
+    decode on the board, so a handful of large ones beats a crowd of small ones
+    even when they carry a few unchanged pixels along.
+
+    Returns (x, y, w, h) tuples in pixels.
+    """
     import numpy as np
 
     height, width = current.shape[:2]
-    if not height or not width:
-        return []
     tiles_x = (width + tile - 1) // tile
     tiles_y = (height + tile - 1) // tile
 
-    # Every tile boundary in contiguous RGB is aligned to an eight-byte
-    # boundary when tile and width are multiples of eight. Comparing words
-    # preserves the exact dirty-tile answer and allocates one eighth as much
-    # temporary comparison data. It does not rely on CPU byte order or on
-    # pixels individually being word-aligned. Other layouts use byte-wise
-    # comparison, as before.
-    packed = (
-        previous.shape == current.shape
-        and previous.dtype == np.uint8 and current.dtype == np.uint8
-        and previous.flags.c_contiguous and current.flags.c_contiguous
-        and current.ndim == 3 and current.shape[2] == 3
-        and width % 8 == 0 and tile % 8 == 0
-    )
-    if packed:
-        left = previous.reshape(height, width * 3).view(np.uint64)
-        right = current.reshape(height, width * 3).view(np.uint64)
-        differing = left != right
-        values_per_tile = tile * 3 // 8
-    else:
-        differing = previous != current
-        values_per_tile = tile * (differing.size // (height * width))
-
-    values_per_row = differing.size // height
-    full_rows, remaining_rows = divmod(height, tile)
-    full_cols, remaining_cols = divmod(width, tile)
-
-    # First collapse the vertical dimension in each tile-height band. This
-    # keeps the long horizontal dimension contiguous and avoids hundreds of
-    # Python .any() calls. The intermediate occupies only one row per band.
-    rows = np.empty((tiles_y, values_per_row), dtype=bool)
-    if full_rows:
-        rows[:full_rows] = differing[:full_rows * tile].reshape(
-            full_rows, tile, values_per_row
-        ).any(axis=1)
-    if remaining_rows:
-        rows[-1] = differing[full_rows * tile:].reshape(
-            remaining_rows, values_per_row
-        ).any(axis=0)
-
-    mask = np.empty((tiles_y, tiles_x), dtype=bool)
-    full_width = full_cols * values_per_tile
-    if full_cols:
-        mask[:, :full_cols] = rows[:, :full_width].reshape(
-            tiles_y, full_cols, values_per_tile
-        ).any(axis=2)
-    if remaining_cols:
-        mask[:, -1] = rows[:, full_width:].any(axis=1)
+    # One pass over the whole picture rather than a comparison per tile: the
+    # difference is a single vectorised operation, and the per-tile question is
+    # then just whether its block of the answer holds anything.
+    #
+    # The colour axis is deliberately left alone. Reducing it away first --
+    # np.any(..., axis=-1) -- reads every byte again along the one axis that is
+    # not contiguous, and costs fifteen times what the comparison itself does:
+    # 9.3 ms against 0.6 ms for a 1024x600 frame. Asking a three-dimensional
+    # slice whether it holds anything answers the same question for nothing.
+    differing = previous != current
+    mask = np.zeros((tiles_y, tiles_x), dtype=bool)
+    for ty in range(tiles_y):
+        row = differing[ty * tile:min(ty * tile + tile, height)]
+        for tx in range(tiles_x):
+            mask[ty, tx] = bool(row[:, tx * tile:min(tx * tile + tile, width)].any())
     return tile_rectangles(mask, width, height, tile)
 
 
@@ -3614,17 +3589,14 @@ def youtube_tv_media_init_js(show_diagnostics=False):
 
 
 class YouTubeTVView:
-    """An opt-in TV HD view, with the panel's capture/input space kept.
+    """An opt-in HD browser layout, with the panel's capture/input space kept.
 
     This uses real browser metrics, not replacements for videoWidth or DOM
     geometry. It does not assert that YouTube will offer a particular format.
-    By default the screencast reduces a larger layout inside the browser.
-    The optional native view avoids that enlargement while keeping HD screen
-    metrics and the TV-specific MIME checks.
+    The screencast reduces the larger layout before it leaves the browser.
     """
 
-    def __init__(self, page, width, height, media_diagnostics=False,
-                 native_view=False):
+    def __init__(self, page, width, height, media_diagnostics=False):
         self.page = page
         self._session = page.context.new_cdp_session(page)
         self.native_width, self.native_height = width, height
@@ -3637,7 +3609,6 @@ class YouTubeTVView:
         self._media_script = youtube_tv_media_init_js(media_diagnostics)
         self._media_url = None
         self._media_warned = False
-        self._native_view = native_view
         page.on("framenavigated", self._arrived)
 
     def _arrived(self, frame):
@@ -3662,22 +3633,14 @@ class YouTubeTVView:
                     self._media_warned = True
                     print(f"YouTube TV: MIME adapter unavailable ({err})")
         factor = (max(1.0, 1920 / self.native_width,
-                      1080 / self.native_height)
-                  if active and not self._native_view else 1.0)
+                      1080 / self.native_height) if active else 1.0)
         width = round(self.native_width * factor)
         height = round(self.native_height * factor)
         # An unusual aspect ratio must not create an unbounded browser surface.
         if max(width, height) > 8192:
             active, width, height = (False, self.native_width,
                                      self.native_height)
-        # A native-size window on an HD screen does not need an HD-sized
-        # rendering surface. Keep the TV's screen hint while avoiding the
-        # larger layout and the screencast's subsequent downscale. Actual
-        # available video formats are still the site's decision.
-        screen_width = max(width, 1920) if active else width
-        screen_height = max(height, 1080) if active else height
-        wanted = (active, width, height, screen_width, screen_height,
-                  self.native_width, self.native_height)
+        wanted = (active, width, height, self.native_width, self.native_height)
         if wanted == self._applied:
             return
         self._applying = True
@@ -3689,8 +3652,7 @@ class YouTubeTVView:
                 else:
                     self._session.send("Emulation.setDeviceMetricsOverride", {
                         "width": width, "height": height,
-                        "screenWidth": screen_width,
-                        "screenHeight": screen_height,
+                        "screenWidth": width, "screenHeight": height,
                         "deviceScaleFactor": 1, "mobile": False,
                     })
             except Exception as err:  # noqa: BLE001 - an optional trial
@@ -3699,9 +3661,8 @@ class YouTubeTVView:
                                              "height": self.native_height})
                 active, width, height = (False, self.native_width,
                                          self.native_height)
-                screen_width, screen_height = width, height
-                wanted = (active, width, height, screen_width, screen_height,
-                          self.native_width, self.native_height)
+                wanted = (active, width, height, self.native_width,
+                          self.native_height)
                 print(f"YouTube TV: HD trial unavailable ({err}); "
                       "native layout restored", flush=True)
             self.width, self.height = width, height
@@ -3709,10 +3670,8 @@ class YouTubeTVView:
             self.y = height / self.native_height
             self._applied = wanted
             self.generation += 1
-            label = ('HD at panel size' if active and self._native_view
-                     else 'HD trial' if active else 'native layout')
-            print(f"YouTube TV: {label} {width}x{height}; "
-                  f"screen {screen_width}x{screen_height}; page pictures stay "
+            print(f"YouTube TV: {'HD trial' if active else 'native layout'} "
+                  f"{width}x{height}; page pictures stay "
                   f"{self.native_width}x{self.native_height}", flush=True)
         finally:
             self._applying = False
@@ -7586,12 +7545,6 @@ def main():
         "Does not force a format or alter other sites",
     )
     parser.add_argument(
-        "--youtube-tv-native-view", action="store_true",
-        help="with --youtube-tv-hd, keep the browser layout at the panel's "
-        "size while retaining HD screen metrics and TV MIME compatibility. "
-        "Experimental: verify the decoded video size on the actual site",
-    )
-    parser.add_argument(
         "--stats", action="store_true", help="print what is being sent every 5 seconds"
     )
     parser.add_argument(
@@ -8094,8 +8047,7 @@ def main():
         # it, so route_agents puts back what present_browser set through it.
         agent_session = context.new_cdp_session(page)
         tv_view = (YouTubeTVView(page, page_w, page_h,
-                                 media_diagnostics=args.show_media,
-                                 native_view=args.youtube_tv_native_view)
+                                 media_diagnostics=args.show_media)
                    if args.youtube_tv_hd else None)
         user_agent = present_browser(
             agent_session, page, args.keyboard != "off",

@@ -113,13 +113,8 @@ configuration:
           youtube_tv_hd:
             name: YouTube TV HD (experimental)
             description: 'Try when YouTube TV only offers 720p. The server draws a larger page
-              and reduces it for your screen. Off by default; format availability depends
-              on YouTube and the video, and the server has more work to do.'
-          youtube_tv_native_view:
-            name: HD at screen size (experimental)
-            description: 'Requires YouTube TV HD above. Keep its format checks but draw the
-              page at your screen size to reduce rendering work. Off by default. Check that
-              1080p still plays; turn this option off if it returns to 720p.'
+              and reduces it for your screen. Off by default; 1080p remains to be verified
+              and the server has more work to do.'
   links:
     name: 🔗 3 · Shared links
     description: The tiles of the page of links, for every screen without its own (see 5).

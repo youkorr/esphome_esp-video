@@ -1,5 +1,19 @@
 # Changelog
 
+## 4.52.5
+
+- Restore the 4.52.3 sender, launcher settings and HD rendering behavior while
+  investigating a report of intermittent freezes across links, including Home
+  Assistant. This removes the frame-comparison and native-size HD experiments
+  introduced in 4.52.4. The YouTube TV MIME compatibility fix that enabled
+  1080p is retained.
+- Existing browser profiles and sign-ins remain in place. No panel firmware
+  update is required. Remove `youtube_tv_native_view` from a saved configuration;
+  the experimental option is no longer used in this rollback release.
+- The reported logs show an outbound write pause while browser playback
+  continues. This rollback isolates the recent changes; it does not establish
+  their responsibility for that pause.
+
 ## 4.52.4
 
 - Reduce the CPU work of finding changed image tiles on every site. For
