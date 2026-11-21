@@ -78,7 +78,7 @@ try:
             checks['hd_real_metrics'] = got
             view.set_view(1280,740)
             got = metrics(page)
-            assert (got['width'],got['height']) == (1920,1110),got
+            assert (got['width'],got['height'],got['screenWidth'],got['screenHeight']) == (1920,1110,1920,1110),got
             checks['toolbar_metrics'] = got
 
             capture = sender.Screencast(page,1280,800,80,space=view)
@@ -145,18 +145,18 @@ try:
             page.wait_for_timeout(60)
             view.reconcile()
             got = metrics(page)
-            assert (got['width'],got['height']) == (1280,740),got
+            assert (got['width'],got['height'],got['screenWidth'],got['screenHeight']) == (1280,740,1280,740),got
             checks['spa_desktop_restoration'] = got
             page.go_back(wait_until='commit')
             page.wait_for_timeout(60)
             view.reconcile()
             got = metrics(page)
-            assert (got['width'],got['height']) == (1920,1110),got
+            assert (got['width'],got['height'],got['screenWidth'],got['screenHeight']) == (1920,1110,1920,1110),got
             checks['history_return_to_tv'] = got
             other = context.new_page()
             other.goto('https://example.test/native',wait_until='domcontentloaded')
             got = metrics(other)
-            assert (got['width'],got['height']) == (1280,800),got
+            assert (got['width'],got['height'],got['screenWidth'],got['screenHeight']) == (1280,800,1280,800),got
             checks['other_page_unaffected'] = got
             native_capture = sender.Screencast(other,1280,800,80)
             other.wait_for_timeout(120)
@@ -167,7 +167,7 @@ try:
             other.close()
             page.goto('https://example.test/native',wait_until='domcontentloaded')
             got = metrics(page)
-            assert (got['width'],got['height']) == (1280,740),got
+            assert (got['width'],got['height'],got['screenWidth'],got['screenHeight']) == (1280,740,1280,740),got
             checks['external_navigation_restoration'] = got
             assert image_size(capture.screenshot(70)) == [1280,740]
 
@@ -230,13 +230,13 @@ try:
             view._session = failure_session
             view.set_view(1280,700)
             got = metrics(page)
-            assert (got['width'],got['height']) == (1280,700),got
+            assert (got['width'],got['height'],got['screenWidth'],got['screenHeight']) == (1280,700,1280,700),got
             assert view.x == view.y == 1
             view.reconcile(url)
             assert failure_session.calls == 1,failure_session.calls
             view.set_view(1280,800)
             got = metrics(page)
-            assert (got['width'],got['height']) == (1280,800),got
+            assert (got['width'],got['height'],got['screenWidth'],got['screenHeight']) == (1280,800,1280,800),got
             assert failure_session.calls == 1,failure_session.calls
             checks['metrics_failure_restores_native_once'] = {'metrics':got,'failed_cdp_calls':failure_session.calls}
             report['status'] = 'PASS'

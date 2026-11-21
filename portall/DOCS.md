@@ -2345,8 +2345,10 @@ Version 4.52.5 restores the 4.52.3 sender while intermittent freezes across
 links are investigated. The experimental `youtube_tv_native_view` option from
 4.52.4 has been removed; remove it from an existing Advanced entry if present.
 Keep `youtube_tv_hd: true` to retain the existing HD compatibility mode.
-Browser profiles and sign-ins are preserved. This rollback isolates recent
-changes and does not establish the cause of an outbound transport stall.
+Existing browser profiles and sign-ins are preserved when `keep_profile` is
+enabled. This rollback isolates recent changes and does not establish the
+cause of an outbound transport stall. Returning to the earlier frame-comparison
+algorithm also gives up the CPU savings of 4.52.4; CPU usage can increase.
 
 #### Why `fps: 15`, and why quality alone did not fix it
 
