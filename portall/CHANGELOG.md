@@ -13,6 +13,8 @@
   with a virtual screen of at least 1920x1080. Off by default; the existing
   HD layout remains available. Actual YouTube 1080p playback in this new
   mode still needs checking, and no CPU saving is promised.
+- Local regressions cover both browser layouts, touch, fullscreen, keyboard,
+  navigation and unchanged dirty rectangles and outgoing JPEG payloads.
 
 ## 4.52.3
 
