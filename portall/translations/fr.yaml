@@ -114,9 +114,9 @@ configuration:
               si l''écran ne l''affiche pas.'
           youtube_tv_hd:
             name: YouTube TV HD (expérimental)
-            description: 'À essayer si YouTube TV reste limité à 720p. Le serveur affiche la page
-              en plus grand puis la réduit pour votre écran. Désactivé par défaut ; le 1080p
-              reste à confirmer et le serveur travaille davantage.'
+            description: À essayer si YouTube TV reste limité à 720p. Le serveur affiche la page en plus
+              grand puis la réduit pour votre écran. Désactivé par défaut ; le 1080p reste à confirmer
+              et le serveur travaille davantage.
   links:
     name: 🔗 3 · Liens communs
     description: Les tuiles de la page de liens, pour tous les écrans qui n'ont pas la leur (voir 5).
@@ -568,4 +568,3 @@ configuration:
         name: Suivre les vidéos
       show_touches:
         name: Afficher chaque toucher
-

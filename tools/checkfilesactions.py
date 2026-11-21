@@ -35,9 +35,14 @@ def main():
         try:
             for locale in ("fr-FR", "en-US"):
                 for action in ("wallpaper", "unwallpaper", "delete"):
-                    context = browser.new_context(locale=locale)
+                    context = browser.new_context(locale=locale,
+                                                  viewport={'width': 360, 'height': 640})
                     state = {"mode": "http-error", "loads": 0, "posts": 0}
                     html = files.view_page(entry, entry["ref"] if action == "unwallpaper" else None)
+                    # A long Files page puts its shared error message below
+                    # the action. The failure must bring that message on screen.
+                    html = html.replace(b'<p id="files-error"',
+                                        b'<div style="height:1600px" aria-hidden="true"></div><p id="files-error"')
 
                     def serve(route):
                         request = route.request
@@ -71,6 +76,8 @@ def main():
                         assert state["loads"] == before, "Failed save must not reload the page"
                         text = page.locator("#files-error").inner_text()
                         assert ("Impossible" if locale == "fr-FR" else "Could not") in text
+                        box = page.locator('#files-error').bounding_box()
+                        assert box and -1 <= box['y'] < 640 and box['y'] + box['height'] <= 641, (locale, action, mode, box)
                     state["mode"] = "ok"
                     before = state["loads"]
                     with page.expect_navigation(wait_until="domcontentloaded"):

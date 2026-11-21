@@ -246,6 +246,7 @@ WORDS = """
           error.textContent = T.saveError;
           error.hidden = false;
           b.disabled = false;
+          error.scrollIntoView({block: 'nearest'});
         });
     });
   });

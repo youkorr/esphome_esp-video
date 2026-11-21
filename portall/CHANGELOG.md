@@ -1,6 +1,6 @@
 # Changelog
 
-## 4.52.6
+## 4.52.7
 
 - **Settings on the screen save to the Home Assistant add-on configuration.**
   Apply updates only this page's visual settings, preserving links, tokens,
@@ -17,6 +17,10 @@
   Settings. Standalone Docker/systemd installations retain local preferences.
   Existing background slideshows keep their behavior. No panel firmware
   update is required.
+- Preserve existing long wallpaper URLs and paths containing spaces. Invalid
+  individual appearance values fall back without stopping the launchers.
+  Failed Files actions bring their error message into view, and the
+  translation generator keeps the new setting labels.
 
 ## 4.52.5
 

@@ -41,6 +41,10 @@ PANEL_KEYS = {key: key for key in SHARED_PATHS}
 class StoreError(OSError):
     """An appearance write could not be committed to Supervisor."""
 
+    def __init__(self, message, *, status=None):
+        super().__init__(message)
+        self.status = status
+
 
 def _truth(value):
     return value is True or str(value).strip().lower() in ("true", "yes", "1", "on")
@@ -48,19 +52,9 @@ def _truth(value):
 
 def values_from_flat(config):
     """The resolved startup values, including fallback values for !secret."""
-    values = dict(appearance.DEFAULTS)
-    for key, default in values.items():
-        value = config.get("launcher_" + key, default)
-        if value is None:
-            value = default
-        if type(default) is bool:
-            value = _truth(value)
-        elif type(default) is int:
-            value = int(value)
-        else:
-            value = str(value or default)
-        values[key] = value
-    return appearance._validated(values, complete=True)
+    return appearance.configured({
+        key: config.get("launcher_" + key, default)
+        for key, default in appearance.DEFAULTS.items()})
 
 
 def _at(values, path):
@@ -100,10 +94,8 @@ class AppearanceStore:
         self.api = api.rstrip("/")
         self.token = str(token)
         self.panel_name = str(panel_name).strip() if panel_name is not None else None
-        self.fallback = appearance._validated(
-            {**appearance.DEFAULTS, **(fallback or {})}, complete=True)
-        self.shared_fallback = appearance._validated(
-            {**appearance.DEFAULTS, **(shared_fallback or {})}, complete=True)
+        self.fallback = appearance.configured(fallback)
+        self.shared_fallback = appearance.configured(shared_fallback)
         self.background_clear = bool(background_clear)
         self.shared_background_clear = bool(shared_background_clear)
         self.timeout = timeout
@@ -123,7 +115,8 @@ class AppearanceStore:
             return result.get("data")
         except urllib.error.HTTPError as error:
             raise StoreError(
-                f"Supervisor refused the appearance settings (HTTP {error.code})") from error
+                f"Supervisor refused the appearance settings (HTTP {error.code})",
+                status=error.code) from error
         except (OSError, ValueError, UnicodeError) as error:
             if isinstance(error, StoreError):
                 raise
@@ -177,7 +170,7 @@ class AppearanceStore:
                 clear = self.background_clear if _secret(raw_clear) else _truth(raw_clear)
         if clear:
             values["background"] = ""
-        values = appearance._validated(values, complete=True)
+        values = appearance.configured(values)
         return {"values": values,
                 "background_override": selected}
 
@@ -188,7 +181,9 @@ class AppearanceStore:
         with OPTIONS_LOCK:
             options = self._options()
             if self.panel_name is None:
-                shared = options.setdefault("launcher", {})
+                shared = options.get("launcher")
+                if shared is None:
+                    shared = options["launcher"] = {}
                 if not isinstance(shared, dict):
                     raise StoreError("The add-on appearance configuration is malformed")
                 selected = appearance.DEFAULTS if reset else changes

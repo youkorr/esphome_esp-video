@@ -226,7 +226,7 @@ JS = """<script>
     dimHelp: '0 % laisse le fond intact ; 100 % l’assombrit entièrement.',
     focusHelp: 'La couleur qui souligne le lien sélectionné au clavier ou à la télécommande.',
     motionHelp: 'Autorise les vidéos et les images animées du fond.',
-    resetHelp: 'Rétablir les valeurs par défaut de cette page',
+    resetHelp: 'Réinitialiser l’apparence de cette page',
     previous: 'Importer les anciens réglages',
     previousHelp: 'Enregistrer les anciens choix locaux de cette page dans la configuration de l’extension'
   } : {
@@ -247,7 +247,7 @@ JS = """<script>
     dimHelp: '0% leaves the background unchanged; 100% darkens it completely.',
     focusHelp: 'The color highlighting the link selected with a keyboard or remote.',
     motionHelp: 'Allow background videos and animated images.',
-    resetHelp: 'Restore the defaults for this page',
+    resetHelp: 'Reset this page’s appearance',
     previous: 'Import previous settings',
     previousHelp: 'Save this page’s previous local choices in the add-on configuration'
   };

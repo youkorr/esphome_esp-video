@@ -44,7 +44,7 @@ state = {
             {"panel": "cuisine", "links": [{"name": "Other", "url": "https://other.test"}]}],
         "unrelated_future_option": {"keep": [0, False, "!secret future"]},
     },
-    "fail_get": False, "fail_post": False, "posts": 0,
+    "fail_get": False, "fail_post": False, "posts": 0, "post_gate": None,
 }
 state_lock = threading.Lock()
 
@@ -77,6 +77,12 @@ class Supervisor(http.server.BaseHTTPRequestHandler):
         assert self.path == "/addons/self/options"
         body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
         assert set(body) == {"options"}
+        with state_lock:
+            gate = state["post_gate"]
+        if gate is not None:
+            entered, release = gate
+            entered.set()
+            assert release.wait(3), "Fixture did not release the pending Supervisor write"
         time.sleep(0.01)  # Expose stale read/replace races between two writers.
         with state_lock:
             failed = state["fail_post"]
@@ -124,14 +130,14 @@ try:
         assert state["options"] == expected and legacy.read_bytes() == before_file
         checked("changed fields only; zero, false, secrets and unrelated options preserved")
 
-        for key in ("fail_get", "fail_post"):
+        for key, status in (("fail_get", 503), ("fail_post", 500)):
             snapshot, stored = prefs.snapshot(), copy.deepcopy(state["options"])
             state[key] = True
             try:
                 prefs.update({"theme": "dark"})
                 raise AssertionError("Failed Supervisor commit was reported successful")
-            except OSError:
-                pass
+            except appearance_store.StoreError as error:
+                assert error.status == status
             finally:
                 state[key] = False
             assert prefs.snapshot() == snapshot and state["options"] == stored
@@ -245,6 +251,95 @@ try:
         assert loaded.snapshot()["columns"] == 3
         assert json.loads(local_path.read_text()) == {}
         checked("standalone JSON persistence and reset retain their prior behavior")
+
+        # A slow Supervisor must not freeze wallpaper/page readers. Keep the
+        # previous view visible and serialize each write through publication.
+        for resetting in (False, True):
+            saved_options = copy.deepcopy(state["options"])
+            starting = store._values(saved_options)
+            responsive = appearance.Preferences(
+                starting["values"], commit=store.commit,
+                background_override=starting["background_override"])
+            entered, release = threading.Event(), threading.Event()
+            with state_lock:
+                state["post_gate"] = (entered, release)
+            try:
+                with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
+                    pending = pool.submit(responsive.reset if resetting else
+                                          lambda: responsive.update({"theme": "light"}))
+                    try:
+                        assert entered.wait(2), "No Supervisor POST arrived"
+                        old = pool.submit(responsive.snapshot).result(timeout=0.5)
+                        assert old == starting["values"]
+                        assert pool.submit(responsive.has_override, "background").result(
+                            timeout=0.5) == starting["background_override"]
+                        # Queue another save while the first is still blocked.
+                        # It must publish after that write, preserving order.
+                        queued = pool.submit(responsive.update, {"theme": "light", "columns": 2})
+                    finally:
+                        release.set()
+                    first = pending.result(timeout=2)
+                    last = queued.result(timeout=2)
+                    assert first["theme"] == ("dark" if resetting else "light")
+                    assert last["theme"] == "light" and last["columns"] == 2
+                    assert responsive.snapshot() == store._values(state["options"])["values"] == last
+            finally:
+                release.set()
+                with state_lock:
+                    state["post_gate"] = None
+                    state["options"] = saved_options
+        checked("pending save/reset leave readers responsive and publish concurrent writes in order")
+
+        # HA rejects a null nested group today, but older/raw options can still
+        # contain one. Read and write paths must treat it consistently.
+        saved_options = copy.deepcopy(state["options"])
+        try:
+            state["options"]["launcher"] = None
+            result = store.commit({"theme": "light"})
+            assert state["options"]["launcher"] == {"theme": "light"}
+            assert result["values"] == {**appearance.DEFAULTS, "theme": "light"}
+            assert state["options"]["links"] == saved_options["links"]
+            state["options"]["launcher"] = []
+            posts = state["posts"]
+            try:
+                store.commit({"theme": "dark"})
+                raise AssertionError("Malformed launcher group accepted")
+            except appearance_store.StoreError:
+                pass
+            assert state["posts"] == posts
+        finally:
+            state["options"] = saved_options
+        checked("null legacy launcher groups recover without accepting malformed containers")
+
+        # The old config schema accepts longer sources and spaces in paths;
+        # strict editor limits must not break startup or an unrelated Apply.
+        source = "http://assets.test:8080/images/my ship.webp?token=" + "a" * 2100
+        configured = appearance_store.values_from_flat({
+            "launcher_background": source, "launcher_columns": float("inf"),
+            "launcher_background_dim": "not-a-number", "launcher_clock": "off"})
+        assert configured["background"] == source
+        assert configured["columns"] == 0 and configured["background_dim"] == 40
+        assert configured["clock"] is False
+        assert appearance.Preferences(configured).snapshot() == configured
+        assert appearance.configured({"background": "javascript:alert(1)"})["background"] == ""
+        assert appearance.configured({"background": "https://bad host.test/wall.webp"})["background"] == ""
+        assert appearance.configured({"background": "pictures/my ship.webp"})["background"] == "pictures/my ship.webp"
+        saved_options = copy.deepcopy(state["options"])
+        try:
+            state["options"]["launcher"]["background"]["source"] = source
+            state["options"]["launcher"]["background"]["clear"] = False
+            configured_prefs = appearance.Preferences(configured, commit=store.commit)
+            assert configured_prefs.update({"columns": 2})["background"] == source
+            assert state["options"]["launcher"]["background"]["source"] == source
+            try:
+                configured_prefs.update({"background": source})
+                raise AssertionError("Strict editor background limit ignored")
+            except ValueError:
+                pass
+            assert configured_prefs.update({"background": "https://new.test/wall.webp"})["background"] == "https://new.test/wall.webp"
+        finally:
+            state["options"] = saved_options
+        checked("existing config sources survive startup and unrelated saves while new edits stay strict")
 
     assert set(appearance_store.SHARED_PATHS) == set(appearance.DEFAULTS)
     REPORT["status"] = "PASS"

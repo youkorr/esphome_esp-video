@@ -884,9 +884,18 @@ def start_launcher(config, port=None, house_links=(), label="", panel_name=None,
         return None
     appearance_commit = None
     if appearance_store is not None:
-        appearance_commit = appearance_store.make_commit(
-            config, shared_config=config if shared_config is None else shared_config,
-            panel_name=panel_name, api=SUPERVISOR_API)
+        try:
+            appearance_commit = appearance_store.make_commit(
+                config, shared_config=config if shared_config is None else shared_config,
+                panel_name=panel_name, api=SUPERVISOR_API)
+        except (ValueError, TypeError, OverflowError):
+            say(f"Launcher{label}: invalid appearance configuration; links remain "
+                "available, but managed saves are disabled until it is corrected "
+                "and Portall is restarted.")
+            if os.environ.get("SUPERVISOR_TOKEN"):
+                def appearance_commit(*_args, **_kwargs):
+                    raise OSError("Managed appearance saves are disabled; correct "
+                                  "the add-on configuration and restart Portall")
     elif os.environ.get("SUPERVISOR_TOKEN"):
         def appearance_commit(*_args, **_kwargs):
             raise OSError("This installation is missing appearance_store.py")

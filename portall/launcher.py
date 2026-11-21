@@ -2738,19 +2738,14 @@ def start(links, title="", subtitle="", theme="dark",
     # picture or a video chosen on the panel's own Files page, which
     # wins until it is taken away. A function, so a choice made while
     # the add-on runs is shown without restarting it.
-    try:
-        preference_columns = max(0, min(6, int(columns)))
-    except (TypeError, ValueError):
-        preference_columns = 0
     if appearance_file is not None:
         appearance_file = os.fspath(appearance_file)
     if avatar_file is not None:
         avatar_file = os.fspath(avatar_file)
     if background_clear:
         background = ""
-    preferences = appearance.Preferences(
-        {"layout": layout, "theme": "light" if str(theme).lower() == "light" else "dark",
-         "columns": preference_columns, "align": align, "tiles": tiles,
+    startup_look = {"layout": layout, "theme": "light" if str(theme).lower() == "light" else "dark",
+         "columns": columns, "align": align, "tiles": tiles,
          "focus_color": focus_color, "tile_background": tile_background,
          "tile_size": tile_size, "tile_text_color": tile_text_color,
          "avatar": bool(avatar), "clock": bool(clock), "clock_size": clock_size,
@@ -2758,7 +2753,16 @@ def start(links, title="", subtitle="", theme="dark",
          "weather_visible": bool(weather_visible),
          "weather_size": weather_size, "weather_color": weather_color,
          "background": background, "background_motion": bool(motion),
-         "background_blur": blur, "background_dim": int(dim)}, appearance_file,
+         "background_blur": blur, "background_dim": dim}
+    normalized_look = appearance.configured(startup_look)
+    adjusted = [key for key, value in startup_look.items()
+                if value != normalized_look[key]]
+    if adjusted:
+        # Mention field names only: sources can contain private paths or tokens.
+        print("Launcher: using normalized or default appearance values for "
+              + ", ".join(adjusted), flush=True)
+    preferences = appearance.Preferences(
+        normalized_look, appearance_file,
         commit=appearance_commit,
         background_override=bool(background_clear) or bool(background_override))
     look_lock = threading.RLock()
