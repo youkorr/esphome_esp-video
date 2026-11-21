@@ -73,7 +73,7 @@ The source is under [`portall/`](portall/).
 The board runs the `portall` ESPHome component. Validated example
 configurations are in [`yaml/`](yaml/) — start from
 `yaml/p4-home-assistant.yaml` (Waveshare) or
-`yaml/guition-10-home-assistant.yaml` (Guition 10").
+`https://github.com/youkorr/esphome_esp-video/edit/main/yaml/portall-guit-10-p4.yaml` (Guition 10").
 
 ```yaml
 external_components:
