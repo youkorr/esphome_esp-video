@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2024-2026 youkorr
 # Part of Portall: https://github.com/youkorr/esphome_esp-video
-"""Validated, local visual preferences for the launcher.
+"""Validated visual preferences for the launcher.
 
 Only the page's appearance belongs here. Home Assistant services, automations,
 weather sources and assistant configuration remain add-on configuration.
@@ -124,7 +124,7 @@ VALS = {
 _BY_KEY = {field["key"]: field for field in FIELDS}
 
 
-def _background_valid(value):
+def _background_valid(value, *, from_config=False):
     """Check syntax only: never open a path or contact a remote background."""
     if any(ord(char) < 32 or ord(char) == 127 for char in value):
         return False
@@ -137,14 +137,15 @@ def _background_valid(value):
             parsed.port
             return (parsed.scheme.lower() in ("http", "https")
                     and bool(parsed.netloc) and bool(parsed.hostname)
-                    and not any(char.isspace() for char in value)
+                    and not any(char.isspace() for char in
+                                (parsed.netloc if from_config else value))
                     and "\\" not in parsed.netloc)
         return not value.startswith("//")
     except ValueError:
         return False
 
 
-def _validated(values, complete=False):
+def _validated(values, complete=False, *, from_config=False):
     if not isinstance(values, dict):
         raise ValueError("appearance must be an object")
     if any(key not in _BY_KEY for key in values):
@@ -164,33 +165,88 @@ def _validated(values, complete=False):
             if type(value) is not str or value not in VALS[key]:
                 raise ValueError(f"invalid {key}")
         elif kind == "text":
-            if type(value) is not str or len(value) > field["max_length"]:
+            if type(value) is not str or (not from_config and len(value) > field["max_length"]):
                 raise ValueError(f"{key} must be a string of at most {field['max_length']} characters")
-            if not _background_valid(value):
+            if not _background_valid(value, from_config=from_config):
                 raise ValueError("background must be an HTTP(S) URL or a local path")
     return dict(values)
 
 
-class Preferences:
-    """Validated overrides, persisted before becoming visible to readers.
+def configured(values):
+    """Normalize existing add-on configuration without abandoning its launcher.
 
-    Only overrides are stored, so reset and untouched fields follow the
-    add-on's defaults when it next starts. A missing path keeps them in RAM.
-    Older files containing only theme and columns remain valid overrides;
-    snapshots always include every current field.
+    Supervisor's string schema predates the editor's length limit and allows
+    spaces in image paths. Keep such existing sources; invalid individual
+    settings fall back to their factory value. New edits remain strict.
+    """
+    result = dict(DEFAULTS)
+    if not isinstance(values, dict):
+        return result
+    for key, default in DEFAULTS.items():
+        value = values.get(key, default)
+        if value is None:
+            continue
+        try:
+            kind = _BY_KEY[key]["kind"]
+            if kind == "bool" and type(value) is not bool:
+                text = str(value).strip().lower()
+                if text not in ("true", "yes", "1", "on", "false", "no", "0", "off"):
+                    continue
+                value = text in ("true", "yes", "1", "on")
+            elif kind == "number":
+                if type(value) is bool:
+                    continue
+                value = int(value)
+            elif kind == "choice" and isinstance(value, str):
+                value = value.strip().lower()
+            result[key] = _validated({key: value}, from_config=True)[key]
+        except (ValueError, TypeError, OverflowError):
+            continue
+    return result
+
+
+class Preferences:
+    """Validated appearance committed before becoming visible to readers.
+
+    A managed launcher uses the Supervisor callback as its source of truth;
+    older local choices remain available only through previous(). Standalone
+    launchers retain local overrides, so reset and untouched fields follow
+    their configured defaults. A missing path keeps standalone changes in RAM.
+    Snapshots always include every current field.
     """
 
-    def __init__(self, defaults: dict, path=None):
-        self._defaults = _validated({**DEFAULTS, **_validated(defaults)}, complete=True)
+    def __init__(self, defaults: dict, path=None, *, commit=None,
+                 background_override=False):
+        self._defaults = configured(defaults)
+        self._commit = commit
+        self._background_override = bool(background_override)
         self._path = os.fspath(path) if path is not None else None
         self._lock = threading.RLock()
+        # Serialize commits and publication, but never make readers wait for
+        # Supervisor. They keep seeing the last successfully committed view.
+        self._write_lock = threading.RLock()
         self._overrides = {}
-        if self._path is not None:
+        if self._path is not None and not self.managed:
             try:
                 with open(self._path, encoding="utf-8") as source:
                     self._overrides = _validated(json.load(source))
             except (OSError, UnicodeError, ValueError, TypeError):
                 self._overrides = {}
+
+    @property
+    def managed(self):
+        return self._commit is not None
+
+    def previous(self):
+        """Read earlier local choices for an explicit import; never apply them."""
+        if not self.managed or self._path is None:
+            return {}
+        with self._lock:
+            try:
+                with open(self._path, encoding="utf-8") as source:
+                    return _validated(json.load(source))
+            except (OSError, UnicodeError, ValueError, TypeError):
+                return {}
 
     def snapshot(self) -> dict:
         with self._lock:
@@ -198,7 +254,23 @@ class Preferences:
 
     def has_override(self, key):
         with self._lock:
+            if key == "background" and self._background_override:
+                return True
             return key in self._overrides
+
+    def _publish(self, result):
+        """Publish only a validated view returned after a successful commit."""
+        if not isinstance(result, dict) or type(result.get("background_override")) is not bool:
+            raise OSError("Invalid appearance storage response")
+        try:
+            values = _validated(result.get("values"), complete=True, from_config=True)
+        except (ValueError, TypeError) as error:
+            raise OSError("Invalid appearance storage response") from error
+        with self._lock:
+            self._defaults = values
+            self._overrides = {}
+            self._background_override = result["background_override"]
+            return self.snapshot()
 
     def _persist(self, overrides):
         if self._path is None:
@@ -225,19 +297,26 @@ class Preferences:
                     pass
 
     def update(self, payload) -> dict:
-        with self._lock:
-            changes = _validated(payload)
+        changes = _validated(payload)
+        with self._write_lock:
             if changes:
-                overrides = {**self._overrides, **changes}
+                if self.managed:
+                    return self._publish(self._commit(changes, reset=False))
+                with self._lock:
+                    overrides = {**self._overrides, **changes}
                 self._persist(overrides)
-                self._overrides = overrides
+                with self._lock:
+                    self._overrides = overrides
             return self.snapshot()
 
     def reset(self) -> dict:
-        with self._lock:
+        with self._write_lock:
+            if self.managed:
+                return self._publish(self._commit({}, reset=True))
             self._persist({})
-            self._overrides = {}
-            return self.snapshot()
+            with self._lock:
+                self._overrides = {}
+                return self.snapshot()
 
 
 # Keep the launcher's existing appearance.OPEN_BUTTON/HTML/CSS/JS API.
@@ -245,3 +324,4 @@ if __package__:
     from .appearance_ui import OPEN_BUTTON, HTML, CSS, JS
 else:
     from appearance_ui import OPEN_BUTTON, HTML, CSS, JS
+

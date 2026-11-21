@@ -1,5 +1,27 @@
 # Changelog
 
+## 4.52.7
+
+- **Settings on the screen save to the Home Assistant add-on configuration.**
+  Apply updates only this page's visual settings, preserving links, tokens,
+  service settings and the other screens. A failed Supervisor save reports an
+  error and keeps the current page and the editor's draft.
+- **Configured wallpapers are no longer hidden by older local choices.**
+  Background selection in Files and Settings uses the same add-on option.
+  A later configuration edit takes effect after restart. Wallpaper URLs with
+  query parameters keep their original addresses, including ampersands.
+- Shared-page Reset restores Portall's visual defaults; a screen's own Reset
+  restores inheritance from the shared page. Explicit empty backgrounds,
+  zero dimming and disabled switches are saved correctly.
+- Old local settings are preserved and can be imported explicitly from
+  Settings. Standalone Docker/systemd installations retain local preferences.
+  Existing background slideshows keep their behavior. No panel firmware
+  update is required.
+- Preserve existing long wallpaper URLs and paths containing spaces. Invalid
+  individual appearance values fall back without stopping the launchers.
+  Failed Files actions bring their error message into view, and the
+  translation generator keeps the new setting labels.
+
 ## 4.52.5
 
 - Restore the 4.52.3 sender, launcher settings and HD rendering behavior while

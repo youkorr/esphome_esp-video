@@ -35,6 +35,14 @@ import threading
 import time
 import urllib.parse
 
+try:
+    import appearance_store
+except ImportError:  # Direct-URL/systemd installations need no launcher files.
+    appearance_store = None
+
+_OPTIONS_LOCK = (appearance_store.OPTIONS_LOCK if appearance_store is not None
+                 else threading.RLock())
+
 # An accessory must never cost the picture, and this one already has: the file
 # was not copied into the add-on's image, so an import at the top of the file
 # took the whole supervisor down before any panel was served. The panels do not
@@ -723,8 +731,8 @@ LAUNCHER_OWN = (
     "layout", "theme", "columns", "align", "tiles", "focus_color", "tile_background",
     "tile_size", "tile_text_color", "avatar",
     "avatar_voice", "clock", "clock_size", "clock_color", "date_size", "date_color",
-    "weather", "weather_size", "weather_color",
-    "background", "background_motion", "background_blur", "background_dim",
+    "weather", "weather_visible", "weather_size", "weather_color",
+    "background", "background_motion", "background_blur", "background_dim", "background_clear",
     "slideshow", "slideshow_urls", "slideshow_seconds", "slideshow_fade",
     "slideshow_rescan", "slideshow_after", "slideshow_clock",
     "slideshow_date", "slideshow_weather", "slideshow_avatar",
@@ -786,6 +794,13 @@ def launcher_config(config, entry):
         if value is None or value == [] or not given(value):
             continue
         merged["launcher_" + key] = value
+    if truthy(entry.get("background_clear", False)):
+        merged["launcher_background"] = ""
+        merged["launcher_background_clear"] = True
+    elif given(entry.get("background")):
+        # A panel's own picture supersedes a clear choice inherited from home.
+        if "launcher_background_clear" in merged:
+            merged["launcher_background_clear"] = False
     merged["links"] = entry.get("links") or []
     return merged
 
@@ -850,7 +865,8 @@ def saver_minutes(config):
         return 2.0
 
 
-def start_launcher(config, port=None, house_links=(), label=""):
+def start_launcher(config, port=None, house_links=(), label="", panel_name=None,
+                   shared_config=None):
     """Serve one page of links, if there are any, and say where it is.
 
     Returns the address, or None when there are no links -- in which case a
@@ -866,6 +882,23 @@ def start_launcher(config, port=None, house_links=(), label=""):
             "links cannot be served. Panels with a url of their own are "
             "unaffected.")
         return None
+    appearance_commit = None
+    if appearance_store is not None:
+        try:
+            appearance_commit = appearance_store.make_commit(
+                config, shared_config=config if shared_config is None else shared_config,
+                panel_name=panel_name, api=SUPERVISOR_API)
+        except (ValueError, TypeError, OverflowError):
+            say(f"Launcher{label}: invalid appearance configuration; links remain "
+                "available, but managed saves are disabled until it is corrected "
+                "and Portall is restarted.")
+            if os.environ.get("SUPERVISOR_TOKEN"):
+                def appearance_commit(*_args, **_kwargs):
+                    raise OSError("Managed appearance saves are disabled; correct "
+                                  "the add-on configuration and restart Portall")
+    elif os.environ.get("SUPERVISOR_TOKEN"):
+        def appearance_commit(*_args, **_kwargs):
+            raise OSError("This installation is missing appearance_store.py")
     where = launcher.start(
         links,
         layout=str(config.get("launcher_layout") or "classic"),
@@ -900,6 +933,10 @@ def start_launcher(config, port=None, house_links=(), label=""):
         avatar=truthy(config.get("launcher_avatar", False)),
         avatar_file=avatar_file(label),
         appearance_file=appearance_file(label),
+        appearance_commit=appearance_commit,
+        weather_visible=truthy(config.get("launcher_weather_visible", True)),
+        background_clear=truthy(config.get("launcher_background_clear", False)),
+        background_override=(config.get("launcher_background_clear") is not None),
         # Every screen's downloads, opened on the glass from a link whose url
         # is "files", and the picture chosen there as this launcher's
         # wallpaper -- kept beside the avatar's spot, for the same reason.
@@ -970,7 +1007,8 @@ def start_launchers(config, panels):
         where = start_launcher(
             launcher_config(config, entry),
             port=launcher.ANY_PORT if launcher else None,
-            house_links=house, label=f" [{name}]")
+            house_links=house, label=f" [{name}]", panel_name=name,
+            shared_config=config)
         if where is None:
             wants_house = True
         else:
@@ -1034,10 +1072,10 @@ _GROUPED = {
         "clock": {"show": "launcher_clock", "size": "launcher_clock_size",
                   "color": "launcher_clock_color"},
         "date": {"size": "launcher_date_size", "color": "launcher_date_color"},
-        "weather": {"entity": "launcher_weather",
+        "weather": {"entity": "launcher_weather", "show": "launcher_weather_visible",
                     "size": "launcher_weather_size",
                     "color": "launcher_weather_color"},
-        "background": {"source": "launcher_background",
+        "background": {"source": "launcher_background", "clear": "launcher_background_clear",
                        "motion": "launcher_background_motion",
                        "blur": "launcher_background_blur",
                        "dim": "launcher_background_dim"},
@@ -1776,6 +1814,12 @@ def say_dropped_exceptions(panels):
 
 
 def show_enabled_switch():
+    # All add-on option writers share one read/merge/write lock.
+    with _OPTIONS_LOCK:
+        return _show_enabled_switch()
+
+
+def _show_enabled_switch():
     """Write `enabled: true` into every saved screen that has no such key.
 
     WHY. Reported straight after the switch shipped: "il aurait fallu qu'il

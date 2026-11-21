@@ -1,5 +1,5 @@
 name: Portall
-version: "4.52.5"
+version: "4.52.7"
 # Home Assistant identifies an add-on by its slug, so this one moving from
 # usb_display_panel to portall makes the Supervisor see a NEW add-on: options
 # are not carried over and /data starts empty, which means the browser
@@ -277,6 +277,7 @@ options:
       size: medium
       color: theme
     weather:
+      show: true
       # A Home Assistant weather entity -- weather.forecast_home, weather.chez_moi
       # -- shown beside the clock. Empty for none.
       #
@@ -509,10 +510,12 @@ schema:
       size: list(small|medium|large|huge)?
       color: list(theme|slate|gray|zinc|neutral|stone|red|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose|white|black)?
     weather:
+      show: bool?
       entity: str?
       size: list(small|medium|large|huge)?
       color: list(theme|slate|gray|zinc|neutral|stone|red|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose|white|black)?
     background:
+      clear: bool?
       source: str?
       motion: bool?
       blur: list(off|sm|md|xl)?
@@ -574,9 +577,11 @@ schema:
       date_size: list(small|medium|large|huge)?
       date_color: list(theme|slate|gray|zinc|neutral|stone|red|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose|white|black)?
       weather: str?
+      weather_visible: bool?
       weather_size: list(small|medium|large|huge)?
       weather_color: list(theme|slate|gray|zinc|neutral|stone|red|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose|white|black)?
       background: str?
+      background_clear: bool?
       background_motion: bool?
       background_blur: list(off|sm|md|xl)?
       background_dim: int(0,100)?
