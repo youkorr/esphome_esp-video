@@ -240,6 +240,8 @@ configuration:
       weather:
         name: ⛅ Weather
         fields:
+          show:
+            name: Show weather
           entity:
             name: Weather entity
             description: For example weather.forecast_home. Empty = no weather.
@@ -251,6 +253,9 @@ configuration:
       background:
         name: 🖼️ Wallpaper
         fields:
+          clear:
+            name: Use the theme background
+            description: Show the theme background without a picture on the link page.
           source:
             name: Picture
             description: An address (http://…) or a file / folder in /media.
@@ -438,6 +443,8 @@ configuration:
       weather:
         name: ⛅ Weather entity
         description: For example weather.forecast_home.
+      weather_visible:
+        name: ⛅ Show weather
       weather_size:
         name: ⛅ Weather size
       weather_color:
@@ -445,6 +452,9 @@ configuration:
       background:
         name: 🖼️ Wallpaper
         description: An address (http://…) or a file / folder in /media.
+      background_clear:
+        name: Use the theme background
+        description: Show the theme background on this screen even when a shared wallpaper is configured.
       background_motion:
         name: 🖼️ Animate the wallpaper
       background_blur:

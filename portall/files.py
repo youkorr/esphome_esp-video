@@ -200,20 +200,22 @@ WORDS = """
     title: "Fichiers", intro: "Ce que les pages des \\u00e9crans ont t\\u00e9l\\u00e9charg\\u00e9. Touchez un fichier pour l'ouvrir.",
     none: "Rien pour l'instant : ce qu'une page t\\u00e9l\\u00e9charge appara\\u00eet ici.",
     wall: "Mettre en fond d'\\u00e9cran", unwall: "Retirer ce fond d'\\u00e9cran",
-    unwallany: "Revenir au fond d'\\u00e9cran r\\u00e9gl\\u00e9 dans l'add-on",
+    unwallany: "Retirer le fond d'\\u00e9cran s\\u00e9lectionn\\u00e9",
     isWall: "C'est le fond d'\\u00e9cran du launcher.", del: "Supprimer",
     sure: "Supprimer ce fichier ?", open: "Ce fichier ne s'ouvre pas sur l'\\u00e9cran.",
     cannot: "Le navigateur de l'add-on ne lit pas ce format (souvent une vid\\u00e9o MP4 en H.264 ou de l'AAC). Un fichier WebM, MP3 ou Opus se lit partout.",
-    cut: "Seul le d\\u00e9but du fichier est affich\\u00e9."
+    cut: "Seul le d\\u00e9but du fichier est affich\\u00e9.",
+    saveError: "Impossible d'enregistrer cette modification. R\\u00e9essayez."
   } : {
     title: "Files", intro: "What the screens' pages downloaded. Touch a file to open it.",
     none: "Nothing yet: what a page downloads appears here.",
     wall: "Make it the wallpaper", unwall: "Remove this wallpaper",
-    unwallany: "Go back to the wallpaper set in the add-on",
+    unwallany: "Remove the selected wallpaper",
     isWall: "This is the launcher's wallpaper.", del: "Delete",
     sure: "Delete this file?", open: "This file cannot be opened on the screen.",
     cannot: "The add-on's browser cannot play this format (usually an H.264 MP4 or AAC). A WebM, MP3 or Opus file plays everywhere.",
-    cut: "Only the start of the file is shown."
+    cut: "Only the start of the file is shown.",
+    saveError: "Could not save this change. Please try again."
   };
   document.querySelectorAll('[data-k]').forEach(function (e) {
     e.textContent = T[e.getAttribute('data-k')] || '';
@@ -233,10 +235,17 @@ WORDS = """
         return;
       }
       b.disabled = true;
+      var error = document.getElementById('files-error');
+      error.hidden = true;
       post('""" + PATH + """/' + what, 'ref=' + encodeURIComponent(b.getAttribute('data-ref') || ''))
-        .then(function () {
+        .then(function (response) {
+          if (!response.ok) throw new Error('save');
           if (what === 'delete') location.replace('""" + PATH + """');
           else location.reload();
+        }).catch(function () {
+          error.textContent = T.saveError;
+          error.hidden = false;
+          b.disabled = false;
         });
     });
   });
@@ -254,7 +263,9 @@ def _page(body):
     return ("<!doctype html><html><head><meta charset='utf-8'>"
             "<meta name='viewport' content='width=device-width,"
             "initial-scale=1'><title>Files</title><style>" + STYLE
-            + "</style></head><body><main>" + body + "</main>" + WORDS
+            + "</style></head><body><main>" + body
+            + '<p id="files-error" class="warn" role="alert" hidden></p>'
+            + "</main>" + WORDS
             + "</body></html>").encode()
 
 
