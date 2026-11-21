@@ -14,25 +14,18 @@ esp32:
   flash_size: 16MB
   framework:
     type: esp-idf
-    #version: 5.5.5
     advanced:
       enable_idf_experimental_features: yes
       disable_vfs_support_dir: false
-      #loop_task_stack_size: "16384" #"32768"
-      #disable_fatfs: False
       include_builtin_idf_components:
         - fatfs
         - wear_levelling      
-    #components:
-      #- espressif/esp_hosted==3.0.9 
     sdkconfig_options:        
-      #CONFIG_ESP_HOSTED_SDIO_RX_Q_SIZE: "64"
       CONFIG_COMPILER_OPTIMIZATION_PERF: y
       CONFIG_SPIRAM_XIP_FROM_PSRAM: y
       CONFIG_FATFS_LFN_STACK: "y"
       CONFIG_VFS_SUPPORT_IO: "y"
       CONFIG_VFS_MAX_COUNT: "16" 
-      #CONFIG_ESP_HOSTED_MEMPOOL_PREFER_SPIRAM: "y"
       CONFIG_SPIRAM_FETCH_INSTRUCTIONS: "n"
       CONFIG_SPIRAM_RODATA: "n"
       CONFIG_ESP32_SPIRAM_SUPPORT: "y"
@@ -70,7 +63,7 @@ logger:
 
 api:
   encryption:
-    key: "k5W1m8ug2wUNSsVuQkpHnaStm6HyK5BWKrunv6vaMUU="
+    key: ""
 
 ota:
   - platform: esphome
@@ -82,7 +75,7 @@ wifi:
   post_connect_roaming: false
   ap:
     ssid: HA_ESP32P4 Fallback Hotspot
-    password: "CEKYolvf0Q1d"
+    password: ""
 
 captive_portal:
   
@@ -114,16 +107,10 @@ external_components:
   - source:
       type: git
       url: https://github.com/youkorr/esphome_esp-video
-      ref: codex/portall-panel-buffers #codex/fix-portall-esphome-display-api
+      ref: main
     components: [portall, portall_bt]
     refresh: 0s
     
-  #- source:
-      #type: git
-      #url: https://github.com/youkorr/esphome_esp-video
-      #ref: codex/portall-panel-buffers #codex/fix-portall-esphome-display-api
-    #components: [portall, portall_bt]
-    #refresh: 0s
 
   - source: github://kvj/esphome@jd9365_gsl3680
     refresh: 0s
@@ -133,17 +120,11 @@ external_components:
   - source: github://jtenniswood/esphome-media-player@main
     components: [ gsl3680 ]
     refresh: 0s
- 
-  #- source:
-      #type: git
-      #url: https://github.com/youkorr/lvgl_9.5
-      #ref: claude/native-idf-lv-freertos #codex/portall-direct-buffers
-    #components: [mipi_dsi]
-    #refresh: 0s
+
   - source:
       type: git
       url: https://github.com/youkorr/lvgl_9.5
-      ref: codex/portall-direct-buffers
+      ref: main
     components: [mipi_dsi]
     refresh: 0s    
     
@@ -153,45 +134,7 @@ external_components:
       ref: main
     components: [sd_mmc_card, storage, webdavbox3]
     refresh: 0s 
-    
- 
-    
 
-  
-
-
-#--------------------------------------------
-# esp-video
-#--------------------------------------------
-
-#esp_video:
-  #i2c_id: i2c_bus
-  #xclk_pin: GPIO36
-  #xclk_freq: 24000000
-  ##enable_h264: false
-  #enable_jpeg: true
-  #enable_isp: true
-  #use_heap_allocator: false
-
-#esp_cam_sensor:
-  #id: tab10_cam
-  #i2c_id: i2c_bus
-  #sensor_type: ov02c10        #"sensor_type" au lieu de "sensor"
-  #resolution: "1288x728"          # 1288x728 800x640 , 1024x600 ,vga
-  #pixel_format: "RGB565"     # Zero-copy 
-  #framerate: 30
-  #jpeg_quality: 15
-  ##ppa_enabled: true
-  #mirror_x: false      # Flip horizontal (hardware)
-  #mirror_y: false      # Flip vertical
-  #rotation: 0          # 0/90/180/270°
-
-
-  
-
-
-
-#--------------------------------------------
 # ============================================================================
 # webdavbox3
 # ============================================================================    
@@ -271,11 +214,6 @@ speaker:
     portall_bt_id: dongle
     num_channels: 2
 
- #- platform: resampler
-    #id: to_bluetooth
-    #output_speaker: bt_speaker
-
-    #bits_per_sample: 16
 
   - platform: mixer
     id: mixing_speaker
@@ -289,12 +227,6 @@ speaker:
         timeout: never
         buffer_duration: 500ms
 
-  #- platform: resampler
-    #id: portall_resampler
-    #output_speaker: portall_mixing_input
-    #bits_per_sample: 16
-    #buffer_duration: 500ms
-        
 media_player:
   - platform: speaker
     name: "Media Player"
@@ -433,13 +365,7 @@ sensor:
       - clamp:
           min_value: 0
           max_value: 100
-          
 
-
-  #- platform: wifi_signal
-    #name: "WiFi Signal"
-    #update_interval: 600s
-    #unit_of_measurement: "dBm"
 
   - platform: internal_temperature
     name: "ESP32 Internal Temperature"
@@ -481,9 +407,6 @@ text_sensor:
       name: "Bluetooth controller"
       icon: mdi:controller
 
-  # One row per device: up to four speakers remembered (ONE plays at a time,
-  # the others read "not in use") and four controllers or remotes. An empty
-  # row reads "none". The Use and Forget buttons below act on the same row.
   - platform: portall_bt
     speaker:
       name: "Bluetooth speaker 1"
@@ -580,8 +503,7 @@ number:
     icon: mdi:television-off
     on_value:
       - lambda: 'id(screen_off_delay) = (int) x;'
-      #- script.execute: screen_timeout
-        
+     
 
 script:
   - id: screen_timeout
@@ -593,7 +515,7 @@ script:
           then:
             - delay: !lambda 'return id(screen_off_delay) * 1000;'
             - light.turn_off: backlight
-            ##- usb_display.wake: udisp              
+                       
     
 
 globals:
@@ -656,8 +578,6 @@ display:
     framebuffers: 3
 
 
-
-
 portall:
   display_id: main_screen
   touchscreen_id: my_touch
@@ -670,11 +590,10 @@ portall:
   usb: false
   remote: true
   max_frame_bytes: 300000
-  speaker_id: portall_mixing_input #portall_resampler #portall_mixing_input
+  speaker_id: portall_mixing_input 
   sample_rate: 44100
   panel_buffers: true
-  #on_audio_start:
-    #- switch.turn_on: audio_amplifier
+
 
 portall_bt:
   id: dongle
@@ -683,7 +602,6 @@ portall_bt:
   test_tone: 0
   hid: true
   keys: true 
-  #show_reports: true
   device_name: "Guition"
 
   on_media_key:
@@ -696,8 +614,7 @@ portall_bt:
         // A fraction, because AVRCP carries 0..127 and no YAML should have to
         // know that. Sent straight at the one volume this board has.
         id(panel_volume).make_call().set_value(volume * 100.0f).perform();
-
-       
+      
 
 button:
   - platform: restart
