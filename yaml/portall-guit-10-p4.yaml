@@ -90,7 +90,7 @@ esp32_hosted:
   d1_pin: GPIO15
   d2_pin: GPIO16
   d3_pin: GPIO17 
-  use_psram: false
+  use_psram: true
 
 esp_ldo:
   - channel: 3
