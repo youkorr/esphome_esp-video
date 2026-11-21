@@ -287,11 +287,13 @@ launcher:
     size: medium              # the same four
     color: theme              # the same palette names
   weather:
+    show: true                # show the configured weather on the home page
     entity: weather.forecast_home   # empty for none
     size: medium
     color: theme              # the temperature's colour, the same palette names
   background:
     source: http://homeassistant:8123/local/wall.jpg
+    clear: false              # true uses the theme background instead
     motion: false             # let a GIF or an MP4 actually move
     blur: md                  # off, sm, md, xl
     dim: 40                   # 0..100
@@ -333,19 +335,31 @@ blur and dimming. Every choice is drawn inside the page, so a touch sent from
 the panel can reach it. Native browser dropdowns could open in 4.52.0 but
 could not be selected through the touch stream.
 
-**Apply** saves the changed appearance values for this launcher and reloads
-the home page. **Cancel** keeps the previous values. **Reset** restores the
-add-on's configured values. The editor also stays available in the classic
-layout. Existing 4.52.0 theme and column choices are kept. A source explicitly
-chosen in this editor replaces a background selected in Files; other appearance
-changes keep that selection. Local videos are streamed rather than read into
-memory in full.
+**Apply** saves the changed appearance values and reloads the home page. In
+the Home Assistant add-on, it also saves them in the add-on's configuration;
+refresh its Configuration page to see the updated values. If saving fails,
+the editor reports the error and keeps your draft. **Cancel** keeps the previous
+values. **Reset** restores the shared page's appearance to Portall's defaults;
+on a screen's own page, it removes that screen's visual overrides so the page
+inherits the current shared appearance. Links and service settings are kept.
+The editor also stays available in the classic layout. Local videos are
+streamed rather than read into memory in full.
 
 The voice assistant, weather entity, morning automation and screen-saver
 activation are still configured in the add-on. A launcher shared by several
 panels shares its saved appearance; use a panel's own `launchers:` entry for
-independent appearance choices. On-screen appearance values are overrides;
-use Reset to follow edited add-on defaults again.
+independent appearance choices. Changes made in Home Assistant's Configuration
+page take effect after restarting the add-on. A configured wallpaper and one
+chosen on the screen now use the same setting, so an old download cannot mask
+a later configuration change.
+
+For installations upgraded from 4.52.5 or earlier, old local appearance files
+and wallpaper selections are kept. In the add-on they no longer override its
+configuration automatically. If previous choices exist, **Import previous
+settings** in the editor lets you explicitly copy them into the configuration
+of that shared page or screen. Docker/systemd installations without Supervisor
+keep using their local preference files; their Reset returns to their supplied
+configuration and removes a wallpaper selected in Files.
 
 In Configuration, under **4 · Look of the page of links**, choose the values
 below and restart the add-on. `tiles: cards` or `tiles: buttons` makes no
@@ -670,8 +684,8 @@ launcher's:
 | `theme`, `columns`, `align`, `tiles`, `focus_color`, `tile_background`, `tile_size`, `tile_text_color`, `avatar`, `avatar_voice` | `launcher: theme`, `columns`, `align`, `tiles`, `focus_color`, `tile_background`, `tile_size`, `tile_text_color`, `avatar`, `avatar_voice` |
 | `clock`, `clock_size`, `clock_color` | `launcher: clock: show`, `size`, `color` |
 | `date_size`, `date_color` | `launcher: date: size`, `color` |
-| `weather`, `weather_size`, `weather_color` | `launcher: weather: entity`, `size`, `color` |
-| `background`, `background_motion`, `background_blur`, `background_dim` | `launcher: background: source`, `motion`, `blur`, `dim` |
+| `weather`, `weather_visible`, `weather_size`, `weather_color` | `launcher: weather: entity`, `show`, `size`, `color` |
+| `background`, `background_clear`, `background_motion`, `background_blur`, `background_dim` | `launcher: background: source`, `clear`, `motion`, `blur`, `dim` |
 | `slideshow`, `slideshow_urls`, `slideshow_seconds`, `slideshow_fade`, `slideshow_rescan` | `launcher: slideshow: enabled`, `urls`, `seconds`, `fade`, `rescan` |
 | `slideshow_after`, `slideshow_clock`, `slideshow_date`, `slideshow_weather`, `slideshow_avatar` | `launcher: slideshow: after`, `clock`, `date`, `weather`, `avatar` |
 
@@ -780,8 +794,11 @@ Anything else says it cannot be opened on the screen.
 A picture or a film has **Mettre en fond d'écran**: it becomes the launcher's
 wallpaper at once, with no restart, and stays it across restarts. A film
 chosen this way plays -- which costs a whole panel of picture for every frame
-it moves, see the wallpaper section. **Retirer ce fond d'écran** brings back
-the one set in the add-on's options, which are never changed by this.
+it moves, see the wallpaper section. In the Home Assistant add-on, this choice
+updates the page's background source in the add-on configuration too.
+**Retirer ce fond d'écran** selects the theme background. In standalone
+Docker/systemd installations, removing a selected download restores the
+background supplied in the configuration instead.
 **Supprimer** asks for a second touch, then deletes the file.
 
 The browser the add-on downloads plays WebM, MP3, Opus, Ogg, WAV and FLAC, and
@@ -1705,6 +1722,23 @@ moved under the clock.
 | an address | the panel fetches it itself. Home Assistant serves `/config/www` at `/local`, so `http://homeassistant:8123/local/wall.jpg` is the easy one |
 | a file | under `/config`, `/share` or `/media`, served by the add-on |
 | **a folder** | under the same three -- a digital photograph frame |
+
+Use `launcher.background.clear: true` to select the theme background even if
+slideshow pictures are configured. A screen's own page uses the flat
+`background_clear: true` field to hide an inherited wallpaper. Leaving that
+field out preserves inheritance; an empty `background` alone retains its
+existing inheritance behavior. Selecting a source in Settings sets `clear`
+back to false, while clearing the source there sets it to true. Zero dimming
+and `motion: false` are saved as explicit values.
+
+In the Home Assistant add-on, a source selected in Settings is the home
+page's wallpaper: `clear: false` records that explicit choice. Separately
+configured slideshow URLs remain available to the screen saver. Existing
+configurations without `clear` keep their original slideshow priority,
+including pictures changing behind the links with `slideshow.after: 0`.
+On a screen's own page, explicit `background_clear: false` also cancels an
+inherited clear choice. URLs may include query parameters; they are preserved
+when the page loads the wallpaper.
 
 A folder shows its first picture. Turn `launcher.slideshow.enabled` on and it
 becomes a **screen saver**, the way a PC's lock screen or a tablet's photo

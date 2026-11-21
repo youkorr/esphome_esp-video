@@ -2110,6 +2110,23 @@ def _addresses(urls):
     return out
 
 
+def _css_url(value):
+    """A quoted CSS URL safe inside an HTML style element.
+
+    HTML entities are literal text in a style element, so html.escape would
+    change an image's query string. CSS escapes preserve the URL instead;
+    escaping '<' also prevents a value from closing the enclosing style tag.
+    """
+    escaped = []
+    for char in str(value):
+        number = ord(char)
+        if char in ('"', "\\", "<") or number < 32 or number == 127:
+            escaped.append(f"\\{number:x} ")
+        else:
+            escaped.append(char)
+    return 'url("' + "".join(escaped) + '")'
+
+
 def _wallpaper(background):
     """What the page should show behind everything, and what to serve for it.
 
@@ -2432,7 +2449,7 @@ def render(links, title="", subtitle="", theme="dark",
                  f'{" autoplay loop" if motion else ""}></video>')
         wants_video_report = True
     elif first:
-        wall_css = f'url("{html.escape(first, quote=True)}")'
+        wall_css = _css_url(first)
 
     # Grouped in the order the groups first appear, so the list in the form is
     # the order on the panel and nobody has to think about sorting.
@@ -2705,7 +2722,9 @@ def start(links, title="", subtitle="", theme="dark",
           tile_text_color=FOLLOW_THEME, files_root=None, choice_file=None,
           status=None, saver_after=0, saver_clock=True, saver_date=True,
           saver_weather=True, saver_avatar=True, saver_layout=None,
-          layout="classic", appearance_file=None, voice_factory=None):
+          layout="classic", appearance_file=None, voice_factory=None,
+          appearance_commit=None, weather_visible=True, background_clear=False,
+          background_override=False):
     """Serve the page for as long as the add-on runs. Returns its address.
 
     One call is one launcher: its links, its look, its weather, its
@@ -2727,6 +2746,8 @@ def start(links, title="", subtitle="", theme="dark",
         appearance_file = os.fspath(appearance_file)
     if avatar_file is not None:
         avatar_file = os.fspath(avatar_file)
+    if background_clear:
+        background = ""
     preferences = appearance.Preferences(
         {"layout": layout, "theme": "light" if str(theme).lower() == "light" else "dark",
          "columns": preference_columns, "align": align, "tiles": tiles,
@@ -2734,9 +2755,12 @@ def start(links, title="", subtitle="", theme="dark",
          "tile_size": tile_size, "tile_text_color": tile_text_color,
          "avatar": bool(avatar), "clock": bool(clock), "clock_size": clock_size,
          "clock_color": clock_color, "date_size": date_size, "date_color": date_color,
+         "weather_visible": bool(weather_visible),
          "weather_size": weather_size, "weather_color": weather_color,
          "background": background, "background_motion": bool(motion),
-         "background_blur": blur, "background_dim": int(dim)}, appearance_file)
+         "background_blur": blur, "background_dim": int(dim)}, appearance_file,
+        commit=appearance_commit,
+        background_override=bool(background_clear) or bool(background_override))
     look_lock = threading.RLock()
     voice_attempted = voice is not None
 
@@ -2858,13 +2882,21 @@ def start(links, title="", subtitle="", theme="dark",
 
     def chosen_path():
         """The file chosen on the Files page as the wallpaper, if any."""
-        if library is None or not choice_file:
+        if library is None:
+            return None, None
+        if preferences.managed:
+            selected = preferences.snapshot()["background"]
+            for entry in library.entries(files_root):
+                if entry["path"] == selected and entry["kind"] in library.WALLPAPER_KINDS:
+                    return entry["ref"], entry["path"]
+            return None, None
+        if not choice_file:
             return None, None
         ref = library.read_choice(choice_file)
         entry = library.find(files_root, ref) if ref else None
         return (ref, entry["path"]) if entry else (None, None)
 
-    settle(chosen_path()[1])
+    settle(None if preferences.managed else chosen_path()[1])
     wall_rev = {"n": 0}
 
     # `weather` is a callable returning the latest reading, or None -- the
@@ -2982,22 +3014,73 @@ def start(links, title="", subtitle="", theme="dark",
     # home does not fill the log with the same sentence.
     said = set()
 
+    def previous_appearance():
+        """Old local choices remain available for an explicit, scoped import."""
+        if not preferences.managed:
+            return {}
+        previous = preferences.previous()
+        if library is not None and choice_file:
+            ref = library.read_choice(choice_file)
+            selected = library.find(files_root, ref) if ref else None
+            if selected is not None and selected["kind"] in library.WALLPAPER_KINDS:
+                previous = {**previous, "background": selected["path"],
+                            "background_motion": True}
+        return previous
+
+    def apply_appearance(requested):
+        """Commit a look before publishing its page and wallpaper together."""
+        nonlocal configured
+        with look_lock:
+            previous = preferences.snapshot()
+            if (isinstance(requested, dict) and set(requested) == {"restore_previous"}
+                    and requested["restore_previous"] is True):
+                requested = previous_appearance()
+                if not requested:
+                    raise ValueError("No previous appearance to import")
+            if (isinstance(requested, dict) and "background_motion" in requested
+                    and "background" not in requested):
+                selected = chosen_path()[1]
+                if selected:
+                    requested = {**requested, "background": selected}
+            resetting = (isinstance(requested, dict)
+                         and set(requested) == {"reset"}
+                         and requested["reset"] is True)
+            result = preferences.reset() if resetting else preferences.update(requested)
+            background_requested = isinstance(requested, dict) and "background" in requested
+            next_background = (result["background"],
+                               () if preferences.has_override("background") else original_urls,
+                               result["background_motion"])
+            # Managed launchers use the Supervisor as their only active store.
+            # Old local choices are left intact, but cannot mask configuration.
+            if (resetting or background_requested) and not preferences.managed \
+                    and library is not None and choice_file:
+                library.write_choice(choice_file, None)
+            if next_background != configured or background_requested or resetting:
+                configured = next_background
+                settle(None if preferences.managed else chosen_path()[1])
+                wall_rev["n"] += 1
+            follow_assistant(result)
+            if previous != result or resetting:
+                cache.clear()
+            return result
+
     class Handler(http.server.BaseHTTPRequestHandler):
         def log_message(self, *args):
             pass  # the add-on log is for panels, not for page requests
 
-        def _reply(self, payload, content_type):
+        def _reply(self, payload, content_type, extra_headers=None):
             self.send_response(200)
             self.send_header("Content-Type", content_type)
             self.send_header("Content-Length", str(len(payload)))
             # Rebuilt on every restart, and a panel that came home to a stale
             # copy would show links that were edited away.
             self.send_header("Cache-Control", "no-store")
+            for key, value in (extra_headers or {}).items():
+                self.send_header(key, value)
             self.end_headers()
             self.wfile.write(payload)
 
         def _appearance_post(self):
-            nonlocal configured
             if self.path != appearance.PATH:
                 self.send_error(404)
                 return
@@ -3015,34 +3098,7 @@ def start(links, title="", subtitle="", theme="dark",
                     self.send_error(413)
                     return
                 requested = json.loads(self.rfile.read(length))
-                with look_lock:
-                    previous = preferences.snapshot()
-                    if (isinstance(requested, dict) and "background_motion" in requested
-                            and "background" not in requested):
-                        selected = chosen_path()[1]
-                        if selected:
-                            requested = {**requested, "background": selected}
-                    if (isinstance(requested, dict) and set(requested) == {"reset"}
-                            and requested["reset"] is True):
-                        result = preferences.reset()
-                    else:
-                        result = preferences.update(requested)
-                    next_background = (result["background"],
-                                       () if preferences.has_override("background") else original_urls,
-                                       result["background_motion"])
-                    background_requested = isinstance(requested, dict) and "background" in requested
-                    if next_background != configured or background_requested:
-                        configured = next_background
-                        # Choosing a background here is an explicit choice,
-                        # just as choosing one on Files is. Unrelated look
-                        # changes keep the existing Files selection intact.
-                        if background_requested and library is not None and choice_file:
-                            library.write_choice(choice_file, None)
-                        settle(chosen_path()[1])
-                        wall_rev["n"] += 1
-                    follow_assistant(result)
-                    if previous != result:
-                        cache.clear()
+                result = apply_appearance(requested)
             except (ValueError, TypeError, UnicodeError):
                 self.send_error(400, "Invalid appearance settings")
                 return
@@ -3054,7 +3110,9 @@ def start(links, title="", subtitle="", theme="dark",
         def do_GET(self):
             if self.path.split("?")[0] == appearance.PATH:
                 self._reply(json.dumps(preferences.snapshot()).encode(),
-                            "application/json")
+                            "application/json",
+                            {"X-Portall-Previous-Appearance": "available"}
+                            if previous_appearance() else None)
                 return
             if self.path.split("?")[0] == WEATHER_PATH:
                 # Whatever the add-on last read, as it stands. A reading that
@@ -3213,35 +3271,54 @@ def start(links, title="", subtitle="", theme="dark",
             if library is None or not self.path.startswith(FILES_HREF + "/"):
                 self.send_error(404)
                 return
-            length = int(self.headers.get("Content-Length") or 0)
-            asked = parse_qs(self.rfile.read(length).decode(errors="replace"))
-            ref = (asked.get("ref") or [""])[0]
-            what = self.path.split("?")[0][len(FILES_HREF) + 1:]
-            entry = library.find(files_root, ref) if ref else None
-            if what == "wallpaper" and entry is not None \
-                    and entry["kind"] in library.WALLPAPER_KINDS \
-                    and choice_file:
-                library.write_choice(choice_file, entry["ref"])
-                settle(entry["path"])
-                wall_rev["n"] += 1
-            elif what == "unwallpaper" and choice_file:
-                library.write_choice(choice_file, None)
-                settle(None)
-                wall_rev["n"] += 1
-            elif what == "delete" and entry is not None:
-                if chosen_path()[0] == entry["ref"]:
-                    library.write_choice(choice_file, None)
-                    settle(None)
-                    wall_rev["n"] += 1
-                try:
-                    os.remove(entry["path"])
-                    print(f"Launcher: {entry['ref']} deleted from the Files "
-                          f"page", flush=True)
-                except OSError as err:
-                    print(f"Launcher: could not delete {entry['ref']} ({err})",
-                          flush=True)
-            else:
-                self.send_error(404)
+            if self.headers.get("Origin") != "http://" + self.headers.get("Host", ""):
+                self.send_error(403)
+                return
+            try:
+                length = int(self.headers.get("Content-Length") or 0)
+                if not 0 < length <= 16384:
+                    self.send_error(413)
+                    return
+                asked = parse_qs(self.rfile.read(length).decode(errors="replace"))
+                ref = (asked.get("ref") or [""])[0]
+                what = self.path.split("?")[0][len(FILES_HREF) + 1:]
+                entry = library.find(files_root, ref) if ref else None
+                with look_lock:
+                    if what == "wallpaper" and entry is not None \
+                            and entry["kind"] in library.WALLPAPER_KINDS \
+                            and (choice_file or preferences.managed):
+                        if preferences.managed:
+                            apply_appearance({"background": entry["path"],
+                                              "background_motion": True})
+                        else:
+                            library.write_choice(choice_file, entry["ref"])
+                            settle(entry["path"])
+                            wall_rev["n"] += 1
+                    elif what == "unwallpaper" and (choice_file or preferences.managed):
+                        if preferences.managed:
+                            apply_appearance({"background": ""})
+                        else:
+                            library.write_choice(choice_file, None)
+                            settle(None)
+                            wall_rev["n"] += 1
+                    elif what == "delete" and entry is not None:
+                        if chosen_path()[0] == entry["ref"]:
+                            if preferences.managed:
+                                apply_appearance({"background": ""})
+                            else:
+                                library.write_choice(choice_file, None)
+                                settle(None)
+                                wall_rev["n"] += 1
+                        os.remove(entry["path"])
+                        print(f"Launcher: {entry['ref']} deleted from the Files page", flush=True)
+                    else:
+                        self.send_error(404)
+                        return
+            except (ValueError, TypeError, UnicodeError):
+                self.send_error(400, "Invalid file request")
+                return
+            except OSError:
+                self.send_error(500, "Could not save file or appearance change")
                 return
             self.send_response(204)
             self.end_headers()
@@ -3259,3 +3336,4 @@ def start(links, title="", subtitle="", theme="dark",
     threading.Thread(target=server.serve_forever, name="launcher",
                      daemon=True).start()
     return f"http://127.0.0.1:{server.server_address[1]}/"
+

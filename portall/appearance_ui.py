@@ -40,6 +40,7 @@ HTML = """<p id="appearance-load-error" role="status" hidden></p>
    <p id="appearance-error" role="alert" tabindex="-1" hidden></p>
    <div class="appearance-footer-row">
     <button type="button" id="appearance-reset" class="appearance-quiet" data-appearance-text="reset">Réinitialiser</button>
+    <button type="button" id="appearance-previous" class="appearance-quiet" hidden data-appearance-text="previous">Importer les anciens réglages</button>
     <div class="appearance-actions">
      <button type="button" id="appearance-cancel" data-appearance-text="cancel">Annuler</button>
      <button type="submit" id="appearance-apply" class="appearance-primary" data-appearance-text="apply">Appliquer</button>
@@ -156,8 +157,8 @@ CSS = """
  #appearance-dialog .appearance-disabled-note { color: var(--ap-muted); margin: 10px 0 0; font-size: 12px; line-height: 1.55; }
  #appearance-dialog .appearance-field.is-disabled .appearance-field-label { color: var(--ap-muted); }
  #appearance-dialog .appearance-footer { position: sticky; bottom: 0; flex-shrink: 0; padding: 17px 28px; border-top: 1px solid var(--ap-edge); background: var(--ap-surface); z-index: 2; }
- #appearance-dialog .appearance-footer-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
- #appearance-dialog .appearance-actions { display: flex; align-items: center; gap: 10px; }
+ #appearance-dialog .appearance-footer-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 14px; }
+ #appearance-dialog .appearance-actions { display: flex; align-items: center; margin-left: auto; gap: 10px; }
  #appearance-dialog .appearance-primary { border-color: var(--ap-accent); background: var(--ap-accent); color: #fff; padding-inline: 25px; }
  #appearance-dialog .appearance-quiet { border-color: transparent; color: var(--ap-muted); background: transparent; padding-inline: 10px; }
  #appearance-error { margin: 0 0 12px; padding: 10px 12px; border-left: 3px solid var(--ap-accent); color: var(--ap-ink); font-size: 13px; line-height: 1.5; }
@@ -225,7 +226,9 @@ JS = """<script>
     dimHelp: '0 % laisse le fond intact ; 100 % l’assombrit entièrement.',
     focusHelp: 'La couleur qui souligne le lien sélectionné au clavier ou à la télécommande.',
     motionHelp: 'Autorise les vidéos et les images animées du fond.',
-    resetHelp: 'Reprendre les réglages de l’extension'
+    resetHelp: 'Rétablir les valeurs par défaut de cette page',
+    previous: 'Importer les anciens réglages',
+    previousHelp: 'Enregistrer les anciens choix locaux de cette page dans la configuration de l’extension'
   } : {
     settings: 'Settings', eyebrow: 'YOUR HOME SCREEN', appearance: 'Link page appearance',
     intro: 'Make this home screen yours, down to the details.',
@@ -244,7 +247,9 @@ JS = """<script>
     dimHelp: '0% leaves the background unchanged; 100% darkens it completely.',
     focusHelp: 'The color highlighting the link selected with a keyboard or remote.',
     motionHelp: 'Allow background videos and animated images.',
-    resetHelp: 'Restore the add-on settings'
+    resetHelp: 'Restore the defaults for this page',
+    previous: 'Import previous settings',
+    previousHelp: 'Save this page’s previous local choices in the add-on configuration'
   };
   const sections = [
     {key: 'layout', fr: 'Disposition', en: 'Layout',
@@ -304,6 +309,7 @@ JS = """<script>
   dialog.lang = lang;
   document.getElementById('appearance-close').setAttribute('aria-label', words.close);
   document.getElementById('appearance-reset').title = words.resetHelp;
+  document.getElementById('appearance-previous').title = words.previousHelp;
   dialog.querySelector('.appearance-navigation').setAttribute('aria-label', words.sections);
   function closePickers(except) {
     pickers.forEach(picker => { if (picker !== except) picker.close(); });
@@ -540,6 +546,8 @@ JS = """<script>
     try {
       const response = await fetch('/appearance.json', {cache: 'no-store', credentials: 'same-origin'});
       if (!response.ok) throw new Error('load');
+      document.getElementById('appearance-previous').hidden =
+        response.headers.get('X-Portall-Previous-Appearance') !== 'available';
       const values = await response.json();
       if (!values || typeof values !== 'object' || Array.isArray(values)) throw new Error('values');
       initial = {...values}; draft = {...values}; renderFields(); selectSection('layout');
@@ -591,5 +599,7 @@ JS = """<script>
     if (Object.keys(changes).length) save(changes); else dialog.close();
   });
   document.getElementById('appearance-reset').addEventListener('click', () => save({reset: true}));
+  document.getElementById('appearance-previous').addEventListener('click', () => save({restore_previous: true}));
 })();
 </script>"""
+

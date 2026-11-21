@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2024-2026 youkorr
 # Part of Portall: https://github.com/youkorr/esphome_esp-video
-"""Validated, local visual preferences for the launcher.
+"""Validated visual preferences for the launcher.
 
 Only the page's appearance belongs here. Home Assistant services, automations,
 weather sources and assistant configuration remain add-on configuration.
@@ -172,25 +172,44 @@ def _validated(values, complete=False):
 
 
 class Preferences:
-    """Validated overrides, persisted before becoming visible to readers.
+    """Validated appearance committed before becoming visible to readers.
 
-    Only overrides are stored, so reset and untouched fields follow the
-    add-on's defaults when it next starts. A missing path keeps them in RAM.
-    Older files containing only theme and columns remain valid overrides;
-    snapshots always include every current field.
+    A managed launcher uses the Supervisor callback as its source of truth;
+    older local choices remain available only through previous(). Standalone
+    launchers retain local overrides, so reset and untouched fields follow
+    their configured defaults. A missing path keeps standalone changes in RAM.
+    Snapshots always include every current field.
     """
 
-    def __init__(self, defaults: dict, path=None):
+    def __init__(self, defaults: dict, path=None, *, commit=None,
+                 background_override=False):
         self._defaults = _validated({**DEFAULTS, **_validated(defaults)}, complete=True)
+        self._commit = commit
+        self._background_override = bool(background_override)
         self._path = os.fspath(path) if path is not None else None
         self._lock = threading.RLock()
         self._overrides = {}
-        if self._path is not None:
+        if self._path is not None and not self.managed:
             try:
                 with open(self._path, encoding="utf-8") as source:
                     self._overrides = _validated(json.load(source))
             except (OSError, UnicodeError, ValueError, TypeError):
                 self._overrides = {}
+
+    @property
+    def managed(self):
+        return self._commit is not None
+
+    def previous(self):
+        """Read earlier local choices for an explicit import; never apply them."""
+        if not self.managed or self._path is None:
+            return {}
+        with self._lock:
+            try:
+                with open(self._path, encoding="utf-8") as source:
+                    return _validated(json.load(source))
+            except (OSError, UnicodeError, ValueError, TypeError):
+                return {}
 
     def snapshot(self) -> dict:
         with self._lock:
@@ -198,7 +217,22 @@ class Preferences:
 
     def has_override(self, key):
         with self._lock:
+            if key == "background" and self._background_override:
+                return True
             return key in self._overrides
+
+    def _publish(self, result):
+        """Publish only a validated view returned after a successful commit."""
+        if not isinstance(result, dict) or type(result.get("background_override")) is not bool:
+            raise OSError("Invalid appearance storage response")
+        try:
+            values = _validated(result.get("values"), complete=True)
+        except (ValueError, TypeError) as error:
+            raise OSError("Invalid appearance storage response") from error
+        self._defaults = values
+        self._overrides = {}
+        self._background_override = result["background_override"]
+        return self.snapshot()
 
     def _persist(self, overrides):
         if self._path is None:
@@ -228,6 +262,8 @@ class Preferences:
         with self._lock:
             changes = _validated(payload)
             if changes:
+                if self.managed:
+                    return self._publish(self._commit(changes, reset=False))
                 overrides = {**self._overrides, **changes}
                 self._persist(overrides)
                 self._overrides = overrides
@@ -235,6 +271,8 @@ class Preferences:
 
     def reset(self) -> dict:
         with self._lock:
+            if self.managed:
+                return self._publish(self._commit({}, reset=True))
             self._persist({})
             self._overrides = {}
             return self.snapshot()
@@ -245,3 +283,4 @@ if __package__:
     from .appearance_ui import OPEN_BUTTON, HTML, CSS, JS
 else:
     from appearance_ui import OPEN_BUTTON, HTML, CSS, JS
+

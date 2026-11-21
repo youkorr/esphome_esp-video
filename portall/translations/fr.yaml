@@ -246,6 +246,8 @@ configuration:
       weather:
         name: ⛅ Météo
         fields:
+          show:
+            name: Afficher la météo
           entity:
             name: Entité météo
             description: Par exemple weather.forecast_maison. Vide = pas de météo.
@@ -257,6 +259,9 @@ configuration:
       background:
         name: 🖼️ Fond d'écran
         fields:
+          clear:
+            name: Utiliser le fond du thème
+            description: Affiche le fond du thème sans image sur la page de liens.
           source:
             name: Image
             description: Une adresse (http://…) ou un fichier / dossier dans /media.
@@ -451,6 +456,8 @@ configuration:
       weather:
         name: ⛅ Entité météo
         description: Par exemple weather.forecast_maison.
+      weather_visible:
+        name: ⛅ Afficher la météo
       weather_size:
         name: ⛅ Taille de la météo
       weather_color:
@@ -458,6 +465,9 @@ configuration:
       background:
         name: 🖼️ Fond d'écran
         description: Une adresse (http://…) ou un fichier / dossier dans /media.
+      background_clear:
+        name: Utiliser le fond du thème
+        description: Affiche le fond du thème sur cet écran, même si un fond commun est configuré.
       background_motion:
         name: 🖼️ Animer le fond
       background_blur:
