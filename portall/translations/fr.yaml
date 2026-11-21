@@ -115,8 +115,14 @@ configuration:
           youtube_tv_hd:
             name: YouTube TV HD (expérimental)
             description: 'À essayer si YouTube TV reste limité à 720p. Le serveur affiche la page
-              en plus grand puis la réduit pour votre écran. Désactivé par défaut ; le 1080p
-              reste à confirmer et le serveur travaille davantage.'
+              en plus grand puis la réduit pour votre écran. Désactivé par défaut ; les formats
+              disponibles dépendent de YouTube et de la vidéo, et le serveur travaille davantage.'
+          youtube_tv_native_view:
+            name: HD à la taille de l’écran (expérimental)
+            description: 'Nécessite YouTube TV HD ci-dessus. Conserve ses vérifications de formats
+              mais dessine la page à la taille de votre écran pour réduire le travail de rendu.
+              Désactivé par défaut. Vérifiez que le 1080p fonctionne encore ; désactivez cette
+              option si la lecture revient à 720p.'
   links:
     name: 🔗 3 · Liens communs
     description: Les tuiles de la page de liens, pour tous les écrans qui n'ont pas la leur (voir 5).

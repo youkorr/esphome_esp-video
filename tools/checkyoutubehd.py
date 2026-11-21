@@ -13,6 +13,10 @@ from pathlib import Path
 from PIL import Image
 from playwright.sync_api import sync_playwright
 
+if not __debug__:
+    raise SystemExit('Run without python -O: this fixture requires assertions')
+
+NATIVE_VIEW = os.environ.get('PORTALL_TEST_NATIVE_VIEW') == '1'
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT/'components/portall/ha_send.py'
 OUTPUT = (Path(os.environ['PORTALL_TEST_REPORT'])
@@ -31,6 +35,7 @@ class IdentityMap:
 HTML = '''<!doctype html><style>html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#004000}#full{position:fixed;right:4vw;bottom:4vh;width:8vw;height:8vh}input{position:fixed;left:10vw;top:15vh;width:30vw;height:6vh}</style><div id="player" style="position:fixed;inset:0;background:#004000"><input id="search"><button id="full">Fullscreen</button><video id="video" muted style="position:fixed;width:20vw;height:15vh;left:0;bottom:0"></video></div><script>window.result={clicks:0,events:[]};document.getElementById('full').addEventListener('click',async e=>{result.clicks++;result.trusted=e.isTrusted;result.active=navigator.userActivation.isActive;try{await document.getElementById('player').requestFullscreen();result.success=true}catch(e){result.error=e.name+': '+e.message}});document.addEventListener('fullscreenchange',()=>result.events.push(!!document.fullscreenElement));window.startVideo=async()=>{const c=document.createElement('canvas');c.width=1920;c.height=1080;const g=c.getContext('2d');g.fillStyle='#408000';g.fillRect(0,0,c.width,c.height);const v=document.getElementById('video');v.srcObject=c.captureStream(10);window.videoCanvas=c;window.videoTimer=setInterval(()=>{g.fillRect(0,0,c.width,c.height)},100);await v.play()};</script>'''
 
 report = {'offline_fixture_only': True, 'youtube_playback_verified': False,
+          'native_view': NATIVE_VIEW,
           'source_sha256': SOURCE_SHA256, 'checks': {}}
 checks = report['checks']
 media_lines = []
@@ -66,16 +71,22 @@ try:
             context.add_init_script(sender.HOME_HINT_JS)
             context.add_init_script(sender.media_init_js(100))
             page = context.new_page()
-            view = sender.YouTubeTVView(page,1280,800)
+            view = sender.YouTubeTVView(page,1280,800,native_view=NATIVE_VIEW)
             url = 'https://www.youtube.com/tv#/watch?v=offline-fixture'
             view.reconcile(url)
             page.goto(url,wait_until='domcontentloaded')
             got = metrics(page)
-            assert (got['width'],got['height'],got['screenWidth'],got['screenHeight']) == (1920,1200,1920,1200),got
+            expected = ((1280,800,1920,1080) if NATIVE_VIEW
+                        else (1920,1200,1920,1200))
+            assert (got['width'],got['height'],got['screenWidth'],got['screenHeight']) == expected,got
             checks['hd_real_metrics'] = got
             view.set_view(1280,740)
             got = metrics(page)
-            assert (got['width'],got['height']) == (1920,1110),got
+            expected_size = (1280,740) if NATIVE_VIEW else (1920,1110)
+            assert (got['width'],got['height']) == expected_size,got
+            if NATIVE_VIEW:
+                assert (got['screenWidth'],got['screenHeight']) == (1920,1080),got
+                assert view.x == view.y == 1
             checks['toolbar_metrics'] = got
 
             capture = sender.Screencast(page,1280,800,80,space=view)
@@ -142,13 +153,13 @@ try:
             page.wait_for_timeout(60)
             view.reconcile()
             got = metrics(page)
-            assert (got['width'],got['height']) == (1280,740),got
+            assert (got['width'],got['height'],got['screenWidth'],got['screenHeight']) == (1280,740,1280,740),got
             checks['spa_desktop_restoration'] = got
             page.go_back(wait_until='commit')
             page.wait_for_timeout(60)
             view.reconcile()
             got = metrics(page)
-            assert (got['width'],got['height']) == (1920,1110),got
+            assert (got['width'],got['height']) == expected_size,got
             checks['history_return_to_tv'] = got
             other = context.new_page()
             other.goto('https://example.test/native',wait_until='domcontentloaded')

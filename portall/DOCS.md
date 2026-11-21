@@ -2322,9 +2322,10 @@ It gives only YouTube TV a real browser layout of at least 1920x1080, reduces
 captures to the current panel size and converts touch coordinates. Returning
 to another site restores the native layout. The panel firmware is unchanged.
 
-The option is off by default. It is an experiment: local browser fixtures
-verify capture dimensions, input, scrolling and navigation, but actual YouTube
-1080p playback is not yet verified. It uses more server rendering resources
+The option is off by default. Local browser fixtures verify capture dimensions,
+input, scrolling and navigation. YouTube 1080p playback with the 4.52.3 format
+checks has also been reported working on a Guition panel; availability still
+depends on YouTube and the video. This mode uses more server rendering resources
 and does not promise smoother playback. With Diagnostics `show_media` on,
 look for `decoded=1920x1080` during playback; a menu label alone is not proof
 of that resolution. Set `youtube_tv_hd: false` to return to the native layout.
@@ -2339,6 +2340,38 @@ change EME or `MediaCapabilities`, or promise hardware acceleration.
 With `show_media` enabled, `Media: TV capabilities:` confirms installation
 and reports a bounded number of rejected probes. The real `decoded=` size
 remains the check for successful YouTube 1080p playback.
+
+#### Reducing the rendering work in YouTube TV HD mode
+
+The optional **HD at screen size (experimental)** setting keeps the HD format
+checks while drawing the page at the panel's native page size:
+
+```yaml
+panels:
+  - name: salon
+    # Merge into this screen's existing Advanced settings.
+    advanced:
+      youtube_tv_hd: true
+      youtube_tv_native_view: true
+```
+
+Restart the add-on after changing these settings. `youtube_tv_native_view`
+is off by default and only takes effect when `youtube_tv_hd` is enabled.
+With it off, the existing larger HD layout is unchanged.
+
+This mode uses real browser metrics: a native-size viewport with a virtual
+screen of at least 1920x1080. The captured image stays at the panel's page
+size, and other sites regain the native viewport and screen metrics. It does
+not change codecs or claim hardware decoding. For a 1280x800 page, or a
+1280x740 page beneath the toolbar, it draws about 56% fewer viewport pixels
+than the larger HD layout. That is a pixel count, not a promised CPU saving;
+the source video still needs decoding.
+
+Local fixtures verify rendering and input, but actual YouTube 1080p playback
+in this new mode still needs checking. Enable `show_media` and look for
+`decoded=1920x1080` during playback. If YouTube returns to 720p, turn only
+`youtube_tv_native_view` off to restore the previous HD layout and keep
+`youtube_tv_hd: true`.
 
 #### Why `fps: 15`, and why quality alone did not fix it
 
