@@ -83,9 +83,9 @@ try:
             view.set_view(1280,740)
             got = metrics(page)
             expected_size = (1280,740) if NATIVE_VIEW else (1920,1110)
-            assert (got['width'],got['height']) == expected_size,got
+            expected_metrics = expected_size + ((1920,1080) if NATIVE_VIEW else expected_size)
+            assert (got['width'],got['height'],got['screenWidth'],got['screenHeight']) == expected_metrics,got
             if NATIVE_VIEW:
-                assert (got['screenWidth'],got['screenHeight']) == (1920,1080),got
                 assert view.x == view.y == 1
             checks['toolbar_metrics'] = got
 
@@ -159,7 +159,7 @@ try:
             page.wait_for_timeout(60)
             view.reconcile()
             got = metrics(page)
-            assert (got['width'],got['height']) == expected_size,got
+            assert (got['width'],got['height'],got['screenWidth'],got['screenHeight']) == expected_metrics,got
             checks['history_return_to_tv'] = got
             other = context.new_page()
             other.goto('https://example.test/native',wait_until='domcontentloaded')
@@ -175,7 +175,7 @@ try:
             other.close()
             page.goto('https://example.test/native',wait_until='domcontentloaded')
             got = metrics(page)
-            assert (got['width'],got['height']) == (1280,740),got
+            assert (got['width'],got['height'],got['screenWidth'],got['screenHeight']) == (1280,740,1280,740),got
             checks['external_navigation_restoration'] = got
             assert image_size(capture.screenshot(70)) == [1280,740]
 
