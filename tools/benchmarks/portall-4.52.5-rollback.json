@@ -1,0 +1,172 @@
+{
+  "hashes": {
+    "rollback_31de": "31de6aec0a8abaa8f1629aba871bf7083071144f2df4bd5639fc9f0040e3afcf",
+    "optimized_18e07": "18e07b26350caddba638579a3109c674983266995758797aef79721f34d7ea6d"
+  },
+  "timing": "process_time_ns; five samples x30 calls, five warmups; alternating implementation order",
+  "synthetic_local_only": true,
+  "numpy_version": "2.5.4",
+  "results": [
+    {
+      "width": 1280,
+      "height": 800,
+      "case": "small_rectangles",
+      "rectangles_equal": true,
+      "rectangles": [
+        [
+          0,
+          0,
+          128,
+          64
+        ],
+        [
+          1088,
+          704,
+          192,
+          96
+        ]
+      ],
+      "samples_ms": {
+        "rollback_31de": [
+          0.8117086333333333,
+          0.8243147333333333,
+          0.8161442333333333,
+          0.8024161999999999,
+          0.8059027
+        ],
+        "optimized_18e07": [
+          0.13966689999999998,
+          0.14504553333333334,
+          0.14921510000000002,
+          0.14954593333333333,
+          0.14445570000000002
+        ]
+      },
+      "median_ms": {
+        "rollback_31de": 0.8117086333333333,
+        "optimized_18e07": 0.14504553333333334
+      },
+      "rollback_extra_ms_per_frame": 0.6666631,
+      "rollback_extra_cpu_ms_per_second_at30fps": 19.999893,
+      "extra_percent_one_core_at30fps": 1.9999892999999997
+    },
+    {
+      "width": 1280,
+      "height": 800,
+      "case": "video_motion",
+      "rectangles_equal": true,
+      "rectangles": [
+        [
+          128,
+          128,
+          1024,
+          512
+        ]
+      ],
+      "samples_ms": {
+        "rollback_31de": [
+          0.8001144333333333,
+          0.8374198666666667,
+          0.7977713000000001,
+          0.8312867333333332,
+          0.8283076666666667
+        ],
+        "optimized_18e07": [
+          0.1443255,
+          0.16387023333333334,
+          0.1472101,
+          0.13494056666666668,
+          0.1574680333333333
+        ]
+      },
+      "median_ms": {
+        "rollback_31de": 0.8283076666666667,
+        "optimized_18e07": 0.1472101
+      },
+      "rollback_extra_ms_per_frame": 0.6810975666666667,
+      "rollback_extra_cpu_ms_per_second_at30fps": 20.432927,
+      "extra_percent_one_core_at30fps": 2.0432927
+    },
+    {
+      "width": 800,
+      "height": 1280,
+      "case": "small_rectangles",
+      "rectangles_equal": true,
+      "rectangles": [
+        [
+          0,
+          0,
+          128,
+          64
+        ],
+        [
+          640,
+          1152,
+          128,
+          128
+        ]
+      ],
+      "samples_ms": {
+        "rollback_31de": [
+          0.8161836666666666,
+          0.8086411,
+          0.7662267333333332,
+          0.8079163333333333,
+          0.7738861333333333
+        ],
+        "optimized_18e07": [
+          0.15303043333333333,
+          0.16642636666666666,
+          0.15492989999999998,
+          0.15501873333333333,
+          0.16989046666666668
+        ]
+      },
+      "median_ms": {
+        "rollback_31de": 0.8079163333333333,
+        "optimized_18e07": 0.15501873333333333
+      },
+      "rollback_extra_ms_per_frame": 0.6528976,
+      "rollback_extra_cpu_ms_per_second_at30fps": 19.586928,
+      "extra_percent_one_core_at30fps": 1.9586928
+    },
+    {
+      "width": 800,
+      "height": 1280,
+      "case": "video_motion",
+      "rectangles_equal": true,
+      "rectangles": [
+        [
+          64,
+          256,
+          704,
+          768
+        ]
+      ],
+      "samples_ms": {
+        "rollback_31de": [
+          0.7687061,
+          0.7784809333333333,
+          0.7327533333333334,
+          0.7820379000000001,
+          0.7916278
+        ],
+        "optimized_18e07": [
+          0.1721318,
+          0.16313676666666665,
+          0.14751223333333333,
+          0.15477066666666667,
+          0.1691584
+        ]
+      },
+      "median_ms": {
+        "rollback_31de": 0.7784809333333333,
+        "optimized_18e07": 0.16313676666666665
+      },
+      "rollback_extra_ms_per_frame": 0.6153441666666667,
+      "rollback_extra_cpu_ms_per_second_at30fps": 18.460325,
+      "extra_percent_one_core_at30fps": 1.8460325000000002
+    }
+  ],
+  "scope": "dirty-tile comparison and rectangle merging only; no browser, network, audio or device writes measured"
+}
