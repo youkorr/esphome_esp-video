@@ -4,8 +4,10 @@ Use real launcher HTTP servers and a local Supervisor fixture. No external
 network or panel is needed. Configured URLs and paths may be longer or contain
 spaces even though newly entered appearance API values remain restricted.
 """
+import contextlib
 import copy
 import http.server
+import io
 import json
 import os
 from pathlib import Path
@@ -108,7 +110,11 @@ def main():
                      "background": "javascript:invalid-startup-fixture"}]}
             original_options = copy.deepcopy(Supervisor.options)
             config = runner.regroup(copy.deepcopy(Supervisor.options))
-            common, own = runner.start_launchers(config, config["panels"])
+            diagnostics = io.StringIO()
+            with contextlib.redirect_stdout(diagnostics):
+                common, own = runner.start_launchers(config, config["panels"])
+            assert 'appearance values for background' in diagnostics.getvalue()
+            assert 'invalid-startup-fixture' not in diagnostics.getvalue()
             assert common is not None and len(own) == 3
             for url in [common, *(value[0] for value in own.values())]:
                 status, html = request(url, "")

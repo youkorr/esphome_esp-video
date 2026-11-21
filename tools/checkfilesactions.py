@@ -41,8 +41,10 @@ def main():
                     html = files.view_page(entry, entry["ref"] if action == "unwallpaper" else None)
                     # A long Files page puts its shared error message below
                     # the action. The failure must bring that message on screen.
-                    html = html.replace(b'<p id="files-error"',
-                                        b'<div style="height:1600px" aria-hidden="true"></div><p id="files-error"')
+                    marker = b'<p id="files-error"'
+                    assert marker in html, 'Files error markup changed; update the long-page fixture'
+                    html = html.replace(marker,
+                                        b'<div style="height:1600px" aria-hidden="true"></div>' + marker)
 
                     def serve(route):
                         request = route.request
