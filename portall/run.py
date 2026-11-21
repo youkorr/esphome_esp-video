@@ -1562,6 +1562,7 @@ def command_for(panel):
         "show_touches",
         # A panel's opt-in YouTube TV profile. It has no effect on other pages.
         "youtube_tv_hd",
+        "youtube_tv_native_view",
     ):
         # Accept the string forms a hand-written JSON file may carry.
         value = panel.get(key)

@@ -1,5 +1,21 @@
 # Changelog
 
+## 4.52.4
+
+- Reduce the CPU work of finding changed image tiles on every site. For
+  contiguous RGB captures, compare eight bytes at a time and reduce complete
+  row bands instead of visiting each tile in Python. Other image layouts
+  retain element-wise comparison; the selected rectangles and outgoing JPEG
+  payloads are unchanged.
+
+- Optional **HD at screen size (experimental)** setting for YouTube TV HD.
+  Keep the HD format checks while drawing at the panel's native page size,
+  with a virtual screen of at least 1920x1080. Off by default; the existing
+  HD layout remains available. Actual YouTube 1080p playback in this new
+  mode still needs checking, and no CPU saving is promised.
+- Local regressions cover both browser layouts, touch, fullscreen, keyboard,
+  navigation and unchanged dirty rectangles and outgoing JPEG payloads.
+
 ## 4.52.3
 
 - **YouTube TV format checks in the experimental HD mode.** Validate the
