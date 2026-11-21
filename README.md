@@ -80,7 +80,15 @@ external_components:
   - source:
       type: git
       url: https://github.com/youkorr/esphome_esp-video
-    components: [portall]
+      ref: main
+    components: [portall, portall_bt]
+    refresh: 0s 
+  - source:
+      type: git
+      url: https://github.com/youkorr/lvgl_9.5
+      ref: main
+    components: [mipi_dsi]
+    refresh: 0s 
 
 portall:
   display_id: main_screen
@@ -88,6 +96,41 @@ portall:
   port: 5000
   width: 800
   height: 1280
+
+display:
+  - platform: mipi_dsi
+    model: JC8012P4A1
+    id: main_screen
+    pixel_mode: 16
+    color_depth: 16
+    update_interval: never
+    auto_clear_enabled: false
+    framebuffers: 3
+
+portall:
+  display_id: main_screen
+  touchscreen_id: my_touch
+  port: 5000
+  width: 800
+  height: 1280
+  max_fps: 60
+  jpeg_quality: 9
+  rotation: 0
+  usb: false
+  remote: true
+  max_frame_bytes: 300000
+  speaker_id: portall_mixing_input 
+  sample_rate: 44100
+  panel_buffers: true
+  
+portall_bt:
+  id: dongle
+  host_stack: bluedroid
+  audio: true
+  test_tone: 0
+  hid: true
+  keys: true 
+  device_name: "Guition"  
 ```
 
 The token, the URL and the panel list belong in the add-on's options, not in
