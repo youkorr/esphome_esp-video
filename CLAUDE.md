@@ -13147,6 +13147,15 @@ image really carries, including HAP-python's own dependencies.
 **The image is a full download again in 4.57.0**: the pins sit above the
 browser layer, so moving them rebuilds everything once.
 
+**And the first image build with the new pin failed where no local check
+could see it**: Playwright 1.65's bundled Node.js links `libatomic.so.1`,
+which `python:3.12-slim` does not carry, so `playwright install-deps` died
+with exit 127 before installing anything, on both architectures. The venv
+here had the library from the system's compiler. `libatomic1` is installed
+first now and stays: the sender runs the same Node at run time. **A pin is
+tested only in the image it ships in**, which is why checkimage.py runs on
+the pulled image and not here.
+
 ## Repository conventions
 
 - Work on branch `claude/esphome-pr-outdated-mdq36w`, then merge into `main`

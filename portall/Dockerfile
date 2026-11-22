@@ -94,7 +94,15 @@ RUN pip install --no-cache-dir playwright==1.65.2 pillow==13.0.0 numpy==2.5.5 \
 # Chrome (arm64), come BEFORE Chrome and are keyed on the Playwright pin; the
 # safety net AFTER Chrome installs Playwright's build only when neither browser
 # above would start, which on every image built so far is nothing at all.
-RUN playwright install-deps chromium \
+#
+# libatomic1 first, since 4.57.0: the Node.js that Playwright 1.65 bundles as
+# its driver links libatomic.so.1, which python:3.12-slim does not carry, so
+# `playwright` itself would not start -- not here, and not in the sender at
+# run time. Found by the first image build with the new pin; a machine with a
+# compiler installed has the library and never shows it.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libatomic1 \
+    && playwright install-deps chromium \
     && (if [ "$(dpkg --print-architecture)" != "amd64" ]; then \
          echo "no Google Chrome for $(dpkg --print-architecture); Playwright's own Chromium" \
          && (playwright install chromium --no-shell \
