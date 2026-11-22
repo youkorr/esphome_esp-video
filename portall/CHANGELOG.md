@@ -1,5 +1,14 @@
 # Changelog
 
+## 4.54.0
+
+- **A video now fades into full screen.** When the bar steps aside for a
+  video, the screen no longer cuts from the page to the video: for a third of
+  a second it blends from what it showed into the full-screen video, about
+  eight pictures at 25 a second. A player put in full screen follows in the
+  same movement, without a second jump. Leaving full screen is not faded.
+- No panel firmware update is required.
+
 ## 4.53.1
 
 - **A screen that falls behind is no longer shown pictures seconds late.**

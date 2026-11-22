@@ -1802,7 +1802,7 @@ the dashboard, where it is invisible while the keys go on working.
 ahead of the `pip install` as well as the `ADD`s, so a bump refetched
 everything — at the cost of the browser download on each update.
 `present_browser()` prints the Chromium version at startup and warns below 114,
-so this is never diagnosed by guesswork again. Currently **4.53.1**.
+so this is never diagnosed by guesswork again. Currently **4.54.0**.
 
 **CORRECTED in 4.29.5: the cost was every update, and a pin removes it.**
 Asked as *"verifie addon ... si il ya pas des elements qui freine la
@@ -12974,6 +12974,41 @@ leave `CONFIG_USB_DISPLAY_DEVICE` off, so nothing initialises the device
 stack. The fix is the manifest's dependency (portall already adds TinyUSB
 itself for `usb: true`), and it is left because the `usb: true` build that it
 touches cannot be compiled here.
+
+## A video fades into full screen -- 4.54.0
+
+**Asked once 4.53.0 worked: *"la transition en plein ecran devrais etre un
+peut en douceur"*, and given the choice, "Fondu enchaine".** The change was
+two cuts: the bar gone and the page laid out again in one picture, then half
+a second later -- the next `IMMERSIVE_LOOK_S` -- the player blown up to the
+whole screen. Now `Immersive.moves` counts both, and for `FADE_S` (0.33 s,
+`--fade`, 0 cuts) every picture is a WHOLE `Image.blend` of what the panel
+showed and the page now, the page's share growing with time; the last one is
+the page itself by the ordinary path, with `previous = None`, so the diff
+starts again from a picture the panel really has.
+
+Three things are faults if missing:
+
+- **A fade starts from what is on the glass.** The player goes full screen
+  while the first fade runs, and the second fade starts from the last blend
+  sent (`fade_last`), not from the page before -- or the panel would jump
+  back. With nothing of the first sent yet, it keeps the first's start.
+- **It is taken before `set_strip()`**, which throws `previous` away on the
+  same turn the bar goes.
+- **Blends are spaced by what was SENT** (`last_sent`), not by the schedule
+  frames are released on: a blend needs no new frame, and the two clocks
+  together sent pairs 10 ms apart.
+
+`IMMERSIVE_SETTLE_S` (0.1 s) puts the full-screen look right after the bar
+goes, so the two changes are one movement. Only the way IN fades; the bar
+coming back is a cut, as it was -- not asked for.
+
+`tools/checkimmersive.py` keeps every whole picture the fake panel receives
+and reads it at one point: 9 and 10 blends over a third of a second at
+`--fps 25`, each further toward the video, no jump at the full-screen step.
+`--no-fade` runs the shipped `--fade 0` and those cases fail with 0 blends.
+The check now passes the add-on's `--fps 25`: a hand run's limit is 10, where
+a third of a second is three pictures. **Not seen on a panel.**
 
 ## Repository conventions
 

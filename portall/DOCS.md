@@ -766,6 +766,12 @@ link -- Google, a search page -- and every page opened from it keeps **←**,
 **⟳** and **⌂** even while a video plays, because what is wanted there is the
 way back to the results.
 
+The change is a **crossfade**: for a third of a second the screen blends from
+the page into the full-screen video, rather than cutting from one to the
+other. It costs what a third of a second of video costs, and with `stats` on
+the line counts those pictures as `faded`. Coming back to the bar is not
+faded.
+
 The add-on's log says each time what it did: `Video: playing, so the bar
 stands aside`, `Video: full screen on ...`, `Video: the bar is back (the video
 stopped)`, or `Video: <address> keeps its bar (keep_bar)`.

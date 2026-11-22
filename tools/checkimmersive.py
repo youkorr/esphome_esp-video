@@ -28,9 +28,16 @@ the page lets it:
   - /search, opened as a link that keeps its bar, from which a tap goes to
     /film: the bar stays the whole time.
 
+The change into full screen is a crossfade: the whole pictures the panel
+receives while it happens are read at one point, and between the screen it
+had and the video there must be several whose colour is a blend of the two,
+growing toward the video, within a fraction of a second.
+
 --without runs the same sender with --page-keep-bar http, which keeps the bar
 everywhere -- the panel as it was: every case about the bar going must then
-fail. --picture FILE saves what the panel shows while /desk is in full screen.
+fail. --no-fade runs it with --fade 0, which cuts: the crossfade cases must
+then fail. --picture FILE saves what the panel shows while /desk is in full
+screen.
 
 Needs Playwright and Pillow. Takes $CHROMIUM for the browser.
 """
@@ -49,6 +56,7 @@ SENDER_DIR = HERE / "components" / "portall"
 sys.path.insert(0, str(SENDER_DIR))
 BROWSER = os.environ.get("CHROMIUM", "")
 WITHOUT = "--without" in sys.argv
+NO_FADE = "--no-fade" in sys.argv
 PICTURE = (sys.argv[sys.argv.index("--picture") + 1]
            if "--picture" in sys.argv else None)
 W, H = 800, 480
@@ -61,6 +69,8 @@ SEARCH = (0xB0, 0xA0, 0x20)
 STRIP = (24, 27, 34)
 fails = 0
 pushed = []
+# Every whole picture the panel receives: (when, the picture).
+wholes = []
 
 # One colour and a square moving down its left edge, so the stream keeps
 # producing frames and the video keeps playing.
@@ -214,6 +224,8 @@ def main():
                         continue
                     with lock:
                         canvas.paste(pic, (x, y))
+                        if (x, y, w, h) == (0, 0, W, H):
+                            wholes.append((time.monotonic(), pic))
         except OSError:
             pass
     threading.Thread(target=accept, daemon=True).start()
@@ -243,6 +255,36 @@ def main():
         """True for the whole of `seconds`."""
         return not until(lambda: not test(), seconds)
 
+    def blends(since, at, old, new):
+        """The whole pictures received after `since` whose colour at `at`
+        lies between `old` and `new`, well clear of both, as (when, share of
+        the new colour), on the channel the two differ most in."""
+        channel = max(range(3), key=lambda i: abs(new[i] - old[i]))
+        span = new[channel] - old[channel]
+        with lock:
+            seen = [(when, pic.getpixel(at)) for when, pic in wholes
+                    if when >= since]
+        return [(when, (value[channel] - old[channel]) / span)
+                for when, value in seen
+                if 0.15 < (value[channel] - old[channel]) / span < 0.85]
+
+    def fades(what, since, at, old, new):
+        found = blends(since, at, old, new)
+        shares = [share for _, share in found]
+        check(f"{what} is a crossfade, not a cut",
+              len(found) >= 4, f"{len(found)} blended pictures")
+        if os.environ.get("SHOW_FADE"):
+            with lock:
+                seen = [(round(when - since, 2), pic.getpixel(at))
+                        for when, pic in wholes if when >= since]
+            print("      ", seen[-40:])
+        check("each blend further toward the video than the last",
+              all(b >= a - 0.08 for a, b in zip(shares, shares[1:])),
+              " ".join(f"{share:.2f}" for share in shares))
+        check("and it is over within a second",
+              bool(found) and found[-1][0] - found[0][0] < 1.0,
+              f"{found[-1][0] - found[0][0]:.2f} s" if found else "none")
+
     def tap(at):
         x, y = at
         panel[0].sendall(b"T\x01\x00" + x.to_bytes(2, "little")
@@ -255,11 +297,16 @@ def main():
                str(listener.getsockname()[1]), "--url", f"{site}/home",
                "--not-home-assistant", "--width", str(W),
                "--height", str(H), "--audio", "off", "--keyboard", "off",
+               # The add-on's own limit, which the crossfade's count is for:
+               # a hand run's is 10, and a third of a second is three there.
+               "--fps", "25", "--stats",
                "--control", "--page-keep-bar", f"{site}/search"]
     if BROWSER:
         command += ["--browser", BROWSER]
     if WITHOUT:
         command += ["--page-keep-bar", "http"]
+    if NO_FADE:
+        command += ["--fade", "0"]
     os.environ.pop("HA_TOKEN", None)
     process = subprocess.Popen(command, stdin=subprocess.PIPE,
                                stdout=subprocess.PIPE,
@@ -280,6 +327,7 @@ def main():
               until(lambda: near(colour(middle), HOME), 40))
 
         print("A video filling its page, with its sound on:")
+        opened = time.monotonic()
         ask(f"open {site}/film")
         check("it arrives under the bar",
               until(lambda: near(colour(middle), VIDEO) and bar_drawn(), 10),
@@ -292,6 +340,7 @@ def main():
         check("and it stays gone while the video plays",
               holds(lambda: near(colour(ground), VIDEO), 3.0),
               str(colour(ground)))
+        fades("the bar going", opened, ground, STRIP, VIDEO)
         tap(middle)
         check("a tap pauses it and the bar comes back",
               until(bar_drawn, 4), str(colour(ground)))
@@ -303,6 +352,7 @@ def main():
               str(colour(ground)))
 
         print("A player inside a page, with the site's own controls:")
+        opened = time.monotonic()
         ask(f"open {site}/desk")
         check("it arrives under the bar, the page around the player",
               until(lambda: bar_drawn()
@@ -314,6 +364,9 @@ def main():
               f"{colour(ground)} {colour((W - 40, H // 2))}")
         check("with the site's controls still drawn over it",
               near(colour((W // 2, H - 6)), OSD), str(colour((W // 2, H - 6))))
+        time.sleep(1.0)
+        fades("the player growing to the whole screen", opened,
+              (W - 40, H // 2), DESK, VIDEO)
         if PICTURE:
             with lock:
                 canvas.save(PICTURE)
@@ -357,6 +410,7 @@ def main():
               str(colour(ground)))
         check("the log says why", said("keeps its bar (keep_bar)"))
 
+        check("the stats line counts the blends", said(" faded"))
         crashed = [line.strip() for line in out if "Traceback" in line]
         check("the sender did not crash", not crashed, str(crashed))
         lines = [line.strip() for line in out if line.startswith("Video:")]
