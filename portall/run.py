@@ -1625,6 +1625,10 @@ def command_for(panel):
         value = panel.get(key)
         if value is True or str(value).lower() in ("true", "yes", "1"):
             argv.append(f"--{key.replace('_', '-')}")
+    # The way home: the sender's own corner unless a panel chose otherwise.
+    gesture = str(panel.get("home_gesture") or "").strip().lower()
+    if gesture in ("corner", "right_edge", "both"):
+        argv += ["--home-gesture", gesture]
     # The finished picture is on unless a panel says otherwise, so the switch
     # turns it OFF: a board that will not decode a full-colour JPEG loses the
     # sharpening and keeps every picture it had.

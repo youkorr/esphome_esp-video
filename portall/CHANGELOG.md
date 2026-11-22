@@ -1,5 +1,15 @@
 # Changelog
 
+## 4.55.0
+
+- **Choose how a screen goes home: the corner, a swipe from the right edge,
+  or both.** `home_gesture` in a screen's *Advanced*. With `right_edge`, a
+  swipe from the right edge towards the left brings the screen back to its
+  own page, the way a telephone goes back, and the top-left corner is left to
+  the page. A tap or a drag up and down the edge still reaches the page.
+  Empty is the corner, as before.
+- No panel firmware update is required.
+
 ## 4.54.0
 
 - **A video now fades into full screen.** When the bar steps aside for a

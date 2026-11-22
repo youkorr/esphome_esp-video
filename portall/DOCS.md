@@ -722,6 +722,22 @@ the sender, before the page sees anything: **hold the top-left corner**, or
 and fills while a finger is held, so the gesture can be found by somebody who
 was never told about it.
 
+**Or swipe in from the right edge**, if a screen prefers it: set
+**`home_gesture`** in that screen's *Advanced*:
+
+| `home_gesture` | the way home |
+|---|---|
+| `corner` (or empty) | the top-left corner, as above |
+| `right_edge` | a swipe from the right edge towards the left, the way a telephone goes back; the corner is then an ordinary part of the page, which suits a site with its own button there |
+| `both` | either |
+
+The swipe starts within the right edge's last 6% (77 px of a 1280-wide page)
+and has to go a tenth of the width to the left, more sideways than up or down.
+A tap there and a drag up or down are still the page's, so a scrollbar on that
+side keeps working. A short bar is drawn against the edge when a page arrives,
+and it brightens as the finger moves. The log says `Home: back to ... --
+swiped in from the right edge`.
+
 **Inside a link there is also a bar** across the top of the screen, which
 works like a browser's: **←** back a page, **⟳** reload, **⌂** the link's own
 first page (for a Google link, `https://www.google.com`), and beside them the
