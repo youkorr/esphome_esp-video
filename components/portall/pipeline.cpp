@@ -125,6 +125,7 @@ void Portall::run_draw_task() {
     // so nothing reads it after this line.
     xQueueSend(this->spare_queue_, &drawing.pixels, portMAX_DELAY);
     this->report_stats_();
+    this->draws_finished_.fetch_add(1, std::memory_order_release);
   }
 }
 
@@ -163,6 +164,7 @@ void Portall::hand_over_(const Frame &frame, uint8_t *decoded, uint16_t padded_w
   drawing.pixels = decoded;
   drawing.padded_width = padded_width;
   drawing.padded_height = padded_height;
+  this->draws_queued_.fetch_add(1, std::memory_order_relaxed);
   xQueueSend(this->draw_queue_, &drawing, portMAX_DELAY);
 }
 
