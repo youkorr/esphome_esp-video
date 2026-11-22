@@ -1,5 +1,16 @@
 # Changelog
 
+## 4.53.1
+
+- **A screen that falls behind is no longer shown pictures seconds late.**
+  When a screen took pictures more slowly than they were made, the server
+  kept the rest waiting, up to several seconds of them, so touches and video
+  arrived late until the screen was restarted. At most 64 KiB now waits on the
+  server, so a screen that cannot keep up skips pictures instead. Measured
+  against a slowed fake screen: 3.4 s late before, 0.7 s now, the same
+  throughput; a screen that keeps up is unchanged.
+- No panel firmware update is required.
+
 ## 4.53.0
 
 - **A video takes the whole screen.** When a video plays with its sound on

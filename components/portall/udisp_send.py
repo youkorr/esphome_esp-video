@@ -420,6 +420,10 @@ class _TcpEndpoint:
         self._sock.close()
 
 
+# The most a sender lets wait unsent in its own kernel. See connect_tcp.
+UNSENT_LIMIT = 64 * 1024
+
+
 def connect_tcp(host, port):
     """Wait for the board to answer, the same way the USB path waits for it."""
     import socket
@@ -430,6 +434,22 @@ def connect_tcp(host, port):
             sock = socket.create_connection((host, port), timeout=5)
             sock.settimeout(None)
             sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+            # What may WAIT in this machine's kernel, not what may be in
+            # flight. Linux grows a send buffer to megabytes when nothing
+            # bounds it, and a panel that takes pictures slower than they are
+            # made then shows each one seconds after it was painted: measured
+            # against a fake panel draining 1200 KiB/s, 3.3 s, against 0.7 s
+            # with this -- the rest is the board's own receive window -- and
+            # the same throughput either way, at that rate and flat out. A
+            # link that cannot keep up costs pictures instead, which the
+            # writer counts as skipped. Not on Windows, which has no such
+            # option. tools/checklag.py.
+            if hasattr(socket, "TCP_NOTSENT_LOWAT"):
+                try:
+                    sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NOTSENT_LOWAT,
+                                    UNSENT_LIMIT)
+                except OSError:
+                    pass
             print(f"Connected to {host}:{port}")
             return _TcpEndpoint(sock)
         except OSError as err:

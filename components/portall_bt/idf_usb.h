@@ -55,6 +55,16 @@
  * stand-in for the library and a simulated dongle, with portall_bt's own
  * probe on top. */
 
+// ESPHome's esphome.h includes every header of every component in the build,
+// so this one is read with `transport: cherryusb` too. Its body is therefore
+// behind the same define as idf_usb.cpp: ESP-IDF 6 took the USB Host Library
+// out of ESP-IDF (it is the registry's espressif/usb now, which _use_idf_usb()
+// adds only for `transport: idf`), and an unguarded include of usb_host.h
+// stopped every 6.x build that carries this component at all.
+#include "esphome/core/defines.h"
+
+#if defined(USE_ESP32) && defined(HCI_USB_IDF)
+
 #include <cstddef>
 #include <cstdint>
 
@@ -286,3 +296,5 @@ int usbh_submit_urb(struct usbh_urb *urb);
  * restarts it. Returns 0 when asked, -USB_ERR_BUSY while one is still under
  * way, -USB_ERR_NODEV before usbh_initialize(). */
 int idf_usb_restart_dongle(void);
+
+#endif  // USE_ESP32 && HCI_USB_IDF
