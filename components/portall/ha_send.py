@@ -1895,6 +1895,247 @@ PLAYING_JS = """() => [...document.querySelectorAll('video, audio')].some(
   m => !m.paused && !m.ended && m.readyState > 2 && !m.muted && m.volume > 0)"""
 
 
+# The bar steps aside while a video plays, the way a television's does.
+#
+# Asked for as: when a video starts on Jellyfin, Netflix, Orange TV or YouTube,
+# the panel goes full screen after a few seconds, without the bar -- except on
+# a link used for browsing, such as Google, which keeps it. A link says so with
+# `keep_bar: true` (--page-keep-bar), matched on the address the LINK opened
+# rather than on the page now showing, because browsing from Google goes
+# everywhere and the bar must follow it.
+#
+# What counts as watching is PLAYING_JS's rule with a size on it: a video
+# playing with its sound on, at least IMMERSIVE_BIG of the screen. YouTube's
+# hover previews and a dashboard's camera tile play muted, so they never hide
+# the bar. A touch in the last IMMERSIVE_AFTER_S keeps it too, so it does not
+# vanish under a finger on its way to it.
+#
+# Most players these sites show already fill their page -- Jellyfin's, the
+# television interfaces -- and then hiding the bar is all there is to do. A
+# player inside a page, like YouTube's ordinary site, is put in full screen
+# through the page's own Fullscreen API, on the outermost element that is the
+# same box as the video, so the site's controls and subtitles come with it.
+# Measured on the shipped Chromium: the request is honoured asked through the
+# protocol as a user gesture, the player then covers the whole page, and its
+# overlays are still drawn. A key does NOT leave it -- Escape from the sender
+# is not the browser's own -- so the way out is the video stopping: a pause, an
+# end, a new page. If the page leaves full screen by itself (the site's own
+# button), that is respected until the video stops.
+IMMERSIVE_AFTER_S = 3.0
+IMMERSIVE_LOOK_S = 0.5
+IMMERSIVE_LEAVE_S = 1.0
+IMMERSIVE_BIG = 0.2
+IMMERSIVE_FILLS = 0.85
+
+# The largest share of this frame's viewport that a video playing with its
+# sound on covers, or -1 when none plays.
+BIG_VIDEO_JS = """() => {
+  let best = -1;
+  for (const v of document.querySelectorAll('video')) {
+    if (v.paused || v.ended || v.readyState < 3 || v.muted || v.volume === 0)
+      continue;
+    const r = v.getBoundingClientRect();
+    const w = Math.max(0, Math.min(r.right, innerWidth) - Math.max(r.left, 0));
+    const h = Math.max(0, Math.min(r.bottom, innerHeight) - Math.max(r.top, 0));
+    best = Math.max(best, (w * h) / Math.max(1, innerWidth * innerHeight));
+  }
+  return [best, !!document.fullscreenElement];
+}"""
+
+# Full screen for the player of the largest video playing with its sound on:
+# the outermost ancestor that is still the video's own box, so the site's
+# overlays come too. Run as a user gesture through the protocol.
+FULLSCREEN_JS = """(() => {
+  let best = null, area = 0;
+  for (const v of document.querySelectorAll('video')) {
+    if (v.paused || v.ended || v.readyState < 3 || v.muted || v.volume === 0)
+      continue;
+    const r = v.getBoundingClientRect();
+    if (r.width * r.height > area) { area = r.width * r.height; best = v; }
+  }
+  if (!best) return Promise.resolve('no video');
+  const r = best.getBoundingClientRect();
+  let el = best;
+  for (let p = best.parentElement; p && p !== document.body
+       && p !== document.documentElement; p = p.parentElement) {
+    const q = p.getBoundingClientRect();
+    if (Math.abs(q.left - r.left) > 8 || Math.abs(q.top - r.top) > 8
+        || Math.abs(q.width - r.width) > 16 || Math.abs(q.height - r.height) > 16)
+      break;
+    el = p;
+  }
+  const name = el.tagName.toLowerCase() + (el.id ? '#' + el.id : '');
+  return el.requestFullscreen().then(() => 'ok ' + name,
+                                      e => 'refused ' + name + ': ' + e.message);
+})()"""
+
+
+def keeps_bar(url, page_keep_bar):
+    """Whether a link asked to keep its bar over a video (keep_bar: true)."""
+    return any((url or "").startswith(prefix) for prefix in page_keep_bar)
+
+
+class Immersive:
+    """Whether the bar stands aside for a video, and the player's full screen.
+
+    The loop asks `tick()` every turn with whether the bar would be shown at
+    all; the answer is in `active`, and the loop shows the bar only while that
+    is False. Looking costs one evaluate per frame, so it happens every
+    IMMERSIVE_LOOK_S rather than every turn.
+    """
+
+    def __init__(self, page_keep_bar, verbose=True):
+        self.keep_bar = list(page_keep_bar)
+        self.verbose = verbose
+        self.active = False
+        self._since = None        # first look that saw a big video playing
+        self._quiet_since = None  # first look that saw none, while active
+        self._look_at = 0.0
+        self._touch_at = -1e9
+        self._ours = False        # this program put a player in full screen
+        self._declined = False    # the page left full screen by itself
+        self._watched = None      # the page whose new documents are heard
+        self._arrived = False     # a new document since the last tick
+        self._session = None
+        self._kept_for = None     # a link start found to keep its bar
+
+    def touched(self, now):
+        self._touch_at = now
+
+    def _on_arrival(self, _page):
+        self._arrived = True
+
+    def _say(self, text):
+        if self.verbose:
+            print(f"Video: {text}", flush=True)
+
+    def _look(self, page):
+        """(largest share of the screen a playing video covers, its frame is
+        the main one, the main frame is in full screen)."""
+        best, main_best, full = -1.0, -1.0, False
+        try:
+            view = page.viewport_size or {}
+        except Exception:  # noqa: BLE001
+            view = {}
+        top = max(1, view.get("width", 1) * view.get("height", 1))
+        for frame in page.frames:
+            try:
+                share, frame_full = frame.evaluate(BIG_VIDEO_JS)
+            except Exception:  # noqa: BLE001 - a frame that went away
+                continue
+            if frame is page.main_frame:
+                full = bool(frame_full)
+                main_best = share
+            elif share > 0:
+                # A share of the frame's own viewport, scaled by the frame's
+                # share of the page.
+                try:
+                    box = frame.frame_element().bounding_box() or {}
+                    share *= min(1.0, box.get("width", 0)
+                                 * box.get("height", 0) / top)
+                except Exception:  # noqa: BLE001
+                    continue
+            best = max(best, share)
+        return best, main_best >= best and main_best > 0, full
+
+    def _leave(self, page, why):
+        if self._ours:
+            try:
+                page.evaluate("() => document.fullscreenElement"
+                              " && document.exitFullscreen()")
+            except Exception:  # noqa: BLE001 - mid-navigation
+                pass
+        self._ours = False
+        if self.active:
+            self._say(f"the bar is back ({why})")
+        self.active = False
+        self._quiet_since = None
+
+    def tick(self, page, now, eligible, link_start):
+        """`eligible`: the bar would be shown. `link_start()`: the address the
+        link opened, asked only when it is about to matter."""
+        if self._watched is not page:
+            # A new DOCUMENT, not a new address: a site that moves to the next
+            # video with history.pushState keeps its player, and its full
+            # screen, across the change. Only a flag in the handler, which
+            # runs inside Playwright's dispatch.
+            self._watched = page
+            page.on("domcontentloaded", self._on_arrival)
+        if self._arrived:
+            # What this program put in full screen went with the old
+            # document, and the new page is shown with its bar until its own
+            # video has played for a while -- not hidden at once because the
+            # last page's was.
+            self._arrived = False
+            self._declined = False
+            self._since = None
+            if self.active:
+                self._leave(page, "a new page")
+            self._ours = False
+        url = page.url
+        if not eligible:
+            if self.active:
+                self._leave(page, "not a link's page")
+            self._since = None
+            return
+        if now - self._look_at < IMMERSIVE_LOOK_S:
+            return
+        self._look_at = now
+        share, in_main, full = self._look(page)
+        playing = share >= IMMERSIVE_BIG
+        if self._ours and not full:
+            # The site's own button, or the page itself: it decides now.
+            self._ours = False
+            self._declined = True
+            self._leave(page, "the page left full screen")
+        if not playing:
+            self._since = None
+            self._declined = False
+            if self.active:
+                if self._quiet_since is None:
+                    self._quiet_since = now
+                elif now - self._quiet_since >= IMMERSIVE_LEAVE_S:
+                    self._leave(page, "the video stopped")
+            return
+        self._quiet_since = None
+        if self._since is None:
+            self._since = now
+        if not self.active:
+            if (self._declined or now - self._since < IMMERSIVE_AFTER_S
+                    or now - self._touch_at < IMMERSIVE_AFTER_S):
+                return
+            start = link_start() or url
+            if keeps_bar(start, self.keep_bar):
+                if self._kept_for != start:
+                    self._kept_for = start
+                    self._say(f"{start} keeps its bar (keep_bar)")
+                return
+            self.active = True
+            self._say("playing, so the bar stands aside")
+            # The page is laid out again without the bar before anything is
+            # put in full screen; the next look decides that.
+            return
+        if (share < IMMERSIVE_FILLS and in_main and not full
+                and not self._ours and not self._declined):
+            try:
+                if self._session is None:
+                    self._session = page.context.new_cdp_session(page)
+                answer = self._session.send("Runtime.evaluate", {
+                    "expression": FULLSCREEN_JS, "awaitPromise": True,
+                    "returnByValue": True, "userGesture": True})
+                said = (answer.get("result") or {}).get("value") or ""
+            except Exception as err:  # noqa: BLE001 - an accessory
+                said = f"refused: {err}"
+                self._session = None
+            if str(said).startswith("ok"):
+                self._ours = True
+                self._say(f"full screen on {said[3:]}")
+            else:
+                # Not asked again for this page: a refusal does not change.
+                self._declined = True
+                self._say(f"no full screen ({said})")
+
+
 # The transport buttons, for whatever plays on the page: a car's steering
 # wheel, a headset, a remote's media row, a Shield, the iPhone's television
 # remote, or `portall.key: pause` from an automation.
@@ -7579,6 +7820,17 @@ def main():
         "0 turns it off for that address",
     )
     parser.add_argument(
+        "--page-keep-bar",
+        action="append",
+        default=[],
+        metavar="PREFIX",
+        help="a link that keeps its bar while a video plays, matched on the "
+        "start of the address the link opened. Without it the bar stands aside "
+        "after a few seconds of a video playing with its sound on, and a player "
+        "inside a page is put in full screen. For a link used for browsing, "
+        "such as a search engine. Repeatable; http keeps it everywhere",
+    )
+    parser.add_argument(
         "--page-agent",
         action="append",
         default=[],
@@ -8378,6 +8630,30 @@ def main():
         nav_session = None
         # History entries a link was opened from, when that was another link.
         links_left = set()
+
+        def link_start():
+            """The address the link now showing opened, or None.
+
+            The first web page after the panel's own one, on a launcher or a
+            dashboard alike -- unlike the bar's home, which on a dashboard is
+            the dashboard -- since what is asked is which link this is.
+            """
+            nonlocal nav_session
+            try:
+                if nav_session is None:
+                    nav_session = page.context.new_cdp_session(page)
+                entries, current, start = link_history(
+                    nav_session, args.url, links_left)
+            except Exception:  # noqa: BLE001 - mid-navigation
+                return None
+            for entry in entries[start or 0:current + 1]:
+                if (entry.get("url") or "").startswith(("http:", "https:")):
+                    return entry["url"]
+            return None
+
+        # The bar stands aside while a video plays. See Immersive.
+        immersive = (None if bar is None
+                     else Immersive(args.page_keep_bar))
         # Addresses whose page was looked at and found not to be Home
         # Assistant, so they are not asked again.
         not_ha_origins = set()
@@ -9147,6 +9423,8 @@ def main():
                     if (reports or keys or media or typed or asked_home
                             or asked_open is not None):
                         last_input = started
+                    if reports and immersive is not None:
+                        immersive.touched(started)
                     asked_any = bool(reports or keys or media or typed
                                      or asked_home or asked_open is not None)
                     if alert is not None and alert.on and asked_any:
@@ -9443,6 +9721,9 @@ def main():
                                 want = False
                             elif seen[1] == "complete" and ours:
                                 not_ha_origins.add(origin_of(here))
+                        if immersive is not None:
+                            immersive.tick(page, now, want, link_start)
+                            want = want and not immersive.active
                         set_strip(want)
                         if want:
                             bar.host = urllib.parse.urlsplit(here).hostname \

@@ -160,6 +160,11 @@ configuration:
         name: 🗣️ Autres noms à dire
         description: 'Pour l''ouvrir à la voix : ce que l''assistant vocal comprend quand vous dites le
           nom, séparé par des virgules. Par exemple « gelée fine, jelly fin » pour Jellyfin.'
+      keep_bar:
+        name: 🧭 Garder la barre pendant une vidéo
+        description: 'Pour un lien de navigation, Google par exemple : la barre ← ⟳ ⌂ reste même quand
+          une vidéo joue. Éteint : quelques secondes après le début d''une vidéo, l''écran passe en plein
+          écran sans la barre ; elle revient à la pause.'
   launcher:
     name: 🎨 4 · Apparence de la page de liens
     description: Couleurs, horloge, météo, fond d'écran. S'applique à tous les écrans ; un écran peut
@@ -393,6 +398,11 @@ configuration:
             name: 🗣️ Autres noms à dire
             description: 'Pour l''ouvrir à la voix : ce que l''assistant vocal comprend quand vous dites
               le nom, séparé par des virgules. Par exemple « gelée fine, jelly fin » pour Jellyfin.'
+          keep_bar:
+            name: 🧭 Garder la barre pendant une vidéo
+            description: 'Pour un lien de navigation, Google par exemple : la barre ← ⟳ ⌂ reste même quand
+              une vidéo joue. Éteint : quelques secondes après le début d''une vidéo, l''écran passe en
+              plein écran sans la barre ; elle revient à la pause.'
       layout:
         name: Présentation
         description: 'classic : la présentation habituelle. dashboard : heure, avatar et météo à gauche,

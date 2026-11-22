@@ -1802,7 +1802,7 @@ the dashboard, where it is invisible while the keys go on working.
 ahead of the `pip install` as well as the `ADD`s, so a bump refetched
 everything — at the cost of the browser download on each update.
 `present_browser()` prints the Chromium version at startup and warns below 114,
-so this is never diagnosed by guesswork again. Currently **4.51.0**.
+so this is never diagnosed by guesswork again. Currently **4.53.0**.
 
 **CORRECTED in 4.29.5: the cost was every update, and a pin removes it.**
 Asked as *"verifie addon ... si il ya pas des elements qui freine la
@@ -11524,6 +11524,65 @@ loop**: a sync-API event handler runs in its own greenlet. Measured, not
 assumed: 37 pictures a second reached the fake panel during a 3 s download.
 `tools/checkdownload.py`. **Not tried through Home Assistant's ingress** --
 whether the companion app's web view saves an attachment is unverified.
+
+## A video takes the whole screen, and the bar steps aside -- 4.53.0
+
+**Asked with a photograph of a panel on YouTube under the bar: *"quant lance
+une video sur jellyfin, netfix, orange tv et meme youtube il faut qu'il passe
+en plein ecran au bout de quelque seconde sans les onglet sauf pour le
+navigateur par exemple google lui doit rester"*.** `Immersive` in ha_send.py,
+asked by the loop every turn just before `set_strip()`; the bar is shown only
+while `immersive.active` is False.
+
+- **Watching is PLAYING_JS's rule with a size on it**: an unmuted, playing
+  `<video>` at `readyState` 3 or more covering `IMMERSIVE_BIG` (a fifth) of
+  the screen, looked for every `IMMERSIVE_LOOK_S` in every frame, an iframe's
+  share scaled by the frame's own box. A muted hover preview or a camera
+  tile never counts. Active after `IMMERSIVE_AFTER_S` (3 s) of playing and
+  3 s after the last touch; back `IMMERSIVE_LEAVE_S` (1 s) after it stops.
+- **A player that does not fill its page is put in full screen** through
+  the page's own Fullscreen API, on the outermost ancestor that is still the
+  video's box, so the site's overlays come too: `Runtime.evaluate` with
+  `userGesture: True` on a CDP session of its own. Measured on the shipped
+  Chromium before it was built: honoured with the gesture, refused without,
+  the player then covers the page with its overlays drawn. **Escape sent by
+  Playwright does NOT leave full screen**; `exitFullscreen()` from a plain
+  evaluate does, which is how `_leave()` gives it back. Asked only once the
+  bar has gone, so the page is laid out at its full size first.
+- **A new DOCUMENT resets it, not a new address.** The first version reset on
+  `page.url` changing and kept `active`, so going from a video to another
+  page with a video skipped the three seconds -- the check's first failure.
+  Keyed on `domcontentloaded` instead, because YouTube moves to the next
+  video with `history.pushState` and keeps its player and its full screen;
+  a case asserts that too.
+- **The site leaving full screen is respected** (`_declined`) until the
+  video stops, rather than fought.
+- **`keep_bar` is on the LINK, named so that off is the full screen.** The
+  user's words were "fullscreen except Google", which first became a
+  `fullscreen: false`. But an optional switch nobody touched is drawn OFF in
+  the Supervisor's form (the `enabled:` section records why), so a link
+  showing fullscreen "off" would have been full screen -- the form contradicting
+  the behaviour. `keep_bar: bool?` on both link schemas; run.py's
+  `page_keep_bar_from()` hands `--page-keep-bar <url>` per link, from the
+  panel's own launcher's links when it has one. Matched on the address the
+  LINK opened (`link_start()`, the first web page after the panel's own one
+  in the history), because browsing from Google goes everywhere and the bar
+  must follow it. `link_start()` was first written with the bar's ⌂ rule --
+  on a dashboard panel that is the dashboard -- which would have matched no
+  link at all there.
+
+`tools/checkimmersive.py` (26 cases): run.py's own path from the form's links
+to `--page-keep-bar`, then the shipped sender on a fake panel reading the
+pixels -- a video filling its page (bar gone, back on a pause, kept while a
+finger was just there), a player inside a page (full screen with its overlay,
+given back on a pause, kept over a pushState to the next video, the site's own
+button respected), a muted video, and a link that keeps its bar browsed from.
+`--without` runs it with `--page-keep-bar http`: seven fail. checknavbar,
+checkkeyboard and checksaver pass; `checklinkspeed --tap` reads the same
+either side within noise. **Not tried on Jellyfin, Netflix, Orange TV or
+YouTube**, and not on Google Chrome: whether each one's player accepts a
+full-screen request, and what its own button does, is what the panel's
+`Video:` lines say.
 
 ## The Files page: downloads used on the glass -- 4.36.0
 

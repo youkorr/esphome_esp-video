@@ -156,6 +156,11 @@ configuration:
         name: 🗣️ Other names to say
         description: 'To open it by voice: what the voice assistant writes when you say the name, separated
           by commas. For example "jelly fin, jellyfish" for Jellyfin.'
+      keep_bar:
+        name: 🧭 Keep the bar during a video
+        description: 'For a link used for browsing, Google for instance: the ← ⟳ ⌂ bar stays even while
+          a video plays. Off: a few seconds after a video starts, the screen goes full screen without
+          the bar; it comes back on pause.'
   launcher:
     name: 🎨 4 · Look of the page of links
     description: Colours, clock, weather, wallpaper. Applies to every screen; a screen can change any
@@ -381,6 +386,11 @@ configuration:
             name: 🗣️ Other names to say
             description: 'To open it by voice: what the voice assistant writes when you say the name,
               separated by commas. For example "jelly fin, jellyfish" for Jellyfin.'
+          keep_bar:
+            name: 🧭 Keep the bar during a video
+            description: 'For a link used for browsing, Google for instance: the ← ⟳ ⌂ bar stays even
+              while a video plays. Off: a few seconds after a video starts, the screen goes full screen
+              without the bar; it comes back on pause.'
       layout:
         name: Layout
         description: 'classic: the existing layout. dashboard: time, avatar and weather on the left, apps
