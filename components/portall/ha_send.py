@@ -1926,6 +1926,25 @@ IMMERSIVE_LOOK_S = 0.5
 IMMERSIVE_LEAVE_S = 1.0
 IMMERSIVE_BIG = 0.2
 IMMERSIVE_FILLS = 0.85
+# How soon after the bar goes the player is looked at again, to be put in full
+# screen. The page is laid out without the bar by then -- a resize is laid out
+# by the next script that asks -- and waiting a whole IMMERSIVE_LOOK_S made the
+# change two jumps half a second apart instead of one.
+IMMERSIVE_SETTLE_S = 0.1
+
+# The change into a full-screen video is a crossfade, not a cut.
+#
+# Asked for once the bar stepping aside worked: the change was abrupt -- the
+# bar gone and the page laid out again in one picture, then the player blown
+# up to the whole screen in the next. For FADE_S each picture sent is a blend
+# of what the panel was showing and what the page shows now, whole, the share
+# of the new one growing with time; the end is the page itself, whole, so the
+# diff starts again from a picture the panel really has. Every fade starts
+# from what is ON THE GLASS: when the player goes full screen while the first
+# fade is still running, the next one starts from the blend the panel shows,
+# so nothing jumps at all. About eight pictures at 25 a second -- whole ones,
+# so it costs what a third of a second of video costs. --fade 0 cuts.
+FADE_S = 0.33
 
 # The largest share of this frame's viewport that a video playing with its
 # sound on covers, or -1 when none plays.
@@ -1998,6 +2017,9 @@ class Immersive:
         self._arrived = False     # a new document since the last tick
         self._session = None
         self._kept_for = None     # a link start found to keep its bar
+        # Counts the changes the panel would see as a jump: the bar going, and
+        # the player put in full screen. The loop crossfades each (FADE_S).
+        self.moves = 0
 
     def touched(self, now):
         self._touch_at = now
@@ -2111,9 +2133,11 @@ class Immersive:
                     self._say(f"{start} keeps its bar (keep_bar)")
                 return
             self.active = True
+            self.moves += 1
             self._say("playing, so the bar stands aside")
             # The page is laid out again without the bar before anything is
-            # put in full screen; the next look decides that.
+            # put in full screen; the next look, soon, decides that.
+            self._look_at = now - IMMERSIVE_LOOK_S + IMMERSIVE_SETTLE_S
             return
         if (share < IMMERSIVE_FILLS and in_main and not full
                 and not self._ours and not self._declined):
@@ -2129,6 +2153,7 @@ class Immersive:
                 self._session = None
             if str(said).startswith("ok"):
                 self._ours = True
+                self.moves += 1
                 self._say(f"full screen on {said[3:]}")
             else:
                 # Not asked again for this page: a refusal does not change.
@@ -7675,6 +7700,14 @@ def main():
         "and photographs are sharp on a still screen",
     )
     parser.add_argument(
+        "--fade",
+        type=float,
+        default=FADE_S,
+        help="how many seconds the change into a full-screen video takes: the "
+        "panel is sent whole pictures blending what it showed into the "
+        "video. 0 cuts straight to it",
+    )
+    parser.add_argument(
         "--no-dither",
         action="store_true",
         help="do not dither the finished picture for a panel drawing in 16 "
@@ -8802,6 +8835,13 @@ def main():
             pending = None
             fulls = 0
             sharpened = 0
+            # The crossfade into a full-screen video (FADE_S): what the panel
+            # showed when it began, the last blend it was sent, when the
+            # first blend went (None until a picture of the new page is in
+            # hand), the Immersive moves already answered, and a count.
+            fade_from = fade_last = fade_start = None
+            fade_moves = 0
+            faded = 0
             last_send = 0.0
             last_sent = time.monotonic()
             # Assumed awake until the panel says otherwise; it announces its
@@ -9076,6 +9116,63 @@ def main():
                     # frame costs nothing but itself.
                     if want_send and not free:
                         want_send = False
+                    if fade_from is not None and (
+                            not awake or overlaid() or immersive is None
+                            or not immersive.active
+                            or (image is not None
+                                and image.size != fade_from.size)):
+                        # The video left, the screen went dark, something
+                        # covered it: the fade has nothing left to join.
+                        fade_from = fade_last = fade_start = None
+                    if fade_from is not None:
+                        # The crossfade into a full-screen video (FADE_S).
+                        # Nothing else goes out while it runs: every picture
+                        # is a whole blend, at the frame limit, even when the
+                        # page paints nothing new.
+                        want_send = False
+                        # Spaced by what was SENT, not by the schedule a frame
+                        # is released on: a blend needs no new frame, and the
+                        # two clocks together put pairs 10 ms apart.
+                        if (image is not None and free
+                                and started - last_sent >= limit
+                                and rate.allows(started)):
+                            if fade_start is None:
+                                # The first blend one interval in, so it is
+                                # not a picture of what is already there.
+                                fade_start = started - limit
+                            share = (started - fade_start) / args.fade
+                            if share >= 1.0:
+                                # The end: the page itself, whole, by the
+                                # ordinary path, and diffed from from there.
+                                fade_from = fade_last = fade_start = None
+                                previous = None
+                                want_send = True
+                            else:
+                                blended = Image.blend(fade_from, image, share)
+                                buffer = io.BytesIO()
+                                blended.save(buffer, format="JPEG",
+                                             quality=rate.quality(send_quality))
+                                payload = buffer.getvalue()
+                                writer.offer([build_header(send_w, send_h,
+                                                           len(payload),
+                                                           frame_id)
+                                              + payload])
+                                rate.note(len(payload), started - last_sent,
+                                          limit, send_quality, now=started)
+                                frame_id = (frame_id + 1) & 0x3FF
+                                bytes_sent += len(payload)
+                                rectangles_sent += 1
+                                fulls += 1
+                                faded += 1
+                                if pictures:
+                                    worst_gap = max(worst_gap,
+                                                    started - last_sent)
+                                pictures += 1
+                                # A picture the panel has that the finished
+                                # one before the video never matches again.
+                                changes += 1
+                                last_change = last_full = last_sent = started
+                                fade_last = blended
                     if (want_send and shot is None
                             and refined_image is not None
                             and refined_for == changes):
@@ -9723,6 +9820,17 @@ def main():
                                 not_ha_origins.add(origin_of(here))
                         if immersive is not None:
                             immersive.tick(page, now, want, link_start)
+                            if immersive.moves != fade_moves:
+                                fade_moves = immersive.moves
+                                if args.fade > 0 and immersive.active:
+                                    # From what is on the glass, taken before
+                                    # set_strip throws the last picture away.
+                                    if fade_from is not None:
+                                        if fade_last is not None:
+                                            fade_from = fade_last
+                                    elif previous is not None:
+                                        fade_from = Image.fromarray(previous)
+                                    fade_last = fade_start = None
                             want = want and not immersive.active
                         set_strip(want)
                         if want:
@@ -10002,6 +10110,10 @@ def main():
                             # Finished pictures sent once the page was still.
                             line += f", {sharpened} sharp"
                             sharpened = 0
+                        if faded:
+                            # Blends sent while a video took the screen.
+                            line += f", {faded} faded"
+                            faded = 0
                         caught = main_capture.take_recaptured() + (
                             capture.take_recaptured()
                             if capture is not main_capture else 0)
