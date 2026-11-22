@@ -1802,7 +1802,7 @@ the dashboard, where it is invisible while the keys go on working.
 ahead of the `pip install` as well as the `ADD`s, so a bump refetched
 everything — at the cost of the browser download on each update.
 `present_browser()` prints the Chromium version at startup and warns below 114,
-so this is never diagnosed by guesswork again. Currently **4.54.0**.
+so this is never diagnosed by guesswork again. Currently **4.55.0**.
 
 **CORRECTED in 4.29.5: the cost was every update, and a pin removes it.**
 Asked as *"verifie addon ... si il ya pas des elements qui freine la
@@ -13009,6 +13009,38 @@ and reads it at one point: 9 and 10 blends over a third of a second at
 `--no-fade` runs the shipped `--fade 0` and those cases fail with 0 blends.
 The check now passes the add-on's `--fps 25`: a hand run's limit is 10, where
 a third of a second is three pictures. **Not seen on a panel.**
+
+## The way home is a choice: the corner, the right edge, or both -- 4.55.0
+
+**Asked as *"je voudrais qu'ont laisse le choix quant ont quitte une
+application soit le toucher du haut ... ou un slide de droite"*.** `home_gesture`
+on a screen's Advanced (`list(corner|right_edge|both)?`, empty is the corner),
+`--home-gesture` to the sender. The right edge is a band of
+`HOME_EDGE_FRACTION` (6%, at least 32 px) of the page's width; a contact that
+lands in it and goes LEFT by `HOME_SWIPE_FRACTION`, more sideways than not, is
+the corner's own swipe decision with a direction on it (`_from_edge` beside
+`_from_corner`), and its scroll is held back while undecided exactly as the
+corner's is. A tap and a vertical drag there stay the page's.
+
+With `right_edge` the corner is OFF entirely, the strip's hold-for-home with
+it, so a page's own top-left button (Home Assistant's menu, Jellyfin's Back)
+is an ordinary press however long it is held. `HomeHint` draws a second mark,
+a pill against the edge half way down, and hides whichever the screen does not
+use; the edge's brightens with `edge_progress()`.
+
+**The mark rule that hides the corner was written `{{ ... }}` inside a plain
+string in an f-string expression**, so the browser read doubled braces, threw
+the rule away and drew the corner on a right-edge screen. A literal inside
+`{...}` of an f-string is not an f-string. `tools/checkhomeedge.py` caught it
+on its first run by reading the corner's pixel.
+
+`tools/checkhomeedge.py` drives the shipped sender against a fake panel with
+real contacts in all three modes: the swipe goes home without scrolling or
+clicking, a tap and a drag up the edge reach the page, holding the corner is a
+press with `right_edge`, the default ignores the swipe, `both` takes either,
+and the marks are read off the glass. Against the previous sender it cannot
+run (no `--home-gesture`), which is the fault being an absence. **Not seen on
+a panel.**
 
 ## Repository conventions
 

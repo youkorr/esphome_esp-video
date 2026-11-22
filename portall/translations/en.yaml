@@ -101,6 +101,11 @@ configuration:
             name: 📱 Scroll like a tablet
             description: A page flicked with a finger carries on and slows down. A finger laid on it stops
               it. On trial.
+          home_gesture:
+            name: 🏠 Gesture to go home
+            description: 'corner (when empty): hold the top-left corner, or swipe sideways out of it.
+              right_edge: swipe in from the right edge towards the left, leaving the corner to the page.
+              both: either.'
           stereo:
             name: 🔊 Stereo sound
             description: 'Twice the data. Needs the board updated, and num_channels: 2 on the Bluetooth
