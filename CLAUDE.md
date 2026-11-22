@@ -1802,7 +1802,7 @@ the dashboard, where it is invisible while the keys go on working.
 ahead of the `pip install` as well as the `ADD`s, so a bump refetched
 everything — at the cost of the browser download on each update.
 `present_browser()` prints the Chromium version at startup and warns below 114,
-so this is never diagnosed by guesswork again. Currently **4.56.0**.
+so this is never diagnosed by guesswork again. Currently **4.57.0**.
 
 **CORRECTED in 4.29.5: the cost was every update, and a pin removes it.**
 Asked as *"verifie addon ... si il ya pas des elements qui freine la
@@ -13081,6 +13081,71 @@ bump from ITS version before every release, or the two collide.
 
 Not done: Debian's own Chromium updates on arm64 are only picked up when
 Google's moves, since nothing here asks Debian.
+
+## Every other third-party piece, audited -- 4.57.0
+
+**Asked as *"c'etait une erreur de notre part d'avoir pas pense aux mises a
+jour tierces, verifie d'autres composants"*.** Chrome was not alone. What was
+found, 22 November 2026:
+
+| | in the image | available | done |
+|---|---|---|---|
+| HAP-python | 5.0.0 | 5.2.0 (pairing hardened: TLV checks, SRP A % N, rate limit, body caps) | pinned 5.2.0 |
+| Playwright | 1.62.0 | 1.65.2 (Node.js security releases in 1.64.1 and 1.65.1) | pinned 1.65.2 |
+| Pillow, numpy | unpinned, frozen in the build cache since ~mid-October | 13.0.0, 2.5.5 | pinned |
+| Debian packages | frozen in cached apt layers | -- | `apt-get upgrade` in the Chrome layer |
+| CherryUSB | 1.6.1 | 1.6.1 (next planned 2026-12-31) | -- |
+| Realtek RTL8761BU blobs | sha256 identical to linux-firmware main | -- | -- |
+| the C6's esp-hosted firmware | whatever the board shipped | ESPHome's manifest | documented, and in the user's file and the Tab5 example |
+
+The Espressif registry (components.espressif.com) does not resolve from here,
+so `espressif/usb` 1.4.1 (ESPHome's own pin), `usb_device_uac ~1.3.0` and
+`tinyusb "*"` were not compared. The vendored camera components are not this
+project's to change.
+
+**Every browser check ran against Playwright 1.65.2 + HAP-python 5.2.0 +
+Pillow 13.0.0 + numpy 2.5.5** (a venv of its own, `--browser` the local Chrome
+for Testing 153, because Playwright's own browsers are only installed for the
+preinstalled version): 63 of 65 first time. The two were the rulers:
+
+- `checkhomeedge.py` read one dark frame at the right edge right after a page
+  arrived as the edge's mark -- once in about six runs, with 1.62 as often as
+  with 1.65. A mark is drawn for 1.5 s, so it counts only on three samples in
+  a row now. The dark frame itself is not investigated.
+- `checkmedia.py` ignored `$CHROMIUM` in both its launches, and asserted that
+  Playwright refuses the key `MediaPlayPause` -- which 1.62 and 1.65 both
+  accept with Chromium 153. That case is a note now: the sender has called
+  the page's player instead since 4.48.0.
+
+Playwright 1.65's behaviour changes read beforehand (cookie matching by
+RFC 6265 in `context.cookies()`, actions waiting for non-inert elements,
+proxy credentials) were covered by checkdownload, checkfollow and checksession
+passing. On arm64 Playwright now ships Chrome for Testing in
+`chrome-linux-arm64`, which the Dockerfile's safety-net glob matches.
+
+**ESPHome's C6 updater is safe by construction**: it offers only manifest
+versions no newer than the host's esp-hosted library (`esp32_hosted_update.cpp`
+in 2026.12.0-dev), so it never puts the co-processor ahead of the P4 -- host
+3.x with a 2.x co-processor works, the reverse does not. It installs only on
+Install. The user's `portall-guit-10-p4.yaml` had the block commented out; it
+is on now. That file does not validate here as a whole: it uses
+`panel_buffers` from the Codex branch, whose validator refuses the display's
+test card that ESPHome turns on by itself when nothing draws. The block was
+validated on a minimal config with the same P4 and C6 pins instead, at
+2026.12.0-dev, and in the Tab5 example through checkyaml.
+
+**`tools/checkdeps.py` and `.github/workflows/portall-deps.yml`, Mondays at
+06:43 UTC**: every `name==version` pip pin in the Dockerfile and
+`CHERRYUSB_VERSION`, against PyPI and CherryUSB's latest release; one issue
+per package behind, titled `Portall dependency: <name> <new> is out (<pin> in
+use)`, retitled when a newer one comes, closed with a comment once the pin
+catches up. It installs nothing. Tested against a stand-in GitHub API
+(`PORTALL_GITHUB_API`): open, no duplicate, retitle, close, and an unreadable
+version changing nothing. `tools/checkimage.py` now prints the versions the
+image really carries, including HAP-python's own dependencies.
+
+**The image is a full download again in 4.57.0**: the pins sit above the
+browser layer, so moving them rebuilds everything once.
 
 ## Repository conventions
 
