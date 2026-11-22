@@ -1,5 +1,17 @@
 # Changelog
 
+## 4.56.0
+
+- **Chrome stays up to date.** The add-on now carries Google Chrome
+  158.0.8127.36, the current one; every release since 4.51.1 had kept
+  157.0.8103.50. From now on each release takes the Chrome Google is serving,
+  and a daily check publishes a small version of Portall when Google releases
+  a new one, which Home Assistant offers like any other update -- or installs
+  by itself where its automatic updates are on.
+- Such an update downloads Chrome, not the whole add-on. This one is a full
+  download once, because the image is laid out for it.
+- No panel firmware update is required.
+
 ## 4.55.0
 
 - **Choose how a screen goes home: the corner, a swipe from the right edge,

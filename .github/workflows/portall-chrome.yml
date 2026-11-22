@@ -1,0 +1,121 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2024-2026 youkorr
+# Part of Portall: https://github.com/youkorr/esphome_esp-video
+#
+# The add-on follows Google Chrome, through an update Home Assistant OFFERS.
+#
+# Asked for as: Portall keeps itself up to date, provided it proposes the
+# update. Every day this asks Google which stable Chrome is current and reads
+# the version the published image of main's add-on was built with (the label
+# io.portall.chrome, written by portall-image.yml). When Google has moved on,
+# it moves the add-on to the next patch version on a branch of its own, builds
+# and checks the two images through portall-image.yml, and only then merges
+# into main -- the order every release here follows, because the Supervisor
+# offers what main's config.yaml names and an update offered before its image
+# exists fails on somebody's screen. Home Assistant then proposes the update,
+# or installs it alone where its automatic updates are on.
+#
+# A published image whose label cannot be read releases NOTHING: that is a
+# fault to look at, never a reason to publish a version every day.
+name: Portall follows Chrome
+
+on:
+  schedule:
+    - cron: "37 5 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  packages: write
+
+concurrency:
+  group: portall-follows-chrome
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    outputs:
+      ref: ${{ steps.bump.outputs.ref }}
+      branch: ${{ steps.bump.outputs.branch }}
+      base: ${{ steps.bump.outputs.base }}
+      version: ${{ steps.bump.outputs.version }}
+      chrome: ${{ steps.compare.outputs.chrome }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Compare Google's Chrome with the published image's
+        id: compare
+        run: |
+          chrome=$(python3 tools/followchrome.py current)
+          version=$(sed -n 's/^version: *"\{0,1\}\([^"]*\)"\{0,1\} *$/\1/p' portall/config.yaml | head -n 1)
+          image="ghcr.io/${{ github.repository_owner }}/amd64-portall:$version"
+          built=$(python3 tools/followchrome.py label "$image")
+          echo "Google: $chrome; $image was built with: ${built:-(unreadable)}"
+          if [ -z "$built" ]; then
+            echo "::error::$image carries no readable io.portall.chrome label; nothing is released"
+            exit 1
+          fi
+          echo "chrome=$chrome" >> "$GITHUB_OUTPUT"
+          if [ "$built" != "$chrome" ]; then
+            echo "new=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Move the add-on to the next version, on a branch of its own
+        id: bump
+        if: steps.compare.outputs.new == 'true'
+        env:
+          CHROME: ${{ steps.compare.outputs.chrome }}
+        run: |
+          base=$(git rev-parse HEAD)
+          version=$(python3 tools/followchrome.py bump "$CHROME")
+          branch="auto/chrome-$CHROME"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$branch"
+          git commit -am "Carry Google Chrome $CHROME (Portall $version)"
+          git push origin "$branch"
+          echo "ref=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "branch=$branch" >> "$GITHUB_OUTPUT"
+          echo "base=$base" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  image:
+    needs: check
+    if: needs.check.outputs.ref != ''
+    uses: ./.github/workflows/portall-image.yml
+    with:
+      ref: ${{ needs.check.outputs.ref }}
+
+  release:
+    needs: [check, image]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+          fetch-depth: 0
+
+      # Only onto the main the version was moved from: a release that landed
+      # meanwhile has its own version, and tomorrow's run starts from it.
+      - name: Merge into main
+        env:
+          BRANCH: ${{ needs.check.outputs.branch }}
+          BASE: ${{ needs.check.outputs.base }}
+          VERSION: ${{ needs.check.outputs.version }}
+          CHROME: ${{ needs.check.outputs.chrome }}
+        run: |
+          if [ "$(git rev-parse HEAD)" != "$BASE" ]; then
+            echo "::warning::main moved while $VERSION was built; it is not merged, and the next run starts again from main"
+            git push origin --delete "$BRANCH" || true
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin "$BRANCH"
+          git merge --no-ff -m "Merge: Google Chrome $CHROME (Portall $VERSION)" FETCH_HEAD
+          git push origin HEAD:main
+          git push origin --delete "$BRANCH"

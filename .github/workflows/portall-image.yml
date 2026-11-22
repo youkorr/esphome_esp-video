@@ -35,6 +35,15 @@ on:
       - ".github/workflows/portall-image.yml"
       - "tools/checkimage.py"
   workflow_dispatch:
+  # From portall-chrome.yml, with the commit that moves the version for a new
+  # Chrome: a push made by a workflow's own token starts no workflow, so that
+  # one calls this directly.
+  workflow_call:
+    inputs:
+      ref:
+        description: the commit to build
+        type: string
+        required: true
 
 permissions:
   contents: read
@@ -57,6 +66,8 @@ jobs:
       IMAGE: ghcr.io/${{ github.repository_owner }}/${{ matrix.arch }}-portall
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref || github.sha }}
 
       - name: Read the version
         id: version
@@ -65,6 +76,16 @@ jobs:
           test -n "$version"
           echo "Version $version"
           echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      # Google's current stable Chrome, which keys the image's browser layer
+      # (see the Dockerfile) and is written on the image, where
+      # portall-chrome.yml reads it to know when a new Chrome needs a release.
+      - name: Which Chrome is current
+        id: chrome
+        run: |
+          chrome=$(python3 tools/followchrome.py current || echo unknown)
+          echo "Google Chrome stable: $chrome"
+          echo "version=$chrome" >> "$GITHUB_OUTPUT"
 
       - name: Log in to ghcr.io
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
@@ -97,7 +118,9 @@ jobs:
           docker buildx build portall \
             --file portall/Dockerfile \
             --platform "${{ matrix.platform }}" \
-            --build-arg "BRANCH=${{ github.sha }}" \
+            --build-arg "BRANCH=${{ inputs.ref || github.sha }}" \
+            --build-arg "CHROME_STABLE=${{ steps.chrome.outputs.version }}" \
+            --label "io.portall.chrome=${{ steps.chrome.outputs.version }}" \
             --label "io.hass.version=$VERSION" \
             --label "io.hass.arch=${{ matrix.arch }}" \
             --label "io.hass.type=addon" \

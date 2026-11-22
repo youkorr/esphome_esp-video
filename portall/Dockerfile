@@ -57,34 +57,10 @@ RUN pip install --no-cache-dir "HAP-python[QRCode]==5.0.0" ; true
 # Written to degrade rather than fail: an older Playwright that has never heard
 # of --no-shell installs both, exactly as before.
 #
-# The browser itself is installed further down, AFTER Chrome: see why there.
+# Playwright's own browser and its libraries come next; Google Chrome comes
+# last of the heavy layers, keyed on its own version: see why there.
 RUN pip install --no-cache-dir playwright==1.62.0 pillow numpy \
     && rm -rf /root/.cache/pip
-
-# A second browser, for one reason: the Chromium Playwright downloads is built
-# without the proprietary codecs. Measured on 141.0.7390.37 -- H.264 no, AAC
-# no, HLS no, and requestMediaKeySystemAccess does not even exist, so no DRM of
-# any kind. A dashboard never notices. YouTube does: its player chooses its
-# formats by asking the browser what it can decode, and one it cannot decode
-# ends as "un probleme est survenu" a few seconds in.
-#
-# Chrome carries the codecs and Widevine both, but Google publishes no arm64
-# Linux build, so a Home Assistant box on a Pi falls to the distribution's
-# Chromium -- which Debian builds with ffmpeg_branding=Chrome and which does
-# have them. The sender prefers whichever of these is installed and says in its
-# log which one it started and what it can decode.
-#
-# Nothing here is allowed to fail the build. A panel that shows a dashboard is
-# worth more than a panel that plays video, so if neither browser can be had,
-# the image is still the working image it was before -- the sender falls back
-# to Playwright's own, exactly as it did.
-RUN (playwright install --with-deps chrome \
-     || (apt-get update \
-         && apt-get install -y --no-install-recommends chromium) \
-     || echo "no codec-capable browser here; Playwright's own will be used") \
-    ; apt-get clean \
-    ; rm -rf /var/lib/apt/lists/* /root/.cache/pip \
-    ; true
 
 # Playwright's own Chromium, only where Google Chrome is not here to run.
 #
@@ -95,20 +71,26 @@ RUN (playwright install --with-deps chrome \
 # Where Chrome cannot be had (arm64: Google publishes no build) it is
 # installed exactly as before, as the one browser the build guarantees.
 #
-# "Here to run" is asked of the binary (--version), not of the package
-# manager's opinion, the rule this project keeps relearning: ask the world,
-# not the step.
+# Where Google publishes a Chrome is the architecture's fact (amd64); whether
+# a browser really runs is asked of the binary (--version) by the safety net
+# after Chrome, not of the package manager's opinion, the rule this project
+# keeps relearning: ask the world, not the step.
 #
 # Its system dependencies are installed either way (install-deps), because
 # they are more than Chromium's own libraries: Playwright's list carries the
 # fonts the launcher's icons are drawn with, the colour emoji among them, and
 # Chrome's own package does not pull those in.
-RUN (if /opt/google/chrome/chrome --version >/dev/null 2>&1; then \
-         echo "Google Chrome is here; Playwright's own Chromium is not needed" \
-         && playwright install-deps chromium; \
-     else \
-         playwright install --with-deps chromium --no-shell \
-         || playwright install --with-deps chromium; \
+#
+# Split in two since 4.56.0, so a new Chrome does not drag either half along.
+# The libraries and fonts, and Playwright's Chromium where Google publishes no
+# Chrome (arm64), come BEFORE Chrome and are keyed on the Playwright pin; the
+# safety net AFTER Chrome installs Playwright's build only when neither browser
+# above would start, which on every image built so far is nothing at all.
+RUN playwright install-deps chromium \
+    && (if [ "$(dpkg --print-architecture)" != "amd64" ]; then \
+         echo "no Google Chrome for $(dpkg --print-architecture); Playwright's own Chromium" \
+         && (playwright install chromium --no-shell \
+             || playwright install chromium); \
      fi) \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/* /root/.cache/pip
@@ -147,10 +129,59 @@ RUN (apt-get update \
     ; rm -rf /var/lib/apt/lists/* \
     ; true
 
+# A second browser, for one reason: the Chromium Playwright downloads is built
+# without the proprietary codecs. Measured on 141.0.7390.37 -- H.264 no, AAC
+# no, HLS no, and requestMediaKeySystemAccess does not even exist, so no DRM of
+# any kind. A dashboard never notices. YouTube does: its player chooses its
+# formats by asking the browser what it can decode, and one it cannot decode
+# ends as "un probleme est survenu" a few seconds in.
+#
+# Chrome carries the codecs and Widevine both, but Google publishes no arm64
+# Linux build, so a Home Assistant box on a Pi falls to the distribution's
+# Chromium -- which Debian builds with ffmpeg_branding=Chrome and which does
+# have them. The sender prefers whichever of these is installed and says in its
+# log which one it started and what it can decode.
+#
+# Nothing here is allowed to fail the build. A panel that shows a dashboard is
+# worth more than a panel that plays video, so if neither browser can be had,
+# the image is still the working image it was before -- the sender falls back
+# to Playwright's own, exactly as it did.
+#
+# LAST of the heavy layers, and keyed on Google's own version number. Chrome is
+# the one part of this image that goes stale on its own: Google ships a new
+# stable about once a week, security fixes mostly, and with a cached layer the
+# image went on carrying 157.0.8103.50 for every release from 4.51.1 to 4.55.0
+# while Google moved to 158. The workflow that publishes the image asks
+# Google which version is current and passes it as CHROME_STABLE: a new
+# number rebuilds this layer and the small ones after it, and nothing above --
+# so an update for Chrome downloads Chrome, not PulseAudio and the fonts again.
+# On a Raspberry Pi the same rebuild refreshes the distribution's Chromium.
+ARG CHROME_STABLE=unknown
+RUN echo "Chrome stable when built: ${CHROME_STABLE}" \
+    && (playwright install --with-deps chrome \
+     || (apt-get update \
+         && apt-get install -y --no-install-recommends chromium) \
+     || echo "no codec-capable browser here; Playwright's own will be used") \
+    ; apt-get clean \
+    ; rm -rf /var/lib/apt/lists/* /root/.cache/pip \
+    ; true
+
+# The safety net: a browser that starts, whatever happened above.
+RUN (if /opt/google/chrome/chrome --version >/dev/null 2>&1 \
+        || ls /root/.cache/ms-playwright/chromium-*/chrome-linux*/chrome \
+           >/dev/null 2>&1; then \
+         echo "a browser is here"; \
+     else \
+         playwright install chromium --no-shell \
+         || playwright install chromium; \
+     fi) \
+    ; rm -rf /root/.cache/pip \
+    ; true
+
 # Bump this with the version in config.yaml. It sits AFTER the browsers and
 # BEFORE the senders: an update refetches the two senders below and copies the
 # add-on's own files, and reuses everything above -- see the note on the pin.
-ARG BUNDLE=4.55.0
+ARG BUNDLE=4.56.0
 RUN echo "${BUNDLE}" > /app/BUNDLE
 
 # Fetched rather than copied: the add-on builds with its own folder as the
