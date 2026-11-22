@@ -2049,6 +2049,20 @@ lacks from a stream that went away from a site refusing to serve.
 `browser: off` keeps Playwright's own whatever is installed, and a full path
 names one exactly.
 
+### Chrome stays up to date
+
+Google publishes a new Chrome about once a week, security fixes mostly. Every
+Portall release now carries the Chrome Google is serving the day it is built,
+and **a check runs every day**: when Google has released a new one, a small
+version of Portall (4.56.1, say) is published with only that change, and Home
+Assistant offers it like any other update. Turn on **automatic updates** on the
+add-on's page in Home Assistant and it is installed without asking.
+
+Such an update downloads Chrome and the few small layers after it, about
+450 MB on an amd64 machine, not the whole add-on. On a Raspberry Pi, which has
+no Google Chrome, the distribution's Chromium is refreshed by the same update.
+The log's `Browser: running ...` line says which version a screen started.
+
 ### When a page half-works: read the `Network:` lines
 
 A page that loads but misbehaves -- YouTube saying "le contenu n'est pas

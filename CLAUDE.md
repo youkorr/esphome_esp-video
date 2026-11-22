@@ -1802,7 +1802,7 @@ the dashboard, where it is invisible while the keys go on working.
 ahead of the `pip install` as well as the `ADD`s, so a bump refetched
 everything — at the cost of the browser download on each update.
 `present_browser()` prints the Chromium version at startup and warns below 114,
-so this is never diagnosed by guesswork again. Currently **4.55.0**.
+so this is never diagnosed by guesswork again. Currently **4.56.0**.
 
 **CORRECTED in 4.29.5: the cost was every update, and a pin removes it.**
 Asked as *"verifie addon ... si il ya pas des elements qui freine la
@@ -13041,6 +13041,46 @@ press with `right_edge`, the default ignores the swipe, `both` takes either,
 and the marks are read off the glass. Against the previous sender it cannot
 run (no `--home-gesture`), which is the fault being an absence. **Not seen on
 a panel.**
+
+## Chrome follows Google, through updates Home Assistant offers -- 4.56.0
+
+**Asked as *"est-ce que chrome est a jour ? si non est-il possible que le
+projet portall se mette automatiquement a jour a condition qu'il le
+propose"*.** It was not: every image from 4.51.1 to 4.55.0 carried Google
+Chrome **157.0.8103.50** (read off each run's checkimage line), while Google
+served 157.0.8103.78 from 11 November and **158.0.8127.36** from 17 November
+(`versionhistory.googleapis.com`, which this container reaches). The browser
+layer was cached on its command string, and nothing about Chrome moved it.
+
+- **`ARG CHROME_STABLE`** before the Chrome `RUN`, which echoes it, so a new
+  number misses the cache there. portall-image.yml asks Google
+  (`tools/followchrome.py current`), passes it, and writes it on the image as
+  the label **`io.portall.chrome`**.
+- **The image is laid out for it**: Playwright's libraries and fonts
+  (`install-deps`, always) and Playwright's Chromium on arm64 come right after
+  the pin; PulseAudio and the sign-in packages next; Chrome LAST of the heavy
+  layers; then a safety net that installs Playwright's build only when no
+  browser above would start. So a new Chrome rebuilds Chrome and the small
+  layers after it. The arm64 choice is by `dpkg --print-architecture` now --
+  Google publishes no arm64 Chrome -- and the binary is still what the safety
+  net asks. The reordering is a full download once, in 4.56.0. **Not built
+  here** (no Docker daemon): the workflow's checkimage run is the proof.
+- **`.github/workflows/portall-chrome.yml`, daily at 05:37 UTC**: Google's
+  version against the label of main's published amd64 image; different, it
+  bumps the PATCH version on a branch `auto/chrome-<version>` (`followchrome.py
+  bump`: config.yaml, ARG BUNDLE, this file's "Currently", a changelog entry),
+  builds both images through portall-image.yml as a reusable workflow
+  (`workflow_call`, input `ref` -- a push made with the workflow's own token
+  starts no workflow), and merges into main with `--no-ff` only if main has
+  not moved meanwhile. **A label it cannot read releases nothing** and fails
+  the run: a fault to look at, never a version every day.
+
+**What this changes for a release made by hand**: main's version can move
+without anybody in this repository touching it. `git fetch origin main` and
+bump from ITS version before every release, or the two collide.
+
+Not done: Debian's own Chromium updates on arm64 are only picked up when
+Google's moves, since nothing here asks Debian.
 
 ## Repository conventions
 
