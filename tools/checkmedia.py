@@ -32,6 +32,7 @@ import base64
 import http.server
 import io
 import math
+import os
 import pathlib
 import struct
 import sys
@@ -153,6 +154,10 @@ def end_to_end(base):
                "--host", "127.0.0.1", "--port", str(listener.getsockname()[1]),
                "--url", f"{base}/plain", "--no-token", "--not-home-assistant",
                "--width", "320", "--height", "240", "--keyboard", "off", "--audio", "off"]
+    # $CHROMIUM, like every other check here: the browser Playwright would
+    # pick for itself is only there when its own version installed it.
+    if os.environ.get("CHROMIUM"):
+        command += ["--browser", os.environ["CHROMIUM"]]
     process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     time.sleep(15)
     process.terminate()
@@ -197,7 +202,9 @@ def main():
                         f"</iframe></body></html>")
 
     with sync_playwright() as p:
-        browser = p.chromium.launch(args=BROWSER_ARGS)
+        browser = p.chromium.launch(
+            args=BROWSER_ARGS,
+            executable_path=os.environ.get("CHROMIUM") or None)
         context = browser.new_context()
         context.add_init_script(MEDIA_CONTROL_JS)
         page = context.new_page()
@@ -248,13 +255,18 @@ def main():
         line = act_on_media(page, "play")
         check(f"and play says nothing can ({line!r})", "nothing on this page can" in line)
 
-        print("\nWhy the HomeKit remote's play/pause did nothing before")
-        refused = False
+        # Why the HomeKit remote's play/pause did nothing before 4.48.0: it
+        # was sent as the browser key MediaPlayPause, which Playwright then
+        # refused as "Unknown key". Playwright 1.62 and 1.65 both accept it
+        # with Chromium 153 now. The sender no longer sends it at all -- it
+        # calls the page's player -- so this is a note, not a case.
         try:
             page.keyboard.press("MediaPlayPause")
+            print("\n  note   Playwright accepts the browser key MediaPlayPause "
+                  "now; the sender calls the page's player instead")
         except Exception as problem:  # noqa: BLE001
-            refused = "Unknown key" in str(problem)
-        check("Playwright refuses the browser key MediaPlayPause outright", refused)
+            print(f"\n  note   Playwright refuses MediaPlayPause "
+                  f"({str(problem).splitlines()[0][:60]})")
 
         browser.close()
 

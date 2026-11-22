@@ -1,5 +1,21 @@
 # Changelog
 
+## 4.57.0
+
+- **The add-on's other parts are current too.** HAP-python 5.2.0 (the iPhone
+  remote: pairing is checked more strictly and failed attempts are
+  rate-limited), Playwright 1.65.2 (two security updates of what drives the
+  browser), Pillow 13.0.0 and numpy 2.5.5. Every check was run against them
+  first.
+- **Debian's security fixes** now come with each automatic Chrome update.
+- **A weekly check** opens an issue in the repository when one of these
+  pinned parts has a newer version; nothing is installed without being tested.
+- **The ESP32-C6 Wi-Fi firmware** can be offered in Home Assistant: the
+  documentation gives the four lines for the panel's YAML.
+- This update is a full download once more, because the pinned parts sit
+  under the browser in the image.
+- No panel firmware update is required.
+
 ## 4.56.0
 
 - **Chrome stays up to date.** The add-on now carries Google Chrome

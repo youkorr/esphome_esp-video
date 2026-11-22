@@ -51,15 +51,19 @@ logger:
   logs:
     esp-idf: WARN   
 
-#http_request:
-  
-#update:
-  #- platform: esp32_hosted
-    #id: c6_firmware_update
-    #name: "ESP32-C6 Firmware"
-    #type: http
-    #source: https://esphome.github.io/esp-hosted-firmware/manifest/esp32c6.json
-    #update_interval: 6h  
+# Le firmware Wi-Fi du C6 : flasher le P4 ne le met jamais a jour. Home Assistant
+# le propose comme une mise a jour ; rien ne s'installe sans un appui sur
+# Installer. ESPHome ne propose qu'une version au plus egale a l'esp-hosted du
+# P4, donc le C6 n'est jamais mis en avance sur lui.
+http_request:
+
+update:
+  - platform: esp32_hosted
+    id: c6_firmware_update
+    name: "ESP32-C6 Firmware"
+    type: http
+    source: https://esphome.github.io/esp-hosted-firmware/manifest/esp32c6.json
+    update_interval: 6h
 
 api:
   encryption:

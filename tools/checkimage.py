@@ -74,6 +74,26 @@ for module in ("numpy", "PIL", "pyhap"):
     except ImportError as err:
         need(False, f"Python {module} ({err})")
 
+# The versions, said rather than assumed: a pin in the Dockerfile and a cached
+# layer can disagree, and the libraries nobody pins (HAP-python's own) are only
+# knowable here. tools/checkdeps.py and the weekly job compare the pins.
+print("What versions it carries:")
+try:
+    from importlib import metadata
+    for package in ("playwright", "HAP-python", "pillow", "numpy",
+                    "cryptography", "zeroconf"):
+        try:
+            print(f"  {package} {metadata.version(package)}")
+        except metadata.PackageNotFoundError:
+            print(f"  {package} (not installed)")
+except Exception as err:  # noqa: BLE001 - a report, never a failure
+    print(f"  (could not be read: {err})")
+try:
+    with open("/etc/debian_version") as debian:
+        print(f"  Debian {debian.read().strip()}, Python {sys.version.split()[0]}")
+except OSError:
+    pass
+
 print("The launcher's icons:")
 fonts = subprocess.run(["fc-list"], capture_output=True, text=True).stdout
 need("Noto Color Emoji" in fonts, "a colour emoji font")

@@ -81,6 +81,19 @@ esp32_hosted:
   reset_pin: GPIO15
   slot: 1
 
+# The C6's own Wi-Fi firmware, which flashing the P4 never updates. Home
+# Assistant offers it as an update and nothing is installed until somebody
+# presses Install; ESPHome only offers a version no newer than the P4's own
+# esp-hosted, so the C6 is never put ahead of it.
+http_request:
+
+update:
+  - platform: esp32_hosted
+    name: "ESP32-C6 Firmware"
+    type: http
+    source: https://esphome.github.io/esp-hosted-firmware/manifest/esp32c6.json
+    update_interval: 6h
+
 external_components:
   - source:
       type: git

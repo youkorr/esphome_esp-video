@@ -189,13 +189,23 @@ def run(gesture, site, cases):
         arrived = until(lambda: near(colour(middle), PAGE), 10)
         # The marks are drawn on arrival and fade after a second and a half;
         # read them now, then wait them out so a later sample is the page.
-        marks = {"edge": False, "corner": False}
+        # A mark is drawn for a second and a half, so it is counted only when
+        # seen on three samples in a row: one dark frame right after a page
+        # arrives -- seen at the right edge, a few times in twenty runs,
+        # with either Playwright -- is not a mark.
+        marks = {"edge": False, "corner": False, "seen": []}
+        runs = {"edge": 0, "corner": 0}
         end = time.monotonic() + 1.0
         while time.monotonic() < end:
-            if not near(colour(edge_mark), PAGE, 30):
-                marks["edge"] = True
-            if not near(colour(corner_mark), PAGE, 30):
-                marks["corner"] = True
+            for name, at in (("edge", edge_mark), ("corner", corner_mark)):
+                seen = colour(at)
+                if not near(seen, PAGE, 30):
+                    runs[name] += 1
+                    marks["seen"].append((name, seen))
+                    if runs[name] >= 3:
+                        marks[name] = True
+                else:
+                    runs[name] = 0
             time.sleep(0.03)
         time.sleep(1.2)
         return arrived, marks
@@ -251,7 +261,7 @@ def right_edge(t):
 def corner(t):
     arrived, marks = t["open_link"]("3")
     check("a link opens", arrived)
-    check("no edge mark is drawn", not marks["edge"])
+    check("no edge mark is drawn", not marks["edge"], str(marks["seen"][:6]))
     t["stroke"]((W - 8, 300), (W - 260, 304))
     check("a swipe left from the right edge stays on the link",
           not t["until"](lambda: near(t["colour"](t["middle"]), HOME), 2.5))

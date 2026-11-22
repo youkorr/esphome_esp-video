@@ -2063,6 +2063,38 @@ Such an update downloads Chrome and the few small layers after it, about
 no Google Chrome, the distribution's Chromium is refreshed by the same update.
 The log's `Browser: running ...` line says which version a screen started.
 
+The same update also brings **Debian's security fixes** for the rest of the
+image (PulseAudio, the sign-in page's packages, the libraries the browser
+loads), so they no longer stay at the day the image was first built.
+
+**The other parts are pinned and checked every week.** Playwright (which
+drives the browser), HAP-python (the iPhone remote), Pillow, numpy and
+CherryUSB (the Bluetooth dongle) are not updated on their own, because a new
+version can change something a screen relies on and has to be tested first.
+Every Monday a check opens an issue in the repository when one of them has a
+newer version, and closes it once Portall has caught up.
+
+**The Wi-Fi chip's own firmware is not part of the add-on.** On an ESP32-P4
+panel the Wi-Fi is an ESP32-C6, and flashing the P4 never updates it: it
+keeps whatever the board maker installed. ESPHome can offer it in Home
+Assistant like any other update. Add this to the panel's YAML:
+
+```yaml
+http_request:
+
+update:
+  - platform: esp32_hosted
+    name: "ESP32-C6 Firmware"
+    type: http
+    source: https://esphome.github.io/esp-hosted-firmware/manifest/esp32c6.json
+    update_interval: 6h
+```
+
+The panel's device page then shows **ESP32-C6 Firmware** with the installed
+and the latest version, and nothing is installed until you press **Install**.
+ESPHome only offers a C6 version no newer than the P4's own esp-hosted, so the
+two always fit together. Leave the panel powered while it installs.
+
 ### When a page half-works: read the `Network:` lines
 
 A page that loads but misbehaves -- YouTube saying "le contenu n'est pas
