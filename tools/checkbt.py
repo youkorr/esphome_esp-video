@@ -29,6 +29,7 @@ every fault that only appears on hardware.
 import pathlib
 import subprocess
 import sys
+import tempfile
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 # **/*.cpp rather than *.cpp: the speaker platform lives in its own
@@ -36,6 +37,7 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 # stopped at the top level would have said CLEAN about a file it never
 # opened -- which is the silent no-op this tool exists to close.
 SOURCES = sorted((ROOT / "components" / "portall_bt").glob("**/*.cpp"))
+HEADERS = sorted((ROOT / "components" / "portall_bt").glob("**/*.h"))
 
 # BOTH ways, and the second one is the point. Most of the host-stack code sits
 # behind `#ifdef CONFIG_BT_BLUEDROID_ENABLED`, so a single pass without that
@@ -152,10 +154,61 @@ def main() -> int:
                 for line in result.stderr.strip().splitlines():
                     print(f"         {line}")
 
+    if not headers_without_the_library():
+        failed = True
+
     if not run_tests():
         failed = True
 
     return 1 if failed else 0
+
+
+def headers_without_the_library() -> bool:
+    """Every header on its own, as `transport: cherryusb`, with no USB Host
+    Library anywhere.
+
+    ESPHome's generated esphome.h includes every header of every component in
+    the build, so a header is read in every configuration whatever its .cpp is
+    guarded by. ESP-IDF 6 took the USB Host Library out of ESP-IDF (it is the
+    registry's espressif/usb now), and an unguarded include of usb/usb_host.h
+    in idf_usb.h stopped every 6.x build of a board carrying this component:
+    `fatal error: usb/usb_host.h: No such file or directory`, in main.cpp.
+    The passes above cannot see it, because the stand-ins carry that header
+    and the .cpp files only include it behind HCI_USB_IDF.
+    """
+    ok = True
+    with tempfile.TemporaryDirectory() as tmp:
+        stub = pathlib.Path(tmp)
+        for entry in (ROOT / "tools" / "btstub").iterdir():
+            if entry.name != "usb":
+                (stub / entry.name).symlink_to(entry)
+        for header in HEADERS:
+            command = [
+                "g++",
+                "-std=gnu++17",
+                "-fsyntax-only",
+                "-x",
+                "c++",
+                "-DUSE_ESP32",
+                f"-I{stub}",
+                f"-I{header.parent}",
+                "-",
+            ]
+            result = subprocess.run(
+                command,
+                input=f'#include "{header.name}"\n',
+                capture_output=True,
+                text=True,
+            )
+            name = f"{header.relative_to(ROOT)}  (alone, no USB Host Library)"
+            if result.returncode == 0:
+                print(f"  ok     {name}")
+            else:
+                ok = False
+                print(f"  ECHEC  {name}")
+                for line in result.stderr.strip().splitlines()[:6]:
+                    print(f"         {line}")
+    return ok
 
 
 def run_tests() -> bool:
