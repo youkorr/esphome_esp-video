@@ -304,6 +304,23 @@ def page_agent_from(config):
     return out
 
 
+def page_keep_bar_from(config):
+    """--page-keep-bar arguments for every link that keeps its bar over a video.
+
+    Asked for as: a video on Jellyfin, Netflix, Orange TV or YouTube takes the
+    whole screen after a few seconds, except on a link used for browsing --
+    Google -- whose bar must stay. The question belongs to the link, so this
+    is the same meeting point as the quality above. A switch nobody touched
+    reads as off in the form, so off is the common case, the full screen.
+    """
+    out = []
+    for link in config.get("links") or []:
+        url, keep = link.get("url"), link.get("keep_bar")
+        if given(url) and str(keep).strip().lower() in ("true", "yes", "1"):
+            out.append(str(url).strip())
+    return out
+
+
 class Weather:
     """The house's own weather, read by the ADD-ON and never by the page.
 
@@ -1588,6 +1605,9 @@ def command_for(panel):
     # a token belongs to an origin, and the link is what names one.
     for link in panel.get("page_token") or []:
         argv += ["--page-token", link]
+    # And the links whose bar stays over a video, which is a link's own say.
+    for link in panel.get("page_keep_bar") or []:
+        argv += ["--page-keep-bar", link]
     for key in (
         "touch_mirror_x",
         "touch_mirror_y",
@@ -2114,7 +2134,7 @@ def route_to_launcher(panels, where, own=None):
 
 
 def give_page_settings(panels, config):
-    """Each panel's quality, frame limit, user agent and tokens per page.
+    """Each panel's quality, frame limit, user agent, bar and tokens per page.
 
     Read from the links that panel opens: its own launcher's when it has one,
     so a panel with its own launcher is independent in this too. Tokens are
@@ -2131,7 +2151,8 @@ def give_page_settings(panels, config):
         for key, values in (("page_quality", page_quality_from(links)),
                             ("page_agent", page_agent_from(links)),
                             ("page_fps", page_fps_from(links)),
-                            ("page_rate", page_rate_from(links))):
+                            ("page_rate", page_rate_from(links)),
+                            ("page_keep_bar", page_keep_bar_from(links))):
             if values:
                 panel.setdefault(key, values)
         if str(panel.get("home_assistant", True)).strip().lower() \

@@ -746,6 +746,30 @@ arrows and keeps the whole screen. A press
 on it is decided by the add-on and never reaches the site, so it works on a
 page that swallows everything else.
 
+### A video takes the whole screen
+
+When a video plays inside a link -- Jellyfin, Netflix, Orange TV, YouTube --
+the bar goes away after **three seconds** and the video has the whole screen.
+A player inside a page, like YouTube's ordinary site, is put in full screen
+with the site's own controls and subtitles. **Pause the video and the bar
+comes back** a second later; play it again and it goes again.
+
+What counts is a video **playing with its sound on** and taking at least a
+fifth of the screen, so a muted preview or a camera tile on a page never hides
+anything. While a finger has just touched the screen the bar stays, so it does
+not vanish on its way to a button. The corner still goes home whatever plays.
+If the site's own button leaves full screen, the bar comes back and stays
+until that video stops. A new page always arrives with its bar.
+
+**A link used for browsing keeps its bar**: turn on **`keep_bar`** on that
+link -- Google, a search page -- and every page opened from it keeps **←**,
+**⟳** and **⌂** even while a video plays, because what is wanted there is the
+way back to the results.
+
+The add-on's log says each time what it did: `Video: playing, so the bar
+stands aside`, `Video: full screen on ...`, `Video: the bar is back (the video
+stopped)`, or `Video: <address> keeps its bar (keep_bar)`.
+
 ### Scrolling like a tablet: `glide`
 
 A finger dragged on the panel scrolls the page, and by default the page stops

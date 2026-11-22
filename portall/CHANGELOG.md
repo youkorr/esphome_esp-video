@@ -1,5 +1,17 @@
 # Changelog
 
+## 4.53.0
+
+- **A video takes the whole screen.** When a video plays with its sound on
+  inside a link -- Jellyfin, Netflix, Orange TV, YouTube -- the bar goes after
+  three seconds, and a player inside a page, like YouTube's ordinary site, is
+  put in full screen with its own controls. Pausing brings the bar back a
+  second later. A muted preview or a camera tile never hides it, and neither
+  does a video playing just after a touch.
+- **`keep_bar` on a link** keeps the bar over a video, on that link and every
+  page opened from it: for a link used for browsing, such as Google.
+- No panel firmware update is required.
+
 ## 4.52.7
 
 - **Settings on the screen save to the Home Assistant add-on configuration.**

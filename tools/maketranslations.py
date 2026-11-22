@@ -52,6 +52,9 @@ def link_fields():
         voice=T("🗣️ Autres noms à dire", "🗣️ Other names to say",
                 "Pour l'ouvrir à la voix : ce que l'assistant vocal comprend quand vous dites le nom, séparé par des virgules. Par exemple « gelée fine, jelly fin » pour Jellyfin.",
                 "To open it by voice: what the voice assistant writes when you say the name, separated by commas. For example \"jelly fin, jellyfish\" for Jellyfin."),
+        keep_bar=T("🧭 Garder la barre pendant une vidéo", "🧭 Keep the bar during a video",
+                   "Pour un lien de navigation, Google par exemple : la barre ← ⟳ ⌂ reste même quand une vidéo joue. Éteint : quelques secondes après le début d'une vidéo, l'écran passe en plein écran sans la barre ; elle revient à la pause.",
+                   "For a link used for browsing, Google for instance: the ← ⟳ ⌂ bar stays even while a video plays. Off: a few seconds after a video starts, the screen goes full screen without the bar; it comes back on pause."),
     )
 
 SIZES = ("Taille", "Size")
