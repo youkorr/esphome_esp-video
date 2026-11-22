@@ -25,8 +25,16 @@ WORKDIR /app
 # is only reused when every layer above it was. present_browser() still prints
 # the Chromium version at startup and warns below 114.
 #
-# 1.62.0 is the version every check in tools/ ran against. HAP-python is pinned
-# to the 5.0.0 homekit.py was written and tested on, for the same reason.
+# 1.65.2 is the version every check in tools/ ran against (4.57.0, with Pillow
+# 13.0.0 and numpy 2.5.5, pinned beside it for the same reason). HAP-python is
+# pinned to 5.2.0, which hardened pairing -- TLV checks, a rate limit on failed
+# proofs, size caps -- and this server listens on the household's network.
+#
+# A pin is a promise somebody keeps. Until 4.57.0 nobody did: Playwright sat at
+# 1.62.0 while two security releases of its own Node.js went by, and Pillow and
+# numpy were whatever the cache held since the first build here. The weekly
+# job .github/workflows/portall-deps.yml now opens an issue when a pin falls
+# behind, and installs nothing: these need the checks run before they move.
 
 # HAP-python is what Home Assistant's own HomeKit bridge is built on, so
 # the accessory this serves is the same library talking to the same iPhone.
@@ -37,7 +45,7 @@ WORKDIR /app
 # Allowed to fail, like the second browser below: a panel that shows a
 # dashboard is worth more than one that can be driven from a telephone, and
 # run.py steps over a missing homekit module and says so.
-RUN pip install --no-cache-dir "HAP-python[QRCode]==5.0.0" ; true
+RUN pip install --no-cache-dir "HAP-python[QRCode]==5.2.0" ; true
 
 # --no-shell, and it is worth 323 MB of image.
 #
@@ -59,7 +67,7 @@ RUN pip install --no-cache-dir "HAP-python[QRCode]==5.0.0" ; true
 #
 # Playwright's own browser and its libraries come next; Google Chrome comes
 # last of the heavy layers, keyed on its own version: see why there.
-RUN pip install --no-cache-dir playwright==1.62.0 pillow numpy \
+RUN pip install --no-cache-dir playwright==1.65.2 pillow==13.0.0 numpy==2.5.5 \
     && rm -rf /root/.cache/pip
 
 # Playwright's own Chromium, only where Google Chrome is not here to run.
@@ -156,12 +164,21 @@ RUN (apt-get update \
 # number rebuilds this layer and the small ones after it, and nothing above --
 # so an update for Chrome downloads Chrome, not PulseAudio and the fonts again.
 # On a Raspberry Pi the same rebuild refreshes the distribution's Chromium.
+#
+# And Debian's own security fixes ride on the same rebuild. Every apt layer
+# above is cached like the browser was, so PulseAudio, the sign-in packages and
+# the libraries Chrome loads froze at the day they were built; an upgrade here,
+# about weekly with Chrome, writes only the packages that changed.
 ARG CHROME_STABLE=unknown
 RUN echo "Chrome stable when built: ${CHROME_STABLE}" \
     && (playwright install --with-deps chrome \
      || (apt-get update \
          && apt-get install -y --no-install-recommends chromium) \
      || echo "no codec-capable browser here; Playwright's own will be used") \
+    ; (apt-get update \
+       && DEBIAN_FRONTEND=noninteractive apt-get -y \
+          -o Dpkg::Options::=--force-confold upgrade \
+       || echo "Debian's updates could not be fetched; the image keeps what it has") \
     ; apt-get clean \
     ; rm -rf /var/lib/apt/lists/* /root/.cache/pip \
     ; true

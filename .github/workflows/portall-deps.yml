@@ -1,0 +1,35 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2024-2026 youkorr
+# Part of Portall: https://github.com/youkorr/esphome_esp-video
+#
+# Once a week: which pinned third-party pieces have fallen behind.
+#
+# Google Chrome follows Google by itself (portall-chrome.yml). The pins this
+# looks at do not, on purpose: Playwright, HAP-python, Pillow, numpy and
+# CherryUSB each change behaviour a panel depends on now and then, so they move
+# only after the checks in tools/ have run against the new version. This job
+# PROPOSES: one open issue per package that is behind, retitled when a newer
+# release comes and closed once the pin has caught up. It installs nothing.
+name: Portall dependencies
+
+on:
+  schedule:
+    - cron: "43 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+
+      - name: Compare the pins with what is published, and keep the issues in step
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 tools/checkdeps.py issues "${{ github.repository }}"
