@@ -1802,7 +1802,7 @@ the dashboard, where it is invisible while the keys go on working.
 ahead of the `pip install` as well as the `ADD`s, so a bump refetched
 everything — at the cost of the browser download on each update.
 `present_browser()` prints the Chromium version at startup and warns below 114,
-so this is never diagnosed by guesswork again. Currently **4.53.0**.
+so this is never diagnosed by guesswork again. Currently **4.53.1**.
 
 **CORRECTED in 4.29.5: the cost was every update, and a pin removes it.**
 Asked as *"verifie addon ... si il ya pas des elements qui freine la
@@ -12891,6 +12891,89 @@ beside `lvgl_ortho:` is refused: two writers to one screen, and `direct:`
 reads its rotation from an `lvgl:` block that no longer has one. Codegen read
 at 2026.10.0 (`camera_display->set_ortho(ortho)`); compiled `-fsyntax-only`
 both ways against ESPHome's headers. Not flashed.
+
+## A panel that falls behind was shown pictures seconds late -- 4.53.1
+
+**Reported as having to restart the ESP32-P4 after every add-on update:
+*"Portall revient avec beaucoup de latence en vidéo et navigation"*.** Not
+solved -- see the last paragraph -- but the half that turned a slow panel into
+seconds of lag is.
+
+`connect_tcp` set `TCP_NODELAY` and nothing else, so Linux grew the socket's
+send buffer as it liked (`tcp_wmem` max 4 MB here, and on a Home Assistant
+box). The `PanelWriter` thread's `sendall` returns once bytes are in that
+buffer, so `ready()` said yes and the loop went on making pictures for a
+panel that had not taken the last ones. This file recorded it once already,
+in 4.49.0, as a ruler problem: *"left at Linux's 4 MB, the loopback buffers
+held five seconds of pictures and the age measured them"* -- and capped
+`tcp_wmem` for the test instead of asking what the panel's own link does.
+**A fault measured and filed as an artifact of the measurement** is the shape
+to remember.
+
+**`TCP_NOTSENT_LOWAT = UNSENT_LIMIT` (64 KiB)** bounds what may WAIT unsent,
+not what may be in flight -- so the receive window still decides throughput,
+which is the ceiling lesson this file already paid for with `SO_SNDBUF`. Not
+on Windows, which has no such option (`hasattr`, and an `OSError` is
+ignored). `tools/checklag.py`, a fake panel with a board-sized 512000-byte
+window and a token bucket, on a page painting the time as sixteen blocks:
+
+| | taking 1200 KiB/s | taking everything |
+|---|---|---|
+| before (`--ref`) | **3.4 s** late, 1212 KiB/s | 30 pictures/s, 47-54 ms |
+| now | **0.67 s** late, 1213 KiB/s | 30 pictures/s, 52-54 ms |
+
+The 0.67 s left is the fake panel's own receive window full, which a real
+board has too when its own reading is what is slow. `checkrate.py` and
+`checklinkspeed.py --tap` (67-72 ms) unchanged.
+
+**What is NOT found is why the panel takes pictures more slowly after an
+add-on update and not after its own restart.** Read and ruled out: the
+connection itself (host networking, so the old sender's FIN arrives and the
+board goes back to `accept()`), the frame pool (`reset_stream_()` returns the
+frame in hand), the frame-id gate (paced frames are exempt), and the Wi-Fi
+hold (both of the household's YAMLs say `power_save_mode: none` and
+`post_connect_roaming: false`, which make it a no-op). What settles it is the
+board's own stats line (`@ N fps, N us/decode, ...`) and the add-on's `stats`
+line during the lag, beside the same after a restart of the board.
+
+## ESP-IDF 6 took the USB Host Library out, and one header stopped every build
+
+**Reported from the Guition when ESPHome 2026.12.0-dev moved to ESP-IDF
+6.1.1**: `portall_bt/idf_usb.h:61:10: fatal error: usb/usb_host.h: No such
+file or directory`, in `main.cpp`, on a board with `transport: cherryusb`.
+ESP-IDF 6 has no `components/usb` at all (read in the v6.1.1 tree); the
+library is the registry's `espressif/usb`, which `_use_idf_usb()` already
+adds for `transport: idf`. `idf_usb.cpp` was behind `HCI_USB_IDF`, the
+header was not -- and **ESPHome's generated `esphome.h` includes every header
+of every component in the build**, so a header is read in every
+configuration, whatever its `.cpp` is guarded by. The body is behind
+`USE_ESP32 && HCI_USB_IDF` now, after `esphome/core/defines.h`, in
+`portall_bt` and the `usb_bluetooth` copy alike.
+
+None of the checks could see it: the stand-ins in `tools/btstub` carry
+`usb/usb_host.h`, and the `.cpp` files include it only behind the define.
+`tools/checkbt.py` now compiles every header on its own with that stand-in
+taken away; against the old header it prints the user's exact line.
+
+Checked against v6.1.1 before believing that was the only fault, since the
+compiler stops at the first missing header: every ESP-IDF header `portall`,
+`portall_bt`, `usb_display_tusb` and `cherryusb_patch` include exists there
+(`esp_private/usb_phy.h` is in `esp_hw_support`), all 32 Bluedroid functions
+`portall_bt` calls are still declared, and A2DP's internal codec is still the
+default (`BT_A2DP_USE_EXTERNAL_CODEC` n). **Not compiled by ESP-IDF 6**: the
+eleven objects ninja had not reached may hold the next error.
+
+**Found beside it, not fixed: `usb: false` does not leave TinyUSB out.**
+`usb_display_tusb/idf_component.yml` lists `espressif/tinyusb: "*"` as a
+fixed dependency, and portall adds that component whatever `usb:` says
+(it carries the udisp wire format). So TinyUSB is in every build, and the
+CMake line "TinyUSB is in this build and `usb:` is off. That is a leftover
+... delete the build folder" prints right after ESPHome's own "cleaning
+build files" -- a remedy that cannot work. What `usb: false` does still do is
+leave `CONFIG_USB_DISPLAY_DEVICE` off, so nothing initialises the device
+stack. The fix is the manifest's dependency (portall already adds TinyUSB
+itself for `usb: true`), and it is left because the `usb: true` build that it
+touches cannot be compiled here.
 
 ## Repository conventions
 
