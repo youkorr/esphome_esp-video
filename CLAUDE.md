@@ -13444,9 +13444,19 @@ window, cgroup v1 and none, PSS missing), the low and back thresholds, a
 real tree of three processes holding 40 MB each, and the thread itself
 against a sender put in `_current` where `serve()` puts one. Its one fault
 on the way was the ruler: `dict(pss, **{13: ...})` cannot take an int key.
-**Not seen on the household's VM** -- whether HAOS's add-on cgroup exposes
-`memory.current` at the namespace root, and whether its kernel reports
-steal, the first lines will say (a missing piece is simply left out).
+**Seen on the household's VM** (HAOS on Unraid KVM, 8 GiB), every piece
+there, the first line after the update:
+
+    Memory: the machine has 3.37 GB available of 8.33 GB, 243 MB in swap; the host kept 0% of its CPU in the last 10 min
+      this add-on: 1.59 GB, of which 456 MB is file cache Linux takes back when it needs to
+      salon's browser: 1.36 GB in 16 processes, running for 9 min
+
+So the add-on's cgroup does expose `memory.current` at the namespace root,
+and the kernel reports steal. The browser's PSS is above the add-on's total
+less its cache because PSS counts the file-backed pages it maps (Chrome's
+own binary, fonts), which the cgroup files under cache -- not a fault in
+either figure. What a stutter looks like in these lines is still not known:
+the first one carries nothing to compare with.
 
 ## Repository conventions
 
