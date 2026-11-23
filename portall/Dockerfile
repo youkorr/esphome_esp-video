@@ -206,7 +206,7 @@ RUN (if /opt/google/chrome/chrome --version >/dev/null 2>&1 \
 # Bump this with the version in config.yaml. It sits AFTER the browsers and
 # BEFORE the senders: an update refetches the two senders below and copies the
 # add-on's own files, and reuses everything above -- see the note on the pin.
-ARG BUNDLE=4.59.1
+ARG BUNDLE=4.60.0
 RUN echo "${BUNDLE}" > /app/BUNDLE
 
 # Fetched rather than copied: the add-on builds with its own folder as the
@@ -231,6 +231,7 @@ COPY appearance_store.py /app/appearance_store.py
 COPY appearance_ui.py /app/appearance_ui.py
 COPY logos.py /app/logos.py
 COPY files.py /app/files.py
+COPY entities.py /app/entities.py
 # The image has to be told about every file, which is not the same as the
 # repository having one -- launcher.py was written, imported and tested
 # and the add-on died on ModuleNotFoundError before serving a panel.

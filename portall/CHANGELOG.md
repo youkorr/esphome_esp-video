@@ -1,5 +1,21 @@
 # Changelog
 
+## 4.60.0
+
+- **Tiles that act.** Put a Home Assistant entity where a link's address
+  goes -- `light.salon`, `cover.volet`, `scene.cinema`,
+  `sensor.salon_temperature` -- and its tile switches the light, opens the
+  cover or runs the scene, and shows how things stand: a light lit in colour
+  with its brightness, a cover half open, a temperature in figures, a door
+  open or closed.
+- A lock and an alarm are shown and never acted on: a touch on a screen must
+  not open the front door.
+- It costs nothing while nothing changes: the add-on follows the entities
+  and the screen is told only when one moves. The page holds no token.
+- Such a tile is left out of the voice links, so « allume le salon » stays
+  Home Assistant's.
+- No panel firmware update is required.
+
 ## 4.59.1
 
 - **Sharper video and moving wallpapers.** `max_rate` is 4500 by default

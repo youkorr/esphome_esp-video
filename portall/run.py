@@ -96,6 +96,45 @@ try:
 except ImportError:  # the image was built without it
     morning = None
 
+try:
+    import entities
+except ImportError:  # the image was built without it
+    entities = None
+
+
+def page_links(links):
+    """The links that are pages, without the tiles that act (entities.py).
+
+    A tile whose url is `light.salon` is not somewhere to go: nothing may
+    open it as an address, and a spoken "ouvre" must not be bound to its
+    name -- Home Assistant's own "allume le salon" already knows the light,
+    and a sentence trigger here would take it away.
+    """
+    if entities is None:
+        return list(links or [])
+    return [link for link in (links or []) if not entities.is_tile(link)]
+
+
+def follow_tiles(links, house_links=(), label=""):
+    """What this launcher's tiles that act show, followed in Home Assistant.
+
+    None when it has no such tile. Read the way the weather is: the
+    Supervisor's own credential under Home Assistant, the dashboard link's
+    address and token when run by hand.
+    """
+    if entities is None:
+        return None
+    wanted = [entities.entity_of(link.get("url")) for link in (links or [])
+              if entities.is_tile(link)]
+    if not wanted:
+        return None
+    route = Weather(*home_assistant_link(
+        {"links": list(links) + list(house_links)}), None)
+    states = entities.EntityStates(route.url, route.token, wanted, label)
+    say(f"Tiles{label}: {len(set(wanted))} from Home Assistant: "
+        + ", ".join(sorted(set(wanted))))
+    return states.start()
+
 # Its own folder under the add-on's persistent volume, so a pairing survives
 # a restart and an update.
 HOMEKIT_DIR = "/data/homekit"
@@ -1006,6 +1045,7 @@ def start_launcher(config, port=None, house_links=(), label="", panel_name=None,
         status=STATUS,
         choice_file=avatar_file(label).replace(AVATAR_DIR, WALLPAPER_DIR),
         voice=follow_voice(config, list(links) + list(house_links), label),
+        entity_states=follow_tiles(links, house_links, label),
         voice_factory=lambda: follow_voice(
             {**config, "launcher_avatar": True}, list(links) + list(house_links), label),
         motion=truthy(config.get("launcher_background_motion", False)),
@@ -2474,10 +2514,10 @@ def start_alerts(panels, names, planned, remotes):
 
 def start_voice_links(panels, remotes):
     """Keep Home Assistant's automation in step and act on what it hears."""
-    house = _config.get("links") or []
+    house = page_links(_config.get("links") or [])
     every = list(house)
     for entry in own_launchers(_config, panels).values():
-        every += list(entry.get("links") or [])
+        every += page_links(entry.get("links") or [])
     route = Weather(*home_assistant_link({"links": every}), None)
     wanted = truthy(_config.get("launcher_voice_links", False))
     if voicelinks is None:
@@ -2516,6 +2556,7 @@ def start_voice_links(panels, remotes):
                     f"({len(name)} characters)")
             return
         mine = panel.get("launcher_links")
+        mine = page_links(mine) if mine is not None else None
         link = (voicelinks.find_link(mine if mine is not None else house, name)
                 or voicelinks.find_link(every, name))
         if link is None:

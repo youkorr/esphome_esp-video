@@ -132,7 +132,8 @@ configuration:
         description: Le texte écrit sur la tuile.
       url:
         name: Adresse
-        description: 'La page qui s''ouvre quand on touche la tuile. Pour Home Assistant : http://homeassistant:8123/lovelace/0'
+        description: 'La page qui s''ouvre quand on touche la tuile. Pour Home Assistant : http://homeassistant:8123/lovelace/0.
+          Ou une entité, par exemple light.salon : la tuile allume et éteint, et montre l''état.'
       icon:
         name: Icône
         description: Un nom (jellyfin, youtube, cuisine, home-assistant…) ou un emoji. La liste est dans
@@ -370,7 +371,8 @@ configuration:
             description: Le texte écrit sur la tuile.
           url:
             name: Adresse
-            description: 'La page qui s''ouvre quand on touche la tuile. Pour Home Assistant : http://homeassistant:8123/lovelace/0'
+            description: 'La page qui s''ouvre quand on touche la tuile. Pour Home Assistant : http://homeassistant:8123/lovelace/0.
+              Ou une entité, par exemple light.salon : la tuile allume et éteint, et montre l''état.'
           icon:
             name: Icône
             description: Un nom (jellyfin, youtube, cuisine, home-assistant…) ou un emoji. La liste est

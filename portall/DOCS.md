@@ -845,6 +845,63 @@ itself, from the Files page below. The files are kept in the add-on's own
 storage and are left out of its backups. (Until 4.39.0 they were listed on the
 add-on's web page too; that page is about accounts now.)
 
+### Tiles that switch a light, run a scene or show a temperature
+
+Put a Home Assistant **entity** where a link's address goes, and its tile acts
+instead of opening a page:
+
+```yaml
+links:
+  - name: Salon
+    url: light.salon
+  - name: Volet
+    url: cover.volet_salon
+  - name: Cinéma
+    url: scene.cinema
+  - name: Température
+    url: sensor.salon_temperature
+```
+
+The entity's name is the one shown in Home Assistant under Settings > Devices
+& services > Entities. A touch, or OK on a remote:
+
+| the address starts with | a touch | the tile shows |
+|---|---|---|
+| `light.` | switches it on or off | on in colour, off greyed, and the brightness |
+| `switch.` `fan.` `input_boolean.` `automation.` | switches it | on or off |
+| `cover.` | opens or closes it | open, closed, or how far open |
+| `scene.` `script.` | runs it | « Lancé » for a moment |
+| `button.` `input_button.` | presses it | « Lancé » for a moment |
+| `sensor.` | nothing | its value and unit, for example 21,5 °C |
+| `binary_sensor.` | nothing | open or closed, detected or clear, by its kind |
+| `climate.` | nothing | the temperature in the room |
+| `person.` `device_tracker.` | nothing | at home or away |
+| `lock.` `alarm_control_panel.` | **nothing, on purpose** | locked, unlocked, the alarm's state |
+
+**A lock and an alarm are only ever shown.** A touch on a screen in the
+hallway, or a child's hand, must not open the front door. A valve is shown and
+never switched for the same kind of reason.
+
+The tile is drawn like the others, in the launcher's own look, and takes its
+icon from what it controls when the link names none (a bulb for a light, a
+plug for a switch, a window for a cover). The words follow the screen's
+`locale:`.
+
+**It costs nothing while nothing changes.** The add-on follows these
+entities in Home Assistant itself and the page is told only when one moves, so
+a light switched from the wall changes one tile on the screen and nothing
+else. The page never holds a token: a touch asks the add-on, which calls Home
+Assistant with its own credential.
+
+Such a tile has no « ouvre … » sentence in the voice links: Home Assistant
+already understands « allume le salon » for a light, and a sentence of this
+add-on would take it away.
+
+If a tile says **Introuvable**, Home Assistant has no entity by that name; the
+add-on's log names it once. **Indisponible** is Home Assistant's own word for a
+device it cannot reach. **Échec** after a touch means Home Assistant refused
+the call; the log says what it answered.
+
 ### The Files page, on the screen itself
 
 Give a launcher a link whose url is the word `files`:
