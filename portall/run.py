@@ -1619,6 +1619,334 @@ def report_disk():
     threading.Thread(target=run, name="disk", daemon=True).start()
 
 
+# The memory line. Asked for after the stutters that had been coming "depuis
+# un bout de temps" went away with a restart of the Home Assistant VM, and
+# only with that: something accumulates, and a fixed fault would have
+# stuttered from the first minute. Whether it is a browser growing, the VM
+# running short and compressing into its swap, or the host taking the CPU
+# back is what an hour-by-hour record says -- and the hours BEFORE a stutter
+# are exactly when nothing else is written down.
+MEMORY_FIRST_S = 600
+MEMORY_EVERY_S = 3600
+# Looked at every minute between lines, so a machine running short is said
+# when it happens rather than up to an hour later.
+MEMORY_CHECK_S = 60
+# Of the machine's memory still available: below the first it is said at
+# once, and said again only after it has come back above the second.
+MEMORY_LOW = 0.10
+MEMORY_OK = 0.15
+
+
+def _size(n):
+    return f"{n / 1e9:.2f} GB" if abs(n) >= 1e9 else f"{n / 1e6:.0f} MB"
+
+
+def _signed(n):
+    return ("+" if n >= 0 else "-") + _size(abs(n))
+
+
+def _span(seconds):
+    seconds = int(seconds)
+    days, rest = divmod(seconds, 86400)
+    hours, rest = divmod(rest, 3600)
+    minutes = rest // 60
+    if days:
+        return f"{days} d {hours} h"
+    if hours:
+        return f"{hours} h {minutes} min"
+    return f"{minutes} min"
+
+
+def read_meminfo(proc="/proc"):
+    """/proc/meminfo in bytes.
+
+    Inside a container this is the MACHINE's -- the Home Assistant VM's --
+    not the container's: Docker gives /proc/meminfo no view of its own.
+    That is the half wanted here.
+    """
+    values = {}
+    with open(os.path.join(proc, "meminfo")) as f:
+        for line in f:
+            key, _, rest = line.partition(":")
+            parts = rest.split()
+            if parts and parts[0].isdigit():
+                scale = 1024 if parts[1:2] == ["kB"] else 1
+                values[key.strip()] = int(parts[0]) * scale
+    return values
+
+
+def read_cpu(proc="/proc"):
+    """(all the CPU time, the part the host kept), in ticks, or None.
+
+    `steal` is the eighth number of /proc/stat's cpu line: time this machine
+    wanted a CPU and the hypervisor gave it to something else. On a VM
+    pinned to cores the host also uses, that is the other way a stutter
+    comes and goes.
+    """
+    try:
+        with open(os.path.join(proc, "stat")) as f:
+            for line in f:
+                if line.startswith("cpu "):
+                    numbers = [int(x) for x in line.split()[1:]]
+                    if len(numbers) < 8:
+                        return None
+                    # guest and guest_nice are already inside user and nice.
+                    return sum(numbers[:8]), numbers[7]
+    except (OSError, ValueError):
+        pass
+    return None
+
+
+def read_cgroup(root="/sys/fs/cgroup"):
+    """(this add-on's memory, the part of it that is file cache), or None."""
+    def number(name):
+        with open(os.path.join(root, name)) as f:
+            return int(f.read().split()[0])
+
+    def stat(name, key):
+        with open(os.path.join(root, name)) as f:
+            for line in f:
+                field, _, value = line.partition(" ")
+                if field == key:
+                    return int(value)
+        return 0
+    try:
+        return number("memory.current"), stat("memory.stat", "file")
+    except (OSError, ValueError):
+        pass
+    try:  # cgroup v1
+        return (number("memory/memory.usage_in_bytes"),
+                stat("memory/memory.stat", "cache"))
+    except (OSError, ValueError):
+        return None
+
+
+def process_stats(proc="/proc"):
+    """{pid: (parent, start)} for every process this container can see.
+
+    `start` is when it started, in clock ticks since the machine booted.
+    """
+    found = {}
+    for name in os.listdir(proc):
+        if not name.isdigit():
+            continue
+        try:
+            with open(os.path.join(proc, name, "stat")) as f:
+                text = f.read()
+        except OSError:
+            continue
+        # The second field is the command in parentheses, and a command may
+        # hold spaces and parentheses of its own -- Chrome names its helpers
+        # that way -- so the fields after it are counted from the LAST one.
+        after = text[text.rfind(")") + 2:].split()
+        try:
+            found[int(name)] = (int(after[1]), int(after[19]))
+        except (IndexError, ValueError):
+            continue
+    return found
+
+
+def process_tree(pid, stats):
+    """`pid` and everything under it: a sender, its driver, its browser."""
+    children = {}
+    for child, (parent, _) in stats.items():
+        children.setdefault(parent, []).append(child)
+    tree, todo = set(), [pid]
+    while todo:
+        here = todo.pop()
+        if here in tree or here not in stats:
+            continue
+        tree.add(here)
+        todo.extend(children.get(here, ()))
+    return tree
+
+
+def process_memory(pid, proc="/proc"):
+    """(bytes, exact) for one process.
+
+    PSS rather than RSS: a browser's processes share most of their pages,
+    and RSS counts every shared page once per process -- twenty-six Chrome
+    processes would add to several times the machine. PSS divides each page
+    between those sharing it, so the parts add up to the whole. RSS only
+    when the kernel will not say, and the line then says it overcounts.
+    """
+    try:
+        with open(os.path.join(proc, str(pid), "smaps_rollup")) as f:
+            for line in f:
+                if line.startswith("Pss:"):
+                    return int(line.split()[1]) * 1024, True
+    except (OSError, ValueError, IndexError):
+        pass
+    try:
+        with open(os.path.join(proc, str(pid), "status")) as f:
+            for line in f:
+                if line.startswith("VmRSS:"):
+                    return int(line.split()[1]) * 1024, False
+    except (OSError, ValueError, IndexError):
+        pass
+    # Gone between the listing and the reading, or a kernel thread.
+    return 0, True
+
+
+class MemoryWatch:
+    """What the memory line remembers from one line to the next."""
+
+    def __init__(self, proc="/proc", cgroup="/sys/fs/cgroup",
+                 clock=time.time):
+        self.proc = proc
+        self.cgroup = cgroup
+        self.clock = clock
+        try:
+            self.tick = os.sysconf("SC_CLK_TCK")
+        except (ValueError, OSError, AttributeError):
+            self.tick = 100
+        self.first = {}   # name -> (pid, bytes, when)
+        self.last = {}    # name -> (pid, bytes)
+        self.cpu = read_cpu(proc)
+        self.at = clock()
+        self.low = False
+
+    def available(self):
+        """(available, total) of the machine, in bytes."""
+        try:
+            info = read_meminfo(self.proc)
+        except OSError:
+            return 0, 0
+        total = info.get("MemTotal", 0)
+        return info.get("MemAvailable", info.get("MemFree", 0)), total
+
+    def uptime(self):
+        try:
+            with open(os.path.join(self.proc, "uptime")) as f:
+                return float(f.read().split()[0])
+        except (OSError, ValueError, IndexError):
+            return None
+
+    def report(self, senders):
+        """The lines for the log. `senders` is {panel name: sender pid}.
+
+        Every change is over the time since the line before, said in words,
+        because a line written early -- the machine running short -- makes
+        the next window shorter than an hour.
+        """
+        now = self.clock()
+        window = f"in the last {_span(now - self.at)}"
+        self.at = now
+        info = read_meminfo(self.proc)
+        total = info.get("MemTotal", 0)
+        free = info.get("MemAvailable", info.get("MemFree", 0))
+        swap = info.get("SwapTotal", 0) - info.get("SwapFree", 0)
+        head = (f"Memory: the machine has {_size(free)} available of "
+                f"{_size(total)}")
+        if info.get("SwapTotal"):
+            head += f", {_size(swap)} in swap"
+        cpu = read_cpu(self.proc)
+        if cpu and self.cpu and cpu[0] > self.cpu[0]:
+            kept = 100 * (cpu[1] - self.cpu[1]) / (cpu[0] - self.cpu[0])
+            head += f"; the host kept {kept:.0f}% of its CPU {window}"
+        self.cpu = cpu or self.cpu
+        lines = [head]
+
+        group = read_cgroup(self.cgroup)
+        if group:
+            used, cache = group
+            lines.append(f"  this add-on: {_size(used)}, of which "
+                         f"{_size(cache)} is file cache Linux takes back "
+                         f"when it needs to")
+
+        stats = process_stats(self.proc)
+        uptime = self.uptime()
+        for name in sorted(senders):
+            pid = senders[name]
+            tree = process_tree(pid, stats)
+            if not tree:
+                continue
+            used, exact = 0, True
+            for member in tree:
+                size, measured = process_memory(member, self.proc)
+                used += size
+                exact = exact and measured
+            line = (f"  {name}'s browser: {_size(used)} in "
+                    f"{len(tree)} processes")
+            if not exact:
+                line += " (RSS, which counts shared memory more than once)"
+            if uptime is not None and pid in stats:
+                line += f", running for {_span(uptime - stats[pid][1] / self.tick)}"
+            was = self.last.get(name)
+            start = self.first.get(name)
+            if start is None or start[0] != pid:
+                start = self.first[name] = (pid, used, now)
+                if was is not None and was[0] != pid:
+                    line += "; started again since the last line"
+            else:
+                line += f"; {_signed(used - was[1])} {window}"
+                line += (f", {_signed(used - start[1])} since "
+                         f"{time.strftime('%d/%m %H:%M', time.localtime(start[2]))}")
+            self.last[name] = (pid, used)
+            lines.append(line)
+        return lines
+
+    def went_low(self):
+        """'low' once the machine runs short, 'back' once it has room, or None."""
+        free, total = self.available()
+        if not total:
+            return None
+        share = free / total
+        if not self.low and share < MEMORY_LOW:
+            self.low = True
+            return "low"
+        if self.low and share > MEMORY_OK:
+            self.low = False
+            return "back"
+        return None
+
+
+def memory_senders():
+    """{panel name: pid} of the senders running now."""
+    with _running_lock:
+        return {name: process.pid for name, process in _current.items()}
+
+
+def report_memory(watch=None, senders=memory_senders):
+    """The memory line, ten minutes after the start and every hour after."""
+    def run():
+        nonlocal watch
+        try:
+            watch = watch or MemoryWatch()
+        except Exception as err:  # noqa: BLE001 - an accessory
+            say(f"Memory: cannot be measured here ({err})")
+            return
+        due = time.monotonic() + MEMORY_FIRST_S
+        failed = set()
+        while True:
+            time.sleep(MEMORY_CHECK_S)
+            try:
+                turn = watch.went_low()
+                if turn == "low":
+                    free, total = watch.available()
+                    say(f"Memory: the machine is down to {_size(free)} "
+                        f"available of {_size(total)}. If the screens "
+                        f"stutter from now on, this is likely why; what "
+                        f"holds it:")
+                if turn == "back":
+                    free, total = watch.available()
+                    say(f"Memory: the machine has room again, "
+                        f"{_size(free)} available of {_size(total)}")
+                    continue
+                if turn == "low" or time.monotonic() >= due:
+                    for line in watch.report(senders()):
+                        say(line)
+                    due = time.monotonic() + MEMORY_EVERY_S
+            except Exception as err:  # noqa: BLE001 - an accessory
+                # Once per distinct failure: a fault that repeats every hour
+                # is one fault, and the log is for the screens.
+                if str(err) not in failed:
+                    failed.add(str(err))
+                    say(f"Memory: could not be measured ({err})")
+                due = time.monotonic() + MEMORY_EVERY_S
+    threading.Thread(target=run, name="memory", daemon=True).start()
+
+
 def downloads_for(panel):
     """This panel's downloads folder, named like its profile."""
     return os.path.join(DOWNLOADS, profile_name(panel))
@@ -2797,6 +3125,9 @@ def main():
     sweep_profiles(panels)
     # A minute later, in the background: what the add-on takes on disk.
     report_disk()
+    # Ten minutes later, then every hour: what the browsers and the machine
+    # hold in memory.
+    report_memory()
 
     paused = [p for p in panels if not in_use(p)]
     panels = [p for p in panels if in_use(p)]

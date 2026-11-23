@@ -1,5 +1,18 @@
 # Changelog
 
+## 4.61.0
+
+- **A memory line in the log, every hour.** Ten minutes after the start and
+  every hour after, the add-on writes what the machine still has available,
+  what is in swap, how much CPU the host kept from it, what the add-on takes
+  in all, and what each screen's browser holds -- with how much it grew
+  since the line before and since the first. If stutters come back after
+  days and a restart of the VM cures them, the lines before them say whether
+  a browser grew, the VM ran short or the host took the CPU back.
+- When the machine runs short (under a tenth of its memory available), it
+  is said at once, with what holds it, and said again when it has room.
+- No panel firmware update is required.
+
 ## 4.60.0
 
 - **Tiles that act.** Put a Home Assistant entity where a link's address
