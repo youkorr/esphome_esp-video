@@ -2102,6 +2102,30 @@ is possible, and deliberately NOT built -- the user said *"ont verra plus
 tard"*. Nothing here is validated on a board. Read the "what is unknown" line
 of an idea before promising it.
 
+### Groups as folders on the launcher
+
+**Proposed by the household once groups gave the launcher sections:** *"il
+faudrait reunir toutes les applications a chaque dossier par exemple video un
+bouton qui reunit toutes les applications"*. Android's and iOS's folder: one
+tile per group on the home page (its name, the first few icons drawn small
+inside it), opening a page of that group's tiles in the launcher, with the
+bar's arrow or the way home to come back. The data is already there --
+`group:` on each link -- so it is ONE launcher setting (sections or folders),
+not a new list. What to decide when it is built: whether the folder page is a
+new document (simple, costs a navigation) or the same page redrawn (instant,
+but the bar's history and a remote's focus need care), and that a tile that
+acts (4.60.0) must work the same inside a folder. Not built: *"plutard"*.
+
+**And the stutters that came "for a long time" went away with a restart of
+the Home Assistant VM** (Unraid, KVM, 4 vCPUs pinned to host CPUs 0-3, 8 GiB,
+qcow2 on /mnt/user). A fixed misconfiguration would stutter from boot, so it
+is something that accumulates -- the add-on's browser or Home Assistant
+growing until the VM compresses memory, or another workload taking the same
+cores. The test that separates them was asked for: next time, restart only
+the add-on. Two VM points were raised regardless (pinning CPU 0, which Unraid
+keeps for itself; the vdisk through /mnt/user's FUSE layer). A memory line in
+the add-on's log was offered, not built.
+
 ### Pending measurement first: the YouTube slowdown on the board
 
 Before any voice idea: the board's own stats line during a YouTube video WITH
