@@ -2724,7 +2724,7 @@ def start(links, title="", subtitle="", theme="dark",
           saver_weather=True, saver_avatar=True, saver_layout=None,
           layout="classic", appearance_file=None, voice_factory=None,
           appearance_commit=None, weather_visible=True, background_clear=False,
-          background_override=False):
+          background_override=False, home_gesture="corner"):
     """Serve the page for as long as the add-on runs. Returns its address.
 
     One call is one launcher: its links, its look, its weather, its
@@ -2753,7 +2753,9 @@ def start(links, title="", subtitle="", theme="dark",
          "weather_visible": bool(weather_visible),
          "weather_size": weather_size, "weather_color": weather_color,
          "background": background, "background_motion": bool(motion),
-         "background_blur": blur, "background_dim": dim}
+         "background_blur": blur, "background_dim": dim,
+         # The screens' own, shown in the dialog so it can be changed there.
+         "home_gesture": home_gesture}
     normalized_look = appearance.configured(startup_look)
     adjusted = [key for key, value in startup_look.items()
                 if value != normalized_look[key]]

@@ -341,7 +341,11 @@ try:
             state["options"] = saved_options
         checked("existing config sources survive startup and unrelated saves while new edits stay strict")
 
-    assert set(appearance_store.SHARED_PATHS) == set(appearance.DEFAULTS)
+    # Every field is the launcher's, except the way home, which is each
+    # screen's own (appearance_store.GESTURE).
+    assert set(appearance_store.SHARED_PATHS) | {appearance_store.GESTURE} \
+        == set(appearance.DEFAULTS)
+    assert appearance_store.GESTURE not in appearance_store.SHARED_PATHS
     REPORT["status"] = "PASS"
 except Exception as error:
     REPORT["status"] = "FAIL"

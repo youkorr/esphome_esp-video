@@ -722,21 +722,33 @@ the sender, before the page sees anything: **hold the top-left corner**, or
 and fills while a finger is held, so the gesture can be found by somebody who
 was never told about it.
 
-**Or swipe in from the right edge**, if a screen prefers it: set
-**`home_gesture`** in that screen's *Advanced*:
+**Or swipe in from an edge**, if a screen prefers it. The simplest place to
+choose is on the screen itself: **Réglages** on the page of links, section
+**Navigation**, *Revenir à l'accueil*. It takes effect at once, without a
+restart, and it is saved in that screen's *Advanced* as **`home_gesture`**, so
+the add-on's form shows the same choice:
 
 | `home_gesture` | the way home |
 |---|---|
 | `corner` (or empty) | the top-left corner, as above |
-| `right_edge` | a swipe from the right edge towards the left, the way a telephone goes back; the corner is then an ordinary part of the page, which suits a site with its own button there |
-| `both` | either |
+| `bottom_edge` | a swipe up from the bottom edge -- the gesture a tablet already taught everybody, and the one a hand finds without looking |
+| `left_edge` | a swipe right from the left edge |
+| `right_edge` | a swipe left from the right edge, the way a telephone goes back |
+| `top_edge` | a swipe down from the top edge; inside a link it starts on the bar, without pressing its buttons |
+| `both` | the corner or the right edge |
 
-The swipe starts within the right edge's last 6% (77 px of a 1280-wide page)
-and has to go a tenth of the width to the left, more sideways than up or down.
-A tap there and a drag up or down are still the page's, so a scrollbar on that
-side keeps working. A short bar is drawn against the edge when a page arrives,
-and it brightens as the finger moves. The log says `Home: back to ... --
-swiped in from the right edge`.
+With any edge, the corner is an ordinary part of the page, which suits a site
+with its own button there. The swipe starts within that edge's last 6% (77 px
+of a 1280-wide side) and has to go a tenth of that side towards the middle,
+more straight than not. A tap there and a drag along the edge are still the
+page's, so a scrollbar on that side keeps working. A short bar is drawn
+against the edge when a page arrives, and it brightens as the finger moves.
+
+From the bottom, a swipe up that starts on the on-screen keyboard still goes
+home, and the key it started on is not typed. On a page that scrolls, a drag
+up that starts in the bottom band is the way home rather than a scroll, as on
+a tablet: start a scroll a little higher. The log says `Home: back to ... --
+swiped in from the edge`.
 
 **Inside a link there is also a bar** across the top of the screen, which
 works like a browser's: **←** back a page, **⟳** reload, **⌂** the link's own

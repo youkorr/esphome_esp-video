@@ -882,8 +882,39 @@ def saver_minutes(config):
         return 2.0
 
 
+# The ways home a screen can be given (ha_send.HOME_GESTURES, which this
+# add-on cannot import): its Advanced home_gesture, or the launcher's Reglages.
+HOME_GESTURES = ("corner", "left_edge", "right_edge", "top_edge",
+                 "bottom_edge", "both")
+# The screens by name (or host), and the way in to each one's sender, so a
+# way home chosen in a launcher's Reglages reaches the sender at once and is
+# what it is started with next time. Filled in by main().
+_SCREENS = {}
+_SCREEN_REMOTES = {}
+
+
+def screen_key(panel):
+    """A screen's name, or its host when it has none."""
+    return str(panel.get("name") or panel.get("host") or "").strip()
+
+
+def gesture_changed(screens, gesture):
+    """A launcher's Reglages chose a new way home for these screens."""
+    if gesture not in HOME_GESTURES:
+        return
+    for key in screens:
+        panel = _SCREENS.get(key.lower())
+        if panel is None or panel.get("home_gesture") == gesture:
+            continue
+        panel["home_gesture"] = gesture
+        remote = _SCREEN_REMOTES.get(key.lower())
+        sent = remote is not None and remote.send("gesture", gesture)
+        say(f"[{key}] way home: {gesture}"
+            + ("" if sent else " (from its next start)"))
+
+
 def start_launcher(config, port=None, house_links=(), label="", panel_name=None,
-                   shared_config=None):
+                   shared_config=None, screens=()):
     """Serve one page of links, if there are any, and say where it is.
 
     Returns the address, or None when there are no links -- in which case a
@@ -904,7 +935,7 @@ def start_launcher(config, port=None, house_links=(), label="", panel_name=None,
         try:
             appearance_commit = appearance_store.make_commit(
                 config, shared_config=config if shared_config is None else shared_config,
-                panel_name=panel_name, api=SUPERVISOR_API)
+                panel_name=panel_name, api=SUPERVISOR_API, screens=screens)
         except (ValueError, TypeError, OverflowError):
             say(f"Launcher{label}: invalid appearance configuration; links remain "
                 "available, but managed saves are disabled until it is corrected "
@@ -916,6 +947,19 @@ def start_launcher(config, port=None, house_links=(), label="", panel_name=None,
     elif os.environ.get("SUPERVISOR_TOKEN"):
         def appearance_commit(*_args, **_kwargs):
             raise OSError("This installation is missing appearance_store.py")
+    if appearance_commit is not None and screens:
+        stored = appearance_commit
+
+        def appearance_commit(changes, *, reset=False):
+            # Saved first, then told: a sender is given a way home only once
+            # the Supervisor has kept it.
+            result = stored(changes, reset=reset)
+            if reset or "home_gesture" in (changes or {}):
+                gesture_changed(screens, ((result or {}).get("values") or {})
+                                .get("home_gesture"))
+            return result
+    gestures = [str(_SCREENS.get(key.lower(), {}).get("home_gesture") or "")
+                .strip().lower() for key in screens]
     where = launcher.start(
         links,
         layout=str(config.get("launcher_layout") or "classic"),
@@ -951,6 +995,7 @@ def start_launcher(config, port=None, house_links=(), label="", panel_name=None,
         avatar_file=avatar_file(label),
         appearance_file=appearance_file(label),
         appearance_commit=appearance_commit,
+        home_gesture=next((g for g in gestures if g in HOME_GESTURES), "corner"),
         weather_visible=truthy(config.get("launcher_weather_visible", True)),
         background_clear=truthy(config.get("launcher_background_clear", False)),
         background_override=(config.get("launcher_background_clear") is not None),
@@ -1003,6 +1048,8 @@ def start_launchers(config, panels):
     house = config.get("links") or []
     own = {}
     wants_house = False
+    # The screens the house's launcher ends up on, for its way home.
+    on_house = []
     for panel in panels:
         name = str(panel.get("name", "")).strip()
         entry = entries.get(name.lower())
@@ -1010,6 +1057,8 @@ def start_launchers(config, panels):
                        == LAUNCHER_KEYWORD)
         if entry is None:
             wants_house = wants_house or on_launcher
+            if on_launcher:
+                on_house.append(screen_key(panel))
             continue
         if not on_launcher:
             say(f"[{name}] has an entry under launchers:, but its url is not "
@@ -1020,17 +1069,20 @@ def start_launchers(config, panels):
             say(f"[{name}] its entry under launchers: has no links, so its "
                 f"launcher would be empty; it shows the house's instead.")
             wants_house = True
+            on_house.append(screen_key(panel))
             continue
         where = start_launcher(
             launcher_config(config, entry),
             port=launcher.ANY_PORT if launcher else None,
             house_links=house, label=f" [{name}]", panel_name=name,
-            shared_config=config)
+            shared_config=config, screens=(screen_key(panel),))
         if where is None:
             wants_house = True
+            on_house.append(screen_key(panel))
         else:
             own[name.lower()] = (where, entry)
-    shared = start_launcher(config) if wants_house else None
+    shared = (start_launcher(config, screens=tuple(on_house))
+              if wants_house else None)
     return shared, own
 
 
@@ -1625,9 +1677,10 @@ def command_for(panel):
         value = panel.get(key)
         if value is True or str(value).lower() in ("true", "yes", "1"):
             argv.append(f"--{key.replace('_', '-')}")
-    # The way home: the sender's own corner unless a panel chose otherwise.
+    # The way home: the sender's own corner unless a panel chose otherwise,
+    # in the form or in the launcher's Reglages (gesture_changed).
     gesture = str(panel.get("home_gesture") or "").strip().lower()
-    if gesture in ("corner", "right_edge", "both"):
+    if gesture in HOME_GESTURES:
         argv += ["--home-gesture", gesture]
     # The finished picture is on unless a panel says otherwise, so the switch
     # turns it OFF: a board that will not decode a full-colour JPEG loses the
@@ -1763,6 +1816,11 @@ class Remote:
             # "Send the page you show": the answer comes back in the log,
             # as a line for the add-on alone (ADDON_ONLY).
             line = "share\n"
+        elif kind == "gesture":
+            # The way home, chosen in the launcher's Reglages.
+            if body not in HOME_GESTURES:
+                return False
+            line = f"gesture {body}\n"
         else:
             line = f"key {body}\n"
         with self._lock:
@@ -2718,6 +2776,10 @@ def main():
     # Before the check below, because a panel asking for the launcher has no
     # url of its own until this has given it one.
     global STATUS
+    # Before the launchers: a way home chosen in their Reglages is written
+    # into these, which is what a sender is started with.
+    _SCREENS.clear()
+    _SCREENS.update({screen_key(p).lower(): p for p in panels if screen_key(p)})
     route = Weather(*home_assistant_link(_config), None)
     STATUS = PanelStatus(panels, route.url, route.token).start()
     where, own = start_launchers(_config, panels)
@@ -2778,6 +2840,7 @@ def main():
         panel["control"] = True
         remote = Remote(name)
         every_remote[str(name)] = remote
+        _SCREEN_REMOTES[str(name).lower()] = remote
         if wants:
             remotes.append((name, remote))
         thread = threading.Thread(target=serve, args=(panel, name, stop, remote),

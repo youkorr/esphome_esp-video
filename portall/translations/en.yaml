@@ -103,9 +103,9 @@ configuration:
               it. On trial.
           home_gesture:
             name: 🏠 Gesture to go home
-            description: 'corner (when empty): hold the top-left corner, or swipe sideways out of it.
-              right_edge: swipe in from the right edge towards the left, leaving the corner to the page.
-              both: either.'
+            description: 'Also set in Settings on the page of links. corner (when empty): hold the top-left
+              corner. bottom_edge: swipe up from the bottom, as on a tablet. left_edge, right_edge, top_edge:
+              swipe from that edge towards the middle. both: the corner or the right edge.'
           stereo:
             name: 🔊 Stereo sound
             description: 'Twice the data. Needs the board updated, and num_channels: 2 on the Bluetooth
