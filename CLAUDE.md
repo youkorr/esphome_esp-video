@@ -13361,6 +13361,12 @@ a tile, no token in the page. Each of three protections removed in a copy
 (the FOLLOW_JS skip, the Origin check, the pressable set) fails the check.
 **Not tried against a real Home Assistant or through the sender on a panel.**
 
+The first screenshot found what no check had: a temperature drawn as a bare
+dot and a door as a walking man, because a sensor's kind is known only once
+Home Assistant is asked and the icon is chosen when the page is drawn.
+`BY_NAME` takes it from the entity's own name in either language
+(`salon_temperature`, `porte_entree`), and a chart or a bell otherwise.
+
 ## Repository conventions
 
 - Work on branch `claude/esphome-pr-outdated-mdq36w`, then merge into `main`

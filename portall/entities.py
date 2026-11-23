@@ -74,7 +74,8 @@ ICONS = {
     "light": "light", "switch": "plug", "input_boolean": "plug",
     "fan": "fan", "cover": "shutter", "scene": "film", "script": "film",
     "button": "power", "input_button": "power", "automation": "robot",
-    "binary_sensor": "motion", "lock": "lock", "alarm_control_panel": "alarm",
+    "sensor": "chart", "binary_sensor": "bell", "lock": "lock",
+    "alarm_control_panel": "alarm",
     "climate": "thermometer", "water_heater": "water", "humidifier": "water",
     "valve": "water", "person": "home", "device_tracker": "home",
     "media_player": "music", "vacuum": "aspirateur", "timer": "timer",
@@ -109,9 +110,35 @@ def acts(entity):
     return str(entity or "").split(".")[0] in ACTIONS
 
 
+# A sensor's kind is only known once Home Assistant has been asked, and the
+# page is drawn before that -- but its NAME usually says it, in either
+# language: sensor.salon_temperature, binary_sensor.porte_entree. Seen on the
+# first screenshot of this: a temperature drawn as a bare dot and a door as a
+# walking man, which are the two a household will have first.
+BY_NAME = (
+    (("temp",), "thermometer"),
+    (("humid", "hygro"), "water"),
+    (("power", "puissance", "energy", "energie", "conso", "watt"), "power"),
+    (("batt",), "battery"),
+    (("porte", "door", "portail", "gate", "garage"), "door"),
+    (("fenetre", "window", "velux"), "window"),
+    (("mouvement", "motion", "presence", "occupancy", "occupation", "pir"),
+     "motion"),
+    (("fumee", "smoke", "gaz", "gas", "co2"), "smoke"),
+    (("fuite", "leak", "eau", "water", "moisture"), "water"),
+    (("lux", "lumino", "illumin"), "sun"),
+    (("plante", "plant", "sol", "soil"), "plant"),
+)
+
+
 def icon_name(entity):
     """The default icon name for an entity's tile."""
-    return ICONS.get(str(entity or "").split(".")[0], "")
+    domain, _, name = str(entity or "").partition(".")
+    if domain in ("sensor", "binary_sensor"):
+        for words, icon in BY_NAME:
+            if any(word in name for word in words):
+                return icon
+    return ICONS.get(domain, "")
 
 
 def is_tile(link):

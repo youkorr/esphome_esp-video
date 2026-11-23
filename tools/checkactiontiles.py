@@ -276,6 +276,12 @@ def page():
     check("an ordinary link is what it was",
           'class="tile" href="https://www.youtube.com/tv"' in body)
     check("a light with no icon gets the bulb", "\U0001F4A1" in body)
+    check("a temperature and a door get theirs from their names",
+          entities.icon_name("sensor.salon_temperature") == "thermometer"
+          and entities.icon_name("binary_sensor.porte_entree") == "door"
+          and entities.icon_name("sensor.something") == "chart",
+          str([entities.icon_name(e) for e in ("sensor.salon_temperature",
+              "binary_sensor.porte_entree", "sensor.something")]))
     check("the script that keeps them is on this page",
           launcher.ENTITIES_PATH in body and launcher.ACT_PATH in body)
     plain = launcher.render([LINKS[-1]], theme="dark")
