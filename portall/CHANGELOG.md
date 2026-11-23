@@ -1,5 +1,16 @@
 # Changelog
 
+## 4.59.1
+
+- **Sharper video and moving wallpapers.** `max_rate` is 4500 by default
+  instead of 3000. At 3000 a busy scene was sent soft enough to show blocks.
+  The old limit came from esp-hosted 2.x, which dropped data above about
+  2.9 MB/s; ESPHome 2026.12 builds with 3.x, which waits instead.
+- **An existing install keeps the value it has saved.** To get the new one,
+  set `max_rate` to 4500 in the Common settings yourself. If a video then
+  freezes for a moment (an older ESPHome on the panel), go back to 3000.
+- No panel firmware update is required.
+
 ## 4.59.0
 
 - **A press you can see, as on Android.** On the page of links, its Réglages,

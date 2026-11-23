@@ -205,7 +205,7 @@ Assistant dashboard to appear; without one it does neither.
 | `touch_rotate`, `touch_mirror_x`, `touch_mirror_y` | From `--calibrate` |
 | `fps` | Upper bound on how often a change is acted on. 25 by default; the one setting that decides whether video looks like video. See below |
 | `quality` | JPEG quality, 1..95. A still screen is sent once more at this quality in full colour, whatever happened while it moved -- see *A sharp picture once the screen is still* |
-| `max_rate` | The most a panel is sent a second, in KiB. 3000 by default; a busy video scene is sent a little softer to stay under it. `0` turns it off. See below |
+| `max_rate` | The most a panel is sent a second, in KiB. 4500 by default; a busy video scene is sent a little softer to stay under it. `0` turns it off. See below |
 | `keyboard` | The on-screen keyboard's layout, or `off`. See below |
 | `blank_after` | Seconds dark before a sleeping panel's page is let go of, 300 by default. **Per panel only** -- it is not the same thing as the timer that turns your backlight off, see below |
 | `keep_profile` | Keep the browser signed in between restarts. See below |
@@ -1291,8 +1291,15 @@ watching YouTube at 30 pictures a second, up to about 2.7 MB/s the picture was
 perfect, and past 2.9 the C6 dropped data and froze for a third of a second at
 a time. Espressif's own figure for that link is about 30 Mbit/s.
 
-So the add-on holds what it sends under `max_rate` (KiB a second, 3000 by
-default; 2400 if a video still freezes for a moment): a heavy scene goes out a little softer, and the quality climbs back
+That was esp-hosted 2.x, which threw packets away when it fell behind. The
+3.x that ESPHome 2026.12 builds with waits instead, and portall tunes the
+C6's Wi-Fi buffers itself since 4.58.0, so the default is 4500 since 4.59.1:
+at 3000 a busy video or a moving wallpaper was sent soft enough to show
+blocks. A panel built with an older ESPHome may still freeze above about
+3000; that is the number to go back to.
+
+So the add-on holds what it sends under `max_rate` (KiB a second, 4500 by
+default; 3000 if a video still freezes for a moment): a heavy scene goes out a little softer, and the quality climbs back
 to yours as soon as the scene gets simpler. The number of pictures a second
 does not change. A dashboard never comes near the limit, so it is never
 touched. With `stats` on, a line ends in `quality 38-50` when the limit was
