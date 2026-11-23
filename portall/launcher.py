@@ -46,6 +46,11 @@ try:
 except ImportError:  # an accessory: a build without it has no Files page
     library = None
 
+try:
+    import entities
+except ImportError:  # an accessory: without it a link is only ever a page
+    entities = None
+
 # Inside the add-on's own container, which is where the senders run too, so
 # nothing of this is reachable from the network.
 PORT = 8099
@@ -62,6 +67,10 @@ FILES_HREF = "/files"
 # decoded paints NOTHING -- the blank rectangle this project forbids -- and
 # the page has no other way to reach a log somebody reads.
 REPORT_PATH = "/report"
+# A tile whose url is a Home Assistant entity asks here how things stand, held
+# open until something changes, and presses through ACT_PATH. See entities.py.
+ENTITIES_PATH = "/entities.json"
+ACT_PATH = "/act"
 # What the page asks to find out how many pictures the folder holds now.
 SLIDES_PATH = "/slides.json"
 # The screen saver: the same server's pictures, with no links. The sender
@@ -1369,6 +1378,8 @@ FOLLOW_JS = """<script>
   var handed = 0;
   function tileOf(e) {
     var tile = e.target.closest && e.target.closest('a.tile');
+    /* An entity tile acts in place (ENTITY_JS): its "#" is not a page. */
+    if (tile && tile.hasAttribute('data-entity')) return null;
     return tile && /^https?:/.test(tile.href) ? tile : null;
   }
   document.addEventListener('pointerdown', function (e) {
@@ -1386,6 +1397,217 @@ FOLLOW_JS = """<script>
     if (Date.now() - handed < 1000) return;
     window.__udispFollow(tile.href);
   });
+})();
+</script>"""
+
+# A TILE THAT ACTS: a link whose url is a Home Assistant entity (entities.py).
+#
+# What it looks like is the tile it already was, plus three classes and the
+# description line: `.on` lights it in the accent, `.off` greys its icon, and
+# `.gone` says the entity is unavailable or does not exist. No animation: a
+# tile repaints when its state changes and at no other time, so a launcher full
+# of them costs what a still one did -- one rectangle when a light is switched.
+#
+# The states arrive from the ADD-ON, held open until one moves, the way the
+# face learns what the voice assistant is doing; the words are put together
+# here, in the page's own language (navigator.language follows the panel's
+# `locale:`), so the add-on knows no language at all. A press is a POST to the
+# launcher, which calls Home Assistant itself: nothing in this page can reach
+# Home Assistant, and nothing in it holds a credential.
+ENTITY_CSS = """
+ a.tile.act .state:empty { display: none; }
+ a.tile.act.off .icon, a.tile.act.gone .icon { filter: grayscale(1); opacity: .5; }
+ a.tile.act.on {
+   border-color: var(--accent);
+   background: color-mix(in srgb, var(--accent) 24%, var(--card));
+ }
+ a.tile.act.on .state { color: var(--ink); }
+ a.tile.act.busy { border-color: var(--accent); }
+ a.tile.act.gone { opacity: .6; }
+ a.tile.act.failed .state { color: #ff6b6b; }
+ /* A button draws no description, but a tile that acts has to say how
+    things stand, or a lit light and a dark one are the same square. */
+ main.buttons a.tile.act .state:not(:empty) {
+   display: block; margin-top: 0; font-size: clamp(11px, 8cqi, 16px);
+ }
+"""
+
+ENTITY_JS = """<script>
+(function () {
+  var tiles = [].slice.call(document.querySelectorAll('a.tile[data-entity]'));
+  if (!tiles.length) return;
+  var FR = /^fr/i.test(navigator.language || '');
+  var W = FR ? {
+    on: 'Allumé', off: 'Éteint', active: 'Activé', inactive: 'Désactivé',
+    open: 'Ouvert', closed: 'Fermé', opening: 'Ouverture…',
+    closing: 'Fermeture…', locked: 'Verrouillé', unlocked: 'Déverrouillé',
+    jammed: 'Bloqué', home: 'À la maison', not_home: 'Absent',
+    detected: 'Détecté', clear: 'Rien', wet: 'Humide', dry: 'Sec',
+    alert: 'Alerte', ok: 'OK', playing: 'Lecture', paused: 'Pause',
+    idle: 'Inactif', cleaning: 'Nettoyage', docked: 'À la base',
+    unavailable: 'Indisponible', missing: 'Introuvable',
+    running: 'En cours', done: 'Lancé', failed: 'Échec'
+  } : {
+    on: 'On', off: 'Off', active: 'On', inactive: 'Off',
+    open: 'Open', closed: 'Closed', opening: 'Opening…',
+    closing: 'Closing…', locked: 'Locked', unlocked: 'Unlocked',
+    jammed: 'Jammed', home: 'Home', not_home: 'Away',
+    detected: 'Detected', clear: 'Clear', wet: 'Wet', dry: 'Dry',
+    alert: 'Alert', ok: 'OK', playing: 'Playing', paused: 'Paused',
+    idle: 'Idle', cleaning: 'Cleaning', docked: 'Docked',
+    unavailable: 'Unavailable', missing: 'Not found',
+    running: 'Running', done: 'Done', failed: 'Failed'
+  };
+  var num;
+  try {
+    num = new Intl.NumberFormat(navigator.language || undefined,
+                                {maximumFractionDigits: 1});
+  } catch (e) { num = {format: function (n) { return String(n); }}; }
+  var DOOR = {door: 1, window: 1, opening: 1, garage_door: 1, garage: 1};
+  var SEEN = {motion: 1, occupancy: 1, presence: 1, moving: 1, sound: 1,
+              vibration: 1};
+  var ALARM = {smoke: 1, gas: 1, carbon_monoxide: 1, safety: 1, problem: 1,
+               tamper: 1, heat: 1};
+  /* No state of their own worth showing: a press is confirmed in words. */
+  var ONCE = {scene: 1, script: 1, button: 1, input_button: 1};
+
+  /* Lit, dark, or neither: true, false or null. */
+  function lit(domain, s) {
+    if (s == null || s === 'unavailable' || s === 'unknown' || s === 'missing')
+      return null;
+    switch (domain) {
+      case 'light': case 'switch': case 'fan': case 'input_boolean':
+      case 'automation': case 'humidifier': case 'binary_sensor':
+      case 'script':
+        return s === 'on';
+      case 'cover': case 'valve': return s !== 'closed';
+      case 'lock': return s === 'unlocked' ? true : s === 'locked' ? false : null;
+      case 'media_player': return s === 'playing';
+      case 'climate': case 'water_heater': return s !== 'off';
+      case 'person': case 'device_tracker': return s === 'home';
+      case 'vacuum': return s === 'cleaning';
+      case 'timer': return s === 'active';
+      default: return null;
+    }
+  }
+
+  function words(domain, s, a) {
+    if (s === 'missing') return W.missing;
+    if (s === 'unavailable') return W.unavailable;
+    if (s == null || s === 'unknown') return '—';
+    switch (domain) {
+      case 'light':
+        if (s === 'on' && a.brightness != null)
+          return W.on + ' · ' + Math.round(a.brightness / 2.55) + ' %%';
+        return s === 'on' ? W.on : W.off;
+      case 'switch': case 'fan': case 'humidifier':
+        return s === 'on' ? W.on : W.off;
+      case 'input_boolean': case 'automation':
+        return s === 'on' ? W.active : W.inactive;
+      case 'cover': case 'valve':
+        var p = a.current_position;
+        return (W[s] || s) + (s === 'open' && p != null && p < 100
+                              ? ' · ' + p + ' %%' : '');
+      case 'binary_sensor':
+        var c = a.device_class || '';
+        if (DOOR[c]) return s === 'on' ? W.open : W.closed;
+        if (SEEN[c]) return s === 'on' ? W.detected : W.clear;
+        if (c === 'moisture') return s === 'on' ? W.wet : W.dry;
+        if (ALARM[c]) return s === 'on' ? W.alert : W.ok;
+        return s === 'on' ? W.on : W.off;
+      case 'climate': case 'water_heater':
+        var t = a.current_temperature;
+        var deg = t != null ? num.format(t) + ' °' : '';
+        return s === 'off' ? (deg ? deg + ' · ' : '') + W.off : (deg || s);
+      case 'person': case 'device_tracker':
+        return s === 'home' ? W.home : s === 'not_home' ? W.not_home : s;
+      case 'script': return s === 'on' ? W.running : '';
+      case 'scene': case 'button': case 'input_button': return '';
+    }
+    if (a.device_class === 'timestamp') {
+      var when = new Date(s);
+      if (!isNaN(when)) return when.toLocaleString(navigator.language || undefined,
+        {dateStyle: 'short', timeStyle: 'short'});
+    }
+    if (s !== '' && isFinite(s))
+      return num.format(Number(s))
+        + (a.unit_of_measurement ? ' ' + a.unit_of_measurement : '');
+    return W[s] || s;
+  }
+
+  var last = {}, shown = {};
+  function paint(states) {
+    for (var k in states) last[k] = states[k];
+    tiles.forEach(function (tile) {
+      var e = tile.getAttribute('data-entity'), st = last[e];
+      if (!st) return;
+      var key = JSON.stringify(st);
+      if (shown[e] === key) return;   /* nothing new: write nothing */
+      shown[e] = key;
+      var domain = e.split('.')[0], on = lit(domain, st.s);
+      tile.classList.toggle('on', on === true);
+      tile.classList.toggle('off', on === false);
+      tile.classList.toggle('gone', st.s === 'unavailable' || st.s === 'missing');
+      tile.classList.remove('busy');
+      tile.__busy = false;
+      var line = tile.querySelector('.state');
+      if (line && !tile.__note) line.textContent = words(domain, st.s, st.a || {});
+    });
+  }
+
+  function note(tile, text, ms) {
+    var line = tile.querySelector('.state');
+    if (!line) return;
+    tile.__note = true;
+    line.textContent = text;
+    setTimeout(function () {
+      tile.__note = false;
+      delete shown[tile.getAttribute('data-entity')];
+      line.textContent = '';
+      paint({});
+    }, ms);
+  }
+
+  function settle(tile) { tile.__busy = false; tile.classList.remove('busy'); }
+
+  function press(tile) {
+    if (!tile.classList.contains('acts') || tile.__busy) return;
+    var e = tile.getAttribute('data-entity');
+    tile.__busy = true;
+    tile.classList.add('busy');
+    fetch('%(act)s', {method: 'POST',
+                      headers: {'Content-Type': 'application/json'},
+                      body: JSON.stringify({entity: e})})
+      .then(function (r) {
+        if (!r.ok) throw r.status;
+        if (ONCE[e.split('.')[0]]) { settle(tile); note(tile, W.done, 1500); }
+      })
+      .catch(function () {
+        settle(tile);
+        tile.classList.add('failed');
+        note(tile, W.failed, 3000);
+        setTimeout(function () { tile.classList.remove('failed'); }, 3000);
+      });
+    /* A light that was switched but never said so: let go of the tile. */
+    setTimeout(function () { if (tile.__busy) settle(tile); }, 3000);
+  }
+
+  /* Capture phase, before FOLLOW_JS, and the "#" is never followed. OK on a
+     remote is a click too, so a tile acts from the sofa as well. */
+  document.addEventListener('click', function (ev) {
+    var tile = ev.target.closest && ev.target.closest('a.tile[data-entity]');
+    if (!tile) return;
+    ev.preventDefault();
+    press(tile);
+  }, true);
+
+  function ask(v) {
+    fetch('%(path)s?v=' + v, {cache: 'no-store'})
+      .then(function (r) { if (!r.ok) throw r.status; return r.json(); })
+      .then(function (d) { paint(d.states || {}); ask(d.v); })
+      .catch(function () { setTimeout(function () { ask(v); }, 5000); });
+  }
+  ask(-1);
 })();
 </script>"""
 
@@ -2058,7 +2280,8 @@ def _avatar_place(at, width="26vmin", height=AVATAR_HEIGHT):
             f"top: calc((100vh - {height}) * {y:.4f});")
 
 
-TILE = ('<a class="tile" href="%(url)s"%(tile_style)s><span class="in">'
+TILE = ('<a class="tile%(cls)s" href="%(url)s"%(extra)s%(tile_style)s>'
+        '<span class="in">'
         '<span class="icon%(icon_long)s">%(icon)s</span>'
         '<span class="text"><span class="name">%(name)s</span>%(desc)s</span>'
         '</span></a>')
@@ -2374,6 +2597,51 @@ def _bar(clock_size, clock_color, date_size, date_color, weather_size, align,
     return ("\n".join(out) + "\n") if out else ""
 
 
+def _tile(entry, dark, dashboard):
+    """One tile of the page of links.
+
+    A link whose url is a Home Assistant entity (entities.py) is drawn the same
+    way and acts in place: its address is "#", it carries the entity, and its
+    description line is where ENTITY_JS writes how things stand. The icon
+    defaults to the domain's when the link names none.
+    """
+    entity = entities.entity_of(entry.get("url")) if entities else None
+    if entity and not str(entry.get("icon") or "").strip():
+        entry = {**entry, "icon": entities.icon_name(entity)}
+    fields = {
+        "url": html.escape(
+            FILES_HREF if str(entry.get("url", "")).strip().lower()
+            == FILES_KEYWORD else str(entry.get("url", "")),
+            quote=True),
+        "icon": (logo_markup(entry.get("icon"), dark)
+                 or html.escape(icon_for(entry.get("icon")))),
+        # Two characters still read at the full size -- "HA" is a
+        # perfectly good icon. Beyond that it is a word, and a word
+        # has to be set smaller to stay inside its square. Measured on
+        # what will be drawn, not on what was typed: a name from the
+        # list is one glyph however long the name is.
+        "icon_long": icon_kind(entry.get("icon"), dark),
+        "tile_style": (f' style="--tile-accent: '
+                       f'{logos.LOGOS.get(str(entry.get("icon") or "").strip().lower(), ("#188bea", ""))[0]}"'
+                       if dashboard else ""),
+        "name": html.escape(str(entry.get("name") or entry["url"])),
+        "desc": (
+            '<span class="desc">%s</span>'
+            % html.escape(str(entry["description"]))
+            if str(entry.get("description") or "").strip() else ""
+        ),
+    }
+    if entity:
+        fields["url"] = "#"
+        fields["cls"] = " act" + (" acts" if entities.acts(entity) else "")
+        fields["extra"] = (f' data-entity="{html.escape(entity, quote=True)}"'
+                           ' role="button"')
+        fields["desc"] = '<span class="desc state"></span>'
+    else:
+        fields["cls"] = fields["extra"] = ""
+    return TILE % fields
+
+
 def render(links, title="", subtitle="", theme="dark",
            color=DEFAULT_PALETTE, background="", blur="off", dim=40,
            columns=0, clock=True, weather=None,
@@ -2461,32 +2729,7 @@ def render(links, title="", subtitle="", theme="dark",
 
     body = []
     for name, entries in ({} if saver else groups).items():
-        tiles = "".join(
-            TILE % {
-                "url": html.escape(
-                    FILES_HREF if str(entry.get("url", "")).strip().lower()
-                    == FILES_KEYWORD else str(entry.get("url", "")),
-                    quote=True),
-                "icon": (logo_markup(entry.get("icon"), dark)
-                         or html.escape(icon_for(entry.get("icon")))),
-                # Two characters still read at the full size -- "HA" is a
-                # perfectly good icon. Beyond that it is a word, and a word
-                # has to be set smaller to stay inside its square. Measured on
-                # what will be drawn, not on what was typed: a name from the
-                # list is one glyph however long the name is.
-                "icon_long": icon_kind(entry.get("icon"), dark),
-                "tile_style": (f' style="--tile-accent: '
-                               f'{logos.LOGOS.get(str(entry.get("icon") or "").strip().lower(), ("#188bea", ""))[0]}"'
-                               if dashboard else ""),
-                "name": html.escape(str(entry.get("name") or entry["url"])),
-                "desc": (
-                    '<span class="desc">%s</span>'
-                    % html.escape(str(entry["description"]))
-                    if str(entry.get("description") or "").strip() else ""
-                ),
-            }
-            for entry in entries
-        )
+        tiles = "".join(_tile(entry, dark, dashboard) for entry in entries)
         heading = f"<h2>{html.escape(name)}</h2>" if name else ""
         body.append(f'<section>{heading}<div class="group">{tiles}</div></section>')
 
@@ -2560,7 +2803,12 @@ def render(links, title="", subtitle="", theme="dark",
     # take five settings off the form for.
     # The saver has no tile to move between, press or follow: any touch on
     # it is the sender's, and ends it before the page could hear it.
+    acting = (not saver and entities is not None
+              and any(entities.entity_of(l.get("url")) for l in links
+                      if isinstance(l, dict)))
     scripts = ("" if saver else KEYS_JS + PRESS_JS + FOLLOW_JS) + (
+        ENTITY_JS % {"path": ENTITIES_PATH, "act": ACT_PATH}
+        if acting else "") + (
         CLOCK_JS if clock else "") + (
         WEATHER_JS % {"path": WEATHER_PATH} if weather is not None else "") + (
         STATUS_JS % {"path": STATUS_PATH} if status else "")
@@ -2585,6 +2833,8 @@ def render(links, title="", subtitle="", theme="dark",
         sheet = bar_rules
     if saver:
         sheet += SAVER_CSS + saver_rules
+    if acting:
+        sheet += ENTITY_CSS
 
     try:
         every, fade, rescan = float(every), float(fade), float(rescan)
@@ -2724,7 +2974,8 @@ def start(links, title="", subtitle="", theme="dark",
           saver_weather=True, saver_avatar=True, saver_layout=None,
           layout="classic", appearance_file=None, voice_factory=None,
           appearance_commit=None, weather_visible=True, background_clear=False,
-          background_override=False, home_gesture="corner"):
+          background_override=False, home_gesture="corner",
+          entity_states=None):
     """Serve the page for as long as the add-on runs. Returns its address.
 
     One call is one launcher: its links, its look, its weather, its
@@ -3070,9 +3321,49 @@ def start(links, title="", subtitle="", theme="dark",
                 cache.clear()
             return result
 
+    # What a press on this launcher may act on: its own tiles that act, and
+    # nothing else -- so a page that is not this one, and a tile that only
+    # shows a state, can ask all it likes.
+    pressable = {entities.entity_of(link.get("url")) for link in links
+                 if entities is not None and isinstance(link, dict)
+                 and entities.entity_of(link.get("url"))
+                 and entities.acts(entities.entity_of(link.get("url")))}
+
     class Handler(http.server.BaseHTTPRequestHandler):
         def log_message(self, *args):
             pass  # the add-on log is for panels, not for page requests
+
+        def _act_post(self):
+            # Only this launcher's own page may press. Another site opened
+            # on the panel must not switch the house's lights through it.
+            if self.headers.get("Origin") != "http://" + self.headers.get("Host", ""):
+                self.send_error(403)
+                return
+            if self.headers.get_content_type() != "application/json":
+                self.send_error(415)
+                return
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+                if not 0 < length <= 1024:
+                    self.send_error(413)
+                    return
+                entity = str((json.loads(self.rfile.read(length)) or {})
+                             .get("entity") or "")
+            except (ValueError, TypeError, UnicodeError, AttributeError):
+                self.send_error(400, "Invalid press")
+                return
+            if entity not in pressable:
+                self.send_error(403, "Not a tile of this launcher that acts")
+                return
+            if entity_states is None:
+                self.send_error(503, "Home Assistant cannot be reached")
+                return
+            done, why = entity_states.act(entity)
+            if not done:
+                self.send_error(502, why)
+                return
+            self.send_response(204)
+            self.end_headers()
 
         def _reply(self, payload, content_type, extra_headers=None):
             self.send_response(200)
@@ -3190,6 +3481,21 @@ def start(links, title="", subtitle="", theme="dark",
                 self.send_response(204)
                 self.end_headers()
                 return
+            if self.path.split("?")[0] == ENTITIES_PATH:
+                # Held until a tile's entity changes, as for the face.
+                try:
+                    since = int((parse_qs(urlsplit(self.path).query)
+                                 .get("v") or ["-1"])[0])
+                except ValueError:
+                    since = -1
+                version, states = (entity_states.wait(since)
+                                   if entity_states is not None else (0, {}))
+                try:
+                    self._reply(json.dumps({"v": version, "states": states})
+                                .encode(), "application/json")
+                except OSError:
+                    pass  # the page went away while it was waiting
+                return
             if self.path.split("?")[0] == VOICE_PATH:
                 # Held until the voice assistant's state changes, so the face
                 # moves the moment it does and nothing is asked in between.
@@ -3273,6 +3579,9 @@ def start(links, title="", subtitle="", theme="dark",
         def do_POST(self):
             if self.path == appearance.PATH:
                 self._appearance_post()
+                return
+            if self.path == ACT_PATH:
+                self._act_post()
                 return
             if library is None or not self.path.startswith(FILES_HREF + "/"):
                 self.send_error(404)

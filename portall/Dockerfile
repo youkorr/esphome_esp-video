@@ -231,6 +231,7 @@ COPY appearance_store.py /app/appearance_store.py
 COPY appearance_ui.py /app/appearance_ui.py
 COPY logos.py /app/logos.py
 COPY files.py /app/files.py
+COPY entities.py /app/entities.py
 # The image has to be told about every file, which is not the same as the
 # repository having one -- launcher.py was written, imported and tested
 # and the add-on died on ModuleNotFoundError before serving a panel.

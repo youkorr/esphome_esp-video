@@ -129,7 +129,8 @@ configuration:
         description: The text written on the tile.
       url:
         name: Address
-        description: 'The page the tile opens. For Home Assistant: http://homeassistant:8123/lovelace/0'
+        description: 'The page the tile opens. For Home Assistant: http://homeassistant:8123/lovelace/0.
+          Or an entity, for example light.living_room: the tile switches it and shows its state.'
       icon:
         name: Icon
         description: A name (jellyfin, youtube, kitchen, home-assistant…) or an emoji. The list is in
@@ -359,7 +360,8 @@ configuration:
             description: The text written on the tile.
           url:
             name: Address
-            description: 'The page the tile opens. For Home Assistant: http://homeassistant:8123/lovelace/0'
+            description: 'The page the tile opens. For Home Assistant: http://homeassistant:8123/lovelace/0.
+              Or an entity, for example light.living_room: the tile switches it and shows its state.'
           icon:
             name: Icon
             description: A name (jellyfin, youtube, kitchen, home-assistant…) or an emoji. The list is

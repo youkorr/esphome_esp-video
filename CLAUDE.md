@@ -1802,7 +1802,7 @@ the dashboard, where it is invisible while the keys go on working.
 ahead of the `pip install` as well as the `ADD`s, so a bump refetched
 everything — at the cost of the browser download on each update.
 `present_browser()` prints the Chromium version at startup and warns below 114,
-so this is never diagnosed by guesswork again. Currently **4.59.1**.
+so this is never diagnosed by guesswork again. Currently **4.60.0**.
 
 **CORRECTED in 4.29.5: the cost was every update, and a pin removes it.**
 Asked as *"verifie addon ... si il ya pas des elements qui freine la
@@ -13317,6 +13317,49 @@ being forced on when `portall` is present. Why `main` fails was not found:
 the board's log from that build is what would say. The config given was
 validated by `esphome config` and the codegen and was still dark on the
 board, which is the usual distance between those two.
+
+## Tiles that act: an entity where an address goes -- 4.60.0
+
+**Asked for from a list of improvements to the page of links**, first of
+six: *"ok commence par le 1"*. A link whose url is a Home Assistant entity id
+is a tile that switches, opens or runs it and shows its state; nothing new in
+the form, the way the word `files` already works. `portall/entities.py`
+decides everything: `entity_of()` (only domains it knows, so `youtube.com`
+stays an address), `ACTIONS` (toggle for light, switch, fan, input_boolean,
+automation, cover; turn_on for scene and script; press for the buttons) and
+`SHOWN` (sensor, binary_sensor, climate, person... and lock, alarm and valve,
+which are **never acted on**: a touch on a hallway screen must not open the
+front door).
+
+- **The states come from the add-on**, over Home Assistant's websocket with
+  `subscribe_entities`, voice.py's client reused -- one connection per
+  launcher that has such tiles. Only `KEPT` attributes reach the page. An
+  entity absent from the first batch is marked `missing` and named once in
+  the log: subscribing to one that does not exist is not an error to Home
+  Assistant, so without this the tile would wait in silence.
+- **A press is a POST to the launcher's `/act`**, which checks the Origin is
+  the launcher's own page (the appearance POST's rule) and that the entity is
+  one of THIS launcher's tiles that act, then calls the service through the
+  weather's route -- the Supervisor's credential. The page never holds one.
+- **The page asks `/entities.json?v=N`, held until a state moves**, like the
+  face's `/voice`, and ENTITY_JS puts the words together in the page's own
+  language. A tile repaints only when its state changes, so a launcher of
+  them costs what a still one does.
+- **FOLLOW_JS skips `[data-entity]`**: such a tile's href is "#", which would
+  otherwise resolve to the launcher's own address and be handed to the
+  sender as a page to open. `page_links()` in run.py keeps them out of the
+  voice links -- an "ouvre" trigger on a light's name would take "allume le
+  salon" from Home Assistant, which runs sentence triggers before intents.
+
+`tools/checkactiontiles.py`: the parsing; the page; the voice links; and a
+stand-in Home Assistant speaking the real websocket and REST shapes, with the
+shipped launcher in Chromium in French -- every state in words, a press
+toggling the light with the credential and the tile lighting ~100 ms later, a
+change made elsewhere arriving, a scene saying it ran, a refused call saying
+so, a lock and a foreign page refused, the sender never asked to follow such
+a tile, no token in the page. Each of three protections removed in a copy
+(the FOLLOW_JS skip, the Origin check, the pressable set) fails the check.
+**Not tried against a real Home Assistant or through the sender on a panel.**
 
 ## Repository conventions
 

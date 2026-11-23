@@ -25,8 +25,8 @@ def link_fields():
     return dict(
         name=T("Nom du bouton", "Button name", "Le texte écrit sur la tuile.", "The text written on the tile."),
         url=T("Adresse", "Address",
-              "La page qui s'ouvre quand on touche la tuile. Pour Home Assistant : http://homeassistant:8123/lovelace/0",
-              "The page the tile opens. For Home Assistant: http://homeassistant:8123/lovelace/0"),
+              "La page qui s'ouvre quand on touche la tuile. Pour Home Assistant : http://homeassistant:8123/lovelace/0. Ou une entité, par exemple light.salon : la tuile allume et éteint, et montre l'état.",
+              "The page the tile opens. For Home Assistant: http://homeassistant:8123/lovelace/0. Or an entity, for example light.living_room: the tile switches it and shows its state."),
         icon=T("Icône", "Icon",
                "Un nom (jellyfin, youtube, cuisine, home-assistant…) ou un emoji. La liste est dans la documentation.",
                "A name (jellyfin, youtube, kitchen, home-assistant…) or an emoji. The list is in the documentation."),
