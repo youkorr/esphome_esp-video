@@ -1,5 +1,16 @@
 # Changelog
 
+## 4.59.0
+
+- **A press you can see, as on Android.** On the page of links, its Réglages,
+  the Files page and the bookmarks, a button shows a circle growing from
+  under the finger the moment it lands, held while the finger is down and
+  faded when it lifts. A drag that starts on a button takes it away. Sites
+  keep their own look.
+- A tapped link opens as fast as before: the circle is dropped the moment the
+  page starts to leave.
+- No panel firmware update is required.
+
 ## 4.58.0
 
 - **Go home from any edge.** Besides the corner, a screen can now go home by

@@ -1637,7 +1637,9 @@ def command_for(panel):
     # here has spaces inside it (--host-resolver-rules="MAP * 1.1.1.1"), and
     # splitting on whitespace tore it into three flags that mean nothing.
     if panel.get("on_launcher"):
-        argv.append("--not-home-assistant")
+        # And Android's press on the launcher's own buttons: see the
+        # sender's TOUCH_FX_JS.
+        argv += ["--not-home-assistant", "--press-ripple"]
     for flag in shlex.split(str(panel.get("browser_args") or "")):
         argv += ["--browser-arg", flag]
     # A quality per link, which is easier to reason about than one per panel:

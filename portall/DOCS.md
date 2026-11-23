@@ -818,6 +818,23 @@ It is an option on trial. While the page glides, every picture is a whole
 screen, so how smooth it looks depends on the screen's Wi-Fi, as any scroll
 does.
 
+### A press you can see, as on Android
+
+On Portall's own pages -- the page of links, its **Réglages**, the **Files**
+page and the bookmarks -- a button shows a press the moment a finger lands on
+it: a circle that grows from under the finger inside the button, stays while
+the finger is down and fades when it lifts, as on an Android telephone. A
+drag that starts on a button takes it away and presses nothing.
+
+It is there on every screen whose home is the page of links, with nothing to
+set. Sites keep their own pressed look -- Home Assistant has its own ripple --
+so nothing is drawn over theirs.
+
+Before this, a press could not show while the finger was down: the panel only
+tells the page about a finger once it has lifted, because until then nobody
+knows whether it is a tap or a scroll. The circle is drawn from what the
+add-on already knows the moment the finger lands.
+
 ### Downloads
 
 What a page downloads is kept, one folder per screen, and the bar says so --
