@@ -103,6 +103,18 @@ FIELDS = [
         ("md", "Moyen", "Medium"), ("xl", "Fort", "Strong"))),
     _field("background_dim", "background", "number", "Assombrissement du fond", "Background dimming",
            min=0, max=100, step=1),
+    # Not a look but the way back to this page, asked for here: "est-ce le
+    # meilleur endroit ... de mettre dans reglage". Stored on each screen
+    # this page is shown on (its Advanced home_gesture), never on the
+    # launcher, so the form and this dialog edit one value; see
+    # appearance_store.GESTURE. The sender takes it at once.
+    _field("home_gesture", "navigation", "choice", "Revenir à l’accueil", "Way home", _options(
+        ("corner", "Maintenir le coin en haut à gauche", "Hold the top-left corner"),
+        ("bottom_edge", "Glisser vers le haut depuis le bas", "Swipe up from the bottom"),
+        ("left_edge", "Glisser vers la droite depuis la gauche", "Swipe right from the left"),
+        ("right_edge", "Glisser vers la gauche depuis la droite", "Swipe left from the right"),
+        ("top_edge", "Glisser vers le bas depuis le haut", "Swipe down from the top"),
+        ("both", "Le coin ou le bord droit", "The corner or the right edge"))),
 ]
 
 DEFAULTS = {
@@ -113,6 +125,7 @@ DEFAULTS = {
     "date_size": "medium", "date_color": "theme", "weather_visible": True,
     "weather_size": "medium", "weather_color": "theme", "background": "",
     "background_motion": False, "background_blur": "off", "background_dim": 40,
+    "home_gesture": "corner",
 }
 
 # Allowed values are derived from the public schema; validation and controls

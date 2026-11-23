@@ -105,9 +105,10 @@ configuration:
               À l'essai.
           home_gesture:
             name: 🏠 Geste pour revenir à l'accueil
-            description: 'corner (si vide) : tenir le coin en haut à gauche, ou le glisser de côté. right_edge
-              : glisser depuis le bord droit vers la gauche, le coin reste libre pour la page. both :
-              les deux.'
+            description: 'Se règle aussi dans Réglages sur la page de liens. corner (si vide) : tenir
+              le coin en haut à gauche. bottom_edge : glisser vers le haut depuis le bas, comme une tablette.
+              left_edge, right_edge, top_edge : glisser depuis ce bord vers le milieu. both : le coin
+              ou le bord droit.'
           stereo:
             name: 🔊 Son en stéréo
             description: 'Le double de données. Carte à jour obligatoire, et num_channels: 2 sur l''enceinte

@@ -8,7 +8,10 @@ both -- seen from the panel.
 WHY THIS EXISTS. Asked for as a choice once the corner had been lived with:
 "soit le toucher du haut ... ou un slide de droite". `home_gesture` on a
 screen's Advanced (--home-gesture to the sender) is corner, right_edge or
-both.
+both -- and since 4.58.0 left_edge, top_edge and bottom_edge too, asked for as
+"il manquerait left_edge et haut et bas", and changeable while the sender
+runs through a `gesture` line on its control channel (the launcher's
+Reglages).
 
 The shipped ha_send.py runs against a fake panel that reassembles every
 rectangle into a picture, and real contacts go up its return channel. A link
@@ -21,7 +24,15 @@ own page has a colour of its own, so "home" is read off the glass:
     corner's is not;
   - corner (what every screen had): the same swipe stays on the link, and no
     edge mark is drawn;
-  - both: either goes home.
+  - both: either goes home;
+  - left_edge: a swipe right from the left edge goes home, a tap there and a
+    drag up it reach the page;
+  - top_edge: a swipe down that starts on the bar's strip goes home and
+    presses no button of it;
+  - bottom_edge: a swipe up from the bottom goes home, a tap there and an
+    ordinary drag up the middle reach the page;
+  - and a sender started on the corner, told `gesture bottom_edge` on its
+    control channel, goes home by the bottom from the next touch on.
 
 --sender FILE runs another copy of ha_send.py (the one before this, say):
 every case about the edge must then fail. Needs Playwright and Pillow; takes
@@ -174,12 +185,17 @@ def run(gesture, site, cases):
     threading.Thread(target=lambda: out.extend(process.stdout),
                      daemon=True).start()
     middle = (W // 2, (strip + H) // 2)
-    edge_mark = (W - 6, (strip + H) // 2)
+    edge_mark = {"right_edge": (W - 6, (strip + H) // 2),
+                 "left_edge": (6, (strip + H) // 2),
+                 "top_edge": (W // 2, strip + 6),
+                 "bottom_edge": (W // 2, H - 6)}.get(gesture,
+                                                     (W - 6, (strip + H) // 2))
     corner_mark = (6, strip + 6)
     tools = {
         "strip": strip, "colour": colour, "until": until, "stroke": stroke,
         "contact": contact, "lift": lift, "middle": middle,
         "edge_mark": edge_mark, "corner_mark": corner_mark,
+        "process": process, "out": out,
     }
 
     def open_link(tag):
@@ -281,6 +297,99 @@ def both(t):
           t["until"](lambda: near(t["colour"](t["middle"]), HOME), 5))
 
 
+def left_edge(t):
+    arrived, marks = t["open_link"]("6")
+    check("a link opens", arrived)
+    check("the left edge's mark is drawn when it arrives", marks["edge"],
+          str(marks["seen"][:6]))
+    t["stroke"]((8, 300), (8, 300), steps=1)
+    time.sleep(0.6)
+    check("a tap on the left edge reaches the page",
+          any(k == "click" for k, _ in events), str(events))
+    events.clear()
+    t["stroke"]((8, 420), (8, 160))
+    time.sleep(0.8)
+    check("a drag up the left edge scrolls the page",
+          any(k == "scroll" for k, _ in events), str(events))
+    events.clear()
+    t["stroke"]((8, 300), (260, 304))
+    check("a swipe right from the left edge goes home",
+          t["until"](lambda: near(t["colour"](t["middle"]), HOME), 5),
+          str(t["colour"](t["middle"])))
+    check("without scrolling or clicking the page it left",
+          not events, str(events))
+
+
+def top_edge(t):
+    arrived, marks = t["open_link"]("7")
+    check("a link opens", arrived)
+    check("the top edge's mark is drawn when it arrives", marks["edge"],
+          str(marks["seen"][:6]))
+    events.clear()
+    # From the middle of the bar's strip down into the page.
+    t["stroke"]((W // 2, t["strip"] // 2), (W // 2 + 4, t["strip"] // 2 + 200))
+    check("a swipe down from the top, through the bar, goes home",
+          t["until"](lambda: near(t["colour"](t["middle"]), HOME), 5),
+          str(t["colour"](t["middle"])))
+    check("without reaching the page it left", not events, str(events))
+    t["open_link"]("8")
+    events.clear()
+    # Up rather than down: a page that has just opened is at its top, and a
+    # drag down there has nothing to scroll -- the first version of this case
+    # failed on exactly that, with the code right.
+    t["stroke"]((W // 2, 420), (W // 2, 160))
+    time.sleep(0.8)
+    check("an ordinary drag in the page is still a scroll",
+          any(k == "scroll" for k, _ in events)
+          and near(t["colour"](t["middle"]), PAGE), str(events))
+
+
+def bottom_edge(t):
+    arrived, marks = t["open_link"]("9")
+    check("a link opens", arrived)
+    check("the bottom edge's mark is drawn when it arrives", marks["edge"],
+          str(marks["seen"][:6]))
+    check("and the corner's is not", not marks["corner"])
+    t["stroke"]((W // 2, H - 8), (W // 2, H - 8), steps=1)
+    time.sleep(0.6)
+    check("a tap on the bottom edge reaches the page",
+          any(k == "click" for k, _ in events), str(events))
+    events.clear()
+    t["stroke"]((W // 2, 400), (W // 2, 160))
+    time.sleep(0.8)
+    check("a drag up the middle of the page is still a scroll",
+          any(k == "scroll" for k, _ in events)
+          and near(t["colour"](t["middle"]), PAGE), str(events))
+    events.clear()
+    t["stroke"]((W // 2, H - 8), (W // 2 + 4, H - 260))
+    check("a swipe up from the bottom goes home",
+          t["until"](lambda: near(t["colour"](t["middle"]), HOME), 5),
+          str(t["colour"](t["middle"])))
+    check("without scrolling or clicking the page it left",
+          not events, str(events))
+
+
+def changed_live(t):
+    t["open_link"]("10")
+    t["stroke"]((W // 2, H - 8), (W // 2 + 4, H - 260))
+    check("on the corner, a swipe up from the bottom stays on the link",
+          not t["until"](lambda: near(t["colour"](t["middle"]), HOME), 2.5))
+    t["process"].stdin.write("gesture bottom_edge\n")
+    t["process"].stdin.flush()
+    said = t["until"](lambda: any("swipe up from the bottom" in line
+                                  for line in t["out"]), 5)
+    check("told `gesture bottom_edge`, the sender says so", said,
+          str([line for line in t["out"] if "Home" in line][-3:]))
+    t["open_link"]("11")
+    t["stroke"]((W // 2, H - 8), (W // 2 + 4, H - 260))
+    check("and goes home by the bottom from then on",
+          t["until"](lambda: near(t["colour"](t["middle"]), HOME), 5))
+    t["open_link"]("12")
+    t["stroke"]((8, t["strip"] + 8), (8, t["strip"] + 8), steps=1, hold=1.2)
+    check("with the corner no longer a way home",
+          not t["until"](lambda: near(t["colour"](t["middle"]), HOME), 2.0))
+
+
 def main():
     try:
         import playwright  # noqa: F401
@@ -295,6 +404,10 @@ def main():
         run("right_edge", site, right_edge)
         run("corner", site, corner)
         run("both", site, both)
+        run("left_edge", site, left_edge)
+        run("top_edge", site, top_edge)
+        run("bottom_edge", site, bottom_edge)
+        run("corner", site, changed_live)
     finally:
         server.shutdown()
     print("ok" if not fails else f"{fails} ECHEC")

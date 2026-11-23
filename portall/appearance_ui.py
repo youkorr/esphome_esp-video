@@ -226,6 +226,7 @@ JS = """<script>
     dimHelp: '0 % laisse le fond intact ; 100 % l’assombrit entièrement.',
     focusHelp: 'La couleur qui souligne le lien sélectionné au clavier ou à la télécommande.',
     motionHelp: 'Autorise les vidéos et les images animées du fond.',
+    gestureHelp: 'Le geste qui ramène cet écran ici depuis n’importe quel lien. Le bas est celui d’une tablette.',
     resetHelp: 'Réinitialiser l’apparence de cette page',
     previous: 'Importer les anciens réglages',
     previousHelp: 'Enregistrer les anciens choix locaux de cette page dans la configuration de l’extension'
@@ -247,6 +248,7 @@ JS = """<script>
     dimHelp: '0% leaves the background unchanged; 100% darkens it completely.',
     focusHelp: 'The color highlighting the link selected with a keyboard or remote.',
     motionHelp: 'Allow background videos and animated images.',
+    gestureHelp: 'The gesture that brings this screen back here from any link. The bottom is a tablet’s own.',
     resetHelp: 'Reset this page’s appearance',
     previous: 'Import previous settings',
     previousHelp: 'Save this page’s previous local choices in the add-on configuration'
@@ -269,7 +271,10 @@ JS = """<script>
      icon: '<rect x="4" y="6" width="16" height="14" rx="5"/><path d="M12 3v3M8 11h.01M16 11h.01M9 16h6"/>'},
     {key: 'background', fr: 'Fond d’écran', en: 'Background',
      description: fr ? 'Créez l’ambiance avec une image, une vidéo et une lumière adaptées.' : 'Set the mood with a background image, video, and the right brightness.',
-     icon: '<rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8" cy="8" r="1.5"/><path d="m3 17 5-5 4 4 4-6 5 7"/>'}
+     icon: '<rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8" cy="8" r="1.5"/><path d="m3 17 5-5 4 4 4-6 5 7"/>'},
+    {key: 'navigation', fr: 'Navigation', en: 'Navigation',
+     description: fr ? 'Choisissez comment revenir à cette page depuis un lien.' : 'Choose how to come back to this page from a link.',
+     icon: '<rect x="6" y="2" width="12" height="20" rx="3"/><path d="M10 18h4M12 14V7m-3 3 3-3 3 3"/>'}
   ];
   const swatches = {
     theme: 'linear-gradient(135deg, #e8eef9 49%, #233350 50%)',
@@ -512,7 +517,7 @@ JS = """<script>
       else if (field.kind === 'bool') control = makeBool(field, record);
       else control = makeText(field, record);
       card.append(title, control);
-      const helpKey = {columns: 'columnsHelp', background: 'backgroundHelp', background_dim: 'dimHelp', focus_color: 'focusHelp', background_motion: 'motionHelp'}[field.key];
+      const helpKey = {columns: 'columnsHelp', background: 'backgroundHelp', background_dim: 'dimHelp', focus_color: 'focusHelp', background_motion: 'motionHelp', home_gesture: 'gestureHelp'}[field.key];
       if (helpKey) {
         const help = document.createElement('p'); help.className = 'appearance-field-help'; help.id = 'appearance-help-' + field.key; help.textContent = words[helpKey]; card.append(help);
         const focusTarget = control.id === 'appearance-' + field.key ? control : control.querySelector('[id="appearance-' + field.key + '"]') || control;

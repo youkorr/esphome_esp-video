@@ -1802,7 +1802,7 @@ the dashboard, where it is invisible while the keys go on working.
 ahead of the `pip install` as well as the `ADD`s, so a bump refetched
 everything — at the cost of the browser download on each update.
 `present_browser()` prints the Chromium version at startup and warns below 114,
-so this is never diagnosed by guesswork again. Currently **4.57.0**.
+so this is never diagnosed by guesswork again. Currently **4.58.0**.
 
 **CORRECTED in 4.29.5: the cost was every update, and a pin removes it.**
 Asked as *"verifie addon ... si il ya pas des elements qui freine la
@@ -13155,6 +13155,90 @@ here had the library from the system's compiler. `libatomic1` is installed
 first now and stays: the sender runs the same Node at run time. **A pin is
 tested only in the image it ships in**, which is why checkimage.py runs on
 the pulled image and not here.
+
+## Home from any edge, chosen in Réglages -- 4.58.0
+
+**Asked as *"il manquerait left_edge et haut et bas pour le geste, est-ce le
+meilleur endroit aussi de mettre dans reglage dans le Dashboard"*.** Two
+halves: the sender gained `left_edge`, `top_edge` and `bottom_edge` beside
+`corner`, `right_edge` and `both` (kept: a stored `list()` member that
+disappears stops the add-on), and the launcher's Réglages dialog gained a
+Navigation section that sets it.
+
+**One measure for every edge**: the band is `HOME_EDGE_FRACTION` of the side
+the swipe starts from and the travel `HOME_SWIPE_FRACTION` of it, so a swipe
+up from the bottom of a portrait panel is a tenth of its height. `_in_edge()`
+reads y on the GLASS (the strip included), so the top and the bottom are the
+screen's and not the page's. Decided once, at a swipe's length, like the
+corner's swipe; while undecided the page's scroll is held back.
+
+- **The top runs through the bar's strip.** A contact on the strip is a
+  button; with `top_edge` it is also the start of a swipe, and a swipe's
+  length down lets the button go without pressing it (`_bar_from` keeps the
+  raw start, because a strip contact's page y is clamped to 0).
+- **The bottom runs through the keyboard** the same way: a swipe up from a key
+  goes home and types nothing.
+- **The bottom is the recommended one**, answered as such: it is the gesture
+  Android and iPad taught everybody, and the one a hand finds without
+  looking. Its cost, said in DOCS.md: a drag up that STARTS in the bottom
+  band is the way home rather than a scroll, as on a tablet.
+- `gesture <value>` on the control channel changes it while the sender runs;
+  `Injector.set_gesture` / `HomeHint.set_gesture` move the hit test and the
+  mark together, and the log prints `Injector.describe()`.
+
+**The dialog edits the SCREEN's setting, not the launcher's.** The way home
+belongs to a screen and the dialog to a launcher, so the field writes
+`panels[].advanced.home_gesture` of every screen the launcher is shown on
+(`appearance_store.GESTURE`, `AppearanceStore.screens`) and never the
+launcher's own options: one stored value, which the form and the dialog both
+show. run.py wraps the launcher's commit so that, once the Supervisor has
+kept it, `gesture_changed()` updates the screens' settings in memory (what
+`command_for` starts the next sender with) and sends `gesture X` down each
+one's `Remote`. Reset takes it away (the corner). A screen with its own
+`launchers:` entry changes only itself. `start_launchers` works out which
+screens end on the house's launcher, including the fallbacks.
+
+`tools/checkhomeedge.py` has the three new edges and the live change
+(49 cases; the previous sender fails the six new runs).
+`tools/checkgesturesettings.py`: a stand-in Supervisor, the real run.py,
+store and launcher, fake senders recording their stdin, and the dialog in a
+browser (14 cases). Two existing checks pinned the old shape and were turned:
+`checkappearancestore.py` asserted every field is the launcher's, and
+`checkappearancetouch.py` counted 22 fields.
+
+## The C6's Wi-Fi buffers and portall's sockets, in the component -- 4.58.0
+
+**Asked as *"regler ce que je dispose sur sdkconfig_options pour que le wifi
+soit bien optimise que j'ai plus a le mettre"*.** `_tune_hosted_wifi()` (FINAL
+priority, any panel with `port:` whose radio is an ESP32-C6 behind
+esp32_hosted) writes Espressif's iperf values for P4 + C6 --
+`CONFIG_WIFI_RMT_STATIC_RX_BUFFER_NUM` 16, `DYNAMIC_RX` 64, AMPDU TX/RX, both
+BA windows 32 -- plus `CONFIG_LWIP_TCP_SACK_OUT`, and `DYNAMIC_TX` 64 only
+without guaranteed PSRAM (esp_wifi_remote offers only static TX buffers
+then; the finding of esphome/esphome#23122's second commit). The same values
+as that PR, so the two never disagree once it is merged. A user's own
+sdkconfig_options win, one name at a time.
+
+Checked through the codegen against an ESPHome tree with that PR's block
+removed (the scratch venv carries the PR itself, which would have hidden
+whether portall's half works): all eight written; guaranteed PSRAM, no
+dynamic TX; a user's `RX_BA_WIN: "16"` kept; no `port:`, nothing.
+
+**And portall never told ESPHome about its sockets.** ESPHome sizes
+`CONFIG_LWIP_MAX_SOCKETS` from what components declare with
+`socket.consume_sockets`, and network.cpp's listener and client were never
+declared, so the count came out two short; the household had been covering
+it with `CONFIG_LWIP_MAX_SOCKETS: "16"` without knowing why. Declared in
+`_request_fast_network` now: the debug line reads `TCP=4 [api=3, portall=1],
+... TCP_LISTEN=3 [api=1, ota=1, portall=1]`.
+
+Read in the same pass, from the household's block, for the reply: ESPHome
+2026.12.0-dev pins esp_hosted **3.1.0** itself and `use_psram:` writes the
+3.x names (`CONFIG_EH_HOST_PORT_DMA_PREFER_SPIRAM`), so
+`CONFIG_ESP_HOSTED_MEMPOOL_PREFER_SPIRAM` is a 2.x name that does nothing;
+`CONFIG_COMPILER_OPTIMIZATION_PERF` is `advanced: compiler_optimization:
+PERF`; the speed lines are `psram: speed:`. **Not compiled by ESP-IDF, not
+flashed.**
 
 ## Repository conventions
 

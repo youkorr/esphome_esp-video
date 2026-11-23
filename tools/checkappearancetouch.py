@@ -249,7 +249,7 @@ def form_geometry(panel, checks, label):
     page = panel.page
     metadata = page.locator("#appearance-fields").text_content()
     checks.check(f"{label}: controls use the complete metadata contract",
-                 json.loads(metadata) == appearance.FIELDS and len(appearance.FIELDS) == 22)
+                 json.loads(metadata) == appearance.FIELDS and len(appearance.FIELDS) == 23)
     checks.check(f"{label}: appearance uses visible DOM controls without native selects",
                  page.locator("#appearance-dialog select").count() == 0)
     problems, seen = [], set()

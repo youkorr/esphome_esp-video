@@ -1,5 +1,23 @@
 # Changelog
 
+## 4.58.0
+
+- **Go home from any edge.** Besides the corner, a screen can now go home by
+  a swipe up from the bottom (as on a tablet), or from the left, the right or
+  the top edge towards the middle. From the top it starts on the bar without
+  pressing its buttons; from the bottom it can start on the on-screen
+  keyboard without typing.
+- **Chosen on the screen itself**: Réglages on the page of links, section
+  Navigation. It applies at once, without a restart, and is kept in that
+  screen's Advanced, where the add-on's form shows the same choice.
+- **The panel's own Wi-Fi tuning is now portall's** (panel firmware, needs a
+  flash): the ESP32-C6's receive buffers and block-ack windows, and selective
+  acknowledgement, are set by the component on any panel with `port:`. The
+  `CONFIG_WIFI_RMT_*` and `CONFIG_LWIP_TCP_SACK_OUT` lines can come out of a
+  panel's `sdkconfig_options`, and so can `CONFIG_LWIP_MAX_SOCKETS`: portall
+  now tells ESPHome about the two sockets it uses.
+- The gesture needs no panel firmware update; the Wi-Fi tuning does.
+
 ## 4.57.0
 
 - **The add-on's other parts are current too.** HAP-python 5.2.0 (the iPhone

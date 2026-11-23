@@ -412,6 +412,20 @@ def _request_fast_network(config):
         request = getattr(wifi, enable, None)
         if request is not None:
             request()
+    # The two sockets network.cpp opens -- its listener and the one sender it
+    # serves -- told to ESPHome, which sizes CONFIG_LWIP_MAX_SOCKETS from what
+    # its components say they use. Unsaid, the count came out two short, and
+    # a household had been covering it with CONFIG_LWIP_MAX_SOCKETS: "16" in
+    # its own sdkconfig_options without knowing why it was needed.
+    try:
+        from esphome.components import socket as esphome_socket
+
+        esphome_socket.consume_sockets(1, "portall")(config)
+        esphome_socket.consume_sockets(
+            1, "portall", esphome_socket.SocketType.TCP_LISTEN)(config)
+    except (ImportError, AttributeError, TypeError):
+        # An ESPHome that does not count sockets sizes the pool another way.
+        pass
     return config
 
 
@@ -466,6 +480,82 @@ async def _let_malloc_spill_to_psram():
         return
     for name, value in _SPIRAM_MALLOC.items():
         esp32.add_idf_sdkconfig_option(name, value)
+
+
+# The ESP32-C6's own Wi-Fi buffers, which it takes from the HOST's
+# configuration. Espressif's values for an ESP32-P4 with an ESP32-C6, from
+# esp-idf examples/wifi/iperf sdkconfig.defaults.esp32p4. Named once so the
+# user's own sdkconfig_options can be recognised and left alone.
+_C6_WIFI = {
+    "CONFIG_WIFI_RMT_STATIC_RX_BUFFER_NUM": 16,
+    "CONFIG_WIFI_RMT_DYNAMIC_RX_BUFFER_NUM": 64,
+    "CONFIG_WIFI_RMT_AMPDU_TX_ENABLED": True,
+    "CONFIG_WIFI_RMT_TX_BA_WIN": 32,
+    "CONFIG_WIFI_RMT_AMPDU_RX_ENABLED": True,
+    "CONFIG_WIFI_RMT_RX_BA_WIN": 32,
+}
+# Only selectable when PSRAM is NOT guaranteed: esp_wifi_remote's
+# WIFI_RMT_DYNAMIC_TX_BUFFER depends on !(SPIRAM_TRY_ALLOCATE_WIFI_LWIP &&
+# !SPIRAM_IGNORE_NOTFOUND), so with guaranteed PSRAM only static TX buffers
+# exist and a dynamic count is ignored.
+_C6_WIFI_DYNAMIC_TX = ("CONFIG_WIFI_RMT_DYNAMIC_TX_BUFFER_NUM", 64)
+# The receiver's half of selective acknowledgement. A panel is a sustained
+# INBOUND stream, so it is the board that has to say which segments it is
+# missing; without it one lost packet makes the sender resend everything
+# after it. Espressif's iperf example sets it beside the buffers above.
+_SACK_OUT = ("CONFIG_LWIP_TCP_SACK_OUT", True)
+
+
+def _hosted_c6():
+    """Whether the radio is an ESP32-C6 behind esp32_hosted."""
+    hosted = CORE.config.get("esp32_hosted")
+    if not hosted:
+        return False
+    variant = str(hosted.get("variant", "")).upper().replace("-", "")
+    return variant.endswith("ESP32C6")
+
+
+def _psram_guaranteed():
+    try:
+        from esphome.components.psram import is_guaranteed
+
+        return bool(is_guaranteed())
+    except (ImportError, AttributeError, KeyError, TypeError):
+        psram = CORE.config.get("psram") or {}
+        return bool(psram) and psram.get("ignore_not_found") is False
+
+
+@coroutine_with_priority(-1000.0)
+async def _tune_hosted_wifi():
+    """Give the ESP32-C6 the Wi-Fi buffers a picture stream needs.
+
+    WHY THIS EXISTS. ESPHome's high-performance Wi-Fi, which
+    _request_fast_network asks for, writes CONFIG_ESP_WIFI_* -- and on a chip
+    with no radio those are prompt-less aliases esp_wifi_remote derives from
+    CONFIG_WIFI_RMT_*. So on a P4 it changed nothing, and the C6, which takes
+    its RX buffers and block-ack windows from the host's wifi_init_config,
+    ran on the defaults. A household wrote the values by hand into their
+    sdkconfig_options to stop the picture stuttering, and asked for them to
+    be the component's: "pour que le wifi soit bien optimise que j'ai plus a
+    le mettre".
+
+    ESPHome's own wifi component sets the same values once
+    esphome/esphome#23122 is merged; until then this does. Both write the
+    same numbers, so the two never disagree. Only on a network panel whose
+    radio is an ESP32-C6 behind esp32_hosted, and a value the user wrote in
+    sdkconfig_options wins, one by one.
+    """
+    if not _hosted_c6():
+        return
+    framework = (CORE.config.get("esp32") or {}).get("framework") or {}
+    user = framework.get("sdkconfig_options") or {}
+    wanted = dict(_C6_WIFI)
+    if not _psram_guaranteed():
+        wanted[_C6_WIFI_DYNAMIC_TX[0]] = _C6_WIFI_DYNAMIC_TX[1]
+    wanted[_SACK_OUT[0]] = _SACK_OUT[1]
+    for name, value in wanted.items():
+        if name not in user:
+            esp32.add_idf_sdkconfig_option(name, value)
 
 
 def _validate_usb(config):
@@ -925,6 +1015,7 @@ async def to_code(config):
     if (port := config.get(CONF_PORT)) is not None:
         cg.add(var.set_port(port))
         CORE.add_job(_let_malloc_spill_to_psram)
+        CORE.add_job(_tune_hosted_wifi)
         # How fast pictures can arrive is decided by the TCP receive window,
         # and this component no longer sets it: _request_fast_network asks
         # ESPHome for its high-performance networking instead, which turns

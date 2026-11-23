@@ -493,7 +493,42 @@ HOME_SWIPE_STRAIGHTNESS = 1.5
 # there is an ordinary tap, and a drag that goes up or down is an ordinary
 # scroll: a page's own scrollbar sits in that band.
 HOME_EDGE_FRACTION = 0.06
-HOME_GESTURES = ("corner", "right_edge", "both")
+# Any of the four edges since 4.58.0, asked for as "il manquerait left_edge et
+# haut et bas". Each is a swipe from that edge towards the middle of the glass,
+# measured along the side it starts from: a tenth of the width for the left
+# and right edges, a tenth of the height for the top and the bottom, and the
+# band is HOME_EDGE_FRACTION of that same side.
+#
+# The bottom is the gesture a tablet already taught everybody (Android, iPad:
+# swipe up from the bottom edge), and the one a hand finds without looking.
+# The top runs through the bar's strip inside a link, and the bottom through
+# the on-screen keyboard when it is up: a contact landing on either is still
+# a button or a key, and becomes the way home only once it has travelled a
+# swipe's length towards the middle -- sliding off a button already abandons
+# it, so nothing is pressed on the way.
+#
+# "both" is the corner and the right edge, kept as it was: a stored value that
+# is no longer a member of the add-on's list() stops the add-on.
+HOME_GESTURES = ("corner", "left_edge", "right_edge", "top_edge",
+                 "bottom_edge", "both")
+HOME_EDGES = ("left", "right", "top", "bottom")
+# Which way a swipe from each edge has to go, said in the log.
+HOME_TOWARD = {"left": "right", "right": "left", "top": "down",
+               "bottom": "up"}
+
+
+def gesture_parts(gesture):
+    """(corner offered, edge or None) for a HOME_GESTURES value.
+
+    Anything else is the corner, which is what every panel had before there
+    was a choice.
+    """
+    gesture = str(gesture or "").strip().lower()
+    if gesture == "both":
+        return True, "right"
+    if gesture.endswith("_edge") and gesture[:-5] in HOME_EDGES:
+        return False, gesture[:-5]
+    return True, None
 # The least time between two scroll injections.
 #
 # Every input dispatch costs a display frame. Measured on the shipped browser,
@@ -1470,6 +1505,10 @@ class Control:
                     # process. Only this channel carries it: the board has a
                     # volume of its own, in its own YAML.
                     self._queue.append(("volume", float(rest)))
+                elif word == "gesture" and rest in HOME_GESTURES:
+                    # The way home, chosen in the launcher's Reglages while
+                    # this panel runs.
+                    self._queue.append(("gesture", rest))
                 elif word:
                     # Never silently. A control line nobody acts on is the
                     # exact silence this project keeps having to break, and
@@ -1596,7 +1635,7 @@ def present_browser(session, page, keyboard_wanted, wanted_agent,
 # was instead of leaving a reader to work it out from what is missing.
 HOW = {
     "swipe": "swiped, ",
-    "edge swipe": "swiped in from the right edge, ",
+    "edge swipe": "swiped in from the edge, ",
     "board": "asked by the board, ",
 }
 
@@ -5793,9 +5832,9 @@ class HomeHint:
                  space=None, gesture="corner"):
         self._page = page
         self._space = space
-        # Which marks: the corner's, the right edge's, or both (HOME_GESTURES).
-        self._corner = gesture in ("corner", "both")
-        self._edge = gesture in ("right_edge", "both")
+        # Which marks: the corner's, an edge's, or both (HOME_GESTURES).
+        self._at = None
+        self.set_gesture(gesture)
         self._scale_at = ((space.x, space.y) if space is not None else (1, 1))
         # The same fraction the sender tests, handed in rather than read from
         # the constant: a panel may ask for a larger corner, and the mark and
@@ -5804,8 +5843,7 @@ class HomeHint:
         self._w = max(1.0, page_w * fraction)
         self._h = max(1.0, page_h * fraction)
         # What the page was last told, so a hold costs ten round trips rather
-        # than one per turn of the loop.
-        self._at = None
+        # than one per turn of the loop (set above, before set_gesture).
         self.broken = False
         self._warned = False
         # Set by the page itself each time a new document arrives in it, so
@@ -5826,6 +5864,11 @@ class HomeHint:
     def _on_arrival(self, _page=None):
         self._arrived = True
 
+    def set_gesture(self, gesture):
+        """Draw the marks for this way home from now on."""
+        self._corner, self._side = gesture_parts(gesture)
+        self._at = None
+
     def take_arrival(self):
         """Whether a new document arrived since last asked; forgets it if so."""
         if not self._arrived:
@@ -5840,6 +5883,19 @@ class HomeHint:
         # gesture does not keep.
         size = round(min(self._w, self._h))
         sx = self._space.x if self._space is not None else 1
+        sy = self._space.y if self._space is not None else 1
+        # The edge's pill lies along its edge, half way: an upright one on the
+        # left or the right, a flat one at the top or the bottom -- where the
+        # bottom one is the bar a tablet shows for the same swipe.
+        side = self._side
+        if side in ("left", "right"):
+            pill = (f"top: 50%; {side}: {3 * sx:.1f}px; "
+                    f"transform: translateY(-50%); width: {6 * sx:.1f}px; "
+                    f"height: 18vh; border-radius: {3 * sx:.1f}px;")
+        else:
+            pill = (f"left: 50%; {side or 'bottom'}: {3 * sy:.1f}px; "
+                    f"transform: translateX(-50%); width: 18vw; "
+                    f"height: {6 * sy:.1f}px; border-radius: {3 * sy:.1f}px;")
         width = size * (self._space.x if self._space is not None else 1)
         height = size * (self._space.y if self._space is not None else 1)
         return f"""
@@ -5874,19 +5930,17 @@ class HomeHint:
         }}
         #__portall_home::backdrop {{ background: transparent; }}
         {"" if self._corner else "#__portall_home { display: none !important; }"}
-        /* The right edge's: a short pill against the edge, half way down,
+        /* The edge's: a short pill against the edge, half way along it,
            brightening as a finger swipes in from it. `inset` before the
            sides, because a popover's own sheet sets all four to 0 and a
            left of 0 beside a right would win. */
         #__portall_home_edge {{
-          position: fixed; inset: auto; top: 50%; right: {3 * sx:.1f}px;
-          transform: translateY(-50%);
+          position: fixed; inset: auto; {pill}
           margin: 0; padding: 0; border: 0;
-          width: {6 * sx:.1f}px; height: 18vh; border-radius: {3 * sx:.1f}px;
           pointer-events: none; overflow: visible; z-index: 2147483646;
           background: rgba(255,255,255,calc(.30 + var(--fill, 0) * .55));
           filter: drop-shadow(0 0 2px rgba(0,0,0,.55));
-          {"" if self._edge else "display: none !important;"}
+          {"" if side else "display: none !important;"}
         }}
         #__portall_home_edge::backdrop {{ background: transparent; }}
         """
@@ -6854,12 +6908,10 @@ class Injector:
                  gesture="corner"):
         self._page = page
         self._space = space
-        # Which way home this panel offers (HOME_GESTURES), and where the
-        # right edge's band begins.
-        self._use_corner = gesture in ("corner", "both")
-        self._use_edge = gesture in ("right_edge", "both")
-        self._edge_x = page_w - max(32.0, page_w * HOME_EDGE_FRACTION)
+        # Which way home this panel offers (HOME_GESTURES): see set_gesture.
+        self._page_w, self._page_h = page_w, page_h
         self._from_edge = False
+        self._bar_from = (0.0, 0.0)
         # --glide (see GLIDE_TAU_S). Where the finger was seen while it
         # dragged, as (when read, x, y); the glide's speed in page pixels a
         # second, already in the direction the page goes; and the part of a
@@ -6931,6 +6983,7 @@ class Injector:
         self.held_for = None
         # How far sideways out of the corner counts as asking to go home.
         self._swipe = max(40.0, page_w * HOME_SWIPE_FRACTION)
+        self.set_gesture(gesture)
         # --show-touches. Off, this costs nothing at all; on, it is the only
         # thing that can answer "why did that tap open the wrong link".
         self.verbose = False
@@ -6993,7 +7046,9 @@ class Injector:
                                    if self._use_corner and x <= self._corner[0]
                                    else None)
                 self._from_corner = False
-                self._from_edge = False
+                # The strip IS the top edge, whatever the band says.
+                self._from_edge = self._edge == "top"
+                self._bar_from = (x, bar_y)
                 self._went_home = False
                 continue
             if self._start is None:
@@ -7032,8 +7087,7 @@ class Injector:
                              and y <= self._corner[1])
                 self._corner_at = self._down_at if in_corner else None
                 self._from_corner = in_corner
-                self._from_edge = (self._use_edge and not in_corner
-                                   and x >= self._edge_x)
+                self._from_edge = not in_corner and self._in_edge(x, bar_y)
                 self._went_home = False
                 if self.verbose:
                     print(f"[{stamp()}] corner: landed at "
@@ -7041,13 +7095,25 @@ class Injector:
                           + (f"inside {self._corner[0]:.0f}x{self._corner[1]:.0f} "
                              f"-- holding for {self._hold:g}s"
                              if in_corner else
-                             f"in the right edge from x {self._edge_x:.0f} "
-                             f"-- a swipe left goes home"
+                             f"in the {self._edge} edge "
+                             f"-- a swipe {HOME_TOWARD[self._edge]} goes home"
                              if self._from_edge else
                              f"outside {self._corner[0]:.0f}x{self._corner[1]:.0f} "
                              f"-- not a hold"), flush=True)
                 continue
             if self._on_bar:
+                # Down from the top edge, through the strip: home, and the
+                # button it landed on is let go without being pressed.
+                if self._from_edge and not self._went_home:
+                    verdict = self._edge_decide(x - self._bar_from[0],
+                                                bar_y - self._bar_from[1])
+                    if verdict:
+                        self._bar_key = None
+                        self._bar.press(None)
+                        self._fire_home("edge swipe", x, y)
+                        continue
+                    if verdict is False:
+                        self._from_edge = False
                 # Sliding off a button abandons it, as on the keyboard.
                 if self._bar_key is not None and \
                         self._bar.hit(x, bar_y) != self._bar_key:
@@ -7056,6 +7122,18 @@ class Injector:
                 self._last = (x, y)
                 continue
             if self._on_keyboard:
+                # Up from the bottom edge, across the keys: home, and the key
+                # it landed on is not typed.
+                if self._from_edge and not self._went_home:
+                    verdict = self._edge_decide(x - self._start[0],
+                                                y - self._start[1])
+                    if verdict:
+                        self._key = None
+                        self._keyboard.highlight(None)
+                        self._fire_home("edge swipe", x, y)
+                        continue
+                    if verdict is False:
+                        self._from_edge = False
                 # Sliding off a key abandons it, the way it does on a phone.
                 if self._key is not None and self._keyboard.hit(x, y) is not self._key:
                     self._key = None
@@ -7064,7 +7142,15 @@ class Injector:
                 continue
             # Sideways out of the corner, or left from the right edge: home,
             # and the page is told nothing about any of it.
-            if (self._from_corner or self._from_edge) and not self._went_home:
+            if self._from_edge and not self._went_home:
+                verdict = self._edge_decide(x - self._start[0],
+                                            y - self._start[1])
+                if verdict:
+                    self._fire_home("edge swipe", x, y)
+                    continue
+                if verdict is False:
+                    self._from_edge = False
+            if self._from_corner and not self._went_home:
                 dx, dy = x - self._start[0], y - self._start[1]
                 if abs(dx) >= self._swipe:
                     # Decided once, at the moment the finger has gone far
@@ -7074,18 +7160,10 @@ class Injector:
                     # of screen vertically first, so its sideways travel goes
                     # on growing while its downward travel cannot, and half a
                     # screen later it satisfies a test it failed at the start.
-                    if (abs(dx) > abs(dy) * HOME_SWIPE_STRAIGHTNESS
-                            and (self._from_corner or dx < 0)):
-                        self._home = True
-                        self._home_by = ("swipe" if self._from_corner
-                                         else "edge swipe")
-                        self._went_home = True
-                        self._scrolling = False
-                        self._wheel = [0, 0]
-                        self._last = (x, y)
+                    if abs(dx) > abs(dy) * HOME_SWIPE_STRAIGHTNESS:
+                        self._fire_home("swipe", x, y)
                         continue
                     self._from_corner = False
-                    self._from_edge = False
             # A hold is cancelled by leaving the corner, not by wandering
             # inside it. A finger resting on glass is never perfectly still --
             # measured against the panel's own geometry, eight page pixels of
@@ -7132,6 +7210,80 @@ class Injector:
         """A finger is on the back/reload/home bar right now."""
         return self._on_bar
 
+    def set_gesture(self, gesture):
+        """Which way home: one of HOME_GESTURES. May change while it runs.
+
+        The band and the swipe's length are measured along the side the
+        swipe starts from, so a swipe up from the bottom of a portrait panel
+        is a tenth of its height and not of its width. A gesture already in
+        progress keeps the rules it began under.
+        """
+        self.gesture = gesture if gesture in HOME_GESTURES else "corner"
+        self._use_corner, self._edge = gesture_parts(self.gesture)
+        size = (self._page_h if self._edge in ("top", "bottom")
+                else self._page_w)
+        self._edge_band = max(32.0, size * HOME_EDGE_FRACTION)
+        self._edge_swipe = max(40.0, size * HOME_SWIPE_FRACTION)
+
+    def describe(self):
+        """The way home this panel offers, for the log."""
+        ways = []
+        if self._edge is not None:
+            ways.append(f"a swipe {HOME_TOWARD[self._edge]} from the "
+                        f"{self._edge} edge (a band of "
+                        f"{self._edge_band:.0f} px, {self._edge_swipe:.0f} px "
+                        f"of travel)")
+        if self._use_corner:
+            ways.append(f"the corner, {self._corner[0]:.0f}x"
+                        f"{self._corner[1]:.0f} of the page, held "
+                        f"{self._hold:g}s -- a tap under "
+                        f"{HOME_TAP_MAX_S:g}s reaches the page")
+        return "Home: " + ", or ".join(ways)
+
+    def _in_edge(self, x, y):
+        """Whether (x, y) is in this panel's edge band. y is on the GLASS,
+        the bar's strip included, so the top and the bottom are the screen's
+        own and not the page's."""
+        if self._edge == "left":
+            return x <= self._edge_band
+        if self._edge == "right":
+            return x >= self._page_w - self._edge_band
+        if self._edge == "top":
+            return y <= self._edge_band
+        if self._edge == "bottom":
+            return y >= self._page_h - self._edge_band
+        return False
+
+    def _edge_motion(self, dx, dy):
+        """(towards the middle, across) for a movement from this edge."""
+        if self._edge == "left":
+            return dx, dy
+        if self._edge == "right":
+            return -dx, dy
+        if self._edge == "top":
+            return dy, dx
+        return -dy, dx
+
+    def _edge_decide(self, dx, dy):
+        """True: a swipe home. False: never will be. None: not yet.
+
+        Decided once, the moment the finger has gone a swipe's length, for
+        the reason the corner's swipe is: asked again later, a long diagonal
+        becomes a swipe after the fact.
+        """
+        along, across = self._edge_motion(dx, dy)
+        if abs(along) < self._edge_swipe:
+            return None
+        return along > 0 and abs(along) > abs(across) * HOME_SWIPE_STRAIGHTNESS
+
+    def _fire_home(self, how, x, y):
+        self._home = True
+        self._home_by = how
+        self._went_home = True
+        self._scrolling = False
+        self._wheel = [0, 0]
+        self._last = (x, y)
+
     def set_strip(self, height):
         """The bar's strip is now this tall above the page (0: none)."""
         self._strip = height if self._bar is not None else 0
@@ -7152,12 +7304,13 @@ class Injector:
         return min(1.0, (now - self._corner_at) / self._hold)
 
     def edge_progress(self):
-        """How far a swipe in from the right edge has got, 0..1, else 0."""
+        """How far a swipe in from the edge has got, 0..1, else 0."""
         if (not self._from_edge or self._went_home or self._start is None
                 or self._last is None):
             return 0.0
-        return min(1.0, max(0.0, (self._start[0] - self._last[0])
-                            / self._swipe))
+        along, _ = self._edge_motion(self._last[0] - self._start[0],
+                                     self._last[1] - self._start[1])
+        return min(1.0, max(0.0, along / self._edge_swipe))
 
     def tick(self, now):
         """True once, when the corner has been asked to take the panel home.
@@ -7473,6 +7626,9 @@ class Injector:
         if self._start is None or self._last is None:
             return False
         dx, dy = self._last[0] - self._start[0], self._last[1] - self._start[1]
+        if self._from_edge:
+            along, across = self._edge_motion(dx, dy)
+            return abs(along) < self._edge_swipe and abs(along) >= abs(across)
         return abs(dx) < self._swipe and abs(dx) >= abs(dy)
 
     def _reset(self):
@@ -7575,8 +7731,10 @@ def main():
         choices=HOME_GESTURES,
         default="corner",
         help="the way home: holding (or swiping sideways out of) the top-left "
-        "corner, a swipe in from the right edge towards the left, or both. A "
-        "panel whose page has its own button in the corner may want the edge",
+        "corner; a swipe in from the left, right, top or bottom edge towards "
+        "the middle (left_edge ... bottom_edge); or both, the corner and the "
+        "right edge. A panel whose page has its own button in the corner may "
+        "want an edge; the bottom is a tablet's own",
     )
     parser.add_argument(
         "--home-hold",
@@ -8802,22 +8960,8 @@ def main():
         hint = (None if args.no_touch
                 else HomeHint(page, page_w, page_h, corner_fraction,
                               space=tv_view, gesture=args.home_gesture))
-        if injector is not None and args.home_gesture == "right_edge":
-            print(f"Home: a swipe left from the right edge "
-                  f"(from x {injector._edge_x:.0f} of the page), "
-                  f"settle {settle_ms()}ms")
-        elif injector is not None:
-            print(
-                ("Home: a swipe left from the right edge, or "
-                 if args.home_gesture == "both" else "Home: ") +
-                f"corner {args.home_corner}% "
-                f"({corner_fraction * page_w:.0f}x{corner_fraction * page_h:.0f} "
-                f"of the page), hold {args.home_hold:g}s, "
-                # Named, because it is the one thing about the corner somebody
-                # has to know when a page has its own control there.
-                f"a tap under {HOME_TAP_MAX_S:g}s reaches the page, "
-                f"settle {settle_ms()}ms"
-            )
+        if injector is not None:
+            print(f"{injector.describe()}, settle {settle_ms()}ms")
         hint_until = time.monotonic() + HOME_HINT_SECONDS
         # Set when the corner has just brought the panel home, cleared by the
         # first picture that goes out afterwards.
@@ -9464,6 +9608,18 @@ def main():
                                 print(f"Share: the page went to the add-on "
                                       f"({len(shared['url'])} characters)",
                                       flush=True)
+                            continue
+                        if kind == "gesture":
+                            # Chosen in the launcher's Reglages: from the
+                            # next touch on. Nothing restarts.
+                            if injector is not None and \
+                                    injector.gesture != body:
+                                injector.set_gesture(body)
+                                print(injector.describe(), flush=True)
+                            if hint is not None:
+                                hint.set_gesture(body)
+                                hint_until = (time.monotonic()
+                                              + HOME_HINT_SECONDS)
                             continue
                         if kind == "volume":
                             # The add-on's HomeKit remote: a telephone's
