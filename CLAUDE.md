@@ -1802,7 +1802,7 @@ the dashboard, where it is invisible while the keys go on working.
 ahead of the `pip install` as well as the `ADD`s, so a bump refetched
 everything — at the cost of the browser download on each update.
 `present_browser()` prints the Chromium version at startup and warns below 114,
-so this is never diagnosed by guesswork again. Currently **4.60.0**.
+so this is never diagnosed by guesswork again. Currently **4.61.0**.
 
 **CORRECTED in 4.29.5: the cost was every update, and a pin removes it.**
 Asked as *"verifie addon ... si il ya pas des elements qui freine la
@@ -2123,8 +2123,9 @@ is something that accumulates -- the add-on's browser or Home Assistant
 growing until the VM compresses memory, or another workload taking the same
 cores. The test that separates them was asked for: next time, restart only
 the add-on. Two VM points were raised regardless (pinning CPU 0, which Unraid
-keeps for itself; the vdisk through /mnt/user's FUSE layer). A memory line in
-the add-on's log was offered, not built.
+keeps for itself; the vdisk through /mnt/user's FUSE layer). The memory
+line that would say which was built in 4.61.0 -- see **A memory line every
+hour** near the end of this file.
 
 ### Pending measurement first: the YouTube slowdown on the board
 
@@ -13390,6 +13391,62 @@ dot and a door as a walking man, because a sensor's kind is known only once
 Home Assistant is asked and the icon is chosen when the page is drawn.
 `BY_NAME` takes it from the entity's own name in either language
 (`salon_temperature`, `porte_entree`), and a chart or a bell otherwise.
+
+## A memory line every hour -- 4.61.0
+
+**Asked for once the household found the long-running stutters cured by a
+restart of the Home Assistant VM and by nothing else** (*"bonne idée"*, to
+the offer). A fixed fault stutters from boot; this one accumulated, and
+nothing wrote down the hours before a stutter, which is where the evidence
+is -- the `--show-media` lesson in another costume.
+
+`report_memory()` in run.py, started by `main()` beside `report_disk()`:
+ten minutes after the start, then every hour, one `Memory:` line and one
+indented line per piece:
+
+    Memory: the machine has 2.56 GB available of 8.19 GB, 512 MB in swap; the host kept 3% of its CPU in the last 1 h 0 min
+      this add-on: 1.50 GB, of which 400 MB is file cache Linux takes back when it needs to
+      salon's browser: 870 MB in 26 processes, running for 2 d 4 h; +154 MB in the last 1 h 0 min, +310 MB since 21/11 10:42
+
+What each piece reads, and why that source:
+
+- **The machine** is `/proc/meminfo`, which inside a Docker container is
+  the HOST's -- here the HAOS VM's -- since Docker gives it no view of its
+  own. `MemAvailable`, not `MemFree`; swap is HAOS's zram.
+- **The host's share** is `steal` from `/proc/stat`'s cpu line, over the
+  window: time the VM wanted a CPU and the hypervisor gave it to something
+  else. The other way a stutter comes and goes on a VM pinned to cores the
+  host also uses -- Unraid keeps CPU 0 for itself, and this VM was pinned
+  to 0-3. Zero on bare metal.
+- **This add-on** is its own cgroup (`memory.current`, v1 fallback), with
+  `file` said apart because the cache is what Linux gives back first and a
+  total without it reads as a leak that is not one.
+- **A browser** is the PSS of the sender's whole process tree (sender,
+  Playwright's node driver, Chrome and every helper), walked through
+  `/proc/*/stat` parent pids. PSS because RSS counts every shared page once
+  per process and twenty-six Chrome processes would add to more than the
+  machine; RSS only when `smaps_rollup` cannot be read, and the line says
+  so. The fields after the command are counted from its LAST parenthesis:
+  Chrome names helpers with parentheses in them. "running for" is the
+  sender's own start against `/proc/uptime`; the changes are over the real
+  window since the line before, and since the first reading of THAT sender
+  -- one started again is said and measured afresh.
+
+Between lines it looks every minute, and under `MEMORY_LOW` (a tenth of the
+machine available) it says so at once with the whole report, once, and
+again only past `MEMORY_OK` (15%), so a machine hovering at the line is
+said twice rather than sixty times an hour. A failure is said once per
+distinct message.
+
+`tools/checkmemory.py`: a made-up /proc with known numbers (a command name
+with parentheses, an unrelated process outside the tree, steal over the
+window, cgroup v1 and none, PSS missing), the low and back thresholds, a
+real tree of three processes holding 40 MB each, and the thread itself
+against a sender put in `_current` where `serve()` puts one. Its one fault
+on the way was the ruler: `dict(pss, **{13: ...})` cannot take an int key.
+**Not seen on the household's VM** -- whether HAOS's add-on cgroup exposes
+`memory.current` at the namespace root, and whether its kernel reports
+steal, the first lines will say (a missing piece is simply left out).
 
 ## Repository conventions
 

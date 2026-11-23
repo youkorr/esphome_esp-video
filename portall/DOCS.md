@@ -2415,6 +2415,33 @@ screen's browser profile (bounded, see below) and what was downloaded from
 it, which the Files page can delete. Home Assistant's own folders -- config,
 share, media -- are not counted.
 
+### How much memory the screens take
+
+Ten minutes after it starts, and every hour after that, the add-on writes
+what the machine and its browsers hold in memory:
+
+```
+Memory: the machine has 2.56 GB available of 8.19 GB, 512 MB in swap; the host kept 3% of its CPU in the last 1 h 0 min
+  this add-on: 1.50 GB, of which 400 MB is file cache Linux takes back when it needs to
+  salon's browser: 870 MB in 26 processes, running for 2 d 4 h; +154 MB in the last 1 h 0 min, +310 MB since 21/11 10:42
+```
+
+(the numbers above are an example.) It is there for one question: when the
+screens start to stutter after days and a restart of Home Assistant's
+machine cures it, what grew? Look at the lines just before the stutter:
+
+- **A browser that keeps growing**, hour after hour, is the add-on: restart
+  the add-on alone and say so.
+- **"available" falling and "in swap" rising** while the browsers stay
+  still is the machine running short -- Home Assistant or another add-on, or
+  a VM given too little memory.
+- **"the host kept" above a few percent** is the computer under Home
+  Assistant's VM giving its CPU to something else -- on Unraid, another VM or
+  Docker container on the same cores.
+
+When the machine falls under a tenth of its memory, the add-on says so at
+once, with the same lines, and says again when it has room.
+
 **Leftovers of versions built on the server.** Up to 4.46, the add-on was
 built on your Home Assistant server at each update, and Docker kept every
 previous build's pieces in its build cache: 12 GB on one server. Since 4.47
