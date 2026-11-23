@@ -1802,7 +1802,7 @@ the dashboard, where it is invisible while the keys go on working.
 ahead of the `pip install` as well as the `ADD`s, so a bump refetched
 everything — at the cost of the browser download on each update.
 `present_browser()` prints the Chromium version at startup and warns below 114,
-so this is never diagnosed by guesswork again. Currently **4.58.0**.
+so this is never diagnosed by guesswork again. Currently **4.59.0**.
 
 **CORRECTED in 4.29.5: the cost was every update, and a pin removes it.**
 Asked as *"verifie addon ... si il ya pas des elements qui freine la
@@ -13239,6 +13239,60 @@ Read in the same pass, from the household's block, for the reply: ESPHome
 `CONFIG_COMPILER_OPTIMIZATION_PERF` is `advanced: compiler_optimization:
 PERF`; the speed lines are `psram: speed:`. **Not compiled by ESP-IDF, not
 flashed.**
+
+## Android's press on Portall's own buttons -- 4.59.0
+
+**Reported as *"toutes les touches de portall ... il ne dispose pas d'effet,
+est-ce normal"*, asked for as *"que les touches fonctionnent comme un
+android"*.** It was normal, and the reason is the Injector's own design: a
+finger is replayed into the page only once it LIFTS -- until then nobody knows
+whether it is a tap or a scroll -- so the page is told nothing while the
+finger is down, which is exactly when a telephone shows the press. The
+tiles' `.press` look (4.x) is applied on the replayed pointerdown, i.e. at
+the lift, and since 4.31.3 that same pointerdown opens the link, so on a
+tile it was almost never on the glass. The Réglages dialog and the Files
+page had no pressed look at all.
+
+`TOUCH_FX_JS` (an init script, origins baked in) gives Portall's own pages
+`window.__portallTouch.down/up/cancel`; the Injector calls `down` at the
+landing with the point it already moved the pointer to, `cancel` the moment
+the touch becomes a drag or goes home, `up` at the end of `_finish` -- AFTER
+the press, so a tapped link starts opening a round trip sooner. The circle is
+a span inside the button (`inset: 0`, `overflow: hidden`, `border-radius:
+inherit`, pointer-events none), `currentColor` at 24% so it follows the
+theme; a static button is made `position: relative` while it lasts and given
+back. Only with `--press-ripple`, which run.py adds for `on_launcher`
+panels, and only on the home origin and the bookmarks' -- never on a site:
+Home Assistant has its own ripple and two would be the unasked-for change
+this file keeps recording.
+
+**The first version cost a tapped link its speed, and the page leaving is
+the fix.** The circle went on growing and fading on the launcher while the
+link opened, every frame of it a picture the new page's first one waited
+behind: `checklinkspeed.py --tap` read 100-110 ms (and one shell never
+shown) against 52-97 without. `beforeunload`/`pagehide` now drop it at once:
+61-79 ms with it against 66-104 without, over the same runs -- and the
+plain sender also produced a 1540 ms outlier in one of them, which is this
+container, not the circle. A ripple wrapper sender (`sys.argv.insert(1,
+"--press-ripple")` then `runpy`) is how that was measured, since the check
+starts its own sender.
+
+`tools/checkripple.py`: a fake panel reading a point of a dark button off
+the glass -- lit 160 ms after the finger lands, held, faded on the lift with
+the button clicked, taken away by a drag that clicks nothing, left alone on
+another origin; the same without `--press-ripple` reads nothing, which is
+the report. Then the add-on's real launcher in a browser: a tile and a
+Réglages tab take the circle inside their own corners and do not move by a
+pixel. Its first failure was the ruler: `inset: 0` sits inside the tile's
+1 px border.
+
+**Not seen on a panel.** The bar's buttons (drawn by the sender) and the
+on-screen keyboard already lit their key on landing and are unchanged.
+
+`checkpresshold.py`'s reproduction case (`--press-hold 0` must show no press)
+fails about one run in three on this container, on 4.58.0 exactly as often
+as with the circle (2 of 6 each, alternated): a press of one task is
+sometimes painted. It is that case's ruler, not this change; left as found.
 
 ## Repository conventions
 

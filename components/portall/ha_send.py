@@ -5746,6 +5746,136 @@ class NavNotes:
               f"{words.format(str(detail)[:160])}", flush=True)
 
 
+# Android's press: a circle that grows from the finger inside the button it
+# landed on, shown the moment the finger lands and faded when it lifts.
+#
+# WHY THIS EXISTS. Reported as "toutes les touches de portall ... il ne
+# dispose pas d'effet, est-ce normal". It was, for a reason that is the
+# sender's: a finger is replayed into the page only once it has LIFTED,
+# because until then nobody knows whether it is a tap or a scroll -- so the
+# page is told nothing while the finger is down, which is exactly when a
+# telephone shows the press. And a tile's link then opens at once. The
+# sender does know, from the first report, so it tells Portall's own pages
+# where the finger landed (__portallTouch.down) and they draw the ripple;
+# a drag cancels it, a lift lets it finish and fade.
+#
+# Only on Portall's own pages -- the launcher with its Reglages, the Files
+# page, the bookmarks (--press-ripple, which the add-on gives a panel whose
+# home is its launcher). A site has its own pressed look and Home Assistant
+# its own ripple; drawing a second one over theirs would be the
+# unasked-for change this project keeps paying for. Decoration in the
+# keyboard's sense: pointer-events none, no listener, nothing focused, and a
+# page that refuses it costs the ripple and never the tap.
+TOUCH_FX_JS = r"""
+(() => {
+  const OWN = __OWN__;
+  if (!OWN.includes(location.origin) || window.__portallTouch) return;
+  const PICK = 'a[href], button, [role="button"], [role="tab"], ' +
+    '[role="option"], [role="switch"], [role="spinbutton"], ' +
+    '[role="menuitem"], summary, label, .tile';
+  let dressed = false;
+  let live = null;
+  function dress() {
+    if (dressed) return;
+    dressed = true;
+    const css = `
+      .__portall_rip { position: absolute; inset: 0; overflow: hidden;
+        border-radius: inherit; pointer-events: none; z-index: 2147483000;
+        margin: 0; padding: 0; border: 0; }
+      .__portall_rip > i { position: absolute; display: block;
+        border-radius: 50%; background: currentColor; opacity: .24;
+        transform: scale(0); pointer-events: none;
+        transition: transform 280ms cubic-bezier(.2,0,0,1),
+                    opacity 200ms linear; }
+      .__portall_rip > i.on { transform: scale(1); }
+      .__portall_rip > i.off { opacity: 0; }
+      @media (prefers-reduced-motion: reduce) {
+        .__portall_rip > i { transition: opacity 120ms linear; } }`;
+    try {
+      const sheet = new CSSStyleSheet();
+      sheet.replaceSync(css);
+      document.adoptedStyleSheets = [...document.adoptedStyleSheets, sheet];
+    } catch (err) {
+      const style = document.createElement('style');
+      style.textContent = css;
+      document.documentElement.appendChild(style);
+    }
+  }
+  function target(x, y) {
+    let e = document.elementFromPoint(x, y);
+    while (e && e.shadowRoot) {
+      const inner = e.shadowRoot.elementFromPoint(x, y);
+      if (!inner || inner === e) break;
+      e = inner;
+    }
+    return e && e.closest ? e.closest(PICK) : null;
+  }
+  function end(now) {
+    const r = live;
+    live = null;
+    if (!r) return;
+    // Android lets the circle finish growing before it fades.
+    const wait = now ? 0 : Math.max(0, 220 - (performance.now() - r.at));
+    setTimeout(() => {
+      r.dot.classList.add('off');
+      setTimeout(() => {
+        r.box.remove();
+        if (r.restore !== null) r.el.style.position = r.restore;
+      }, 230);
+    }, wait);
+  }
+  window.__portallTouch = {
+    down(x, y) {
+      end(true);
+      const el = target(x, y);
+      if (!el) return false;
+      dress();
+      const rect = el.getBoundingClientRect();
+      const radius = Math.hypot(Math.max(x - rect.left, rect.right - x),
+                                Math.max(y - rect.top, rect.bottom - y));
+      const box = document.createElement('span');
+      box.className = '__portall_rip';
+      const dot = document.createElement('i');
+      dot.style.width = dot.style.height = (radius * 2) + 'px';
+      dot.style.left = (x - rect.left - radius) + 'px';
+      dot.style.top = (y - rect.top - radius) + 'px';
+      // The circle is placed inside the button; a button that is not
+      // positioned is made so for as long as the circle is there.
+      let restore = null;
+      if (getComputedStyle(el).position === 'static') {
+        restore = el.style.position;
+        el.style.position = 'relative';
+      }
+      box.appendChild(dot);
+      el.appendChild(box);
+      dot.getBoundingClientRect();
+      dot.classList.add('on');
+      live = {el, box, dot, restore, at: performance.now()};
+      return true;
+    },
+    up() { end(false); },
+    cancel() { end(true); },
+  };
+  // A tap that opens a link: the page is leaving, so the circle goes at once
+  // rather than fading -- every frame it would paint is one the new page's
+  // first picture would wait behind.
+  function leave() {
+    const r = live;
+    live = null;
+    if (r) { r.box.remove(); if (r.restore !== null) r.el.style.position = r.restore; }
+    document.querySelectorAll('.__portall_rip').forEach(e => e.remove());
+  }
+  addEventListener('beforeunload', leave, true);
+  addEventListener('pagehide', leave, true);
+})();
+"""
+
+
+def touch_fx_js(origins):
+    """TOUCH_FX_JS for these origins, which are Portall's own pages."""
+    return TOUCH_FX_JS.replace("__OWN__", json.dumps(sorted(origins)))
+
+
 HOME_HINT_JS = r"""
 (() => {
   const ID = '__portall_home';
@@ -6924,6 +7054,10 @@ class Injector:
         # A finger that landed on a gliding page stopped it, as on a
         # telephone, and is not a tap on whatever was passing under it.
         self._caught = False
+        # Portall's own pages, which draw Android's press where the finger
+        # lands (TOUCH_FX_JS); empty, nothing is asked of any page.
+        self.ripple_origins = set()
+        self._rippling = False
         # The back/reload/home bar, when one is drawn. A contact on it is a
         # button and never reaches the page, exactly like the keyboard.
         self._bar = bar
@@ -7067,6 +7201,7 @@ class Injector:
                     # panes that scroll on their own -- but do not press yet.
                     self._page.mouse.move(*self._page_point(x, y))
                     self._pointer = self._page_point(x, y)
+                    self._ripple("down", *self._pointer)
                 if self.verbose:
                     print(f"[{stamp()}] contact at "
                           f"({point[0]:.0f},{point[1]:.0f}) on the panel -> "
@@ -7185,6 +7320,8 @@ class Injector:
                 abs(x - self._start[0]) + abs(y - self._start[1]) >= DRAG_THRESHOLD
             ):
                 self._scrolling = True
+                # A drag is not a press: the circle goes, as on a telephone.
+                self._ripple("cancel")
             if self._scrolling:
                 # Negated: dragging the content downwards means going up the
                 # page, which is a negative wheel. Gathered rather than sent --
@@ -7276,7 +7413,31 @@ class Injector:
             return None
         return along > 0 and abs(along) > abs(across) * HOME_SWIPE_STRAIGHTNESS
 
+    def _ripple(self, what, x=0.0, y=0.0):
+        """Tell one of Portall's own pages about the finger: "down" where it
+        landed, "up" when it lifted from a press, "cancel" when it was not
+        one. Never on a site, and never at the cost of the touch."""
+        if what == "down":
+            self._rippling = False
+            if not self.ripple_origins:
+                return
+            try:
+                if origin_of(self._page.url) not in self.ripple_origins:
+                    return
+            except Exception:  # noqa: BLE001 - a game, a closed page
+                return
+        elif not self._rippling:
+            return
+        try:
+            done = self._page.evaluate(
+                "a => !!(window.__portallTouch && "
+                "window.__portallTouch[a[0]](a[1], a[2]))", [what, x, y])
+        except Exception:  # noqa: BLE001 - decoration, never the picture
+            done = False
+        self._rippling = what == "down" and bool(done)
+
     def _fire_home(self, how, x, y):
+        self._ripple("cancel")
         self._home = True
         self._home_by = how
         self._went_home = True
@@ -7570,6 +7731,10 @@ class Injector:
                     self._say_target(*self._last)
                 self._press(*self._last)
                 clicked = True
+        # The circle a landing started finishes and fades -- told after the
+        # press, so a tapped link starts opening a round trip sooner; the
+        # page drops the circle at once when it leaves (TOUCH_FX_JS).
+        self._ripple("up")
         self._reset()
         return clicked
 
@@ -7735,6 +7900,14 @@ def main():
         "the middle (left_edge ... bottom_edge); or both, the corner and the "
         "right edge. A panel whose page has its own button in the corner may "
         "want an edge; the bottom is a tablet's own",
+    )
+    parser.add_argument(
+        "--press-ripple",
+        action="store_true",
+        help="draw Android's press -- a circle growing from the finger -- on "
+        "the buttons of this panel's own pages: its home page, the Files "
+        "page and the bookmarks. The add-on gives it to a panel whose home "
+        "is its launcher; a site keeps its own look",
     )
     parser.add_argument(
         "--home-hold",
@@ -8490,6 +8663,12 @@ def main():
             print(f"Bookmarks: {found} in this screen's profile"
                   if args.profile else
                   "Bookmarks: none, this screen keeps no profile")
+        # Android's press on Portall's own pages, and on nothing else.
+        ripple_origins = set()
+        if args.press_ripple:
+            ripple_origins = {origin_of(args.url)} | (
+                {shelf.origin} if shelf.origin else set())
+            context.add_init_script(touch_fx_js(ripple_origins))
         context.add_init_script(SPATNAV_JS)
         # Play, pause and next for whatever plays, from every remote there is.
         context.add_init_script(MEDIA_CONTROL_JS)
@@ -8939,6 +9118,7 @@ def main():
         )
         if injector is not None:
             injector.verbose = args.show_touches
+            injector.ripple_origins = ripple_origins
         # Shown when a page arrives and while a finger is held there, so the
         # gesture is discoverable by somebody who was never told about it. It
         # cannot be a button: a panel has no Back button and a site playing
