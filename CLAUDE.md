@@ -1802,7 +1802,7 @@ the dashboard, where it is invisible while the keys go on working.
 ahead of the `pip install` as well as the `ADD`s, so a bump refetched
 everything — at the cost of the browser download on each update.
 `present_browser()` prints the Chromium version at startup and warns below 114,
-so this is never diagnosed by guesswork again. Currently **4.59.0**.
+so this is never diagnosed by guesswork again. Currently **4.59.1**.
 
 **CORRECTED in 4.29.5: the cost was every update, and a pin removes it.**
 Asked as *"verifie addon ... si il ya pas des elements qui freine la
@@ -13293,6 +13293,30 @@ on-screen keyboard already lit their key on landing and are unchanged.
 fails about one run in three on this container, on 4.58.0 exactly as often
 as with the circle (2 of 6 each, alternated): a press of one task is
 sometimes painted. It is that case's ruler, not this change; left as found.
+
+## max_rate 4500: the blocks in videos were the byte rate -- 4.59.1
+
+**Reported with artifacts in videos and wallpapers**, first taken for 16
+bits (banding) and a 24-bit test proposed. The household found it instead:
+*"augmente le max_rate a environ 4500 c'est lui le probleme"*. At 3000 a busy
+scene at 30 a second is 100 KiB a picture, and RateControl lowered the
+quality to hold it, which on full motion is visible blocks. 3000 came from
+the 2.9 MB/s edge measured on esp-hosted 2.x, which discards a packet it
+cannot queue; ESPHome 2026.12.0-dev pins esp_hosted 3.1.0
+(`esp32_hosted/__init__.py`), whose RX ring waits, and portall has set the
+C6's Wi-Fi buffers itself since 4.58.0. So the default is 4500 now, at the
+household's word, **not measured here**. A stored value wins over a new
+default, so the changelog says to set it by hand; 3000 is named as the way
+back for a panel on an older ESPHome.
+
+**The 24-bit test told nothing.** The screen stayed dark at 24, and then at
+16 too, with `mipi_dsi` from youkorr/lvgl_9.5 `main`; with the
+`codex/portall-direct-buffers` branch it works. The two differ only by the
+direct-buffer code and one line in `display.py` that stops the test card
+being forced on when `portall` is present. Why `main` fails was not found:
+the board's log from that build is what would say. The config given was
+validated by `esphome config` and the codegen and was still dark on the
+board, which is the usual distance between those two.
 
 ## Repository conventions
 
