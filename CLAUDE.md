@@ -13627,3 +13627,35 @@ user has not asked.
 
 That build also booted an **ESP-IDF v6.1.1** bootloader under ESPHome
 2026.12.0-dev.
+
+**CORRECTED by the next run: `malloc_to_psram` does not stop it, the window
+does.** With `malloc=psram` the Waveshare stopped the same way -- internal
+heap down to 17 KB at its lowest, task watchdog, a restart. Read, not
+measured: esp-hosted's SDIO buffers are `heap_caps_malloc(...,
+MALLOC_CAP_DMA)` (`eh_mempool.h`), which PSRAM cannot serve, and
+`SPIRAM_MALLOC_RESERVE_INTERNAL` keeps 32 KB that a plain `malloc()` reaches
+only after PSRAM is full. What the user found by experiment is what ended it:
+`psram_optional: "true"`, so ESPHome's 65534 window instead of 512000, and
+every round ran clean at 30-32 Mbit/s with `malloc_to_psram` on or off. That
+leaves the same question open for a Portall panel with guaranteed PSRAM,
+where `_let_malloc_spill_to_psram` is the only guard; nothing there changed.
+
+**And a steady 256 ms ping was the household's own YAML**, with no
+`power_save_mode: none`: the radio sleeping between beacons. With it, 4.3-5
+ms. Throughput was the same either way.
+
+**What the bench measured, PSRAM optional, C6 3.1.0, power save off, a
+cabled computer:** Waveshare dev 29.6-31.1 Mbit/s to the board, 29.3-36.2
+from it, bursts 31.7-32.5; Guition pr 30-32.4, 30-36, 30-32. Espressif's
+figure for the hardware is about 30 and 32, so both builds sit at the
+ceiling and the PR's receive settings change nothing measurable there. The
+one-board pair with every setting alike was not finished.
+
+**Merged anyway, and rightly: esphome/esphome#23122 went into `dev` on
+2026-11-24 as b9f62b9**, after bdraco's third test note (PASS, on 90beeff)
+and his approval, *"Thanks youkorr"*. 57 checks passed; swoboda1337, asked
+as codeowner, never reviewed. 90beeff -- `get_coprocessor_variant()` in
+esp32_hosted, the native `CONFIG_ESP_WIFI_*` skipped on a chip with no
+radio -- is bdraco's. An ESPHome built from `dev` after b9f62b9 is the PR
+build, so `nettest-pr.yaml` now compares nothing, and its
+`github://pr#23122` entry is a frozen copy that will drift from `dev`.
