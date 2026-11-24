@@ -311,8 +311,8 @@ def part_yaml(args):
         '# Network test bench, build "pr": ESPHome with the wifi component of\n'
         "# esphome/esphome#23122, the high-performance Wi-Fi settings sent to the C6.",
     ).replace(
-        "    components: [nettest]\n",
-        "    components: [nettest]\n"
+        "    refresh: 0s\n",
+        "    refresh: 0s\n"
         "  # The pull request's wifi component, fetched fresh at every build.\n"
         "  - source: github://pr#23122\n"
         "    components: [wifi]\n"
@@ -320,6 +320,15 @@ def part_yaml(args):
     ).replace("  label: dev\n", "  label: pr\n")
     check("nettest-pr.yaml is nettest-dev.yaml with the PR's wifi and its "
           "label, and nothing else", pr == expected)
+    # A household's panel already names this repository at main, and ESPHome
+    # keys its copy of a repository on the address and branch alone and
+    # refreshes it once a day -- so the bench's folder was not found in a
+    # copy taken before it existed. Reported from the first try.
+    for name, text in (("dev", dev), ("pr", pr)):
+        check(f"nettest-{name}.yaml fetches the bench fresh at every build",
+              "    components: [nettest]\n" in text
+              and "    components: [nettest]\n    # Fetched fresh" in text
+              and text.count("    refresh: 0s\n") == (1 if name == "dev" else 2))
     if not args.esphome_python:
         print("  skipped: no ESPHome to run (--esphome-python)")
         return

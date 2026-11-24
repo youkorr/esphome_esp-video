@@ -95,6 +95,11 @@ external_components:
       ref: main
       path: tools/nettest/components
     components: [nettest]
+    # Fetched fresh at every build. ESPHome keeps one copy of a repository
+    # per address and branch and refreshes it once a day, and a panel's own
+    # YAML already uses this one: without this line, a copy from before the
+    # bench existed is used, and the folder is not found.
+    refresh: 0s
 
 nettest:
   label: dev

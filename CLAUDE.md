@@ -13573,3 +13573,13 @@ Two findings, both read rather than measured, both in its README:
 - Given dev's wifi as the "PR", it fails.
 
 **Not compiled by ESP-IDF, not flashed.**
+
+**And the first try failed before anything was built**: `Could not find
+components folder for source ... 'tools/nettest/components'`. ESPHome keys its
+copy of a git source on the address and the branch alone (`_cache_key(url,
+ref)` in `git.py`) and refreshes it once a day; the household's panels already
+name `youkorr/esphome_esp-video@main`, so the copy used was from before the
+bench existed. Reproduced by removing the folder from a cached clone, and gone
+with `refresh: 0s` on the bench's entry. Any new folder in this repository
+reached through `path:` meets the same thing on a box that already builds a
+panel from it.
