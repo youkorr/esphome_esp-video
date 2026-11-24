@@ -1355,6 +1355,43 @@ PRESS_JS = """<script>
 # it. So a tile is the one place on a panel where a login that works
 # everywhere else looked forgotten.
 #
+# Says when the wallpaper is on screen, so coming home is never shown on the
+# plain ground first. Filmed on a Waveshare 7B: back from a link, the
+# launcher arrived without its wallpaper and the wallpaper came a picture
+# later. A page paints as soon as it can and does not wait for a background
+# picture, and from a link on another site the launcher is a new renderer
+# with nothing of it in memory, so its first paint always beat the decode of
+# a large picture (tools/checkhomewall.py: 5 returns in 6 against a 4K one).
+#
+# The sender holds the pictures of a page coming home until this is called,
+# for at most WALL_WAIT_S. decode() on an image of the same address decodes
+# the one the background uses; the two frames after it are when the
+# compositor has drawn it. Called with false when there is nothing to wait
+# for -- no wallpaper, a video, or a picture that will not load -- which the
+# sender remembers, so a launcher with no wallpaper is never held at all.
+WALL_READY_JS = """<script>
+(function () {
+  var url = %(url)s, said = false;
+  function say(wall) {
+    if (said) return;
+    said = true;
+    requestAnimationFrame(function () { requestAnimationFrame(function () {
+      try { if (window.__udispWallReady) window.__udispWallReady(wall); }
+      catch (e) {}
+    }); });
+  }
+  if (!url) { say(false); return; }
+  var img = new Image();
+  img.onload = function () {
+    if (img.decode) img.decode().then(function () { say(true); },
+                                      function () { say(true); });
+    else say(true);
+  };
+  img.onerror = function () { say(false); };
+  img.src = url;
+})();
+</script>"""
+
 # The sender puts `__udispFollow` on the page; a tap or OK on a tile hands
 # it the address and the sender navigates. With no sender -- this page open
 # in an ordinary browser -- the link is an ordinary link and nothing changes.
@@ -2806,7 +2843,9 @@ def render(links, title="", subtitle="", theme="dark",
     acting = (not saver and entities is not None
               and any(entities.entity_of(l.get("url")) for l in links
                       if isinstance(l, dict)))
-    scripts = ("" if saver else KEYS_JS + PRESS_JS + FOLLOW_JS) + (
+    scripts = ("" if saver else KEYS_JS + PRESS_JS + FOLLOW_JS
+               + WALL_READY_JS % {"url": json.dumps(
+                   first if wall_css != "none" else "")}) + (
         ENTITY_JS % {"path": ENTITIES_PATH, "act": ACT_PATH}
         if acting else "") + (
         CLOCK_JS if clock else "") + (
@@ -3542,9 +3581,13 @@ def start(links, title="", subtitle="", theme="dark",
                 if picture is None:
                     self.send_error(404)
                     return
-                # The one thing here worth caching: it does not change while
-                # the add-on runs, and a panel coming home should not fetch a
-                # megabyte again.
+                # Not cached, although it does not change while the add-on
+                # runs: the address is /wallpaper whatever the picture is, so
+                # one chosen on the Files page would be shown stale. Caching
+                # would not have stopped the plain ground showing first on
+                # coming home either -- measured, from a link on another site
+                # the picture is still decoded after the first paint; that is
+                # what WALL_READY_JS is for.
                 self._reply(picture, mime)
                 return
             if self.path.split("?")[0].startswith(FILES_HREF) \

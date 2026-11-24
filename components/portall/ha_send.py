@@ -234,6 +234,10 @@ NEW_PAGE_PUMP_MS = 1
 # Above the time a frame takes to arrive (13 to 40 ms measured), and short,
 # because until then the panel may be showing a moment the page has left.
 MISSED_CHANGE_S = 0.25
+# How long coming home to the launcher may wait for its wallpaper to be on
+# screen before its pictures go out anyway (see WallReady). The panel keeps
+# showing the page it is leaving meanwhile, which is the honest picture.
+WALL_WAIT_S = 1.0
 # How often to say "still here" when there is nothing to send. A sender that
 # only transmits what changed is silent while nothing changes, and silence is
 # indistinguishable from having died; the board's patience has to be longer
@@ -1940,6 +1944,41 @@ class Follow:
         taken = list(self._queue)
         self._queue.clear()
         return taken
+
+
+class WallReady:
+    """The launcher saying its wallpaper is on screen.
+
+    Coming home to the launcher is a new document, and a page paints as soon
+    as it can: from a link on another site its first picture beat the decode
+    of a large wallpaper, so the panel showed the launcher on its plain
+    ground and then the wallpaper a picture later -- filmed on a Waveshare
+    7B, and 5 returns in 6 in tools/checkhomewall.py. The page calls
+    `__udispWallReady(wall)` once the picture is decoded and drawn
+    (launcher.WALL_READY_JS), and the loop holds that page's pictures until
+    then. Only the top frame of the panel's home origin is listened to.
+
+    `has_wall` is what the launcher said the last time it was shown, so one
+    with no wallpaper is never waited for; None until it has said anything.
+    """
+
+    def __init__(self, home):
+        self._origin = _origin_of(home)
+        self.has_wall = None
+        self.said = False
+
+    def __call__(self, source, wall=None):
+        frame = source.get("frame") if isinstance(source, dict) else None
+        if frame is None or frame.parent_frame is not None:
+            return
+        if _origin_of(frame.url) != self._origin:
+            return
+        self.has_wall = bool(wall)
+        self.said = True
+
+    def arm(self):
+        """A launcher is about to load: what it says next is about it."""
+        self.said = False
 
 
 # What counts as something being watched or listened to: a media element
@@ -5271,6 +5310,18 @@ class Screencast:
 
     def stop(self):
         self.pause()
+
+    def fetch_now(self):
+        """The page as it stands becomes the next frame taken.
+
+        For a moment the loop knows the page has just changed but cannot be
+        sure a frame showing it has arrived or will: a frame that came before
+        is already in hand and stale, and a still page will not paint again.
+        At the screencast's own quality, so it is compared like with like.
+        """
+        still = self.screenshot(self._quality)
+        if still is not None:
+            self._latest = still
 
     def screenshot(self, quality=0):
         """The page as it stands, without loss, or None.
@@ -8650,6 +8701,8 @@ def main():
         # site's Strict login goes with it. See Follow.
         follow = Follow(args.url)
         context.expose_binding("__udispFollow", follow)
+        wall_ready = WallReady(args.url)
+        context.expose_binding("__udispWallReady", wall_ready)
         # The bar's star: the profile's Chrome bookmarks, on a page of their
         # own. Counted now so the log says whether there are any to show.
         shelf = Bookmarks(args.profile,
@@ -9146,6 +9199,9 @@ def main():
         # Set when the corner has just brought the panel home, cleared by the
         # first picture that goes out afterwards.
         home_pending = None
+        # Set when the launcher has just been asked for, until its wallpaper is
+        # on screen or WALL_WAIT_S has gone (see WallReady).
+        wall_wait = None
         # Whatever started this sender can press a key too. Only when asked
         # for: without the option stdin is left exactly as it was, so a hand
         # run in a terminal is untouched.
@@ -9387,6 +9443,22 @@ def main():
                             # must not come up over it once the alert is gone.
                             heard_at = started
 
+                    # Coming home to the launcher: its pictures wait for its
+                    # wallpaper (WallReady). Then the page as it stands is
+                    # fetched, since the frame in hand may still be the one
+                    # painted before the picture, and the page will not paint
+                    # again once it has it.
+                    if wall_wait is not None and (
+                            wall_ready.said or started >= wall_wait):
+                        if wall_ready.said and wall_ready.has_wall:
+                            fetch = getattr(capture, "fetch_now", None)
+                            if fetch is not None:
+                                fetch()
+                        elif not wall_ready.said:
+                            print(f"Home: the wallpaper was not on screen "
+                                  f"after {WALL_WAIT_S:g}s, showing the "
+                                  f"launcher anyway", flush=True)
+                        wall_wait = None
                     free = writer.ready()
                     frame = capture.take()
                     if frame is not None:
@@ -9448,7 +9520,7 @@ def main():
                     shot = None
                     # The byte budget last, so it is asked only about a
                     # picture that would otherwise go -- see RateControl.
-                    if (pending is not None and free
+                    if (pending is not None and free and wall_wait is None
                             and started - last_send >= limit
                             and rate.allows(started)):
                         shot, pending = pending, None
@@ -9867,9 +9939,16 @@ def main():
                                 if parked:
                                     print("Loading the page again")
                                     parked = False
+                                    wall_ready.arm()
                                     if not open_page(page, args):
                                         print("Warning: it would not open; "
                                               "the next wake will try again")
+                                    elif open_page.is_launcher and \
+                                            wall_ready.has_wall is not False:
+                                        # The launcher loaded again, so the
+                                        # same wait as coming home to it.
+                                        wall_wait = (time.monotonic()
+                                                     + WALL_WAIT_S)
                                     if keyboard is not None:
                                         keyboard.forget()
                                         keyboard.request_sync(0.5)
@@ -10412,8 +10491,11 @@ def main():
                             # blocked loop, and so the screencast is not
                             # restarted (see below).
                             set_strip(False, restart=False)
+                            wall_ready.arm()
                             if not go_to(page, args.url):
                                 print("Warning: home would not open")
+                            elif wall_ready.has_wall is not False:
+                                wall_wait = time.monotonic() + WALL_WAIT_S
                         else:
                             if not open_page(page, args):
                                 print("Warning: home would not open")
