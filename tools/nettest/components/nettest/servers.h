@@ -18,8 +18,9 @@ namespace bench {
 using Facts = int (*)(char *out, size_t room);
 
 // TCP, `port`: reads everything a client sends until it shuts down its side,
-// then answers one line -- "bytes=N us=T " and the facts -- and closes. T is
-// first byte to last byte, measured here, which is what the device received.
+// then answers one line -- "bytes=N us=T gap=G " and the facts -- and
+// closes. T is first byte to last byte, measured here, which is what the
+// device received; G is the longest wait between two reads, in ms.
 void serve_sink(uint16_t port, Facts facts);
 
 // TCP, `port`: reads a number of seconds on one line, sends a pattern for
