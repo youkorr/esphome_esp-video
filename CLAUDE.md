@@ -13534,3 +13534,42 @@ the previous one -- timing in a long batch, not this change.
   some names it in the same header and in NOTICE (`usb_descriptors.h`'s touch
   descriptor, `logos.py`'s marks), and the Realtek blobs and the stand-ins in
   `tools/btstub` and `tools/pipetest/stub` carry no such header at all.
+
+## A network test bench for esphome#23122 -- tools/nettest/
+
+**Asked as *"prépare un test que je lui démontre"*, after the PR's first
+tester saw TCP sending fall from 258 to 133 KB/s with it.** His link carried
+about 3 Mbit/s, where Espressif publishes about 30 Mbit/s of TCP each way for
+a P4 + C6 over 4-bit SDIO (esp-hosted-mcu `docs/design/performance.md`,
+1.1), and his C6 reported firmware 0.0.0. So the figures said more about the
+link than about the PR.
+
+`nettest-dev.yaml` and `nettest-pr.yaml` are identical but for the label and
+the `github://pr#23122` `[wifi]` entry; the `nettest` component is three
+BSD-socket servers (sink timed by the board, source, UDP ping) and a facts
+line in every answer: build, C6 version, compiled `WIFI_RMT_*`, lwIP window,
+heap, RSSI. `nettest.py` is stdlib, for Windows, and `--table` prints
+Markdown grouped by build and C6 version.
+
+Two findings, both read rather than measured, both in its README:
+
+- **`WIFI_RMT_TX_BA_WIN` cannot reach the C6.** Those values travel as the
+  fields of `wifi_init_config_t` (ESP-IDF 5.5), which has `rx_ba_win` and no
+  TX window. The C6's own firmware decides that one.
+- **With PSRAM guaranteed, TX buffers are static in both builds**:
+  `WIFI_RMT_DYNAMIC_TX_BUFFER` depends on `!(SPIRAM_TRY_ALLOCATE_WIFI_LWIP &&
+  !SPIRAM_IGNORE_NOTFOUND)`, and the PR sets no static count. So the PR changes
+  nothing the C6 uses for sending there; only receive changes.
+
+`tools/checknettest.py`, 37 cases:
+
+- The shipped servers and facts line are built here and measured by the
+  shipped script over loopback.
+- The component's C++ is checked against ESPHome's core headers.
+- Both YAMLs go through ESPHome's config and codegen at 03eebae, with the
+  PR's wifi from e59c905, PSRAM guaranteed and not. The sdkconfig is read
+  back: dev sends the C6 no `WIFI_RMT_*`, the PR exactly its own, and nothing
+  else differs.
+- Given dev's wifi as the "PR", it fails.
+
+**Not compiled by ESP-IDF, not flashed.**

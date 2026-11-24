@@ -1,0 +1,100 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2024-2026 youkorr
+# Part of Portall: https://github.com/youkorr/esphome_esp-video
+#
+# Network test bench, build "dev": ESPHome as it is, nothing changed.
+#
+# This file and nettest-pr.yaml are the same line for line, except the label
+# and the one external_components entry that brings in the pull request's
+# wifi component -- tools/checknettest.py checks that they stay so. Flash one,
+# measure with nettest.py, flash the other, measure again, go back and forth.
+#
+# For a Waveshare ESP32-P4-WIFI6 (Touch LCD 7B included) and a Guition
+# JC8012P4A1: same ESP32-C6, same SDIO pins. Another board: change the
+# esp32_hosted pins and nothing else, in BOTH files.
+#
+# Both builds must be compiled by the same ESPHome, and a dev one: the pull
+# request is written against ESPHome's dev branch.
+
+substitutions:
+  # The board's own node name lets the dashboard flash it wirelessly. Flash
+  # the board's usual firmware back afterwards.
+  name: p4-nettest
+  # "false": PSRAM is guaranteed, which is what turns on ESPHome's
+  # high-performance settings in full. "true" is the other row of the table.
+  psram_optional: "false"
+
+esphome:
+  name: ${name}
+  friendly_name: P4 network test
+
+esp32:
+  board: esp32-p4-evboard
+  cpu_frequency: 360MHz
+  flash_size: 16MB
+  framework:
+    type: esp-idf
+
+psram:
+  speed: 200MHz
+  ignore_not_found: ${psram_optional}
+
+esp32_hosted:
+  variant: ESP32C6
+  active_high: true
+  slot: 1
+  reset_pin: GPIO54
+  cmd_pin: GPIO19
+  clk_pin: GPIO18
+  d0_pin: GPIO14
+  d1_pin: GPIO15
+  d2_pin: GPIO16
+  d3_pin: GPIO17
+  use_psram: true
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  # Neither build may sleep between beacons or go off its channel to look
+  # for another access point in the middle of a measurement.
+  power_save_mode: none
+  post_connect_roaming: false
+
+# INFO, not DEBUG: logs sent over the network while it is being measured
+# would be measured too.
+logger:
+  level: INFO
+
+api:
+  encryption:
+    key: !secret api_encryption_key
+
+ota:
+  - platform: esphome
+
+# The C6 keeps its own Wi-Fi firmware whatever is flashed on the P4. Update it
+# first, from Home Assistant, and note its version: every result carries it.
+http_request:
+
+update:
+  - platform: esp32_hosted
+    name: "ESP32-C6 Firmware"
+    type: http
+    source: https://esphome.github.io/esp-hosted-firmware/manifest/esp32c6.json
+    update_interval: 6h
+
+sensor:
+  - platform: wifi_signal
+    name: "Wi-Fi signal"
+    update_interval: 30s
+
+external_components:
+  - source:
+      type: git
+      url: https://github.com/youkorr/esphome_esp-video
+      ref: main
+      path: tools/nettest/components
+    components: [nettest]
+
+nettest:
+  label: dev
