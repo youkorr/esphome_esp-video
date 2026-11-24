@@ -34,7 +34,8 @@ static void udp_task(void *) {
   // A round trip to the C6, so here rather than on the loop. The answer
   // only labels the results.
   ::bench::ask_c6_version();
-  ::bench::serve_udp(g_port + 2, ::bench::facts);
+  ::bench::ask_power_save();
+  ::bench::serve_udp(g_port + 2, ::bench::facts, ::bench::ask_power_save);
   vTaskDelete(nullptr);
 }
 

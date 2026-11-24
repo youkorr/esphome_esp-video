@@ -17,6 +17,9 @@
 #ifdef ESP_PLATFORM
 #include "esp_system.h"
 #endif
+#if defined(ESP_PLATFORM) && defined(USE_WIFI)
+#include "esp_wifi.h"
+#endif
 
 namespace bench {
 
@@ -68,6 +71,9 @@ static const char MALLOC[] = "psram";
 #else
 static const char MALLOC[] = "internal";
 #endif
+#ifndef CONFIG_SPIRAM_MALLOC_RESERVE_INTERNAL
+#define CONFIG_SPIRAM_MALLOC_RESERVE_INTERNAL -1
+#endif
 
 // Why the board last started, so a run that stopped can tell a board that
 // restarted from one that only stopped reading. The common ones by name,
@@ -116,6 +122,7 @@ static unsigned uptime_s() {
 
 static char g_label[16] = "unnamed";
 static char g_c6[16] = "?";
+static const char *g_ps = "?";
 static std::atomic<int> g_rssi{0};
 
 void set_label(const char *label) {
@@ -124,6 +131,24 @@ void set_label(const char *label) {
 }
 
 void set_rssi(int rssi) { g_rssi = rssi; }
+
+void ask_power_save() {
+#if defined(ESP_PLATFORM) && defined(USE_WIFI)
+  // A question to the C6 on a P4. A radio that sleeps between beacons holds
+  // every packet for one: a ping of hundreds of ms where a few are expected.
+  wifi_ps_type_t mode;
+  if (esp_wifi_get_ps(&mode) != ESP_OK)
+    g_ps = "unknown";
+  else if (mode == WIFI_PS_NONE)
+    g_ps = "none";
+  else if (mode == WIFI_PS_MIN_MODEM)
+    g_ps = "min";
+  else if (mode == WIFI_PS_MAX_MODEM)
+    g_ps = "max";
+  else
+    g_ps = "other";
+#endif
+}
 
 void ask_c6_version() {
 #ifdef USE_ESP32_HOSTED
@@ -143,13 +168,14 @@ int facts(char *out, size_t room) {
   char spare[8];
   int n = snprintf(out, room,
                    "build=%s c6=%s rx=%d/%d tx=%s%d cache=%d ba=rx%d/tx%d wnd=%d snd=%d sack=%d heap=%u/%u rssi=%d "
-                   "up=%u reset=%s malloc=%s",
+                   "up=%u reset=%s malloc=%s reserve=%d ps=%s",
                    g_label, g_c6, CONFIG_WIFI_RMT_STATIC_RX_BUFFER_NUM, CONFIG_WIFI_RMT_DYNAMIC_RX_BUFFER_NUM, TX_KIND,
                    TX_COUNT, CONFIG_WIFI_RMT_CACHE_TX_BUFFER_NUM, CONFIG_WIFI_RMT_RX_BA_WIN, CONFIG_WIFI_RMT_TX_BA_WIN,
                    CONFIG_LWIP_TCP_WND_DEFAULT, CONFIG_LWIP_TCP_SND_BUF_DEFAULT, SACK,
                    static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL)),
                    static_cast<unsigned>(heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL)), g_rssi.load(),
-                   uptime_s(), reset_reason(spare, sizeof spare), MALLOC);
+                   uptime_s(), reset_reason(spare, sizeof spare), MALLOC, CONFIG_SPIRAM_MALLOC_RESERVE_INTERNAL,
+                   g_ps);
   if (n < 0)
     return 0;
   return n < static_cast<int>(room) ? n : static_cast<int>(room) - 1;

@@ -65,7 +65,7 @@ int main(int argc, char **argv) {
       bench::serve_sink(port, bench::facts);
   });
   std::thread source([port] { bench::serve_source(port + 1); });
-  std::thread udp([port] { bench::serve_udp(port + 2, bench::facts); });
+  std::thread udp([port] { bench::serve_udp(port + 2, bench::facts, bench::ask_power_save); });
   printf("ready\n");
   fflush(stdout);
   sink.join();

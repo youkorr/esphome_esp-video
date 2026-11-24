@@ -179,7 +179,7 @@ void serve_source(uint16_t port) {
   }
 }
 
-void serve_udp(uint16_t port, Facts facts) {
+void serve_udp(uint16_t port, Facts facts, Refresh refresh) {
   int fd = listening(SOCK_DGRAM, port);
   char buffer[2048];
   unsigned count = 0;
@@ -196,6 +196,8 @@ void serve_udp(uint16_t port, Facts facts) {
         reply[0] = 'p';
         len = 1;
       } else {
+        if (buffer[0] == 'i' && refresh != nullptr && !busy())
+          refresh();
         if (buffer[0] == '?') {
           len = snprintf(reply, sizeof reply, "count=%u ", count);
           count = 0;

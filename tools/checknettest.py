@@ -109,6 +109,7 @@ HOST_DEFINES = [
     "-DCONFIG_LWIP_TCP_SND_BUF_DEFAULT=65534",
     "-DCONFIG_LWIP_TCP_SACK_OUT=1",
     "-DCONFIG_SPIRAM_USE_MALLOC=1",
+    "-DCONFIG_SPIRAM_MALLOC_RESERVE_INTERNAL=131072",
 ]
 
 
@@ -160,7 +161,11 @@ def part_host(tmp):
         check("how long it has been up and why it last started",
               facts.get("up", "").isdigit() and facts.get("reset") == "host",
               facts)
-        check("and where malloc() goes", facts.get("malloc") == "psram", facts)
+        check("and where malloc() goes, and the internal RAM kept back",
+              facts.get("malloc") == "psram"
+              and facts.get("reserve") == "131072", facts)
+        check("and the radio's power save, which a workstation has none of",
+              facts.get("ps") == "?", facts)
         rx = first["rx"]
         check("rx: the board received everything sent, and timed it",
               rx["got"] == rx["sent"] > 0 and rx["us"] > 0
@@ -368,7 +373,7 @@ def part_syntax(tmp, esphome_src):
         ("facts.cpp, a P4 with a C6", "facts.cpp", HOST_DEFINES),
         ("facts.cpp, nothing defined", "facts.cpp", []),
         ("facts.cpp as the board builds it", "facts.cpp",
-         HOST_DEFINES + ["-DESP_PLATFORM"]),
+         HOST_DEFINES + ["-DESP_PLATFORM", "-DUSE_WIFI"]),
         ("servers.cpp as the board builds it", "servers.cpp",
          ["-DESP_PLATFORM"]),
     ]

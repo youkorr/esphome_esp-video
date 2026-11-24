@@ -29,8 +29,9 @@ void serve_source(uint16_t port);
 
 // UDP, `port`: counts datagrams. "?" answers "count=N " and the facts, and
 // starts the count again; "p" answers "p" at once (a ping); "i" answers the
-// facts alone.
-void serve_udp(uint16_t port, Facts facts);
+// facts alone, calling `refresh` first when one is given and no test runs.
+using Refresh = void (*)();
+void serve_udp(uint16_t port, Facts facts, Refresh refresh = nullptr);
 
 // Microseconds from an arbitrary start, steady.
 int64_t now_us();

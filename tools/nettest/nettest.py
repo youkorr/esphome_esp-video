@@ -234,6 +234,11 @@ def run(args):
         record["ping"] = ping(host, port + 2)
         print(f"  ping   {record['ping']['median_ms']} ms, "
               f"{record['ping']['lost']} of {record['ping']['of']} lost")
+        if (record["ping"]["median_ms"] or 0) > 50:
+            print(f"         that is slow for a ping across a room. The radio "
+                  f"says its power save is {facts.get('ps', 'unknown')}: a "
+                  f"radio that sleeps between beacons holds every packet for "
+                  f"one.")
         try:
             rx, said = send_to_board(host, port, seconds=args.seconds,
                                      rate=args.rate, timeout=args.timeout)
@@ -360,7 +365,7 @@ def table(path):
         facts = runs[-1]["facts"]
         keep = " ".join(f"{k}={facts[k]}" for k in
                         ("rx", "tx", "cache", "ba", "wnd", "snd", "sack",
-                         "malloc") if k in facts)
+                         "malloc", "reserve", "ps") if k in facts)
         print(f"- {build}, C6 {c6}: {keep}")
     stopped = [(r["facts"].get("build"), one) for r in records
                for one in r.get("stopped", [])]
