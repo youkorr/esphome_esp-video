@@ -5,7 +5,7 @@
 """Measure an ESP32-P4 + C6 running the nettest firmware, from a computer.
 
     python nettest.py 192.168.1.50
-    python nettest.py 192.168.1.50 --rounds 3 --seconds 10
+    python nettest.py 192.168.1.50 --rate 20
     python nettest.py --table
 
 Each run asks the board what it was built with, then measures:
@@ -13,7 +13,9 @@ Each run asks the board what it was built with, then measures:
   ping    20 small UDP round trips
   rx      this computer sends to the board for --seconds; the BOARD times
           what arrives (first byte to last), so the figure is what it
-          received, not what this computer managed to queue
+          received, not what this computer managed to queue, and says the
+          longest it waited between two reads. As fast as the link takes,
+          or at --rate Mbit/s, which is how a Portall sender sends
   tx      the board sends to this computer for --seconds; timed here
   burst   10 transfers of 512 KB to the board, each on its own connection,
           timed by the board -- short transfers that never leave TCP's
@@ -24,6 +26,10 @@ change it), and --table prints a Markdown table of all of them, grouped by
 the build each board said it was. Run it from a computer on a CABLE to the
 router: a computer on Wi-Fi shares the air with the board, and then the
 figure is the two radios, not the board.
+
+A test the board stops taking part in does not end the run: it is recorded,
+and the board is asked whether it restarted (and why), is still up, or does
+not answer at all -- the three need different next steps.
 
 Standard library only, so it runs on a stock Python on Windows.
 """
@@ -38,6 +44,7 @@ import time
 HERE = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_OUT = os.path.join(HERE, "nettest-results.json")
 WRITE = 65536
+PACED_WRITE = 8192
 BURST = 512 * 1024
 BURSTS = 10
 
@@ -85,10 +92,14 @@ def ping(host, port, count=20):
             "lost": count - len(times), "of": count}
 
 
-def send_to_board(host, port, seconds=None, size=None):
-    """Send for `seconds` or `size` bytes; return the board's own account."""
-    block = bytes(range(256)) * (WRITE // 256)
-    with socket.create_connection((host, port), timeout=15) as tcp:
+def send_to_board(host, port, seconds=None, size=None, rate=0.0, timeout=15):
+    """Send for `seconds` or `size` bytes, at `rate` Mbit/s if not 0, and
+    return the board's own account. Raises OSError when the board stops
+    taking data for `timeout` seconds."""
+    # Paced in smaller pieces, so a fixed rate is not a train of 64 KB bursts.
+    write = PACED_WRITE if rate else WRITE
+    block = bytes(range(256)) * (write // 256)
+    with socket.create_connection((host, port), timeout=timeout) as tcp:
         tcp.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
         sent = 0
         start = time.perf_counter()
@@ -97,7 +108,11 @@ def send_to_board(host, port, seconds=None, size=None):
                 break
             if size is not None and sent >= size:
                 break
-            piece = block if size is None else block[:min(WRITE, size - sent)]
+            if rate:
+                due = start + sent * 8 / (rate * 1e6)
+                if due > time.perf_counter():
+                    time.sleep(due - time.perf_counter())
+            piece = block if size is None else block[:min(write, size - sent)]
             tcp.sendall(piece)
             sent += len(piece)
         tcp.shutdown(socket.SHUT_WR)
@@ -110,12 +125,14 @@ def send_to_board(host, port, seconds=None, size=None):
     facts = parse_facts(reply.decode("ascii", "replace"))
     got = int(facts.get("bytes", 0))
     us = int(facts.get("us", 0))
+    gap = facts.get("gap")
     return {"sent": sent, "got": got, "us": us,
+            "gap_ms": int(gap) if gap is not None and gap.isdigit() else None,
             "mbit": round(got * 8 / us, 2) if us > 0 else None}, facts
 
 
-def receive_from_board(host, port, seconds):
-    with socket.create_connection((host, port), timeout=15) as tcp:
+def receive_from_board(host, port, seconds, timeout=15):
+    with socket.create_connection((host, port), timeout=timeout) as tcp:
         tcp.sendall(f"{seconds}\n".encode())
         got = 0
         first = last = None
@@ -133,6 +150,55 @@ def receive_from_board(host, port, seconds):
             "mbit": round(got * 8 / took / 1e6, 2) if took > 0 else None}
 
 
+def failure(err, timeout):
+    """What a test that stopped says, in words."""
+    if isinstance(err, (socket.timeout, TimeoutError)):
+        return f"the board took nothing for {timeout} s"
+    if isinstance(err, ConnectionRefusedError):
+        return "the board refused the connection"
+    if isinstance(err, (ConnectionResetError, ConnectionAbortedError)):
+        return "the board dropped the connection"
+    return f"{type(err).__name__}: {err}"
+
+
+def diagnose(host, port, before, before_at, limit=90):
+    """After a test stopped: did the board restart, is it still up, or gone?
+
+    Its uptime is compared with what it should be by now, so a restart is
+    told apart from a board that merely stopped reading. A firmware from
+    before the uptime was added cannot say, and that is said too."""
+    deadline = time.monotonic() + limit
+    while time.monotonic() < deadline:
+        answer = ask(host, port + 2, b"i", timeout=2)
+        if answer is not None:
+            now = parse_facts(answer.decode("ascii", "replace"))
+            if "up" not in now or "up" not in before:
+                return {"state": "answers", "facts": now}, (
+                    "it answers again; this firmware does not say whether it "
+                    "restarted (flash the bench again to know)")
+            expected = int(before["up"]) + (time.monotonic() - before_at)
+            # Its uptime is whole seconds: 2 s of slack, and a restart
+            # takes longer than that to come back from.
+            if int(now["up"]) < expected - 2:
+                return {"state": "restarted", "reset": now.get("reset"),
+                        "facts": now}, (
+                    f"it RESTARTED (reset reason: {now.get('reset')}), "
+                    f"up {now['up']} s")
+            return {"state": "up", "facts": now}, (
+                "it is still up and did not restart: it stopped reading")
+        time.sleep(2)
+    return {"state": "gone"}, f"it has not answered for {limit} s"
+
+
+def save(path, records):
+    saved = []
+    if os.path.exists(path):
+        with open(path, encoding="utf-8") as handle:
+            saved = json.load(handle)
+    with open(path, "w", encoding="utf-8") as handle:
+        json.dump(saved + records, handle, indent=1)
+
+
 def run(args):
     host, port = args.host, args.port
     answer = ask(host, port + 2, b"i")
@@ -141,54 +207,91 @@ def run(args):
               f"firmware on that board, and is this the board's address?")
         return 1
     facts = parse_facts(answer.decode("ascii", "replace"))
+    facts_at = time.monotonic()
     print(f"Board: {answer.decode('ascii', 'replace')}")
-    results = []
+    rate = f"{args.rate:g} Mbit/s" if args.rate else "as fast as it takes"
+    gone = False
     for round_ in range(args.rounds):
-        print(f"Round {round_ + 1} of {args.rounds}, build {facts.get('build')}:")
+        print(f"Round {round_ + 1} of {args.rounds}, build {facts.get('build')}, "
+              f"sending {rate}:")
         record = {"when": time.strftime("%Y-%m-%d %H:%M:%S"), "host": host,
-                  "note": args.note, "facts": facts}
+                  "note": args.note, "rate": args.rate, "facts": facts,
+                  "stopped": []}
+
+        def stopped(test, err):
+            nonlocal facts, facts_at, gone
+            print(f"  {test:6} STOPPED: {failure(err, args.timeout)}")
+            state, said = diagnose(host, port, facts, facts_at, args.wait)
+            print(f"         {said}")
+            record["stopped"].append({"test": test,
+                                      "error": failure(err, args.timeout),
+                                      **{k: v for k, v in state.items()
+                                         if k != "facts"}})
+            if "facts" in state:
+                facts, facts_at = state["facts"], time.monotonic()
+            gone = state["state"] == "gone"
+
         record["ping"] = ping(host, port + 2)
         print(f"  ping   {record['ping']['median_ms']} ms, "
               f"{record['ping']['lost']} of {record['ping']['of']} lost")
-        rx, said = send_to_board(host, port, seconds=args.seconds)
-        record["rx"] = rx
-        record["facts"] = {**facts, **{k: v for k, v in said.items()
-                                       if k not in ("bytes", "us")}}
-        print(f"  rx     {rx['mbit']} Mbit/s, the board received "
-              f"{rx['got']} of {rx['sent']} bytes")
-        time.sleep(1)
-        tx = receive_from_board(host, port + 1, args.seconds)
-        record["tx"] = tx
-        print(f"  tx     {tx['mbit']} Mbit/s ({tx['got']} bytes in {tx['s']} s)")
-        time.sleep(1)
+        try:
+            rx, said = send_to_board(host, port, seconds=args.seconds,
+                                     rate=args.rate, timeout=args.timeout)
+            record["rx"] = rx
+            print(f"  rx     {rx['mbit']} Mbit/s, the board received "
+                  f"{rx['got']} of {rx['sent']} bytes, its longest wait "
+                  f"between two reads {rx['gap_ms']} ms")
+        except OSError as err:
+            record["rx"] = {"mbit": None}
+            stopped("rx", err)
+        if not gone:
+            time.sleep(1)
+            try:
+                tx = receive_from_board(host, port + 1, args.seconds,
+                                        timeout=args.timeout)
+                record["tx"] = tx
+                print(f"  tx     {tx['mbit']} Mbit/s "
+                      f"({tx['got']} bytes in {tx['s']} s)")
+            except OSError as err:
+                record["tx"] = {"mbit": None}
+                stopped("tx", err)
         bursts = []
-        for _ in range(BURSTS):
-            one, _ = send_to_board(host, port, size=BURST)
-            if one["mbit"] is not None:
-                bursts.append(one["mbit"])
-            time.sleep(0.2)
+        if not gone:
+            time.sleep(1)
+            for _ in range(BURSTS):
+                try:
+                    one, _ = send_to_board(host, port, size=BURST,
+                                           timeout=args.timeout)
+                except OSError as err:
+                    stopped("burst", err)
+                    break
+                if one["mbit"] is not None:
+                    bursts.append(one["mbit"])
+                time.sleep(0.2)
         record["burst"] = {"mbit": bursts,
                            "median": round(statistics.median(bursts), 2)
                            if bursts else None}
-        print(f"  burst  {record['burst']['median']} Mbit/s median of "
-              f"{len(bursts)}")
-        after = ask(host, port + 2, b"i")
-        if after is not None:
-            record["facts"] = parse_facts(after.decode("ascii", "replace"))
-            print(f"  heap   {record['facts'].get('heap')} (free/lowest), "
-                  f"rssi {record['facts'].get('rssi')}")
-        results.append(record)
+        if bursts:
+            print(f"  burst  {record['burst']['median']} Mbit/s median of "
+                  f"{len(bursts)}")
+        if not gone:
+            after = ask(host, port + 2, b"i")
+            if after is not None:
+                facts, facts_at = (parse_facts(after.decode("ascii", "replace")),
+                                   time.monotonic())
+                record["facts"] = facts
+                print(f"  heap   {facts.get('heap')} (free/lowest), "
+                      f"rssi {facts.get('rssi')}")
+        save(args.out, [record])
+        if gone:
+            print("The board does not answer. Its log in ESPHome says why: "
+                  "keep it open during the next run.")
+            break
         if round_ + 1 < args.rounds:
             time.sleep(2)
-    saved = []
-    if os.path.exists(args.out):
-        with open(args.out, encoding="utf-8") as handle:
-            saved = json.load(handle)
-    with open(args.out, "w", encoding="utf-8") as handle:
-        json.dump(saved + results, handle, indent=1)
     print(f"Saved to {args.out}. Now flash the OTHER build and run this again;"
-          f" go back and forth at least twice, then: python nettest.py --table")
-    return 0
+          f" go back and forth at least twice, then: py nettest.py --table")
+    return 1 if gone else 0
 
 
 def spread(values, digits=1):
@@ -211,22 +314,33 @@ def table(path):
     groups = {}
     for record in records:
         facts = record.get("facts", {})
-        key = (facts.get("build", "?"), facts.get("c6", "?"))
+        key = (facts.get("build", "?"), facts.get("c6", "?"),
+               record.get("rate") or 0)
         groups.setdefault(key, []).append(record)
-    print("| build | C6 firmware | runs | TCP to the board, Mbit/s | "
-          "TCP from the board, Mbit/s | 512 KB bursts, Mbit/s | ping, ms | "
+    print("| build | C6 firmware | sent at | runs | TCP to the board, Mbit/s | "
+          "its longest wait, ms | TCP from the board, Mbit/s | "
+          "512 KB bursts, Mbit/s | ping, ms | runs that stopped | "
           "lowest free internal heap | RSSI |")
-    print("|---|---|---|---|---|---|---|---|---|")
-    for (build, c6), runs in sorted(groups.items()):
+    print("|---|---|---|---|---|---|---|---|---|---|---|---|")
+    for (build, c6, rate), runs in sorted(groups.items()):
         lowest = [int(r["facts"]["heap"].split("/")[1]) for r in runs
                   if "/" in r["facts"].get("heap", "")]
         rssi = [int(r["facts"]["rssi"]) for r in runs
                 if r["facts"].get("rssi", "").lstrip("-").isdigit()]
-        print(f"| {build} | {c6} | {len(runs)} "
-              f"| {spread([r['rx']['mbit'] for r in runs])} "
-              f"| {spread([r['tx']['mbit'] for r in runs])} "
-              f"| {spread([r['burst']['median'] for r in runs])} "
+        halted = [r for r in runs if r.get("stopped")]
+        restarts = sum(1 for r in halted for one in r["stopped"]
+                       if one.get("state") == "restarted")
+        stops = (f"{len(halted)}" + (f" ({restarts} restart"
+                                     f"{'s' if restarts > 1 else ''})"
+                                     if restarts else "")) if halted else "0"
+        print(f"| {build} | {c6} | {f'{rate:g} Mbit/s' if rate else 'full'} "
+              f"| {len(runs)} "
+              f"| {spread([r.get('rx', {}).get('mbit') for r in runs])} "
+              f"| {spread([r.get('rx', {}).get('gap_ms') for r in runs], 0)} "
+              f"| {spread([r.get('tx', {}).get('mbit') for r in runs])} "
+              f"| {spread([r.get('burst', {}).get('median') for r in runs])} "
               f"| {spread([r['ping']['median_ms'] for r in runs])} "
+              f"| {stops} "
               f"| {min(lowest) if lowest else '-'} "
               f"| {spread(rssi, 0)} |")
     print()
@@ -236,12 +350,27 @@ def table(path):
           "(esp-hosted-mcu, docs/design/performance.md, section 1.1).")
     print()
     print("What each build was compiled with, as the board reported it:")
-    for (build, c6), runs in sorted(groups.items()):
+    seen = set()
+    for (build, c6, rate), runs in sorted(groups.items()):
+        if (build, c6) in seen:
+            continue
+        seen.add((build, c6))
         facts = runs[-1]["facts"]
         keep = " ".join(f"{k}={facts[k]}" for k in
                         ("rx", "tx", "cache", "ba", "wnd", "snd", "sack")
                         if k in facts)
         print(f"- {build}, C6 {c6}: {keep}")
+    stopped = [(r["facts"].get("build"), one) for r in records
+               for one in r.get("stopped", [])]
+    if stopped:
+        print()
+        print("Tests that stopped:")
+        for build, one in stopped:
+            what = {"restarted": f"the board restarted ({one.get('reset')})",
+                    "up": "the board stayed up",
+                    "gone": "the board stopped answering",
+                    "answers": "the board answered again"}.get(one.get("state"), "")
+            print(f"- {build}, {one['test']}: {one['error']}; {what}")
     return 0
 
 
@@ -254,6 +383,16 @@ def main(argv=None):
                         help="length of each rx and tx test (default 10)")
     parser.add_argument("--rounds", type=int, default=3,
                         help="measurements per run (default 3)")
+    parser.add_argument("--rate", type=float, default=0,
+                        help="send to the board at this many Mbit/s instead "
+                             "of as fast as it takes (Portall's default "
+                             "max_rate of 3000 KiB/s is about 24.6)")
+    parser.add_argument("--timeout", type=int, default=15,
+                        help="seconds without progress before a test is "
+                             "called stopped (default 15)")
+    parser.add_argument("--wait", type=int, default=90,
+                        help="seconds to wait for the board to answer after "
+                             "a test stopped (default 90)")
     parser.add_argument("--note", default="",
                         help="kept with the results, for instance the room")
     parser.add_argument("--out", default=DEFAULT_OUT)

@@ -13583,3 +13583,26 @@ bench existed. Reproduced by removing the folder from a cached clone, and gone
 with `refresh: 0s` on the bench's entry. Any new folder in this repository
 reached through `path:` meets the same thing on a box that already builds a
 panel from it.
+
+**The first run on a panel stopped on the first TCP test, and the script fell
+over with it.** `sendall` timed out after 15 s: the board took nothing more.
+That was a dev build with guaranteed PSRAM, C6 firmware 3.1.0, and a computer
+on a cable sending as fast as it could. Ping worked. The script was then made
+to survive it: a stopped test is recorded and the run goes on.
+`diagnose()` then asks the board again until it answers, and uses the uptime
+the facts line now carries to tell three cases apart:
+
+- RESTARTED, with `esp_reset_reason()`;
+- still up but stopped reading;
+- gone.
+
+The sink also reports `gap=`, the longest wait between two reads. `--rate`
+paces the sender the way a Portall sender is paced. `checknettest.py` runs
+a stalled sink, a restart in mid-test and a vanished board. The old script
+on the stalled sink gives the user's traceback, at the same line.
+
+**Why that board stopped is NOT known yet.** bdraco reported an SDIO mempool
+OOM under TCP receive with guaranteed PSRAM, on dev and PR alike. This file
+records esp-hosted's `copy_payload` assert from a 512000 window with
+`malloc()` held internal (`_let_malloc_spill_to_psram`, which this bench
+deliberately lacks). The reset reason and the board's log settle which one.

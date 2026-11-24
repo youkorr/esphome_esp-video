@@ -106,7 +106,7 @@ void serve_sink(uint16_t port, Facts facts) {
     }
     time_out(client, 10);
     long long total = 0;
-    int64_t first = 0, last = 0;
+    int64_t first = 0, last = 0, gap = 0;
     for (;;) {
       ssize_t got = recv(client, buffer, CHUNK, 0);
       if (got <= 0)
@@ -114,11 +114,17 @@ void serve_sink(uint16_t port, Facts facts) {
       int64_t at = now_us();
       if (total == 0)
         first = at;
+      else if (at - last > gap)
+        gap = at - last;
       last = at;
       total += got;
     }
+    // gap: the longest the board waited between two reads that brought
+    // something. A stream that arrives evenly keeps it to a few ms; a stall
+    // of the radio or of the SDIO link shows up here whatever the average.
     char reply[384];
-    int len = snprintf(reply, sizeof reply, "bytes=%lld us=%lld ", total, static_cast<long long>(last - first));
+    int len = snprintf(reply, sizeof reply, "bytes=%lld us=%lld gap=%lld ", total,
+                       static_cast<long long>(last - first), static_cast<long long>(gap / 1000));
     if (len < 0 || len >= static_cast<int>(sizeof reply) - 2)
       len = 0;
     len += facts(reply + len, sizeof reply - 2 - len);

@@ -40,6 +40,7 @@ import socket
 import subprocess
 import sys
 import tempfile
+import time
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 BENCH = ROOT / "tools" / "nettest"
@@ -154,10 +155,15 @@ def part_host(tmp):
         check("its heap, free and lowest, and its signal",
               facts.get("heap") == "123456/98765" and facts.get("rssi") == "-48",
               facts)
+        check("how long it has been up and why it last started",
+              facts.get("up", "").isdigit() and facts.get("reset") == "host",
+              facts)
         rx = first["rx"]
         check("rx: the board received everything sent, and timed it",
               rx["got"] == rx["sent"] > 0 and rx["us"] > 0
               and rx["mbit"] and rx["mbit"] > 0, rx)
+        check("and said the longest it waited between two reads",
+              isinstance(rx.get("gap_ms"), int), rx)
         check("tx: something arrived for about the time asked",
               first["tx"]["got"] > 0 and 1.5 < first["tx"]["s"] < 3.0,
               first["tx"])
@@ -179,7 +185,8 @@ def part_host(tmp):
                 if line.startswith("| host ") or line.startswith("| other ")]
         check("the table has one row per build", len(rows) == 2, table.stdout)
         check("and counts the runs of each",
-              any(r.startswith("| host | 2.12.13 | 2 ") for r in rows), rows)
+              any(r.startswith("| host | 2.12.13 | full | 2 ") for r in rows),
+              rows)
         check("and says what each build was compiled with",
               "- host, C6 2.12.13: rx=16/64 tx=static16" in table.stdout
               and "- other, C6 2.12.13: rx=10/32" in table.stdout,
@@ -195,8 +202,110 @@ def part_host(tmp):
               wrong.returncode == 1 and "No answer" in wrong.stdout,
               wrong.stdout + wrong.stderr)
         check("and writes nothing", not (tmp / "none.json").exists())
+
+        paced = tmp / "paced.json"
+        done = subprocess.run(script + ["127.0.0.1", "--port", str(port),
+                                        "--rate", "20", "--seconds", "3",
+                                        "--rounds", "1", "--out", str(paced)],
+                              capture_output=True, text=True, timeout=120)
+        record = json.loads(paced.read_text())[0] if paced.exists() else {}
+        mbit = record.get("rx", {}).get("mbit")
+        check("--rate 20: the board receives about 20 Mbit/s",
+              done.returncode == 0 and mbit and 16 < mbit < 21.5,
+              (mbit, done.stdout[-600:]))
+        check("and the rate is kept with the run", record.get("rate") == 20)
     finally:
         server.kill()
+    part_stopped(tmp, binary)
+
+
+def start(binary, port, mode=""):
+    process = subprocess.Popen([str(binary), str(port), "host"]
+                               + ([mode] if mode else []),
+                               stdout=subprocess.PIPE, text=True)
+    process.stdout.readline()
+    return process
+
+
+def part_stopped(tmp, binary):
+    """A board that stops reading, one that restarts, and one that goes."""
+    print("   a board whose receive path stops:")
+    script = [sys.executable, "-u", str(BENCH / "nettest.py")]
+    quick = ["--rounds", "1", "--seconds", "2", "--timeout", "3"]
+
+    def run(name, after_stop, wait=8):
+        port = free_port()
+        board = start(binary, port, "stall")
+        # Up for a few seconds first, as a real board always is: a restart is
+        # told by an uptime smaller than it should be by now.
+        time.sleep(3)
+        out = tmp / f"{name}.json"
+        process = subprocess.Popen(script + ["127.0.0.1", "--port", str(port),
+                                             *quick, "--wait", str(wait),
+                                             "--out", str(out)],
+                                   stdout=subprocess.PIPE, text=True)
+        lines = []
+        for line in process.stdout:
+            lines.append(line)
+            if "STOPPED" in line and len([x for x in lines
+                                          if "STOPPED" in x]) == 1:
+                board = after_stop(board, port)
+        process.wait(timeout=120)
+        if board is not None:
+            board.kill()
+        record = json.loads(out.read_text())[0] if out.exists() else {}
+        return process.returncode, "".join(lines), record, out
+
+    code, text, record, up_file = run("up", lambda board, port: board)
+    stop = (record.get("stopped") or [{}])[0]
+    check("a board that stops reading: the test is called stopped, the run "
+          "goes on", code == 0 and "rx     STOPPED: the board took nothing "
+          "for 3 s" in text, text[-800:])
+    check("and it is said to be still up, not restarted",
+          "still up and did not restart" in text and stop.get("state") == "up"
+          and stop.get("test") == "rx", (stop, text[-500:]))
+    check("the next test still runs",
+          (record.get("tx", {}).get("mbit") or 0) > 0, record.get("tx"))
+
+    def restart(board, port):
+        board.kill()
+        board.wait()
+        return start(binary, port)
+    code, text, record, again_file = run("restarted", restart)
+    stop = (record.get("stopped") or [{}])[0]
+    check("a board that restarts during a test: said, with the reason",
+          "RESTARTED (reset reason: host)" in text
+          and stop.get("state") == "restarted" and stop.get("reset") == "host",
+          (stop, text[-800:]))
+    check("and the run goes on against it",
+          code == 0 and (record.get("tx", {}).get("mbit") or 0) > 0,
+          text[-500:])
+
+    def vanish(board, port):
+        board.kill()
+        board.wait()
+        return None
+    code, text, record, _ = run("gone", vanish, wait=4)
+    stop = (record.get("stopped") or [{}])[0]
+    check("a board that stops answering: said, the run ends, the log is "
+          "asked for", code == 1 and "has not answered for 4 s" in text
+          and "Its log in ESPHome says why" in text
+          and stop.get("state") == "gone", text[-800:])
+    check("and what was measured before is still saved",
+          record.get("ping", {}).get("lost") == 0, record.get("ping"))
+
+    both = tmp / "stopped.json"
+    both.write_text(json.dumps(json.loads(up_file.read_text())
+                               + json.loads(again_file.read_text())))
+    table = subprocess.run(script + ["--table", "--out", str(both)],
+                           capture_output=True, text=True, timeout=30)
+    row = [x for x in table.stdout.splitlines() if x.startswith("| host ")]
+    check("the table counts the runs that stopped and the restarts",
+          row and "| 2 (1 restart) |" in row[0], table.stdout)
+    check("and lists each one",
+          "- host, rx: the board took nothing for 3 s; the board stayed up"
+          in table.stdout and "- host, rx: the board took nothing for 3 s; "
+          "the board restarted (host)" in table.stdout, table.stdout)
 
 
 CORE_DEFINES = """#pragma once
@@ -239,6 +348,8 @@ def part_syntax(tmp, esphome_src):
         ("nettest.cpp, with Wi-Fi", "nettest.cpp", ["-DUSE_WIFI"]),
         ("facts.cpp, a P4 with a C6", "facts.cpp", HOST_DEFINES),
         ("facts.cpp, nothing defined", "facts.cpp", []),
+        ("facts.cpp as the board builds it", "facts.cpp",
+         HOST_DEFINES + ["-DESP_PLATFORM"]),
         ("servers.cpp as the board builds it", "servers.cpp",
          ["-DESP_PLATFORM"]),
     ]

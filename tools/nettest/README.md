@@ -86,12 +86,25 @@ these fields. **Update the C6 first.**
 To repeat with PSRAM not guaranteed, which is the other row of the table
 above, set `psram_optional: "true"` in both files.
 
+`--rate 20` sends to the board at 20 Mbit/s instead of as fast as the link
+takes. That is closer to a Portall sender, whose default `max_rate` of
+3000 KiB/s is about 24.6 Mbit/s. Results at different rates are kept apart in
+the table.
+
+**When a test stops.** A test the board stops taking part in (15 s without
+progress, `--timeout`) does not end the run. The run then asks the board
+whether it restarted, and with what reset reason (`panic`, `task_wdt`,
+`int_wdt`, ...), whether it is still up but stopped reading, or whether it no
+longer answers. The table counts such runs and lists each one. Keep the
+board's log open in ESPHome during a run: it says what the board was doing
+when it stopped.
+
 ## What it measures
 
 | | how |
 |---|---|
 | ping | 20 small UDP round trips |
-| TCP to the board | the computer sends for 10 s; **the board** times first byte to last |
+| TCP to the board | the computer sends for 10 s; **the board** times first byte to last, and says the longest it waited between two reads |
 | TCP from the board | the board sends for 10 s; the computer times it |
 | 512 KB bursts | ten transfers, each on its own connection, timed by the board. Short transfers never leave TCP's slow start, so they behave more like one picture than a long stream does |
 | heap | the board's free internal heap, now and at its lowest since boot |
