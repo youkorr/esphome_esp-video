@@ -1,5 +1,19 @@
 # Changelog
 
+## 4.61.1
+
+- **Coming back to the launcher no longer shows it without its wallpaper
+  first.** Back from a link, the launcher reached the screen on its plain
+  ground and the wallpaper arrived a moment later -- the wallpaper seemed to
+  disappear and come back. The add-on now keeps the page you are leaving on
+  the screen until the wallpaper is drawn, then shows the launcher whole. It
+  arrives no later than before: about a quarter of a second, measured with a
+  4K wallpaper. A launcher without a wallpaper is not held at all, and none
+  waits more than a second.
+- The same when the screen wakes after a long sleep and the launcher is
+  loaded again.
+- No panel firmware update is required.
+
 ## 4.61.0
 
 - **A memory line in the log, every hour.** Ten minutes after the start and

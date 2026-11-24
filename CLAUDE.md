@@ -13458,6 +13458,56 @@ own binary, fonts), which the cgroup files under cache -- not a fault in
 either figure. What a stutter looks like in these lines is still not known:
 the first one carries nothing to compare with.
 
+## Home showed the launcher bare, then its wallpaper -- 4.61.1
+
+**Filmed on a Waveshare 7B** (a phone video, no words beyond *"quand je
+reviens dans le Dashboard il y a plus de fond d'écran et ensuite il
+revient"*): back from a link, one picture of the launcher on its plain
+ground, then the wallpaper. Frames came out of the .MOV with the system's
+ffmpeg this time (`fps=4,scale=320:-1,tile=4x8` makes one contact sheet).
+
+Since 4.31.4 coming home to the add-on's own launcher is `go_to()` at
+commit with no settle, so its first paint goes straight out -- and a page
+does not wait for a background picture before painting. From a link on
+another site the launcher is a new renderer with nothing of it in memory,
+so the first paint always beat the decode of a large wallpaper.
+
+**`/wallpaper` was served `no-store` under a comment saying it was the one
+thing worth caching.** Caching it was tried first and it is not the fix:
+with the link on the SAME site (127.0.0.1, another port) 4 in 4 came home
+whole, because the renderer kept the picture; with the link on another site
+(127.0.0.2, which is what every real link is) 5 in 6 still showed the bare
+ground. The comment now says why it stays `no-store` -- the address is the
+same whatever the picture, so a Files-page choice would show stale. **A test
+link on the same site as the launcher hides this fault entirely**; the check
+puts it on 127.0.0.2.
+
+The fix is a hold, the page saying when to let go. `launcher.WALL_READY_JS`
+loads an Image of the wallpaper's own address, `decode()`s it, waits two
+animation frames and calls `__udispWallReady(true)`; with no wallpaper, a
+video, or a picture that will not load, it calls it with `false`.
+`WallReady` (ha_send.py) takes the call only from the home origin's top
+frame and remembers `has_wall`. Coming home -- and waking a parked launcher
+-- sets `wall_wait` to `WALL_WAIT_S` (1.0) unless the launcher last said it
+has none; the release condition skips while it stands; when the page says
+so, `Screencast.fetch_now()` takes the page as it stands (a JPEG screenshot
+at the screencast's quality), because the frame in hand may be the one
+painted before the picture and a still page will not paint again. A wait
+that runs out says so once a time in the log.
+
+`tools/checkhomewall.py` (a 4.9 MB noise-over-magenta 4K JPEG, the shipped
+launcher and sender, a fake panel rebuilt from the rectangles, read at a
+corner only the wallpaper covers): the previous sender showed the bare
+ground at 170-230 ms and the wallpaper at 230-340; now the first picture of
+home IS the wallpaper, at 280-330 ms, so nothing is slower. A launcher with
+no wallpaper comes home in 73-90 ms with nothing waited for. Taking
+`fetch_now` out still passed here, because two animation frames after the
+decode the screencast's own frame had already arrived; it stays for a box
+where it has not. Waking after the page was parked passed with the old
+sender too (`open_page`'s 150 ms settle was enough here) and is guarded the
+same way for a slower one. **Not seen on a panel.** The screen saver's page
+loads its picture the same way and is not held.
+
 ## Repository conventions
 
 - Work on branch `claude/esphome-pr-outdated-mdq36w`, then merge into `main`
