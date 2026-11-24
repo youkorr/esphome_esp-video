@@ -452,9 +452,12 @@ def part_yaml(args):
     ).replace(
         "    refresh: 0s\n",
         "    refresh: 0s\n"
-        "  # The pull request's wifi component, fetched fresh at every build.\n"
+        "  # The pull request's components, fetched fresh at every build. Both: since\n"
+        "  # its 90beeffb the wifi component asks esp32_hosted for the co-processor's\n"
+        "  # variant, and dev's esp32_hosted has no such question -- with wifi alone\n"
+        "  # the build fails. Dev has not touched either since the PR's base.\n"
         "  - source: github://pr#23122\n"
-        "    components: [wifi]\n"
+        "    components: [wifi, esp32_hosted]\n"
         "    refresh: 0s\n",
     ).replace("  label: dev\n", "  label: pr\n")
     check("nettest-pr.yaml is nettest-dev.yaml with the PR's wifi and its "
@@ -507,8 +510,13 @@ def part_yaml(args):
               rmt_dev)
         check(f"PSRAM {mode}: pr sends it the pull request's values",
               rmt_pr == want, rmt_pr)
-        others_dev = {k: v for k, v in dev_o.items() if "WIFI_RMT" not in k}
-        others_pr = {k: v for k, v in pr_o.items() if "WIFI_RMT" not in k}
+        # CONFIG_ESP_WIFI_* belong to a radio of the P4's own, which it does
+        # not have: since 90beeffb the PR no longer writes them there, and
+        # nothing on a P4 reads them. Everything else must be the same.
+        others_dev = {k: v for k, v in dev_o.items() if "WIFI_RMT" not in k
+                      and not k.startswith("CONFIG_ESP_WIFI_")}
+        others_pr = {k: v for k, v in pr_o.items() if "WIFI_RMT" not in k
+                     and not k.startswith("CONFIG_ESP_WIFI_")}
         differ = {k for k in set(others_dev) | set(others_pr)
                   if others_dev.get(k) != others_pr.get(k)}
         check(f"PSRAM {mode}: and every other option is the same in both",
