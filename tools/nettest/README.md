@@ -6,6 +6,14 @@ table at the end. Written to measure
 (high-performance Wi-Fi settings sent to the C6) on a link fast enough to
 show what it does.
 
+**Merged into ESPHome's `dev` on 2026-11-24, as b9f62b9.** An ESPHome built
+from `dev` after that commit already carries the pull request's settings, so
+`nettest-dev.yaml` built with it is the PR build too, and `nettest-pr.yaml`
+adds nothing. A "before" build now needs an ESPHome from before b9f62b9.
+`github://pr#23122` keeps answering, since GitHub keeps a merged pull
+request's head, but it is a frozen copy of `wifi` and `esp32_hosted` that will
+drift from `dev` as `dev` moves.
+
 | file | what it is |
 |---|---|
 | `nettest-dev.yaml` | ESPHome as it is |
@@ -80,15 +88,49 @@ not be received. That is the "SDIO mempool OOM under TCP receive with
 guaranteed PSRAM" the pull request's first test reported, on dev and the PR
 alike.
 
-So both bench files set `malloc_to_psram: "true"` by default:
+Both bench files therefore carry `malloc_to_psram:`, which turns on
 `CONFIG_SPIRAM_USE_MALLOC`, with every allocation of up to 128 KB still trying
-internal RAM first. It is the same change in both builds, so the comparison
-stays fair, and it is what a Portall panel already sets. With `"false"` the
-bench is ESPHome as it is, and reproduces the stall. Every reply says which
-(`malloc=psram` or `malloc=internal`), and the table keeps them apart.
+internal RAM first. Every reply says which (`malloc=psram` or
+`malloc=internal`), and the table keeps them apart.
+
+**It was not enough.** With it, the next run on the same board stopped the
+same way: free internal heap down to 17 KB at its lowest, a task watchdog, a
+round ended by a restart. Read rather than measured: some of what esp-hosted
+takes cannot come from PSRAM at all (its SDIO buffers are
+`heap_caps_malloc(..., MALLOC_CAP_DMA)`, `eh_mempool.h`), and ESP-IDF keeps
+32 KB of internal RAM back (`SPIRAM_MALLOC_RESERVE_INTERNAL`) that a plain
+`malloc()` reaches only once PSRAM is full too.
+
+**What made the runs clean is the window.** With `psram_optional: "true"`,
+ESPHome falls back to a 65534-byte TCP window, and the same board then
+received at 30 to 32 Mbit/s round after round, with `malloc_to_psram` on or
+off. So the stall belongs to the 512000-byte window together with
+esp-hosted's internal copies, on `dev` and on the pull request alike. It is
+ESPHome's, not the pull request's.
 
 While a test runs, the bench does not ask the C6 for the signal strength
 either, so the bench cannot cause such a wait itself.
+
+## What the runs measured
+
+ESPHome 2026.12.0-dev, C6 firmware 3.1.0, PSRAM not guaranteed (window
+65534), `power_save_mode: none`, `post_connect_roaming: false`, a computer on
+a cable to the router. Mbit/s, one figure per round:
+
+| board | build | to the board | from the board | 512 KB bursts | ping |
+|---|---|---|---|---|---|
+| Waveshare 7B | dev | 31.1, 30.35, 29.6 | 36.17, 29.34, 30.77 | 32.46, 31.73, 32.06 | 4.6-5.0 ms |
+| Guition 10" | pr | 30-32.4 | 30-36 | 30-32 | 4.3-5.0 ms |
+
+Both are at the figure Espressif publishes for this hardware (about 30 and
+32 Mbit/s, below). On these boards the pull request changes no throughput
+that can be told from one round to the next. Earlier runs with the radio's
+power saving on gave the same throughput on both builds, with every ping at
+a steady 256 ms: `power_save_mode: none` is what brings it to 5 ms.
+
+What was NOT measured: either build with guaranteed PSRAM, since both stop
+receiving there (above), and a dev/pr pair on one board with every setting
+alike; the Guition's dev half was not run.
 
 ## How to measure
 
