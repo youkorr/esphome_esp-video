@@ -185,19 +185,36 @@ def part_host(tmp):
                                capture_output=True, text=True, timeout=30)
         print("    " + "\n    ".join(table.stdout.strip().splitlines()[:5]))
         rows = [line for line in table.stdout.splitlines()
-                if line.startswith("| host ") or line.startswith("| other ")]
+                if line.startswith("| 127.0.0.1 | host ")
+                or line.startswith("| 127.0.0.1 | other ")]
         check("the table has one row per build", len(rows) == 2, table.stdout)
         check("and counts the runs of each",
-              any(r.startswith("| host | 2.12.13 | psram | full | 2 ")
+              any(r.startswith("| 127.0.0.1 | host | 2.12.13 | psram | full | 2 ")
                   for r in rows),
               rows)
         check("and says what each build was compiled with",
-              "- host, C6 2.12.13: rx=16/64 tx=static16" in table.stdout
+              "- 127.0.0.1, host, C6 2.12.13: rx=16/64 tx=static16" in table.stdout
               and "sack=1 malloc=psram" in table.stdout
-              and "- other, C6 2.12.13: rx=10/32" in table.stdout,
+              and "- 127.0.0.1, other, C6 2.12.13: rx=10/32" in table.stdout,
               table.stdout)
         check("and gives Espressif's own figures beside them",
               "about 30 Mbit/s to the board and 32 from it" in table.stdout)
+
+        # Two boards measured into one file, which is what a household did:
+        # the same build on another address is another row, not more runs.
+        second = dict(records[0])
+        second["host"] = "192.168.1.15"
+        out.write_text(json.dumps(records + [second]))
+        table = subprocess.run(script + ["--table", "--out", str(out)],
+                               capture_output=True, text=True, timeout=30)
+        rows = [line for line in table.stdout.splitlines()
+                if " | host | 2.12.13 | psram | full | " in line]
+        check("two boards in one file are two rows, each with its own runs",
+              len(rows) == 2
+              and any(r.startswith("| 127.0.0.1 | host | 2.12.13 | psram | "
+                                   "full | 2 ") for r in rows)
+              and any(r.startswith("| 192.168.1.15 | host | 2.12.13 | psram | "
+                                   "full | 1 ") for r in rows), table.stdout)
 
         nobody = free_port()
         wrong = subprocess.run(script + ["127.0.0.1", "--port", str(nobody),
@@ -318,11 +335,12 @@ def part_stopped(tmp, binary):
                                + json.loads(again_file.read_text())))
     table = subprocess.run(script + ["--table", "--out", str(both)],
                            capture_output=True, text=True, timeout=30)
-    row = [x for x in table.stdout.splitlines() if x.startswith("| host ")]
+    row = [x for x in table.stdout.splitlines()
+           if x.startswith("| 127.0.0.1 | host ")]
     check("the table counts the runs that stopped and the restarts",
           row and "| 2 (1 restart) |" in row[0], table.stdout)
     check("and lists each one",
-          "- host, rx: the board took nothing for 3 s; the board stayed up"
+          "- 127.0.0.1, host, rx: the board took nothing for 3 s; the board stayed up"
           in table.stdout and "; the board restarted (host)" in table.stdout,
           table.stdout)
 

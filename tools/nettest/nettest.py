@@ -314,16 +314,19 @@ def table(path):
     groups = {}
     for record in records:
         facts = record.get("facts", {})
-        key = (facts.get("build", "?"), facts.get("c6", "?"),
-               facts.get("malloc", "?"), record.get("rate") or 0)
+        # By board first: two boards measured into one file are two
+        # experiments, and every record says which address it measured.
+        key = (record.get("host", "?"), facts.get("build", "?"),
+               facts.get("c6", "?"), facts.get("malloc", "?"),
+               record.get("rate") or 0)
         groups.setdefault(key, []).append(record)
-    print("| build | C6 firmware | malloc | sent at | runs | "
+    print("| board | build | C6 firmware | malloc | sent at | runs | "
           "TCP to the board, Mbit/s | "
           "its longest wait, ms | TCP from the board, Mbit/s | "
           "512 KB bursts, Mbit/s | ping, ms | runs that stopped | "
           "lowest free internal heap | RSSI |")
-    print("|---|---|---|---|---|---|---|---|---|---|---|---|---|")
-    for (build, c6, malloc, rate), runs in sorted(groups.items()):
+    print("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|")
+    for (host, build, c6, malloc, rate), runs in sorted(groups.items()):
         lowest = [int(r["facts"]["heap"].split("/")[1]) for r in runs
                   if "/" in r["facts"].get("heap", "")]
         rssi = [int(r["facts"]["rssi"]) for r in runs
@@ -334,7 +337,7 @@ def table(path):
         stops = (f"{len(halted)}" + (f" ({restarts} restart"
                                      f"{'s' if restarts > 1 else ''})"
                                      if restarts else "")) if halted else "0"
-        print(f"| {build} | {c6} | {malloc} "
+        print(f"| {host} | {build} | {c6} | {malloc} "
               f"| {f'{rate:g} Mbit/s' if rate else 'full'} "
               f"| {len(runs)} "
               f"| {spread([r.get('rx', {}).get('mbit') for r in runs])} "
@@ -353,26 +356,26 @@ def table(path):
     print()
     print("What each build was compiled with, as the board reported it:")
     seen = set()
-    for (build, c6, malloc, rate), runs in sorted(groups.items()):
-        if (build, c6, malloc) in seen:
+    for (host, build, c6, malloc, rate), runs in sorted(groups.items()):
+        if (host, build, c6, malloc) in seen:
             continue
-        seen.add((build, c6, malloc))
+        seen.add((host, build, c6, malloc))
         facts = runs[-1]["facts"]
         keep = " ".join(f"{k}={facts[k]}" for k in
                         ("rx", "tx", "cache", "ba", "wnd", "snd", "sack",
                          "malloc") if k in facts)
-        print(f"- {build}, C6 {c6}: {keep}")
-    stopped = [(r["facts"].get("build"), one) for r in records
-               for one in r.get("stopped", [])]
+        print(f"- {host}, {build}, C6 {c6}: {keep}")
+    stopped = [(r.get("host", "?"), r["facts"].get("build"), one)
+               for r in records for one in r.get("stopped", [])]
     if stopped:
         print()
         print("Tests that stopped:")
-        for build, one in stopped:
+        for host, build, one in stopped:
             what = {"restarted": f"the board restarted ({one.get('reset')})",
                     "up": "the board stayed up",
                     "gone": "the board stopped answering",
                     "answers": "the board answered again"}.get(one.get("state"), "")
-            print(f"- {build}, {one['test']}: {one['error']}; {what}")
+            print(f"- {host}, {build}, {one['test']}: {one['error']}; {what}")
     return 0
 
 
