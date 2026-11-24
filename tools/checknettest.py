@@ -40,6 +40,7 @@ import socket
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -107,6 +108,7 @@ HOST_DEFINES = [
     "-DCONFIG_LWIP_TCP_WND_DEFAULT=512000",
     "-DCONFIG_LWIP_TCP_SND_BUF_DEFAULT=65534",
     "-DCONFIG_LWIP_TCP_SACK_OUT=1",
+    "-DCONFIG_SPIRAM_USE_MALLOC=1",
 ]
 
 
@@ -158,6 +160,7 @@ def part_host(tmp):
         check("how long it has been up and why it last started",
               facts.get("up", "").isdigit() and facts.get("reset") == "host",
               facts)
+        check("and where malloc() goes", facts.get("malloc") == "psram", facts)
         rx = first["rx"]
         check("rx: the board received everything sent, and timed it",
               rx["got"] == rx["sent"] > 0 and rx["us"] > 0
@@ -185,10 +188,12 @@ def part_host(tmp):
                 if line.startswith("| host ") or line.startswith("| other ")]
         check("the table has one row per build", len(rows) == 2, table.stdout)
         check("and counts the runs of each",
-              any(r.startswith("| host | 2.12.13 | full | 2 ") for r in rows),
+              any(r.startswith("| host | 2.12.13 | psram | full | 2 ")
+                  for r in rows),
               rows)
         check("and says what each build was compiled with",
               "- host, C6 2.12.13: rx=16/64 tx=static16" in table.stdout
+              and "sack=1 malloc=psram" in table.stdout
               and "- other, C6 2.12.13: rx=10/32" in table.stdout,
               table.stdout)
         check("and gives Espressif's own figures beside them",
@@ -233,7 +238,7 @@ def part_stopped(tmp, binary):
     script = [sys.executable, "-u", str(BENCH / "nettest.py")]
     quick = ["--rounds", "1", "--seconds", "2", "--timeout", "3"]
 
-    def run(name, after_stop, wait=8):
+    def run(name, after_stop, wait=8, when="STOPPED"):
         port = free_port()
         board = start(binary, port, "stall")
         # Up for a few seconds first, as a real board always is: a restart is
@@ -247,8 +252,10 @@ def part_stopped(tmp, binary):
         lines = []
         for line in process.stdout:
             lines.append(line)
-            if "STOPPED" in line and len([x for x in lines
-                                          if "STOPPED" in x]) == 1:
+            # Once, at the first line that says it: after the script has
+            # asked the board whether it is still there would be too late
+            # for a board that is meant to be gone by then.
+            if when in line and len([x for x in lines if when in x]) == 1:
                 board = after_stop(board, port)
         process.wait(timeout=120)
         if board is not None:
@@ -267,11 +274,23 @@ def part_stopped(tmp, binary):
     check("the next test still runs",
           (record.get("tx", {}).get("mbit") or 0) > 0, record.get("tx"))
 
+    # Restarted while the receive test is under way, as a board that
+    # crashes does: by the time the run asks after it, it is a new one.
+    # Not at the STOPPED line, which the run follows at once with its own
+    # question -- the old board would still be there to answer it.
+    fresh = []
+
     def restart(board, port):
-        board.kill()
-        board.wait()
-        return start(binary, port)
-    code, text, record, again_file = run("restarted", restart)
+        def later():
+            time.sleep(1.5)
+            board.kill()
+            board.wait()
+            fresh.append(start(binary, port))
+        threading.Thread(target=later, daemon=True).start()
+        return None
+    code, text, record, again_file = run("restarted", restart, when="ping")
+    for one in fresh:
+        one.kill()
     stop = (record.get("stopped") or [{}])[0]
     check("a board that restarts during a test: said, with the reason",
           "RESTARTED (reset reason: host)" in text
@@ -285,7 +304,7 @@ def part_stopped(tmp, binary):
         board.kill()
         board.wait()
         return None
-    code, text, record, _ = run("gone", vanish, wait=4)
+    code, text, record, _ = run("gone", vanish, wait=4, when="ping")
     stop = (record.get("stopped") or [{}])[0]
     check("a board that stops answering: said, the run ends, the log is "
           "asked for", code == 1 and "has not answered for 4 s" in text
@@ -304,8 +323,8 @@ def part_stopped(tmp, binary):
           row and "| 2 (1 restart) |" in row[0], table.stdout)
     check("and lists each one",
           "- host, rx: the board took nothing for 3 s; the board stayed up"
-          in table.stdout and "- host, rx: the board took nothing for 3 s; "
-          "the board restarted (host)" in table.stdout, table.stdout)
+          in table.stdout and "; the board restarted (host)" in table.stdout,
+          table.stdout)
 
 
 CORE_DEFINES = """#pragma once
@@ -362,7 +381,7 @@ def part_syntax(tmp, esphome_src):
 PR_SOURCE = re.compile(r"( *)- source: github://pr#23122\n")
 
 
-def stage_yaml(text, pr_components, psram_optional):
+def stage_yaml(text, pr_components, psram_optional, malloc=True):
     sys.path.insert(0, str(ROOT / "tools"))
     from checkyaml import GIT_SOURCE  # noqa: E402
     text = GIT_SOURCE.sub(
@@ -375,10 +394,13 @@ def stage_yaml(text, pr_components, psram_optional):
     text = text.replace("    refresh: 0s\n", "")
     want = f'  psram_optional: "{"true" if psram_optional else "false"}"\n'
     text = text.replace('  psram_optional: "false"\n', want)
+    if not malloc:
+        text = text.replace('  malloc_to_psram: "true"\n',
+                            '  malloc_to_psram: "false"\n')
     return text
 
 
-def codegen_one(yaml_path, pr_components, psram_optional):
+def codegen_one(yaml_path, pr_components, psram_optional, malloc=True):
     """Runs inside the esphome venv: prints a JSON line of what came out."""
     sys.path.insert(0, str(ROOT / "tools"))
     from checkyaml import secrets_for  # noqa: E402
@@ -388,7 +410,8 @@ def codegen_one(yaml_path, pr_components, psram_optional):
         (tmp / "secrets.yaml").write_text(
             "".join(f'{k}: "{v}"\n' for k, v in secrets_for(text).items()))
         target = tmp / pathlib.Path(yaml_path).name
-        target.write_text(stage_yaml(text, pr_components, psram_optional))
+        target.write_text(stage_yaml(text, pr_components, psram_optional,
+                                     malloc))
         import esphome.config as config_module
         from esphome.__main__ import generate_cpp_contents
         from esphome.components.esp32 import KEY_ESP32, KEY_SDKCONFIG_OPTIONS
@@ -455,7 +478,7 @@ def part_yaml(args):
             done = subprocess.run(
                 [args.esphome_python, __file__, "--codegen-one",
                  str(BENCH / f"nettest-{name}.yaml"), str(args.pr_components),
-                 "1" if optional else "0"],
+                 "1" if optional else "0", "1"],
                 capture_output=True, text=True, env=env, timeout=600)
             line = [x for x in done.stdout.splitlines()
                     if x.startswith("RESULT ")]
@@ -489,6 +512,24 @@ def part_yaml(args):
               dev_o.get("CONFIG_LWIP_TCP_WND_DEFAULT") == (
                   65534 if optional else 512000),
               dev_o.get("CONFIG_LWIP_TCP_WND_DEFAULT"))
+    for name in ("dev", "pr"):
+        options = results[(name, False)]["options"]
+        check(f"{name}: malloc() may spill into PSRAM, as the file asks",
+              options.get("CONFIG_SPIRAM_USE_MALLOC") is True
+              and options.get("CONFIG_SPIRAM_USE_CAPS_ALLOC") is False
+              and options.get("CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL") == 131072,
+              {k: v for k, v in options.items() if "SPIRAM_" in k})
+    done = subprocess.run(
+        [args.esphome_python, __file__, "--codegen-one",
+         str(BENCH / "nettest-dev.yaml"), str(args.pr_components), "0", "0"],
+        capture_output=True, text=True, env=env, timeout=600)
+    line = [x for x in done.stdout.splitlines() if x.startswith("RESULT ")]
+    plain = json.loads(line[0][7:])["options"] if line else {}
+    check("malloc_to_psram: false is ESPHome as it is: malloc() internal",
+          plain.get("CONFIG_SPIRAM_USE_CAPS_ALLOC") is True
+          and "CONFIG_SPIRAM_USE_MALLOC" not in plain,
+          {k: v for k, v in plain.items() if "SPIRAM_" in k}
+          or (done.stdout + done.stderr)[-1500:])
     check("each build is labelled in the code it generates",
           any('"dev"' in s for s in results[("dev", False)]["label"])
           and any('"pr"' in s for s in results[("pr", False)]["label"]),
@@ -497,7 +538,8 @@ def part_yaml(args):
 
 def main():
     if len(sys.argv) > 1 and sys.argv[1] == "--codegen-one":
-        return codegen_one(sys.argv[2], sys.argv[3], sys.argv[4] == "1")
+        return codegen_one(sys.argv[2], sys.argv[3], sys.argv[4] == "1",
+                           sys.argv[5] != "0")
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--esphome-python")
     parser.add_argument("--esphome-src")

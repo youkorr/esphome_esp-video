@@ -14,7 +14,8 @@ show what it does.
 | `components/nettest/` | three plain socket servers, and a line saying what the build is |
 
 The two YAMLs are identical line for line apart from the label and the
-`external_components` entry that brings in the pull request.
+`external_components` entry that brings in the pull request. Both carry
+`malloc_to_psram` (see below).
 `tools/checknettest.py` keeps them so.
 
 ## What differs between the two builds
@@ -53,6 +54,41 @@ it has, and re-initialises Wi-Fi when they differ
 (`eh_cp_feat_wifi_init.c` in esp-hosted-mcu). A C6 that reports `0.0.0` is
 older than the firmware ESPHome offers. Nothing here says what it does with
 these fields. **Update the C6 first.**
+
+## What the first run on a board found: ESPHome stops receiving
+
+The first run used ESPHome dev as it is: guaranteed PSRAM, C6 firmware 3.1.0,
+and a computer on a cable sending as fast as it could. The board stopped
+taking data within seconds, in every round. Its log:
+
+```
+[E][eh_sdio:000][sdio_process_rx]: bus_rx: payload copy alloc failed len=1490
+[I][nettest:067]: ... heap=27624/20396 ...    (free internal heap: 476 KB before)
+E (105497) task_wdt: Task watchdog got triggered ... loopTask (CPU 1)
+E (105497) task_wdt: CPU 0: IDLE0   CPU 1: IDLE1
+```
+
+esp-hosted 3.1.0 copies every received packet with a plain `malloc()`
+(`eh_host_bus_sdio.c`, `sdio_process_rx`). ESPHome builds with
+`CONFIG_SPIRAM_USE_CAPS_ALLOC`, which keeps `malloc()` in internal RAM. And
+its high-performance networking opens a 512000-byte TCP window, which is
+more than a P4's internal RAM holds once a loss leaves segments waiting.
+Internal RAM falls to about 20 KB, every further packet is dropped, and TCP
+stops. The watchdog that ended one round fired with both cores idle: the
+loop was waiting for something, most likely an answer from the C6 that could
+not be received. That is the "SDIO mempool OOM under TCP receive with
+guaranteed PSRAM" the pull request's first test reported, on dev and the PR
+alike.
+
+So both bench files set `malloc_to_psram: "true"` by default:
+`CONFIG_SPIRAM_USE_MALLOC`, with every allocation of up to 128 KB still trying
+internal RAM first. It is the same change in both builds, so the comparison
+stays fair, and it is what a Portall panel already sets. With `"false"` the
+bench is ESPHome as it is, and reproduces the stall. Every reply says which
+(`malloc=psram` or `malloc=internal`), and the table keeps them apart.
+
+While a test runs, the bench does not ask the C6 for the signal strength
+either, so the bench cannot cause such a wait itself.
 
 ## How to measure
 

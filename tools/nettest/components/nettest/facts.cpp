@@ -61,6 +61,14 @@ static const int SACK = 1;
 static const int SACK = 0;
 #endif
 
+// Where a plain malloc() goes when internal RAM is short, which is where
+// esp-hosted's copy of every received packet goes.
+#ifdef CONFIG_SPIRAM_USE_MALLOC
+static const char MALLOC[] = "psram";
+#else
+static const char MALLOC[] = "internal";
+#endif
+
 // Why the board last started, so a run that stopped can tell a board that
 // restarted from one that only stopped reading. The common ones by name,
 // the rest by number.
@@ -135,13 +143,13 @@ int facts(char *out, size_t room) {
   char spare[8];
   int n = snprintf(out, room,
                    "build=%s c6=%s rx=%d/%d tx=%s%d cache=%d ba=rx%d/tx%d wnd=%d snd=%d sack=%d heap=%u/%u rssi=%d "
-                   "up=%u reset=%s",
+                   "up=%u reset=%s malloc=%s",
                    g_label, g_c6, CONFIG_WIFI_RMT_STATIC_RX_BUFFER_NUM, CONFIG_WIFI_RMT_DYNAMIC_RX_BUFFER_NUM, TX_KIND,
                    TX_COUNT, CONFIG_WIFI_RMT_CACHE_TX_BUFFER_NUM, CONFIG_WIFI_RMT_RX_BA_WIN, CONFIG_WIFI_RMT_TX_BA_WIN,
                    CONFIG_LWIP_TCP_WND_DEFAULT, CONFIG_LWIP_TCP_SND_BUF_DEFAULT, SACK,
                    static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL)),
                    static_cast<unsigned>(heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL)), g_rssi.load(),
-                   uptime_s(), reset_reason(spare, sizeof spare));
+                   uptime_s(), reset_reason(spare, sizeof spare), MALLOC);
   if (n < 0)
     return 0;
   return n < static_cast<int>(room) ? n : static_cast<int>(room) - 1;

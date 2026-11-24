@@ -54,8 +54,12 @@ void NetTest::loop() {
   const uint32_t now = millis();
 #ifdef USE_WIFI
   // Read here, on the loop, and only copied out by the server tasks: the
-  // Wi-Fi component is not something to call from another task.
-  if (now - this->last_rssi_ > 5000 && wifi::global_wifi_component != nullptr) {
+  // Wi-Fi component is not something to call from another task. Never while
+  // a test runs: on a P4 it is a question to the C6, and its answer is one
+  // more packet to receive -- when that receive path is the thing failing,
+  // the loop waits for an answer that was dropped, and the task watchdog
+  // ends the board. Seen on a panel, both cores idle.
+  if (now - this->last_rssi_ > 5000 && wifi::global_wifi_component != nullptr && !::bench::busy()) {
     this->last_rssi_ = now;
     ::bench::set_rssi(wifi::global_wifi_component->wifi_rssi());
   }

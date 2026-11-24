@@ -24,6 +24,13 @@ substitutions:
   # "false": PSRAM is guaranteed, which is what turns on ESPHome's
   # high-performance settings in full. "true" is the other row of the table.
   psram_optional: "false"
+  # "true": the board's malloc() may spill into PSRAM, as a Portall panel's
+  # does. ESPHome keeps it in internal RAM, and esp-hosted copies every
+  # received packet with malloc(): sending to the board as fast as a cabled
+  # computer can then fills internal RAM, packets are dropped and TCP
+  # receive stops ("bus_rx: payload copy alloc failed" in the log). "false"
+  # is ESPHome as it is, and shows exactly that. The same in BOTH files.
+  malloc_to_psram: "true"
 
 esphome:
   name: ${name}
@@ -84,11 +91,6 @@ update:
     source: https://esphome.github.io/esp-hosted-firmware/manifest/esp32c6.json
     update_interval: 6h
 
-sensor:
-  - platform: wifi_signal
-    name: "Wi-Fi signal"
-    update_interval: 30s
-
 external_components:
   - source:
       type: git
@@ -108,3 +110,4 @@ external_components:
 
 nettest:
   label: pr
+  malloc_to_psram: ${malloc_to_psram}
