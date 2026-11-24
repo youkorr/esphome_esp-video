@@ -1802,7 +1802,7 @@ the dashboard, where it is invisible while the keys go on working.
 ahead of the `pip install` as well as the `ADD`s, so a bump refetched
 everything — at the cost of the browser download on each update.
 `present_browser()` prints the Chromium version at startup and warns below 114,
-so this is never diagnosed by guesswork again. Currently **4.61.0**.
+so this is never diagnosed by guesswork again. Currently **4.61.1**.
 
 **CORRECTED in 4.29.5: the cost was every update, and a pin removes it.**
 Asked as *"verifie addon ... si il ya pas des elements qui freine la
@@ -13507,6 +13507,14 @@ where it has not. Waking after the page was parked passed with the old
 sender too (`open_page`'s 150 ms settle was enough here) and is guarded the
 same way for a slower one. **Not seen on a panel.** The screen saver's page
 loads its picture the same way and is not held.
+
+The launcher and home-path checks pass on it: checknavbar, checkhint,
+checkhinttime, checkfollow, checkpanels, checktiles, checkactiontiles,
+checkavatar, checkresume, checkkeyboard, checkfiles, checkalerts,
+checknotices, checkmade. checksaver failed two timing cases in that batch
+("the saver comes back after the delay again", "the screen going dark
+stops the saver's page") and passed alone twice on this sender and once on
+the previous one -- timing in a long batch, not this change.
 
 ## Repository conventions
 
