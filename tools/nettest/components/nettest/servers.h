@@ -35,4 +35,8 @@ void serve_udp(uint16_t port, Facts facts);
 // Microseconds from an arbitrary start, steady.
 int64_t now_us();
 
+// True while a client is connected or was in the last three seconds: the
+// time not to ask the C6 for anything that is not the test itself.
+bool busy();
+
 }  // namespace bench

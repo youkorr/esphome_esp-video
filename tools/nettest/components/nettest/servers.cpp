@@ -9,6 +9,7 @@
 #include <sys/time.h>
 #include <unistd.h>
 
+#include <atomic>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -82,6 +83,12 @@ static int listening(int type, uint16_t port) {
   }
 }
 
+static std::atomic<int64_t> g_active_at{0};
+
+static void touch() { g_active_at = now_us(); }
+
+bool busy() { return now_us() - g_active_at.load() < 3000000; }
+
 static bool send_all(int fd, const char *data, size_t len) {
   while (len > 0) {
     ssize_t sent = send(fd, data, len, 0);
@@ -105,6 +112,7 @@ void serve_sink(uint16_t port, Facts facts) {
       continue;
     }
     time_out(client, 10);
+    touch();
     long long total = 0;
     int64_t first = 0, last = 0, gap = 0;
     for (;;) {
@@ -112,6 +120,7 @@ void serve_sink(uint16_t port, Facts facts) {
       if (got <= 0)
         break;
       int64_t at = now_us();
+      g_active_at = at;
       if (total == 0)
         first = at;
       else if (at - last > gap)
@@ -163,6 +172,7 @@ void serve_source(uint16_t port) {
       seconds = 120;
     const int64_t until = now_us() + static_cast<int64_t>(seconds) * 1000000;
     while (now_us() < until && send_all(client, buffer, CHUNK)) {
+      touch();
     }
     shutdown(client, SHUT_WR);
     close(client);

@@ -13601,8 +13601,29 @@ paces the sender the way a Portall sender is paced. `checknettest.py` runs
 a stalled sink, a restart in mid-test and a vanished board. The old script
 on the stalled sink gives the user's traceback, at the same line.
 
-**Why that board stopped is NOT known yet.** bdraco reported an SDIO mempool
-OOM under TCP receive with guaranteed PSRAM, on dev and PR alike. This file
-records esp-hosted's `copy_payload` assert from a 512000 window with
-`malloc()` held internal (`_let_malloc_spill_to_psram`, which this bench
-deliberately lacks). The reset reason and the board's log settle which one.
+**Why it stopped, from the board's own log:**
+
+    [E][eh_sdio:000][sdio_process_rx]: bus_rx: payload copy alloc failed len=1490
+    heap=476672/417520 before; heap=27624/20396 during
+
+esp-hosted 3.1.0 still copies every received packet with a plain `malloc()`
+(`eh_host_bus_sdio.c`). 2.12 asserted on the NULL; 3.1.0 logs it and drops
+the packet. With ESPHome's CAPS_ALLOC, that `malloc()` is internal-only, and
+the 512000 window lets in more than internal RAM holds. So the
+`_let_malloc_spill_to_psram` reasoning above holds on 3.x and on any P4 +
+C6 with guaranteed PSRAM, not only a panel whose decoder stalls. It is
+bdraco's "SDIO mempool OOM", root-caused. One round ended in a task watchdog
+on loopTask with BOTH cores idle: the loop was blocked, not busy. The likely
+cause is a C6 RPC (the bench read RSSI every 5 s, and a `wifi_signal` sensor
+does the same) whose reply was one of the dropped packets. Not proven: no
+ELF to symbolise.
+
+The bench now has `malloc_to_psram:` (default true in both files, so the
+PR comparison measures the radio and not the P4's heap), `malloc=` in
+every reply, no RSSI read while a test runs, and no `wifi_signal` sensor.
+`false` reproduces the stall. Worth an ESPHome issue of its own: esp32_hosted
+plus high-performance networking with guaranteed PSRAM. Not filed; the
+user has not asked.
+
+That build also booted an **ESP-IDF v6.1.1** bootloader under ESPHome
+2026.12.0-dev.
