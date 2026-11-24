@@ -103,9 +103,12 @@ external_components:
     # YAML already uses this one: without this line, a copy from before the
     # bench existed is used, and the folder is not found.
     refresh: 0s
-  # The pull request's wifi component, fetched fresh at every build.
+  # The pull request's components, fetched fresh at every build. Both: since
+  # its 90beeffb the wifi component asks esp32_hosted for the co-processor's
+  # variant, and dev's esp32_hosted has no such question -- with wifi alone
+  # the build fails. Dev has not touched either since the PR's base.
   - source: github://pr#23122
-    components: [wifi]
+    components: [wifi, esp32_hosted]
     refresh: 0s
 
 nettest:

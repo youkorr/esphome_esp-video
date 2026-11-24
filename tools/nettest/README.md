@@ -9,7 +9,7 @@ show what it does.
 | file | what it is |
 |---|---|
 | `nettest-dev.yaml` | ESPHome as it is |
-| `nettest-pr.yaml` | the same file, with the pull request's `wifi` component and the label `pr` |
+| `nettest-pr.yaml` | the same file, with the pull request's `wifi` and `esp32_hosted` components and the label `pr` |
 | `nettest.py` | the measurement, standard-library Python, runs on Windows |
 | `components/nettest/` | three plain socket servers, and a line saying what the build is |
 
