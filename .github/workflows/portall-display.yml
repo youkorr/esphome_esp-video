@@ -1,0 +1,49 @@
+name: Portall display regression
+
+on:
+  push:
+    branches: [main, "claude/**"]
+    paths:
+      - "components/portall/**"
+      - "tools/checkpipeline.py"
+      - "tools/checkdirectpanel.py"
+      - "tools/pipetest/**"
+      - "tools/directpaneltest/**"
+      - ".github/workflows/portall-display.yml"
+  pull_request:
+    paths:
+      - "components/portall/**"
+      - "tools/checkpipeline.py"
+      - "tools/checkdirectpanel.py"
+      - "tools/pipetest/**"
+      - "tools/directpaneltest/**"
+      - ".github/workflows/portall-display.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  display:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - name: Checkout ESPHome headers
+        uses: actions/checkout@v7
+        with:
+          repository: esphome/esphome
+          ref: 91f86d19690de1c62eb1a2d93d70e59b15c4207f
+          path: deps/esphome
+      - name: Checkout synchronized panel driver
+        uses: actions/checkout@v7
+        with:
+          repository: youkorr/lvgl_9.5
+          ref: 89e56efcb2fe5d4c73cebe90e9212c5e610ed5a3
+          path: deps/panel
+      - name: Network sender regression
+        run: python3 tools/checknetwork.py
+      - name: Display API and pipeline regression
+        run: python3 tools/checkpipeline.py --esphome deps/esphome
+      - name: Direct panel buffer ownership
+        run: python3 tools/checkdirectpanel.py --esphome deps/esphome --driver deps/panel
