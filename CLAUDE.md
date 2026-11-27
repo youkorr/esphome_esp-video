@@ -1802,7 +1802,7 @@ the dashboard, where it is invisible while the keys go on working.
 ahead of the `pip install` as well as the `ADD`s, so a bump refetched
 everything — at the cost of the browser download on each update.
 `present_browser()` prints the Chromium version at startup and warns below 114,
-so this is never diagnosed by guesswork again. Currently **4.62.0**.
+so this is never diagnosed by guesswork again. Currently **4.62.1**.
 
 **CORRECTED in 4.29.5: the cost was every update, and a pin removes it.**
 Asked as *"verifie addon ... si il ya pas des elements qui freine la
@@ -13515,6 +13515,15 @@ checknotices, checkmade. checksaver failed two timing cases in that batch
 ("the saver comes back after the delay again", "the screen going dark
 stops the saver's page") and passed alone twice on this sender and once on
 the previous one -- timing in a long batch, not this change.
+
+## Aurora redesign -- 4.62.1
+
+Physical feedback on 4.62.0: a saved tiny grid and six columns produced
+small icons and an almost empty screen. Aurora now has a readable independent
+scale, up to five app columns and a neutral overlay on existing wallpaper.
+Configured entity tiles move into a separate column and scene/script tiles
+into a row; the existing action allowlist and credentials stay server-side.
+Climate/media states remain read-only. No simulated data is shipped.
 
 ## Optional Aurora launcher -- 4.62.0
 

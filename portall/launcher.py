@@ -885,48 +885,81 @@ DASHBOARD_CSS = """
 # entity actions, focus handling, settings and wallpaper logic. Motion is
 # explicitly opt-in and only replaces a plain background.
 AURORA_CSS = """
+ /* Aurora uses a comfortable fixed scale, not the previous layout's zoom. */
  body.dashboard.aurora {
-   display: flex; flex-direction: column;
-   --assistant-width: clamp(62px, 9vmin, 90px);
+   --assistant-width: clamp(92px, 16vmin, 132px);
+   display: flex; flex-direction: column; isolation: isolate;
+   background-image: none;
+   background-color: light-dark(#e5ebef, #0c111b);
  }
  .aurora header {
    position: relative; top: auto; height: auto; min-height: 0;
-   display: flex; flex-direction: row; flex-wrap: wrap; align-items: center;
-   gap: clamp(10px, 2vw, 30px); padding: 2.5vh 4vw;
-   border-right: 0; border-bottom: 1px solid var(--edge);
-   background: color-mix(in srgb, var(--ground) 75%, transparent);
+   display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto;
+   align-items: center; gap: 8px 2.2vw;
+   padding: 2vh 3vw 1.8vh; border: 0;
+   border-bottom: 1px solid light-dark(#24384e26, #ffffff16);
+   background: transparent;
  }
- .aurora .identity { font-size: clamp(20px, 3vw, 36px); }
- .aurora .time { font-size: clamp(36px, 5vw, 62px); font-weight: 400; }
- .aurora .date { font-size: clamp(13px, 1.7vw, 20px); }
- .aurora .wx { align-self: center; font-size: clamp(20px, 2.8vw, 32px); }
- .aurora .dashboard-assistant { flex: 0 0 auto; min-height: 0;
-   width: var(--assistant-width); }
+ .aurora .identity { grid-column: 1; grid-row: 1;
+   justify-content: flex-start; font-size: clamp(22px, 2.4vw, 32px); }
+ .aurora .identity > span::after {
+   content: 'AURORA'; display: block; font-size: 10px;
+   letter-spacing: .18em; color: var(--faint); font-weight: 500;
+ }
+ .aurora .when { grid-column: 1; grid-row: 2; gap: 4px; }
+ .aurora .time { font-size: clamp(48px, 7.4vmin, 86px);
+   font-weight: 300; letter-spacing: -.055em; }
+ .aurora .date { font-size: clamp(15px, 2.3vmin, 23px); }
+ .aurora .dashboard-assistant { grid-column: 2; grid-row: 1 / 3;
+   width: var(--assistant-width); flex: none; min-height: 0; }
  .aurora .dashboard-assistant:empty { display: none; }
- .aurora header > .appearance-open { margin: 0 0 0 auto; align-self: center; }
- .aurora main { flex: 1; padding: 2.4vh 4vw 4vh; }
- .aurora .dashboard-heading { margin-bottom: 2vh; }
- .aurora .dashboard-heading h1 { font-size: clamp(22px, 3vw, 38px); }
- .aurora section { margin-bottom: 2vh; }
- .aurora .group { gap: clamp(10px, 1.5vmin, 20px); }
+ .aurora .wx { grid-column: 3; grid-row: 1 / 3; align-self: center;
+   font-size: clamp(24px, 4.7vmin, 42px); gap: 8px; }
+ .aurora header > .appearance-open { grid-column: 4; grid-row: 1;
+   margin: 0; align-self: center; justify-self: end; }
+ .aurora main { flex: 1; padding: 2.4vh 3vw 3vh; }
+ .aurora .dashboard-heading { margin-bottom: 1.5vh; }
+ .aurora .dashboard-heading h1 { font-size: clamp(22px, 3.5vmin, 36px); }
+ .aurora .dashboard-heading p { margin-top: 4px; }
+ .aurora .aurora-content { display: grid; grid-template-columns: minmax(0, 2.35fr) minmax(200px, 1fr); gap: 2vmin; align-items: start; }
+ .aurora .aurora-content.no-controls { grid-template-columns: minmax(0, 1fr); }
+ .aurora .aurora-apps, .aurora .aurora-side { min-width: 0; }
+ .aurora section { margin: 0 0 2vh; }
+ .aurora h2 { font-size: clamp(12px, 1.9vmin, 18px); border: 0;
+   padding: 0; margin: 0 0 1.2vh; color: var(--faint); }
+ .aurora .group { gap: clamp(8px, 1.5vmin, 16px); }
  .aurora a.tile {
-   min-height: clamp(110px, 20vh, 180px); border-radius: 2.7vmin;
-   background: linear-gradient(145deg,
-     color-mix(in srgb, var(--tile-accent, var(--accent)) 18%, var(--card)),
-     color-mix(in srgb, var(--card) 85%, transparent));
-   box-shadow: inset 0 1px 0 color-mix(in srgb, var(--ink) 12%, transparent);
+   min-height: clamp(132px, 24vh, 205px); border-radius: 2.5vmin;
+   border-color: light-dark(#24384e24, #ffffff18);
+   background: linear-gradient(145deg, light-dark(#ffffffc7, #ffffff0e),
+     light-dark(#ffffff75, #ffffff03)), light-dark(#f2f5f7c0, #192331d9);
+   box-shadow: inset 0 1px 0 light-dark(#ffffff, #ffffff12);
+   backdrop-filter: none;
  }
- .aurora .in { padding: 10px; gap: clamp(7px, 1.2vh, 12px); }
- .aurora .icon { --side: clamp(46px, 8vmin, 76px); }
- .aurora .name { font-size: clamp(16px, 2vmin, 23px); }
- .aurora .desc { font-size: clamp(12px, 1.6vmin, 16px); }
+ .aurora .in { padding: 10px 5px; gap: clamp(7px, 1.6vmin, 14px); }
+ .aurora .icon { --side: clamp(52px, 10.5vmin, 86px); }
+ .aurora .name { font-size: clamp(15px, 2.6vmin, 25px); line-height: 1.15; }
+ .aurora .desc { font-size: clamp(11px, 1.8vmin, 16px); }
+ .aurora .aurora-side .group { grid-template-columns: minmax(0, 1fr); }
+ .aurora .aurora-side a.tile { min-height: clamp(78px, 13vh, 112px); }
+ .aurora .aurora-side .in { flex-direction: row; justify-content: flex-start;
+   text-align: left; padding: 12px; gap: 12px; }
+ .aurora .aurora-side .icon { --side: clamp(42px, 7vmin, 65px); }
+ .aurora .aurora-side .name { font-size: clamp(16px, 2.5vmin, 24px); }
+ .aurora .aurora-side .state { display: block; }
+ .aurora .aurora-scenes .group { grid-template-columns: repeat(auto-fit, minmax(min(135px, 100%), 1fr)); }
+ .aurora .aurora-scenes a.tile { min-height: 70px; }
+ .aurora .aurora-scenes .in { flex-direction: row; gap: 8px; }
+ .aurora .aurora-scenes .icon { --side: clamp(28px, 5vmin, 42px); }
+ .aurora .aurora-scenes .name { font-size: clamp(13px, 2vmin, 18px); }
+ .aurora .wall::after { content: ''; position: absolute; inset: 0;
+   background: light-dark(#e5ebef85, #0c111b9e); pointer-events: none; }
+ .aurora.plain .wall::after { display: none; }
  .aurora.plain #wa {
-   background-image: radial-gradient(ellipse at 18% 20%,
-     color-mix(in srgb, var(--accent) 35%, transparent), transparent 55%),
-     radial-gradient(ellipse at 82% 78%,
-     color-mix(in srgb, #14b8a6 22%, transparent), transparent 54%);
-   background-size: 150% 150%;
-   background-position: 25% 35%;
+   background-color: light-dark(#e5ebef, #0c111b);
+   background-image: radial-gradient(ellipse at 8% 12%, light-dark(#b5d8e5, #27434c85), transparent 60%),
+     radial-gradient(ellipse at 92% 95%, light-dark(#d9c9de, #483d536b), transparent 55%);
+   background-size: 150% 150%; background-position: 25% 35%;
  }
  .aurora.plain.aurora-motion #wa {
    animation: portall-aurora-drift 18s ease-in-out infinite alternate;
@@ -939,9 +972,19 @@ AURORA_CSS = """
    .aurora.plain.aurora-motion #wa { animation: none; }
  }
  @media (max-width: 900px) {
-   .aurora header { gap: 12px; }
-   .aurora .identity { flex-basis: 100%; }
-   .aurora .group { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+   .aurora .aurora-content { grid-template-columns: minmax(0, 1fr); }
+   .aurora .aurora-side .group { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+   .aurora .group { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+   .aurora header { grid-template-columns: minmax(0, 1fr) auto auto; }
+   .aurora .wx { grid-column: 3; grid-row: 2; }
+   .aurora header > .appearance-open { grid-column: 3; grid-row: 1; }
+ }
+ @media (max-width: 520px) {
+   .aurora .group, .aurora .aurora-side .group { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+   .aurora header { gap: 8px; }
+   .aurora .time { font-size: 40px; }
+   .aurora .wx { font-size: 22px; }
+   .aurora .dashboard-assistant { width: 65px; }
  }
 """
 
@@ -950,6 +993,11 @@ DASHBOARD_JS = """<script>
   const heading = document.getElementById('dashboard-title');
   if (heading) heading.textContent = 'Applications';
   document.documentElement.lang = navigator.language || 'en';
+  if (/^fr/i.test(navigator.language || '')) {
+    document.querySelectorAll('[data-aurora-label]').forEach(el => {
+      el.textContent = el.dataset.auroraLabel === 'scenes' ? 'Ambiances' : 'Domotique';
+    });
+  }
 })();
 </script>"""
 
@@ -2743,6 +2791,42 @@ def _tile(entry, dark, dashboard):
     return TILE % fields
 
 
+def _aurora_groups(groups, dark):
+    """Real configured links only, each drawn exactly once.
+
+    Preserve app groups, put live Home Assistant tiles in a side column,
+    and put explicitly configured scenes/scripts under the apps.
+    """
+    apps, controls, scenes = [], [], []
+    for name, entries in groups.items():
+        pages = []
+        for entry in entries:
+            entity = entities.entity_of(entry.get("url")) if entities else None
+            if not entity:
+                pages.append(entry)
+            elif entity.split(".")[0] in ("scene", "script"):
+                scenes.append(entry)
+            else:
+                controls.append(entry)
+        if pages:
+            heading = f"<h2>{html.escape(name)}</h2>" if name else ""
+            apps.append(f'<section>{heading}<div class="group">'
+                        + "".join(_tile(entry, dark, True) for entry in pages)
+                        + "</div></section>")
+    if scenes:
+        apps.append('<section class="aurora-scenes"><h2 data-aurora-label="scenes">'
+                    'Scenes</h2><div class="group">'
+                    + "".join(_tile(entry, dark, True) for entry in scenes)
+                    + "</div></section>")
+    aside = ('<aside class="aurora-side"><h2 data-aurora-label="controls">'
+             'Smart home</h2><div class="group">'
+             + "".join(_tile(entry, dark, True) for entry in controls)
+             + "</div></aside>") if controls else ""
+    cls = "aurora-content" + ("" if controls else " no-controls")
+    return (f'<div class="{cls}"><div class="aurora-apps">'
+            + "".join(apps) + "</div>" + aside + "</div>")
+
+
 def render(links, title="", subtitle="", theme="dark",
            color=DEFAULT_PALETTE, background="", blur="off", dim=40,
            columns=0, clock=True, weather=None,
@@ -2835,6 +2919,9 @@ def render(links, title="", subtitle="", theme="dark",
         heading = f"<h2>{html.escape(name)}</h2>" if name else ""
         body.append(f'<section>{heading}<div class="group">{tiles}</div></section>')
 
+    if aurora and groups:
+        body = [_aurora_groups(groups, dark)]
+
     # Nought means let the panel decide, which is what a launcher shown on
     # three different shapes of screen wants: a fixed count either wastes a
     # wide one or crushes a narrow one.
@@ -2850,6 +2937,8 @@ def render(links, title="", subtitle="", theme="dark",
     if buttons:
         grid = (f"repeat({columns}, minmax(0, 26vmin))" if columns > 0
                 else "repeat(auto-fill, 26vmin)")
+    elif aurora:
+        grid = f"repeat({max(1, min(5, columns or 5))}, minmax(0, 1fr))"
     elif dashboard:
         grid = f"repeat({max(1, min(6, columns or 3))}, minmax(0, 1fr))"
 
@@ -2925,7 +3014,7 @@ def render(links, title="", subtitle="", theme="dark",
     # is the shape this follows now.
     bar_rules = _bar(clock_size, clock_color, date_size, date_color,
                  weather_size, align, focus_color, weather_color,
-                 tile_background, tile_size, tile_text_color)
+                 tile_background, DEFAULT_SIZE if aurora else tile_size, tile_text_color)
     if dashboard:
         # Keep named customisations effective over the dashboard's more
         # specific selectors, including transparent cards and widget colours.

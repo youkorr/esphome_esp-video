@@ -218,6 +218,7 @@ JS = """<script>
     loadError: 'Impossible de charger les réglages. Réessayez.',
     saveError: 'Enregistrement impossible. Vos choix sont conservés : réessayez.',
     classicOnly: 'Disponible avec la présentation Classique. Votre choix est conservé.',
+    auroraSize: 'Aurora utilise sa propre taille lisible. Votre choix est conservé.',
     clockHidden: 'Activez l’horloge et la date pour utiliser ce réglage.',
     weatherHidden: 'Activez la météo pour utiliser ce réglage.',
     columnsHelp: 'Automatique adapte le nombre de colonnes à la largeur de l’écran.',
@@ -240,6 +241,7 @@ JS = """<script>
     loadError: 'Could not load settings. Please try again.',
     saveError: 'Could not save. Your choices are kept: please try again.',
     classicOnly: 'Available with the Classic layout. Your choice is kept.',
+    auroraSize: 'Aurora uses its own readable scale. Your choice is kept.',
     clockHidden: 'Show the clock and date to use this setting.',
     weatherHidden: 'Show the weather to use this setting.',
     columnsHelp: 'Automatic adapts the number of columns to the screen width.',
@@ -532,6 +534,7 @@ JS = """<script>
       const key = record.field.key;
       let reason = '';
       if (['dashboard', 'aurora'].includes(draft.layout) && ['align', 'tiles'].includes(key)) reason = words.classicOnly;
+      if (draft.layout === 'aurora' && key === 'tile_size') reason = words.auroraSize;
       if (draft.clock === false && ['clock_size', 'clock_color', 'date_size', 'date_color'].includes(key)) reason = words.clockHidden;
       if (draft.weather_visible === false && ['weather_size', 'weather_color'].includes(key)) reason = words.weatherHidden;
       record.disabled = Boolean(reason); record.card.classList.toggle('is-disabled', record.disabled);
