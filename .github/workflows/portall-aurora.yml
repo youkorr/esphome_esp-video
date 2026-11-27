@@ -1,0 +1,23 @@
+name: Portall Aurora browser regression
+on:
+  push:
+    branches: [claude/portall-4.62.0-aurora, main]
+    paths:
+      - "portall/**"
+      - "tools/checkaurora.py"
+      - "tools/checkdashboard.py"
+      - ".github/workflows/portall-aurora.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  browser:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: pip install playwright==1.65.2 pillow==13.0.0 numpy==2.5.5 pyyaml
+      - run: python -m playwright install --with-deps chromium
+      - run: python tools/checkaurora.py
