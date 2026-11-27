@@ -21,6 +21,7 @@
  * 2D-DMA shares its channels, or what the board's own stats line will read.
  * That is one flash away. */
 #include "portall.h"
+#include "esphome/core/version.h"
 
 #include <algorithm>
 #include <atomic>
@@ -29,6 +30,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <functional>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -107,6 +109,13 @@ esp_err_t jpeg_decoder_process(jpeg_decoder_handle_t, const jpeg_decode_cfg_t *,
   if (in[4] == 0xBA)
     return 1;
   memcpy(out, in, 4);
+#ifdef PORTALL_TEST_DIRECT
+  uint16_t width, height;
+  memcpy(&width, in + 6, 2);
+  memcpy(&height, in + 8, 2);
+  for (size_t at = 0; at < size_t(width) * height * 2; at += 4)
+    memcpy(out + at, in, 4);
+#endif
   *out_size = 4;
   return ESP_OK;
 }
@@ -140,18 +149,27 @@ class FakeDisplay : public display::Display {
  public:
   FakeDisplay(int w, int h) : w_(w), h_(h) {}
   void update() override {}
-  void draw_pixel_at(int, int, Color) override {}
+  void draw_pixel_at(int, int, Color) override { pixel_calls_++; }
   display::DisplayType get_display_type() override { return display::DISPLAY_TYPE_COLOR; }
   int get_width_internal() override { return w_; }
   int get_height_internal() override { return h_; }
+#if ESPHOME_VERSION_CODE >= VERSION_CODE(2026, 11, 0) && !defined(PORTALL_TEST_LEGACY_DRIVER)
+  // Match current mipi_dsi: only the new hook transfers a block to the panel.
+  // An old call with ColorOrder instead runs Display's per-pixel fallback.
+  void draw_pixels_internal(int x, int y, int w, int h, const uint8_t *ptr, display::ColorBitness,
+                           bool, int, int, int) override {
+#else
   void draw_pixels_at(int x, int y, int w, int h, const uint8_t *ptr, display::ColorOrder, display::ColorBitness,
                       bool, int, int, int) override {
+#endif
     const uint64_t from = now_us();
     const uint32_t before = read_seq(ptr);
     sleep_us(g_draw_us);
     if (read_seq(ptr) != before)
       g_torn++;
     busy(g_drawing, from);
+    if (this->on_blit_)
+      this->on_blit_(x, y, w, h, ptr);
     std::lock_guard<std::mutex> lock(lock_);
     drawn_.push_back({before, x, y, w, h});
   }
@@ -159,6 +177,8 @@ class FakeDisplay : public display::Display {
     std::lock_guard<std::mutex> lock(lock_);
     return drawn_;
   }
+  std::atomic<unsigned> pixel_calls_{0};
+  std::function<void(int, int, int, int, const uint8_t *)> on_blit_;
 
  private:
   int w_, h_;
@@ -205,6 +225,8 @@ static void send(portall::Portall *p, const Picture &pic) {
   uint8_t *payload = buf + sizeof(udisp_frame_header_t);
   memcpy(payload, &pic.seq, 4);
   payload[4] = pic.bad ? 0xBA : 0x00;
+  memcpy(payload + 6, &pic.w, 2);
+  memcpy(payload + 8, &pic.h, 2);
   // Paced, the way the network path is: a full set of frame buffers holds
   // the sender back rather than throwing a picture away.
   p->feed_(buf, sizeof(buf), true);
@@ -280,6 +302,15 @@ static bool in_order(const std::vector<Drawn> &drawn, uint32_t first, size_t cou
 }
 
 int main(int argc, char **argv) {
+  if (argc > 1 && strcmp(argv[1], "--display-api") == 0) {
+    Run run = start(2, 0);
+    send(run.panel, {42, 0, 0, W, H, 1, false});
+    const bool arrived = wait_for(run.display, 1, 500);
+    ok(arrived && run.display->pixel_calls_ == 0,
+       "a decoded frame reaches the display's block transfer without per-pixel drawing");
+    fflush(stdout);
+    std::_Exit(g_faults == 0 ? 0 : 1);
+  }
   const bool quick = argc > 1 && strcmp(argv[1], "--quick") == 0;
   const int N = 60;
 

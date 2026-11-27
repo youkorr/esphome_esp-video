@@ -32,8 +32,6 @@ void Mutex::lock() { static_cast<std::mutex *>(handle_)->lock(); }
 bool Mutex::try_lock() { return static_cast<std::mutex *>(handle_)->try_lock(); }
 void Mutex::unlock() { static_cast<std::mutex *>(handle_)->unlock(); }
 
-Color Color::fade_to_black(uint8_t) { return *this; }
-Color Color::fade_to_white(uint8_t) { return *this; }
 size_t ESPTime::strftime(char *buffer, size_t len, const char *) {
   if (len > 0)
     buffer[0] = 0;

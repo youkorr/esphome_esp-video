@@ -3039,3 +3039,10 @@ URL is a configured Home Assistant entity appears in Smart home; configured
 scene and script links appear in Scenes. These use the same real state and
 supported actions as Classic. Climate/media are read-only; no mock devices
 or readings are added. Switch layouts in Appearance to return immediately.
+
+
+### Firmware: ESPHome 2026.11 display API and optional direct buffers
+
+Portall in `main` now selects the block display API appropriate to the ESPHome version. On ESPHome 2026.11 and later, the old ColorOrder overload can draw into a software buffer without refreshing a display configured with `update_interval: never`. Rebuild the panel firmware; updating only the add-on cannot fix this.
+
+`panel_buffers: true` is optional, requires the synchronized three-buffer MIPI DSI driver, native RGB565 dimensions divisible by 16 and exclusive full-screen rendering. See [PANEL_BUFFERS.md](PANEL_BUFFERS.md). The ordinary copy path remains the default. The independent `audio_port` option remains available for either path.
