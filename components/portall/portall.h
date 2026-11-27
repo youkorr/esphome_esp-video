@@ -150,6 +150,7 @@ class Portall : public Component
   /// TCP port to accept frames on, in addition to the USB interface. Zero
   /// leaves the board USB-only.
   void set_port(uint16_t port) { this->port_ = port; }
+  void set_audio_port(uint16_t port) { this->audio_port_ = port; }
   /// The PC-side sender, compiled in so the board can hand it over on a
   /// read-only drive instead of sending the user to find it.
   void set_sender_script(const uint8_t *data, size_t length) {
@@ -381,6 +382,10 @@ class Portall : public Component
   void send_queued_messages_(int client);
   static void network_task(void *param);
   void run_network_task();
+#ifdef USE_SPEAKER
+  static void audio_network_task(void *param);
+  void run_audio_network_task();
+#endif
   /// Forget a half-received frame, so the next sender's first header is not
   /// read out of the middle of the last one's payload.
   void reset_stream_();
@@ -516,6 +521,15 @@ class Portall : public Component
   uint16_t drawing_frame_id_{0xFFFF};
   uint16_t gated_frame_id_{0xFFFF};
   uint16_t port_{0};
+  uint16_t audio_port_{0};
+#ifdef USE_SPEAKER
+  // Odd generation = active video connection, even = disconnected.
+  std::atomic<uint32_t> net_generation_{0};
+  std::atomic<uint32_t> net_peer_ip_{0};
+  std::atomic<bool> split_audio_active_{false};
+  std::atomic<uint32_t> split_audio_tick_{0};
+  Mutex audio_lock_;
+#endif
   /* Whether a sender has ever connected. Written by the network task and read
    * by the loop, which is why it is volatile: it is a one-way latch and no
    * decision hangs on catching it the same millisecond. It exists so the

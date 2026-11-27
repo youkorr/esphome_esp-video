@@ -145,6 +145,7 @@ void Portall::setup_uac_() {
 #endif  // CFG_TUD_AUDIO
 
 void Portall::on_audio_samples(const uint8_t *data, size_t length, uint8_t channels, uint32_t rate) {
+  LockGuard lock(this->audio_lock_);
   if (this->speaker_ == nullptr || length == 0 || this->audio_block_ == nullptr)
     return;
   // Before the mute and volume checks: the host is sending, whatever this board
