@@ -17,33 +17,15 @@ esp32:
     advanced:
       enable_idf_experimental_features: yes
       disable_vfs_support_dir: false
+      compiler_optimization: PERF
       include_builtin_idf_components:
         - fatfs
-        - wear_levelling      
-    sdkconfig_options:        
-      CONFIG_COMPILER_OPTIMIZATION_PERF: y
+        - wear_levelling
+    sdkconfig_options:
       CONFIG_SPIRAM_XIP_FROM_PSRAM: y
       CONFIG_FATFS_LFN_STACK: "y"
       CONFIG_VFS_SUPPORT_IO: "y"
-      CONFIG_VFS_MAX_COUNT: "16" 
-      CONFIG_SPIRAM_FETCH_INSTRUCTIONS: "n"
-      CONFIG_SPIRAM_RODATA: "n"
-      CONFIG_ESP32_SPIRAM_SUPPORT: "y"
-      CONFIG_SPIRAM_USE_MALLOC: "y"
-      CONFIG_SPIRAM_SPEED_200M: "y"
-      CONFIG_SPIRAM_SPEED: "200"
-      CONFIG_ESP_MAIN_TASK_STACK_SIZE: "16384"
-      CONFIG_ESP_TASK_LOOP_STACK_SIZE: "16384"
-      CONFIG_LWIP_MAX_SOCKETS: "16"
-      # Envoi (déjà là)
-      CONFIG_WIFI_RMT_DYNAMIC_TX_BUFFER_NUM: "64"
-      CONFIG_WIFI_RMT_AMPDU_TX_ENABLED: "y"
-      CONFIG_WIFI_RMT_TX_BA_WIN: "32"
-      # Réception : c'est le sens de la vidéo (valeurs du guide P4 + C6 d'Espressif)
-      CONFIG_WIFI_RMT_STATIC_RX_BUFFER_NUM: "16"
-      CONFIG_WIFI_RMT_DYNAMIC_RX_BUFFER_NUM: "64"
-      CONFIG_WIFI_RMT_RX_BA_WIN: "32"
-      CONFIG_LWIP_TCP_SACK_OUT: "y"
+      CONFIG_VFS_MAX_COUNT: "16"
   
       
 logger:
