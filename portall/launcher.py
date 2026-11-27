@@ -934,7 +934,7 @@ AURORA_CSS = """
    background: linear-gradient(145deg, light-dark(#ffffffc7, #ffffff0e),
      light-dark(#ffffff75, #ffffff03)), light-dark(#f2f5f7c0, #192331d9);
    box-shadow: inset 0 1px 0 light-dark(#ffffff, #ffffff12);
-   backdrop-filter: none;
+   backdrop-filter: none; -webkit-backdrop-filter: none;
  }
  .aurora .in { padding: 10px 5px; gap: clamp(7px, 1.6vmin, 14px); }
  .aurora .icon { --side: clamp(52px, 10.5vmin, 86px); }
@@ -952,9 +952,8 @@ AURORA_CSS = """
  .aurora .aurora-scenes .in { flex-direction: row; gap: 8px; }
  .aurora .aurora-scenes .icon { --side: clamp(28px, 5vmin, 42px); }
  .aurora .aurora-scenes .name { font-size: clamp(13px, 2vmin, 18px); }
- .aurora .wall::after { content: ''; position: absolute; inset: 0;
-   background: light-dark(#e5ebef85, #0c111b9e); pointer-events: none; }
- .aurora.plain .wall::after { display: none; }
+ /* The chosen picture is not tinted by Aurora. Its only effects are the
+    user's blur and brightness; the neutral palette belongs to plain mode. */
  .aurora.plain #wa {
    background-color: light-dark(#e5ebef, #0c111b);
    background-image: radial-gradient(ellipse at 8% 12%, light-dark(#b5d8e5, #27434c85), transparent 60%),
@@ -3024,6 +3023,12 @@ def render(links, title="", subtitle="", theme="dark",
         sheet = DASHBOARD_CSS + (AURORA_CSS if aurora else "") + bar_rules + f" .dashboard {{ --ring: {ring}; }}\n"
     else:
         sheet = bar_rules
+    if aurora and has_wall and BLURS.get(str(blur).lower(), "0px") == "0px":
+        # The 6% overscan exists to hide blurred edges. With blur off it
+        # needlessly crops and resamples the original wallpaper.
+        sheet += " .aurora .wall { transform: none; }\n"
+        if dim == 0:
+            sheet += " .aurora .wall { filter: none; }\n"
     if saver:
         sheet += SAVER_CSS + saver_rules
     if acting:

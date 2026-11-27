@@ -3031,7 +3031,9 @@ the machine's hostname, or Home Assistant's IP and port.
 Choose Aurora in the launcher's Appearance settings. Its neutral palette,
 large app logos and top clock bar use the existing theme, wallpaper and
 motion preferences. It uses its own tile scale (up to five app columns),
-without changing the tile size saved for Classic or Dashboard. A link whose
+without changing the tile size saved for Classic or Dashboard. Aurora does
+not tint a chosen wallpaper: blur off means no extra zoom, and dim zero
+with blur off means no filter. A link whose
 URL is a configured Home Assistant entity appears in Smart home; configured
 scene and script links appear in Scenes. These use the same real state and
 supported actions as Classic. Climate/media are read-only; no mock devices

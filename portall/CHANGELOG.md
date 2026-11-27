@@ -1,5 +1,12 @@
 # Changelog
 
+## 4.62.2
+
+- Aurora: remove the compulsory wallpaper tint. With background blur off,
+  stop the unnecessary 6% zoom; with dim also zero, disable the filter entirely.
+- Wallpaper blur and dim remain controlled by the existing appearance settings.
+  Keep the other layouts, wallpaper motion and saver unchanged.
+
 ## 4.62.1
 
 - Redesign Aurora with a neutral anthracite/light palette, larger original

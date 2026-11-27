@@ -3,6 +3,7 @@
 # Copyright (c) 2024-2026 youkorr
 # Part of Portall: https://github.com/youkorr/esphome_esp-video
 """Regression checks for the opt-in Aurora layout, with the real launcher."""
+import io
 import os
 import pathlib
 import sys
@@ -20,6 +21,62 @@ REAL_LINKS = LINKS + [
 import appearance
 import launcher
 from playwright.sync_api import sync_playwright
+from PIL import Image, ImageDraw
+
+
+def wallpaper_checks(browser, temp):
+    # A native-size high-contrast image. A forced tint, resampling, or
+    # extra opacity would change the exact pixels in the unobstructed area.
+    path = pathlib.Path(temp) / "wallpaper.png"
+    original = Image.new("RGB", (1280, 720), (32, 96, 160))
+    draw = ImageDraw.Draw(original)
+    for x in range(0, 1280, 2):
+        draw.line((x, 650, x, 719), fill=(230, 170, 40))
+    original.save(path)
+    address = launcher.start(
+        LINKS[:1], port=0, layout="aurora", background=str(path),
+        blur="off", dim=0, clock=False, columns=3,
+        appearance_file=str(pathlib.Path(temp) / "wall-look.json"))
+    assert address
+    origin = address.rstrip("/")
+    page = browser.new_page(viewport={"width": 1280, "height": 720})
+    try:
+        wall = page.locator("#wa")
+        for theme in ("dark", "light"):
+            assert request(address, {"theme": theme, "background_blur": "off",
+                                     "background_dim": 0}, origin=origin)[0] == 200
+            load(page, address)
+            assert wall.evaluate("(e) => getComputedStyle(e).filter") == "none"
+            assert wall.evaluate("(e) => getComputedStyle(e).transform") == "none"
+            assert wall.evaluate("(e) => getComputedStyle(e, '::after').content") == "none"
+            assert page.locator("a.tile").first.evaluate(
+                "(e) => getComputedStyle(e).backdropFilter") == "none"
+            page.evaluate("""async () => {
+                const img = new Image();
+                img.src = '/wallpaper';
+                await img.decode();
+                await new Promise(resolve => requestAnimationFrame(
+                    () => requestAnimationFrame(resolve)));
+            }""")
+            shot = Image.open(io.BytesIO(page.screenshot())).convert("RGB")
+            for point in ((1198, 680), (1199, 680), (1200, 680), (1201, 680)):
+                assert shot.getpixel(point) == original.getpixel(point), (
+                    theme, point, shot.getpixel(point), original.getpixel(point))
+            screenshot_dir = os.environ.get("AURORA_SCREENSHOTS")
+            if screenshot_dir:
+                pathlib.Path(screenshot_dir).mkdir(parents=True, exist_ok=True)
+                shot.save(pathlib.Path(screenshot_dir) / f"wallpaper-{theme}-sharp.png")
+        assert request(address, {"background_dim": 35}, origin=origin)[0] == 200
+        load(page, address)
+        assert "brightness(0.65)" in wall.evaluate("(e) => getComputedStyle(e).filter")
+        assert wall.evaluate("(e) => getComputedStyle(e).transform") == "none"
+        assert request(address, {"background_blur": "md"}, origin=origin)[0] == 200
+        load(page, address)
+        assert "blur(10px)" in wall.evaluate("(e) => getComputedStyle(e).filter")
+        assert wall.evaluate("(e) => getComputedStyle(e).transform") != "none"
+        print("OK Aurora wallpaper: exact source pixels in both themes, dim and blur respected")
+    finally:
+        page.close()
 
 
 def main():
@@ -84,6 +141,7 @@ def main():
                 assert not errors, errors
                 print(f"OK Aurora {width}x{height}: motion, reduced motion, rollback, links")
                 page.close()
+            wallpaper_checks(browser, temp)
             browser.close()
 
 

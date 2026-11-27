@@ -1802,7 +1802,7 @@ the dashboard, where it is invisible while the keys go on working.
 ahead of the `pip install` as well as the `ADD`s, so a bump refetched
 everything — at the cost of the browser download on each update.
 `present_browser()` prints the Chromium version at startup and warns below 114,
-so this is never diagnosed by guesswork again. Currently **4.62.1**.
+so this is never diagnosed by guesswork again. Currently **4.62.2**.
 
 **CORRECTED in 4.29.5: the cost was every update, and a pin removes it.**
 Asked as *"verifie addon ... si il ya pas des elements qui freine la
@@ -13515,6 +13515,14 @@ checknotices, checkmade. checksaver failed two timing cases in that batch
 ("the saver comes back after the delay again", "the screen going dark
 stops the saver's page") and passed alone twice on this sender and once on
 the previous one -- timing in a long batch, not this change.
+
+## Aurora wallpaper fidelity -- 4.62.2
+
+Reported a soft wallpaper despite blur off. Aurora imposed an extra tint
+on the picture and inherited the 6% overscan for blurred edges. Remove the
+tint, disable overscan when blur is off, and remove the filter when dim is
+also zero. The other layouts and saver are unchanged. Browser regression
+checks both themes, actual image pixels, intentional blur and dim.
 
 ## Aurora redesign -- 4.62.1
 
