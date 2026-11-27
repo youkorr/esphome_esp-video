@@ -1802,7 +1802,7 @@ the dashboard, where it is invisible while the keys go on working.
 ahead of the `pip install` as well as the `ADD`s, so a bump refetched
 everything — at the cost of the browser download on each update.
 `present_browser()` prints the Chromium version at startup and warns below 114,
-so this is never diagnosed by guesswork again. Currently **4.62.2**.
+so this is never diagnosed by guesswork again. Currently **4.62.3**.
 
 **CORRECTED in 4.29.5: the cost was every update, and a pin removes it.**
 Asked as *"verifie addon ... si il ya pas des elements qui freine la
@@ -13515,6 +13515,15 @@ checknotices, checkmade. checksaver failed two timing cases in that batch
 ("the saver comes back after the delay again", "the screen going dark
 stops the saver's page") and passed alone twice on this sender and once on
 the previous one -- timing in a long batch, not this change.
+
+## Aurora tile size and header -- 4.62.3
+
+Reported the line below the date and the ignored small-tile choice. Remove
+Aurora's header border and restore the shared tile_size zoom and editor
+control. Cards retain their grid column width, while their height, icons,
+text and padding scale. Regression checks all three sizes at four panel
+resolutions and saves a size through the real appearance dialog. Existing
+wallpaper fidelity tests remain.
 
 ## Aurora wallpaper fidelity -- 4.62.2
 
