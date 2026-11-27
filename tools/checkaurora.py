@@ -142,7 +142,7 @@ def main():
                 if width == 1280 and height == 720:
                     page.locator("#appearance-open").click()
                     page.locator("#appearance-tab-tiles").click()
-                    choice = page.locator('[data-key="tile_size"] [data-value="small"]')
+                    choice = page.locator('[data-key="tile_size"] button[role="radio"][data-value="small"]')
                     assert choice.is_enabled()
                     choice.click()
                     assert choice.get_attribute("aria-checked") == "true"
