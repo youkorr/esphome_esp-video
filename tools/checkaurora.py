@@ -41,13 +41,17 @@ def main():
                 assert request(address, {"layout": "aurora", "background_motion": False},
                                origin=origin)[0] == 200
                 load(page, address)
+                screenshot_dir = os.environ.get("AURORA_SCREENSHOTS")
+                if screenshot_dir:
+                    pathlib.Path(screenshot_dir).mkdir(parents=True, exist_ok=True)
+                    page.screenshot(path=str(pathlib.Path(screenshot_dir) / f"aurora-{width}x{height}.png"), full_page=True)
                 assert page.locator("body.aurora").count() == 1
                 assert page.locator("a.tile").count() == len(REAL_LINKS)
                 assert page.locator(".aurora-apps a.tile:not([data-entity])").count() == len(LINKS)
                 assert page.locator(".aurora-side a.tile[data-entity]").count() == 3
                 assert page.locator(".aurora-scenes a.tile[data-entity]").count() == 1
-                assert page.locator(".aurora-side h2").inner_text() == "Domotique"
-                assert page.locator(".aurora-scenes h2").inner_text() == "Ambiances"
+                assert page.locator(".aurora-side h2").text_content() == "Domotique"
+                assert page.locator(".aurora-scenes h2").text_content() == "Ambiances"
                 assert page.locator("a.tile[data-entity='switch.television']").get_attribute("href") == "#"
                 assert page.locator("a.tile[data-entity='switch.television']").evaluate("(e) => e.classList.contains('acts')")
                 assert not page.locator("a.tile[data-entity='climate.salon']").evaluate("(e) => e.classList.contains('acts')")
@@ -63,10 +67,6 @@ def main():
                            for tile in geometry["tiles"]), geometry
                 if width > height:
                     assert geometry["across"] <= 5, geometry
-                screenshot_dir = os.environ.get("AURORA_SCREENSHOTS")
-                if screenshot_dir:
-                    pathlib.Path(screenshot_dir).mkdir(parents=True, exist_ok=True)
-                    page.screenshot(path=str(pathlib.Path(screenshot_dir) / f"aurora-{width}x{height}.png"), full_page=True)
                 assert page.locator("#wa").evaluate("(e) => getComputedStyle(e).animationName") == "none"
                 assert request(address, {"background_motion": True}, origin=origin)[0] == 200
                 load(page, address)
