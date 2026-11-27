@@ -120,6 +120,42 @@ class NetworkTests(unittest.TestCase):
             release.set()
             writer.close()
 
+    def test_split_audio_not_blocked_by_video(self):
+        entered, release, played = threading.Event(), threading.Event(), threading.Event()
+
+        class Video:
+            def write(self, blob):
+                entered.set()
+                if not release.wait(2):
+                    raise OSError("test timeout")
+
+        class Audio:
+            def __init__(self):
+                self.writes = []
+
+            def write(self, blob):
+                self.writes.append(blob)
+                if len(self.writes) == 2:
+                    played.set()
+
+            def close(self):
+                pass
+
+        audio = Audio()
+        writer = Writer(Video(), audio)
+        try:
+            writer.offer([b"video"])
+            self.assertTrue(entered.wait(1))
+            writer.offer_audio(b"a")
+            writer.offer_audio(b"b")
+            self.assertTrue(played.wait(1))
+            self.assertEqual(audio.writes, [b"Ha", b"Hb"])
+            self.assertFalse(writer.ready())
+            self.assertIn("split audio:", writer.take_network_stats(1))
+        finally:
+            release.set()
+            writer.close()
+
     def test_rate_budget_spend(self):
         rate = sender["RateControl"](2400)
         rate.spend(400 * 1024, 0.0)

@@ -492,6 +492,40 @@ def connect_tcp(host, port):
             time.sleep(1.0)
 
 
+def try_connect_audio(host, port):
+    """Opt-in second socket. A legacy panel or wrong service stays on PCM/TCP video."""
+    import socket
+
+    sock = None
+    try:
+        sock = socket.create_connection((host, port), timeout=2)
+        hello = b"PORTALL-AUDIO/1\n"
+        received = bytearray()
+        while len(received) < len(hello):
+            part = sock.recv(len(hello) - len(received))
+            if not part:
+                raise OSError("audio handshake closed")
+            received.extend(part)
+        if received != hello:
+            raise OSError("unrecognised audio handshake")
+        sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        # Do not hide seconds of stale PCM in a large local socket queue.
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 16384)
+        if hasattr(socket, "TCP_NOTSENT_LOWAT"):
+            try:
+                sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NOTSENT_LOWAT, 4096)
+            except OSError:
+                pass
+        sock.settimeout(2)
+        print(f"Split audio connected to {host}:{port}", flush=True)
+        return _TcpEndpoint(sock)
+    except OSError as err:
+        if sock is not None:
+            sock.close()
+        print(f"Split audio unavailable ({err}); using legacy shared TCP", flush=True)
+        return None
+
+
 def wait_for_endpoint(vid, pid):
     """Block until the board is there, however long that takes.
 

@@ -380,6 +380,13 @@ void Portall::setup_network_() {
   // Utilisation de tskNO_AFFINITY pour répartir la charge réseau sur les deux cœurs RISC-V du P4
   xTaskCreatePinnedToCore(Portall::network_task, "udispnet", 4096, this, 4, nullptr, tskNO_AFFINITY);
   ESP_LOGCONFIG(TAG, "Listening on port %u for frames", (unsigned) this->port_);
+#ifdef USE_SPEAKER
+  if (this->audio_port_ != 0 && this->speaker_ != nullptr) {
+    if (xTaskCreatePinnedToCore(Portall::audio_network_task, "udispaudio", 4096, this, 5, nullptr,
+                                tskNO_AFFINITY) != pdPASS)
+      ESP_LOGE(TAG, "Could not start split audio task; shared TCP remains available");
+  }
+#endif
 }
 
 void Portall::network_task(void *param) { static_cast<Portall *>(param)->run_network_task(); }
@@ -450,6 +457,10 @@ void Portall::run_network_task() {
       ::inet_ntoa_r(peer.sin_addr, peer_text, sizeof(peer_text));
       ESP_LOGI(TAG, "Sender connected from %s", peer_text);
       this->net_client_seen_ = true;
+#ifdef USE_SPEAKER
+      this->net_peer_ip_.store(peer.sin_addr.s_addr);
+      this->net_generation_.fetch_add(1);
+#endif
       this->depth_pending_ = true;
 #ifdef USE_SPEAKER
       // Before anything else it could be sent: the rate this panel wants the
@@ -479,7 +490,15 @@ void Portall::run_network_task() {
 
         this->send_queued_messages_(client);
 
-        if (wifi_held && (xTaskGetTickCount() - last_stream_time) > pdMS_TO_TICKS(ROAM_QUIET_MS))
+        bool audio_recent = false;
+#ifdef USE_SPEAKER
+        const uint32_t audio_tick = this->split_audio_tick_.load();
+        audio_recent = this->split_audio_active_.load() && audio_tick != 0 &&
+                       (uint32_t) (xTaskGetTickCount() - audio_tick) < pdMS_TO_TICKS(ROAM_QUIET_MS);
+#endif
+        if (audio_recent)
+          hold_wifi_for_stream(wifi_held, true);
+        else if (wifi_held && (xTaskGetTickCount() - last_stream_time) > pdMS_TO_TICKS(ROAM_QUIET_MS))
           hold_wifi_for_stream(wifi_held, false);
 
         if (ready == 0) {
@@ -511,12 +530,134 @@ void Portall::run_network_task() {
       }
 
       hold_wifi_for_stream(wifi_held, false);
+#ifdef USE_SPEAKER
+      this->net_generation_.fetch_add(1);
+      this->split_audio_active_.store(false);
+#endif
       this->reset_stream_();
       ::close(client);
     }
     ::close(listener);
   }
 }
+
+#ifdef USE_SPEAKER
+void Portall::audio_network_task(void *param) { static_cast<Portall *>(param)->run_audio_network_task(); }
+
+void Portall::run_audio_network_task() {
+  // Separate framing state: never feed PCM through the JPEG parser or its lock.
+  static constexpr size_t MAX_PCM = 8192;
+  static constexpr char HELLO[] = "PORTALL-AUDIO/1\n";
+  auto *pcm = (uint8_t *) heap_caps_malloc(MAX_PCM, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+  if (pcm == nullptr) {
+    ESP_LOGE(TAG, "Could not allocate split audio buffer; shared TCP remains available");
+    vTaskDelete(nullptr);
+    return;
+  }
+
+  while (true) {
+    int listener = ::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    if (listener < 0) {
+      vTaskDelay(pdMS_TO_TICKS(1000));
+      continue;
+    }
+    int one = 1;
+    ::setsockopt(listener, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
+    struct sockaddr_in addr = {};
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = htonl(INADDR_ANY);
+    addr.sin_port = htons(this->audio_port_);
+    if (::bind(listener, (struct sockaddr *) &addr, sizeof(addr)) < 0 || ::listen(listener, 1) < 0) {
+      ESP_LOGW(TAG, "Split audio listen failed on %u: %s", (unsigned) this->audio_port_, strerror(errno));
+      ::close(listener);
+      vTaskDelay(pdMS_TO_TICKS(5000));
+      continue;
+    }
+    ESP_LOGI(TAG, "Split audio listening on TCP %u", (unsigned) this->audio_port_);
+
+    while (true) {
+      struct sockaddr_in peer = {};
+      socklen_t peer_len = sizeof(peer);
+      int client = ::accept(listener, (struct sockaddr *) &peer, &peer_len);
+      if (client < 0)
+        break;
+      // The video connection is opened first, but its accept may still be queued.
+      uint32_t generation = 0;
+      for (int attempt = 0; attempt < 20; ++attempt) {
+        generation = this->net_generation_.load();
+        if ((generation & 1) && this->net_peer_ip_.load() == peer.sin_addr.s_addr)
+          break;
+        vTaskDelay(pdMS_TO_TICKS(50));
+      }
+      auto same_session = [&]() {
+        return (generation & 1) && this->net_generation_.load() == generation &&
+               this->net_peer_ip_.load() == peer.sin_addr.s_addr;
+      };
+      if (!same_session()) {
+        ::close(client);
+        continue;
+      }
+      ::setsockopt(client, IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one));
+      struct timeval timeout = {.tv_sec = 2, .tv_usec = 0};
+      ::setsockopt(client, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
+      // Only acknowledge the audio socket once it belongs to the active video peer.
+      this->split_audio_tick_.store(0);
+      this->split_audio_active_.store(true);
+      {
+        LockGuard lock(this->audio_lock_);
+        this->audio_block_used_ = 0;
+      }
+      auto read_exact = [&](uint8_t *dst, size_t size) {
+        while (size != 0 && same_session()) {
+          fd_set readable;
+          FD_ZERO(&readable);
+          FD_SET(client, &readable);
+          struct timeval slice = {.tv_sec = 0, .tv_usec = 100000};
+          int ready = ::select(client + 1, &readable, nullptr, nullptr, &slice);
+          if (ready == 0)
+            continue;
+          if (ready < 0)
+            return false;
+          int count = ::recv(client, dst, size, 0);
+          if (count <= 0)
+            return false;
+          dst += count;
+          size -= count;
+        }
+        return size == 0 && same_session();
+      };
+      if (::send(client, HELLO, sizeof(HELLO) - 1, 0) == (int) (sizeof(HELLO) - 1)) {
+        ESP_LOGI(TAG, "Split audio connected");
+        while (same_session()) {
+          udisp_frame_header_t header = {};
+          if (!read_exact((uint8_t *) &header, sizeof(header)))
+            break;
+          unsigned channels = header.width == 0 ? 1 : header.width;
+          size_t size = header.payload_total;
+          if (header.type != UDISP_TYPE_PCM || channels > PORTALL_AUDIO_MAX_CHANNELS ||
+              size == 0 || size > MAX_PCM || size % (channels * 2) != 0) {
+            ESP_LOGW(TAG, "Invalid split PCM header; closing audio connection");
+            break;
+          }
+          if (!read_exact(pcm, size))
+            break;
+          this->split_audio_tick_.store(xTaskGetTickCount());
+          this->on_audio_samples(pcm, size, channels, header.height == 0 ? PORTALL_AUDIO_RATE : header.height);
+        }
+      }
+      this->split_audio_active_.store(false);
+      this->split_audio_tick_.store(0);
+      {
+        LockGuard lock(this->audio_lock_);
+        this->audio_block_used_ = 0;
+      }
+      ::close(client);
+      ESP_LOGI(TAG, "Split audio disconnected");
+    }
+    ::close(listener);
+  }
+}
+#endif
 
 }  // namespace portall
 }  // namespace esphome

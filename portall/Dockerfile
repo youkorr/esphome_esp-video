@@ -206,7 +206,7 @@ RUN (if /opt/google/chrome/chrome --version >/dev/null 2>&1 \
 # Bump this with the version in config.yaml. It sits AFTER the browsers and
 # BEFORE the senders: an update refetches the two senders below and copies the
 # add-on's own files, and reuses everything above -- see the note on the pin.
-ARG BUNDLE=4.62.5
+ARG BUNDLE=4.63.0
 RUN echo "${BUNDLE}" > /app/BUNDLE
 
 # Fetched rather than copied: the add-on builds with its own folder as the

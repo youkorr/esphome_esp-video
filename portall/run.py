@@ -1970,6 +1970,7 @@ def command_for(panel):
     for key in (
         "host",
         "port",
+        "audio_port",
         "url",
         "token",
         "token_url",

@@ -1,5 +1,16 @@
 # Changelog
 
+## 4.63.0 (experimental)
+
+- Opt-in separate PCM TCP connection per panel: set `portall.audio_port: 5001`
+  in ESPHome and `advanced.audio_port: 5001` for that panel in the add-on.
+- Independent sender thread and bounded PCM receive path on the P4. The
+  video connection stays unchanged and carries touches, keys and settings.
+- Fall back to the existing shared stream if the audio handshake fails.
+  Reconnect both after an active audio write failure. No C6 firmware change.
+- Keep separate network timings for each socket. No quality or rate changes.
+- Experimental: no new presentation timestamps or A/V sync algorithm yet.
+
 ## 4.62.5
 
 - Restore the 4.62.3 TCP send path after a reported video fluidity regression:

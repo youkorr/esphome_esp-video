@@ -82,6 +82,7 @@ from udisp_send import (  # noqa: E402
     build_header,
     build_heartbeat,
     connect_tcp,
+    try_connect_audio,
 )
 
 # The panel is divided into tiles and each is compared with the last picture.
@@ -4831,8 +4832,9 @@ class PanelWriter:
     audio_channels = AUDIO_CHANNELS
     audio_rate = AUDIO_RATE
 
-    def __init__(self, endpoint):
+    def __init__(self, endpoint, audio_endpoint=None):
         self._endpoint = endpoint
+        self._audio_writer = PanelWriter(audio_endpoint) if audio_endpoint is not None else None
         self._wake = threading.Condition()
         # The one picture in hand, as a list of ready-made byte strings. It is
         # cleared only once the last of them has gone out, so a loop asking
@@ -4986,10 +4988,14 @@ class PanelWriter:
             snapshot = diagnostics()
             if snapshot:
                 line += ", " + snapshot
+        if self._audio_writer is not None:
+            line = "video " + line + ", split audio: " + self._audio_writer.take_network_stats(elapsed)
         return line
 
     def take_audio(self):
         """Blocks written and blocks lost since this was last asked."""
+        if self._audio_writer is not None:
+            return self._audio_writer.take_audio()
         with self._wake:
             sent, dropped = self._audio_sent, self._audio_dropped
             self._audio_sent = self._audio_dropped = 0
@@ -4997,6 +5003,10 @@ class PanelWriter:
 
     def offer_audio(self, block):
         """Hand over one block of sound. Never blocks, never waits its turn."""
+        if self._audio_writer is not None:
+            self._audio_writer.audio_channels = self.audio_channels
+            self._audio_writer.audio_rate = self.audio_rate
+            return self._audio_writer.offer_audio(block)
         with self._wake:
             if self._error is not None:
                 raise self._error
@@ -5017,6 +5027,8 @@ class PanelWriter:
 
     def ready(self):
         """Whether the last picture is out and another may be handed over."""
+        if self._audio_writer is not None:
+            self._audio_writer.ready()  # propagate a broken audio socket to reconnect both
         with self._wake:
             if self._error is not None:
                 raise self._error
@@ -5055,6 +5067,10 @@ class PanelWriter:
         # Never wait on a write that may itself be stuck: the socket is about
         # to be closed under it, and the thread is a daemon.
         self._thread.join(timeout=0.5)
+        if self._audio_writer is not None:
+            self._audio_writer.close()
+            self._audio_writer._endpoint.close()
+            self._audio_writer._thread.join(timeout=0.5)
 
 
 class Screencast:
@@ -7935,6 +7951,8 @@ def main():
         "--host", required=True, help="the panel's address (its port: option)"
     )
     parser.add_argument("--port", type=int, default=5000)
+    parser.add_argument("--audio-port", type=int, default=0,
+                        help="experimental separate TCP PCM port; 0 keeps shared TCP")
     parser.add_argument(
         "--url", help="the dashboard to render. Not needed with --calibrate"
     )
@@ -9336,7 +9354,10 @@ def main():
         # rather than ending, so this can be left running as a service.
         while True:
             endpoint = connect_tcp(args.host, args.port)
-            writer = PanelWriter(endpoint)
+            audio_endpoint = (try_connect_audio(args.host, args.audio_port)
+                              if audio is not None and 0 < args.audio_port <= 65535
+                              and args.audio_port != args.port else None)
+            writer = PanelWriter(endpoint, audio_endpoint)
             if audio is not None:
                 writer.audio_channels = audio.channels
                 writer.audio_rate = audio.rate

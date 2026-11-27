@@ -538,7 +538,8 @@ void Portall::feed_(const uint8_t *data, size_t len, bool may_wait) {
     // has to hold a whole picture before it means anything.
     if (this->audio_want_ > 0) {
       const size_t take = this->audio_want_ < len ? this->audio_want_ : len;
-      this->on_audio_samples(data, take, this->pcm_channels_, this->pcm_rate_);
+      if (!may_wait || !this->split_audio_active_.load())
+        this->on_audio_samples(data, take, this->pcm_channels_, this->pcm_rate_);
       this->audio_want_ -= take;
       data += take;
       len -= take;

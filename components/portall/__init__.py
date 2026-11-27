@@ -265,6 +265,7 @@ CONF_RENDER_WIDTH = "render_width"
 CONF_RENDER_HEIGHT = "render_height"
 CONF_TOUCHSCREEN_ID = "touchscreen_id"
 CONF_SPEAKER_ID = "speaker_id"
+CONF_AUDIO_PORT = "audio_port"
 CONF_SAMPLE_RATE = "sample_rate"
 # The rates sample_rate: allows. Each has a whole number of frames in the
 # board's 10 ms block, and none is above 48000, which is what the block buffer
@@ -590,6 +591,15 @@ def _validate_usb(config):
     return config
 
 
+def _validate_audio_port(config):
+    if CONF_AUDIO_PORT in config:
+        if CONF_PORT not in config or CONF_SPEAKER_ID not in config:
+            raise cv.Invalid("audio_port requires port and speaker_id", path=[CONF_AUDIO_PORT])
+        if config[CONF_AUDIO_PORT] == config[CONF_PORT]:
+            raise cv.Invalid("audio_port must differ from port", path=[CONF_AUDIO_PORT])
+    return config
+
+
 def _validate_sample_rate(config):
     """Refuse a rate the board could not be fed at.
 
@@ -858,6 +868,7 @@ CONFIG_SCHEMA = cv.All(
             # travel back over this socket, so a board with no cable at all is
             # still an input device.
             cv.Optional(CONF_PORT): cv.port,
+            cv.Optional(CONF_AUDIO_PORT): cv.port,
             # Advertised to the host in the vendor interface string, which is
             # how a driver on the other end learns what to send. Espressif's
             # scale, not the usual one to ninety-five.
@@ -879,6 +890,7 @@ CONFIG_SCHEMA = cv.All(
     esp32.only_on_variant(supported=[esp32.VARIANT_ESP32P4]),
     _warn_about_espressif_driver,
     _validate_usb,
+    _validate_audio_port,
     _validate_sample_rate,
     _validate_render_size,
     _validate_canvas,
@@ -1014,6 +1026,8 @@ async def to_code(config):
             cg.add(btn.set_home())
     if (port := config.get(CONF_PORT)) is not None:
         cg.add(var.set_port(port))
+        if (audio_port := config.get(CONF_AUDIO_PORT)) is not None:
+            cg.add(var.set_audio_port(audio_port))
         CORE.add_job(_let_malloc_spill_to_psram)
         CORE.add_job(_tune_hosted_wifi)
         # How fast pictures can arrive is decided by the TCP receive window,
