@@ -1,7 +1,7 @@
 name: Portall Aurora browser regression
 on:
   push:
-    branches: [claude/portall-4.62.0-aurora, main]
+    branches: [claude/portall-4.62.0-aurora, claude/portall-4.62.1-aurora, main]
     paths:
       - "portall/**"
       - "tools/checkaurora.py"
@@ -21,3 +21,11 @@ jobs:
       - run: pip install playwright==1.65.2 pillow==13.0.0 numpy==2.5.5 pyyaml
       - run: python -m playwright install --with-deps chromium
       - run: python tools/checkaurora.py
+        env:
+          AURORA_SCREENSHOTS: /tmp/aurora-screenshots
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: aurora-screenshots
+          path: /tmp/aurora-screenshots
+          if-no-files-found: ignore

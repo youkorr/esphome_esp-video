@@ -3024,3 +3024,15 @@ Outside an add-on, any address that resolves where the sender runs will do:
 the machine's hostname, or Home Assistant's IP and port.
 
 
+
+
+### Aurora (experimental)
+
+Choose Aurora in the launcher's Appearance settings. Its neutral palette,
+large app logos and top clock bar use the existing theme, wallpaper and
+motion preferences. It uses its own tile scale (up to five app columns),
+without changing the tile size saved for Classic or Dashboard. A link whose
+URL is a configured Home Assistant entity appears in Smart home; configured
+scene and script links appear in Scenes. These use the same real state and
+supported actions as Classic. Climate/media are read-only; no mock devices
+or readings are added. Switch layouts in Appearance to return immediately.

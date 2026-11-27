@@ -1,5 +1,16 @@
 # Changelog
 
+## 4.62.1
+
+- Redesign Aurora with a neutral anthracite/light palette, larger original
+  app logos, a clock and larger assistant, and a separate smart-home column.
+- Configured Home Assistant entities use their existing live state and action
+  handlers; configured scenes and scripts appear under the applications.
+  No placeholder devices, invented readings or new Home Assistant services.
+- Aurora uses its own readable scale, without changing the saved tile size
+  for the other layouts; it supports up to five app columns.
+- Keep both old layouts and existing wallpaper, theme and motion settings.
+
 ## 4.62.0
 
 - Optional Aurora launcher layout: a compact top bar and gradient app cards.
