@@ -386,12 +386,7 @@ class _TcpEndpoint:
         self._tail = b""
 
     def write(self, data):
-        # Keep a single protocol message contiguous, but avoid offering a
-        # whole 200+ KiB JPEG to the kernel in one call. NOTSENT_LOWAT is
-        # a wake-up threshold, not a hard bound on one large send().
-        view = memoryview(data)
-        for offset in range(0, len(view), TCP_WRITE_CHUNK):
-            self._sock.sendall(view[offset:offset + TCP_WRITE_CHUNK])
+        self._sock.sendall(data)
 
     def tcp_diagnostics(self):
         """Linux TCP_INFO snapshot; fields are optional on older kernels."""
@@ -459,8 +454,6 @@ class _TcpEndpoint:
 
 # The most a sender lets wait unsent in its own kernel. See connect_tcp.
 UNSENT_LIMIT = 64 * 1024
-TCP_WRITE_CHUNK = 16 * 1024
-TCP_IO_TIMEOUT_S = 5.0
 
 
 def connect_tcp(host, port):
@@ -471,10 +464,8 @@ def connect_tcp(host, port):
     while True:
         try:
             sock = socket.create_connection((host, port), timeout=5)
-            # A stalled TCP stream must reconnect rather than block forever.
-            # The writer owns the stream; any partial message is abandoned
-            # with the connection, never retried on that same byte stream.
-            sock.settimeout(TCP_IO_TIMEOUT_S)
+            # Restore the 4.62.3 blocking send path; keep TCP diagnostics.
+            sock.settimeout(None)
             sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
             # What may WAIT in this machine's kernel, not what may be in
             # flight. Linux grows a send buffer to megabytes when nothing

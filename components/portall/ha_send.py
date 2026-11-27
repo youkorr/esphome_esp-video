@@ -9746,9 +9746,6 @@ def main():
                                                    frame_id)
                                       + refined_payload])
                         bytes_sent += len(refined_payload)
-                        # Periodic re-send of the refined frame also consumes
-                        # bandwidth, even though its quality is already fixed.
-                        rate.spend(len(refined_payload), started)
                         rectangles_sent += 1
                         frame_id = (frame_id + 1) & 0x3FF
                         previous = current

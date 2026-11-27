@@ -22,7 +22,7 @@ def extract(filename, names, scope):
     return scope
 
 
-tcp = extract("udisp_send.py", {"_TcpEndpoint", "TCP_WRITE_CHUNK"}, {})
+tcp = extract("udisp_send.py", {"_TcpEndpoint", "UNSENT_LIMIT"}, {})
 sender = extract("ha_send.py", {"PanelWriter", "RateControl"},
                  dict(collections=collections, threading=threading, time=time,
                       AUDIO_CHANNELS=2, AUDIO_RATE=44100,
@@ -32,7 +32,7 @@ Writer = sender["PanelWriter"]
 
 
 class NetworkTests(unittest.TestCase):
-    def test_chunk_boundaries_preserve_bytes(self):
+    def test_single_write_preserves_message(self):
         class Sink:
             def __init__(self):
                 self.chunks = []
@@ -44,8 +44,8 @@ class NetworkTests(unittest.TestCase):
         payload = bytes(range(256)) * 801
         Endpoint(sink).write(payload)
         self.assertEqual(b"".join(sink.chunks), payload)
-        self.assertLessEqual(max(map(len, sink.chunks)), 16384)
-        self.assertEqual(len(sink.chunks), 13)
+        self.assertEqual(sink.chunks, [payload])
+        self.assertEqual(tcp["UNSENT_LIMIT"], 64 * 1024)
 
     def test_tcp_receiver_pause_preserves_stream(self):
         # Actual TCP sockets, deliberately small send buffer and paused reader.

@@ -1,5 +1,15 @@
 # Changelog
 
+## 4.62.5
+
+- Restore the 4.62.3 TCP send path after a reported video fluidity regression:
+  one blocking sendall per protocol message, no per-socket I/O timeout.
+- Keep the existing 64 KiB TCP_NOTSENT_LOWAT and TCP_NODELAY settings from
+  4.62.3, and retain the 4.62.4 TCP/audio diagnostics and shutdown handling.
+- Restore the previous refined-frame rate accounting for a controlled
+  comparison with 4.62.3. No changes to panel firmware or wire protocol.
+- Update the sender regression test to require one complete message per write.
+
 ## 4.62.4
 
 - Network experiment: bound individual TCP writes to 16 KiB, keep the existing
