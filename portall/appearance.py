@@ -67,7 +67,8 @@ def _field(key, section, kind, fr, en, options=(), **constraints):
 FIELDS = [
     _field("layout", "layout", "choice", "Présentation", "Layout", _options(
         ("classic", "Classique", "Classic"),
-        ("dashboard", "Tableau de bord", "Dashboard"))),
+        ("dashboard", "Tableau de bord", "Dashboard"),
+        ("aurora", "Aurora (expérimental)", "Aurora (experimental)"))),
     _field("theme", "layout", "choice", "Thème", "Theme", _options(
         ("dark", "Sombre", "Dark"), ("light", "Clair", "Light"))),
     _field("columns", "layout", "number", "Colonnes", "Columns", _options(

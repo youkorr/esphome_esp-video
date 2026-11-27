@@ -181,7 +181,8 @@ configuration:
         name: Présentation
         description: 'classic : la présentation habituelle. dashboard : heure, avatar et météo à gauche,
           applications à droite, icône au-dessus du nom. Pour l''essai Cinéma : thème dark, 3 colonnes,
-          taille medium et avatar activé. light reste possible.'
+          taille medium et avatar activé. light reste possible. aurora : présentation expérimentale,
+          barre supérieure et cartes en dégradé. Le fond animé utilise le réglage de mouvement.'
       theme:
         name: Thème
         description: Sombre (dark) ou clair (light).
@@ -415,7 +416,8 @@ configuration:
         name: Présentation
         description: 'classic : la présentation habituelle. dashboard : heure, avatar et météo à gauche,
           applications à droite, icône au-dessus du nom. Pour l''essai Cinéma : thème dark, 3 colonnes,
-          taille medium et avatar activé. light reste possible.'
+          taille medium et avatar activé. light reste possible. aurora : présentation expérimentale,
+          barre supérieure et cartes en dégradé. Le fond animé utilise le réglage de mouvement.'
       theme:
         name: Thème
         description: Sombre (dark) ou clair (light).

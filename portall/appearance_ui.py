@@ -531,7 +531,7 @@ JS = """<script>
     records.forEach(record => {
       const key = record.field.key;
       let reason = '';
-      if (draft.layout === 'dashboard' && ['align', 'tiles'].includes(key)) reason = words.classicOnly;
+      if (['dashboard', 'aurora'].includes(draft.layout) && ['align', 'tiles'].includes(key)) reason = words.classicOnly;
       if (draft.clock === false && ['clock_size', 'clock_color', 'date_size', 'date_color'].includes(key)) reason = words.clockHidden;
       if (draft.weather_visible === false && ['weather_size', 'weather_color'].includes(key)) reason = words.weatherHidden;
       record.disabled = Boolean(reason); record.card.classList.toggle('is-disabled', record.disabled);

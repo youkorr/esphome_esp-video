@@ -1,5 +1,14 @@
 # Changelog
 
+## 4.62.0
+
+- Optional Aurora launcher layout: a compact top bar and gradient app cards.
+  Select it from the existing appearance settings, and switch back to Classic
+  or Dashboard at any time. Existing settings, links and entity controls stay.
+- On a plain background, the existing motion switch enables an optional slow
+  gradient animation for performance experiments; off keeps the background still.
+- No panel firmware update is required. No changes to the sender or protocol.
+
 ## 4.61.1
 
 - **Coming back to the launcher no longer shows it without its wallpaper

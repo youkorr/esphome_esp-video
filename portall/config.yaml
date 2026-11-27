@@ -1,5 +1,5 @@
 name: Portall
-version: "4.61.1"
+version: "4.62.0"
 # Home Assistant identifies an add-on by its slug, so this one moving from
 # usb_display_panel to portall makes the Supervisor see a NEW add-on: options
 # are not carried over and /data starts empty, which means the browser
@@ -214,6 +214,7 @@ options:
     # and goes back to the panel's own quality everywhere else.
     # classic keeps the existing page; dashboard puts the clock, robot and
     # weather in a left column, with the app grid on the right.
+    # aurora is an optional experimental top-bar layout.
     layout: classic
     # dark or light, independently of the page's layout.
     theme: dark
@@ -495,7 +496,7 @@ schema:
       voice: str?
       keep_bar: bool?
   launcher:
-    layout: list(classic|dashboard)?
+    layout: list(classic|dashboard|aurora)?
     theme: list(dark|light)?
     columns: int(0,6)?
     align: list(left|center|right)?
@@ -567,7 +568,7 @@ schema:
           user_agent: str?
           voice: str?
           keep_bar: bool?
-      layout: list(classic|dashboard)?
+      layout: list(classic|dashboard|aurora)?
       theme: list(dark|light)?
       columns: int(0,6)?
       align: list(left|center|right)?

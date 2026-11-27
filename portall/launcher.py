@@ -881,6 +881,70 @@ DASHBOARD_CSS = """
  }
 """
 
+# Experimental top-bar layout. Keep the existing dashboard DOM and its real
+# entity actions, focus handling, settings and wallpaper logic. Motion is
+# explicitly opt-in and only replaces a plain background.
+AURORA_CSS = """
+ body.dashboard.aurora {
+   display: flex; flex-direction: column;
+   --assistant-width: clamp(62px, 9vmin, 90px);
+ }
+ .aurora header {
+   position: relative; top: auto; height: auto; min-height: 0;
+   display: flex; flex-direction: row; flex-wrap: wrap; align-items: center;
+   gap: clamp(10px, 2vw, 30px); padding: 2.5vh 4vw;
+   border-right: 0; border-bottom: 1px solid var(--edge);
+   background: color-mix(in srgb, var(--ground) 75%, transparent);
+ }
+ .aurora .identity { font-size: clamp(20px, 3vw, 36px); }
+ .aurora .time { font-size: clamp(36px, 5vw, 62px); font-weight: 400; }
+ .aurora .date { font-size: clamp(13px, 1.7vw, 20px); }
+ .aurora .wx { align-self: center; font-size: clamp(20px, 2.8vw, 32px); }
+ .aurora .dashboard-assistant { flex: 0 0 auto; min-height: 0;
+   width: var(--assistant-width); }
+ .aurora .dashboard-assistant:empty { display: none; }
+ .aurora header > .appearance-open { margin: 0 0 0 auto; align-self: center; }
+ .aurora main { flex: 1; padding: 2.4vh 4vw 4vh; }
+ .aurora .dashboard-heading { margin-bottom: 2vh; }
+ .aurora .dashboard-heading h1 { font-size: clamp(22px, 3vw, 38px); }
+ .aurora section { margin-bottom: 2vh; }
+ .aurora .group { gap: clamp(10px, 1.5vmin, 20px); }
+ .aurora a.tile {
+   min-height: clamp(110px, 20vh, 180px); border-radius: 2.7vmin;
+   background: linear-gradient(145deg,
+     color-mix(in srgb, var(--tile-accent, var(--accent)) 18%, var(--card)),
+     color-mix(in srgb, var(--card) 85%, transparent));
+   box-shadow: inset 0 1px 0 color-mix(in srgb, var(--ink) 12%, transparent);
+ }
+ .aurora .in { padding: 10px; gap: clamp(7px, 1.2vh, 12px); }
+ .aurora .icon { --side: clamp(46px, 8vmin, 76px); }
+ .aurora .name { font-size: clamp(16px, 2vmin, 23px); }
+ .aurora .desc { font-size: clamp(12px, 1.6vmin, 16px); }
+ .aurora.plain #wa {
+   background-image: radial-gradient(ellipse at 18% 20%,
+     color-mix(in srgb, var(--accent) 35%, transparent), transparent 55%),
+     radial-gradient(ellipse at 82% 78%,
+     color-mix(in srgb, #14b8a6 22%, transparent), transparent 54%);
+   background-size: 150% 150%;
+   background-position: 25% 35%;
+ }
+ .aurora.plain.aurora-motion #wa {
+   animation: portall-aurora-drift 18s ease-in-out infinite alternate;
+ }
+ @keyframes portall-aurora-drift {
+   from { background-position: 10% 20%; }
+   to { background-position: 85% 75%; }
+ }
+ @media (prefers-reduced-motion: reduce) {
+   .aurora.plain.aurora-motion #wa { animation: none; }
+ }
+ @media (max-width: 900px) {
+   .aurora header { gap: 12px; }
+   .aurora .identity { flex-basis: 100%; }
+   .aurora .group { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+ }
+"""
+
 DASHBOARD_JS = """<script>
 (() => {
   const heading = document.getElementById('dashboard-title');
@@ -2706,7 +2770,8 @@ def render(links, title="", subtitle="", theme="dark",
     """
     dark = str(theme).lower() != "light"
     accent = PALETTES.get(str(color).lower(), PALETTES[DEFAULT_PALETTE])
-    dashboard = str(layout).lower() == "dashboard" and not saver
+    aurora = str(layout).lower() == "aurora" and not saver
+    dashboard = (str(layout).lower() == "dashboard" or aurora) and not saver
     settings = bool(settings) and not saver
 
     addresses = _addresses(urls)
@@ -2867,7 +2932,7 @@ def render(links, title="", subtitle="", theme="dark",
         for selector in ("main", ".group", ".time", ".date", ".wx", ".now"):
             bar_rules = bar_rules.replace(" " + selector, " .dashboard " + selector)
         ring = PALETTES.get(str(focus_color).lower(), "#72b9ff" if dark else "#075de0")
-        sheet = DASHBOARD_CSS + bar_rules + f" .dashboard {{ --ring: {ring}; }}\n"
+        sheet = DASHBOARD_CSS + (AURORA_CSS if aurora else "") + bar_rules + f" .dashboard {{ --ring: {ring}; }}\n"
     else:
         sheet = bar_rules
     if saver:
@@ -2946,7 +3011,9 @@ def render(links, title="", subtitle="", theme="dark",
 
     return PAGE % {
         "css": sheet,
-        "page_class": ("dashboard" + (" plain" if not has_wall else "")) if dashboard else "",
+        "page_class": ("dashboard" + (" aurora" if aurora else "")
+                       + (" plain" if not has_wall else "")
+                       + (" aurora-motion" if aurora and motion and not has_wall else "")) if dashboard else "",
         "brand": brand,
         "main_heading": main_heading,
         "settings_button": appearance.OPEN_BUTTON if settings else "",
@@ -3074,7 +3141,9 @@ def start(links, title="", subtitle="", theme="dark",
     # from the old home over the dashboard's application tiles.
     avatar_files = {"classic": avatar_file,
                     "dashboard": (appearance_file + ".avatar" if appearance_file
-                                  else avatar_file + ".dashboard" if avatar_file else None)}
+                                  else avatar_file + ".dashboard" if avatar_file else None),
+                    "aurora": (appearance_file + ".aurora-avatar" if appearance_file
+                               else avatar_file + ".aurora" if avatar_file else None)}
     kind = where = files = picture = addresses = None
     mime, mirrored = "application/octet-stream", False
     initial_look = preferences.snapshot()
@@ -3209,7 +3278,7 @@ def start(links, title="", subtitle="", theme="dark",
 
     # Where the avatar was last put, read once and kept in memory. A spot that
     # cannot be read is the corner it starts in -- never a reason to fail.
-    spots = {"classic": None, "dashboard": None}
+    spots = {"classic": None, "dashboard": None, "aurora": None}
     for name, stored_file in avatar_files.items():
         if stored_file:
             try:

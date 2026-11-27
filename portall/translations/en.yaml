@@ -176,7 +176,8 @@ configuration:
         name: Layout
         description: 'classic: the existing layout. dashboard: time, avatar and weather on the left, apps
           on the right, with icons above names. For the Cinema trial: dark theme, 3 columns, medium tile
-          size and avatar on. light also works.'
+          size and avatar on. light also works. aurora: experimental top bar and gradient cards.
+          Background animation follows the motion setting.'
       theme:
         name: Theme
         description: Dark or light.
@@ -402,7 +403,8 @@ configuration:
         name: Layout
         description: 'classic: the existing layout. dashboard: time, avatar and weather on the left, apps
           on the right, with icons above names. For the Cinema trial: dark theme, 3 columns, medium tile
-          size and avatar on. light also works.'
+          size and avatar on. light also works. aurora: experimental top bar and gradient cards.
+          Background animation follows the motion setting.'
       theme:
         name: Theme
         description: Dark or light.
