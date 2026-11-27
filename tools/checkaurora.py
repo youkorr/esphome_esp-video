@@ -95,7 +95,7 @@ def main():
                 page = browser.new_page(viewport={"width": width, "height": height}, locale="fr-FR")
                 errors = []
                 page.on("pageerror", lambda error: errors.append(str(error)))
-                assert request(address, {"layout": "aurora", "background_motion": False},
+                assert request(address, {"layout": "aurora", "background_motion": False, "tile_size": "medium"},
                                origin=origin)[0] == 200
                 load(page, address)
                 screenshot_dir = os.environ.get("AURORA_SCREENSHOTS")
@@ -117,6 +117,7 @@ def main():
                 assert page.locator("#av").count() == 1
                 assert page.locator("#appearance-open").is_visible()
                 assert page.locator("#t").is_visible()
+                assert page.locator("header").evaluate("(e) => getComputedStyle(e).borderBottomWidth") == "0px"
                 assert page.locator(".wx").is_visible()
                 geometry = page.evaluate(GEOMETRY)
                 assert geometry["scrollWidth"] <= width + 1, geometry
@@ -124,6 +125,33 @@ def main():
                            for tile in geometry["tiles"]), geometry
                 if width > height:
                     assert geometry["across"] <= 5, geometry
+                # Check the physical rendered sizes, not just the saved option.
+                dimensions = {}
+                for size, zoom in (("medium", 1), ("small", .8), ("tiny", .65)):
+                    assert request(address, {"tile_size": size}, origin=origin)[0] == 200
+                    load(page, address)
+                    assert all(abs(value - zoom) < .001 for value in page.locator(
+                        ".aurora-content .group").evaluate_all(
+                        "(groups) => groups.map(e => Number(getComputedStyle(e).zoom))"))
+                    tile = page.locator(".aurora-apps a.tile").first
+                    dimensions[size] = (tile.bounding_box()["height"],
+                                        tile.locator(".icon").bounding_box()["width"],
+                                        tile.locator(".name").bounding_box()["height"])
+                assert all(a > b > c for a, b, c in zip(
+                    dimensions["medium"], dimensions["small"], dimensions["tiny"])), dimensions
+                if width == 1280 and height == 720:
+                    page.locator("#appearance-open").click()
+                    page.locator("#appearance-tab-tiles").click()
+                    choice = page.locator('[data-key="tile_size"] [data-value="small"]')
+                    assert choice.is_enabled()
+                    choice.click()
+                    assert choice.get_attribute("aria-checked") == "true"
+                    with page.expect_navigation(wait_until="domcontentloaded"):
+                        page.locator("#appearance-apply").click()
+                    load(page, address)
+                    assert request(address)[1]["tile_size"] == "small"
+                assert request(address, {"tile_size": "medium"}, origin=origin)[0] == 200
+                load(page, address)
                 assert page.locator("#wa").evaluate("(e) => getComputedStyle(e).animationName") == "none"
                 assert request(address, {"background_motion": True}, origin=origin)[0] == 200
                 load(page, address)

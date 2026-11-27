@@ -1,7 +1,7 @@
 name: Portall Aurora browser regression
 on:
   push:
-    branches: [claude/portall-4.62.0-aurora, claude/portall-4.62.1-aurora, claude/portall-4.62.2-wallpaper, main]
+    branches: [claude/portall-4.62.0-aurora, claude/portall-4.62.1-aurora, claude/portall-4.62.2-wallpaper, claude/portall-4.62.3-tile-size, main]
     paths:
       - "portall/**"
       - "tools/checkaurora.py"

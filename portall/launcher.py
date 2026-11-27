@@ -885,7 +885,8 @@ DASHBOARD_CSS = """
 # entity actions, focus handling, settings and wallpaper logic. Motion is
 # explicitly opt-in and only replaces a plain background.
 AURORA_CSS = """
- /* Aurora uses a comfortable fixed scale, not the previous layout's zoom. */
+ /* Aurora has its own base proportions; the shared tile_size preference
+    scales the groups, just as on the other layouts. */
  body.dashboard.aurora {
    --assistant-width: clamp(92px, 16vmin, 132px);
    display: flex; flex-direction: column; isolation: isolate;
@@ -897,7 +898,6 @@ AURORA_CSS = """
    display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto;
    align-items: center; gap: 8px 2.2vw;
    padding: 2vh 3vw 1.8vh; border: 0;
-   border-bottom: 1px solid light-dark(#24384e26, #ffffff16);
    background: transparent;
  }
  .aurora .identity { grid-column: 1; grid-row: 1;
@@ -3013,7 +3013,7 @@ def render(links, title="", subtitle="", theme="dark",
     # is the shape this follows now.
     bar_rules = _bar(clock_size, clock_color, date_size, date_color,
                  weather_size, align, focus_color, weather_color,
-                 tile_background, DEFAULT_SIZE if aurora else tile_size, tile_text_color)
+                 tile_background, tile_size, tile_text_color)
     if dashboard:
         # Keep named customisations effective over the dashboard's more
         # specific selectors, including transparent cards and widget colours.

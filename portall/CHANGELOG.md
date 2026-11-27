@@ -1,5 +1,12 @@
 # Changelog
 
+## 4.62.3
+
+- Aurora: remove the horizontal divider below the clock and date.
+- Restore the existing Tiny, Small and Medium tile-size choices in Aurora,
+  including in the on-screen appearance editor. All tile groups use the
+  selected scale; column widths remain governed by the grid's column count.
+
 ## 4.62.2
 
 - Aurora: remove the compulsory wallpaper tint. With background blur off,
