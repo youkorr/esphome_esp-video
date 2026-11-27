@@ -267,6 +267,7 @@ CONF_RENDER_HEIGHT = "render_height"
 CONF_TOUCHSCREEN_ID = "touchscreen_id"
 CONF_SPEAKER_ID = "speaker_id"
 CONF_AUDIO_PORT = "audio_port"
+CONF_TCP_RX_WINDOW = "tcp_rx_window"
 CONF_SAMPLE_RATE = "sample_rate"
 # The rates sample_rate: allows. Each has a whole number of frames in the
 # board's 10 ms block, and none is above 48000, which is what the block buffer
@@ -592,6 +593,59 @@ def _validate_usb(config):
     return config
 
 
+# Experimental host-side lwIP profiles, not C6 firmware options. Keep the
+# mailboxes just above window/MSS + 2 (MSS 1436), rather than ESPHome's 512.
+_TCP_RX_PROFILES = {
+    98304: (1, 80, 96),
+    131072: (2, 96, 112),
+}
+
+
+def _tcp_rx_options(window):
+    scale, mailbox, input_mailbox = _TCP_RX_PROFILES[window]
+    return {
+        "CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP": True,
+        "CONFIG_LWIP_WND_SCALE": True,
+        "CONFIG_LWIP_TCP_RCV_SCALE": scale,
+        "CONFIG_LWIP_TCP_WND_DEFAULT": window,
+        "CONFIG_LWIP_TCP_SND_BUF_DEFAULT": 65534,
+        "CONFIG_LWIP_TCP_RECVMBOX_SIZE": mailbox,
+        "CONFIG_LWIP_TCPIP_RECVMBOX_SIZE": input_mailbox,
+    }
+
+
+@coroutine_with_priority(-1001.0)
+async def _apply_tcp_rx_profile(window):
+    # Run after network.to_code and the standard Portall hosted tuning.
+    for name, value in _tcp_rx_options(window).items():
+        esp32.add_idf_sdkconfig_option(name, value)
+
+
+def _validate_tcp_rx_profile(config):
+    if CONF_TCP_RX_WINDOW not in config:
+        return config
+    full = fv.full_config.get()
+    psram = full.get("psram") or {}
+    if CONF_PORT not in config or "esp32_hosted" not in full:
+        raise cv.Invalid("tcp_rx_window requires a network Portall panel with esp32_hosted",
+                         path=[CONF_TCP_RX_WINDOW])
+    if not psram or psram.get("disabled") or psram.get("ignore_not_found", True):
+        raise cv.Invalid("tcp_rx_window requires psram: ignore_not_found: false",
+                         path=[CONF_TCP_RX_WINDOW])
+    manual = (full.get("esp32", {}).get("framework", {}).get("sdkconfig_options") or {})
+    for name, value in _tcp_rx_options(config[CONF_TCP_RX_WINDOW]).items():
+        if name not in manual:
+            continue
+        expected = ("y" if value else "n") if isinstance(value, bool) else str(value)
+        if str(manual[name]).lower() != expected:
+            raise cv.Invalid(f"tcp_rx_window conflicts with sdkconfig_options: {name}; remove the manual override",
+                             path=[CONF_TCP_RX_WINDOW])
+    if str(manual.get("CONFIG_SPIRAM_IGNORE_NOTFOUND", "n")).lower() == "y":
+        raise cv.Invalid("tcp_rx_window conflicts with CONFIG_SPIRAM_IGNORE_NOTFOUND=y",
+                         path=[CONF_TCP_RX_WINDOW])
+    return config
+
+
 def _validate_audio_port(config):
     if CONF_AUDIO_PORT in config:
         if CONF_PORT not in config or CONF_SPEAKER_ID not in config:
@@ -871,6 +925,7 @@ CONFIG_SCHEMA = cv.All(
             # still an input device.
             cv.Optional(CONF_PORT): cv.port,
             cv.Optional(CONF_AUDIO_PORT): cv.port,
+            cv.Optional(CONF_TCP_RX_WINDOW): cv.one_of(98304, 131072, int=True),
             # Advertised to the host in the vendor interface string, which is
             # how a driver on the other end learns what to send. Espressif's
             # scale, not the usual one to ninety-five.
@@ -1006,7 +1061,7 @@ def _validate_panel_buffers(config):
 
 def _final_validate(config):
     config = _video_keeps_lvgl_paused(config)
-    return _validate_panel_buffers(_depth_fits(config))
+    return _validate_tcp_rx_profile(_validate_panel_buffers(_depth_fits(config)))
 
 
 FINAL_VALIDATE_SCHEMA = _final_validate
@@ -1078,6 +1133,8 @@ async def to_code(config):
             cg.add(var.set_audio_port(audio_port))
         CORE.add_job(_let_malloc_spill_to_psram)
         CORE.add_job(_tune_hosted_wifi)
+        if (window := config.get(CONF_TCP_RX_WINDOW)) is not None:
+            CORE.add_job(_apply_tcp_rx_profile, window)
         # How fast pictures can arrive is decided by the TCP receive window,
         # and this component no longer sets it: _request_fast_network asks
         # ESPHome for its high-performance networking instead, which turns
