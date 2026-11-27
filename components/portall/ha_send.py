@@ -4803,9 +4803,9 @@ class PageAudio:
 class PanelWriter:
     """Keeps the socket's blocking write off the loop.
 
-    ``sendall`` does not return until the board has taken the bytes, and while
-    it waits nothing else in the loop happens at all: the browser is not
-    pumped, no contact is read, no picture is made. That is harmless while the
+    ``sendall`` returns when bytes have been accepted by the local socket,
+    not when the board has received or displayed them. In the old synchronous
+    loop a blocked write also stopped the browser and input processing. That is harmless while the
     link keeps up and it is the whole of the stutter when it does not. A radio
     that goes away for a couple of hundred milliseconds leaves whatever was in
     flight to drain afterwards, and at video rates that is hundreds of
@@ -4874,6 +4874,15 @@ class PanelWriter:
         # and a diagnosis nobody could trust. Reported from a panel, on
         # YouTube, where the stalls are longest.
         self._writing_since = None
+        # Per-window local socket and audio timing, separate from the legacy
+        # "panel wait" counter (which measures time spent writing a picture).
+        self._write_started = None
+        self._write_bytes = 0
+        self._write_max = 0.0
+        self._audio_age_max = 0.0
+        self._audio_gap_max = 0.0
+        self._audio_depth_max = 0
+        self._last_audio_written = None
         self._thread = threading.Thread(
             target=self._run, name="panel-writer", daemon=True
         )
@@ -4902,7 +4911,7 @@ class PanelWriter:
             try:
                 for blob in blobs:
                     self._drain_audio()
-                    self._endpoint.write(blob)
+                    self._write_blob(blob)
                 self._drain_audio()
             except OSError as err:  # noqa: PERF203
                 # Handed to the loop, which owns reconnecting.
@@ -4919,15 +4928,65 @@ class PanelWriter:
                 self.wrote_at = time.monotonic()
                 self._wake.notify_all()
 
+    def _write_blob(self, blob):
+        started = time.monotonic()
+        with self._wake:
+            self._write_started = started
+        try:
+            self._endpoint.write(blob)
+        except OSError:
+            with self._wake:
+                self._write_started = None
+            raise
+        with self._wake:
+            self._write_started = None
+            self._write_bytes += len(blob)
+            self._write_max = max(self._write_max, time.monotonic() - started)
+
     def _drain_audio(self):
         """Everything waiting, written now. Called from the writer thread."""
         while True:
             with self._wake:
-                if not self._audio:
+                if not self._audio or self._stop:
                     return
-                block = self._audio.popleft()
-            self._endpoint.write(block)
-            self._audio_sent += 1
+                queued_at, block = self._audio.popleft()
+                self._audio_age_max = max(self._audio_age_max,
+                                          time.monotonic() - queued_at)
+            self._write_blob(block)
+            now = time.monotonic()
+            with self._wake:
+                self._audio_sent += 1
+                if self._last_audio_written is not None:
+                    self._audio_gap_max = max(
+                        self._audio_gap_max, now - self._last_audio_written)
+                self._last_audio_written = now
+
+    def take_network_stats(self, elapsed):
+        """Socket acceptance and queue timings; not end-to-end playback."""
+        with self._wake:
+            now = time.monotonic()
+            active = (now - self._write_started
+                      if self._write_started is not None else 0.0)
+            longest = max(self._write_max, active)
+            written = self._write_bytes
+            age = self._audio_age_max
+            gap = self._audio_gap_max
+            depth = max(self._audio_depth_max, len(self._audio))
+            if self._audio:
+                age = max(age, now - self._audio[0][0])
+            self._write_bytes = 0
+            self._write_max = self._audio_age_max = self._audio_gap_max = 0.0
+            self._audio_depth_max = len(self._audio)
+        line = (f"socket {written / max(elapsed, 0.001) / 1024:.1f} KiB/s, "
+                f"write max {longest * 1000:.0f} ms, "
+                f"audio queue {depth}/25, audio age {age * 1000:.0f} ms, "
+                f"audio gap {gap * 1000:.0f} ms")
+        diagnostics = getattr(self._endpoint, "tcp_diagnostics", None)
+        if diagnostics is not None:
+            snapshot = diagnostics()
+            if snapshot:
+                line += ", " + snapshot
+        return line
 
     def take_audio(self):
         """Blocks written and blocks lost since this was last asked."""
@@ -4950,8 +5009,10 @@ class PanelWriter:
             # block keeps the rate it was captured at even if the capture
             # switches while it waits.
             self._audio.append(
-                build_audio_header(len(block), self.audio_channels,
-                                   self.audio_rate) + block)
+                (time.monotonic(),
+                 build_audio_header(len(block), self.audio_channels,
+                                    self.audio_rate) + block))
+            self._audio_depth_max = max(self._audio_depth_max, len(self._audio))
             self._wake.notify()
 
     def ready(self):
@@ -9685,6 +9746,9 @@ def main():
                                                    frame_id)
                                       + refined_payload])
                         bytes_sent += len(refined_payload)
+                        # Periodic re-send of the refined frame also consumes
+                        # bandwidth, even though its quality is already fixed.
+                        rate.spend(len(refined_payload), started)
                         rectangles_sent += 1
                         frame_id = (frame_id + 1) & 0x3FF
                         previous = current
@@ -10633,7 +10697,7 @@ def main():
                         if sound or lost:
                             line += (f", sound {sound / elapsed:.0f}/s"
                                      + (f", {lost} lost" if lost else ""))
-                        print(line)
+                        print(line + ", " + writer.take_network_stats(elapsed))
                         if args.show_changes and heat.any():
                             # Where the traffic is coming from. A dashboard that
                             # costs hundreds of kilobytes a second has something

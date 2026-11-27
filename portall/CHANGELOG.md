@@ -1,5 +1,17 @@
 # Changelog
 
+## 4.62.4
+
+- Network experiment: bound individual TCP writes to 16 KiB, keep the existing
+  64 KiB unsent threshold, and reconnect after a stalled socket write.
+- Report local socket acceptance rate, longest write, audio queue depth,
+  queue age and write gaps; on Linux include TCP RTT, retransmissions,
+  unacknowledged segments, unsent bytes and advertised send window.
+- Charge periodic refined-frame redraws to the existing video byte budget.
+- Preserve the wire protocol, existing settings, and ESPHome firmware.
+- Add dependency-free sender regression checks and a Guition-like simulated
+  receiver option for the existing browser latency test.
+
 ## 4.62.3
 
 - Aurora: remove the horizontal divider below the clock and date.

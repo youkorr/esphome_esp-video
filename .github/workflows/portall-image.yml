@@ -69,6 +69,11 @@ jobs:
         with:
           ref: ${{ inputs.ref || github.sha }}
 
+      - name: Check network sender
+        run: |
+          python3 -m py_compile components/portall/ha_send.py components/portall/udisp_send.py
+          python3 tools/checknetwork.py
+
       - name: Read the version
         id: version
         run: |

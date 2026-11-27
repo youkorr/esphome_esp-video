@@ -77,7 +77,7 @@ class Site(http.server.BaseHTTPRequestHandler):
         self.wfile.write(PAGE)
 
 
-def run(sender_dir, rate, seconds):
+def run(sender_dir, rate, seconds, window=512000, stall=0.0):
     """(pictures a second, KiB/s, median age ms) with the panel draining
     `rate` KiB/s, or everything when it is 0."""
     sys.path.insert(0, str(sender_dir))
@@ -87,8 +87,9 @@ def run(sender_dir, rate, seconds):
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Site)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     listener = socket.socket()
-    # The board's window, 512000: Linux doubles what it is given.
-    listener.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 256000)
+    # Linux doubles SO_RCVBUF; this approximates the receiver buffer, not
+    # an exact advertised TCP window (which also depends on kernel policy).
+    listener.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, window // 2)
     listener.bind(("127.0.0.1", 0))
     listener.listen(1)
     ages, got, start = [], [0], [None]
@@ -96,7 +97,14 @@ def run(sender_dir, rate, seconds):
     def panel():
         conn, _ = listener.accept()
         stream, budget, last = b"", 0.0, time.monotonic()
+        next_stall = last + 5
         while True:
+            if stall and time.monotonic() >= next_stall:
+                time.sleep(stall)
+                next_stall = time.monotonic() + 5
+                # Do not bank a burst of credits during the injected pause.
+                last = time.monotonic()
+                budget = 0.0
             if rate > 0:
                 now = time.monotonic()
                 budget = min(budget + (now - last) * rate * 1024, 65536)
@@ -192,6 +200,12 @@ def main():
                  f"{REF}:components/portall/{name}"],
                 capture_output=True, check=True).stdout)
     print(f"The sender of {REF or 'the working tree'}:")
+    if "--guition" in sys.argv:
+        fps, kib, age = run(sender, 3200, 30, window=65536, stall=0.250)
+        print(f"    simulated 64 KiB receive buffer, 3200 KiB/s, "
+              f"250 ms read pause every 5 s: {fps:.1f} pictures/s, "
+              f"{kib:.0f} KiB/s, median age {age} ms")
+        return 0 if age is not None else 1
     rate, kib, age = run(sender, 1200, 20)
     print(f"    taking 1200 KiB/s: {rate:.1f} pictures/s, {kib:.0f} KiB/s,"
           f" median age {age} ms")

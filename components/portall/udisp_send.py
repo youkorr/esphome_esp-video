@@ -386,7 +386,37 @@ class _TcpEndpoint:
         self._tail = b""
 
     def write(self, data):
-        self._sock.sendall(data)
+        # Keep a single protocol message contiguous, but avoid offering a
+        # whole 200+ KiB JPEG to the kernel in one call. NOTSENT_LOWAT is
+        # a wake-up threshold, not a hard bound on one large send().
+        view = memoryview(data)
+        for offset in range(0, len(view), TCP_WRITE_CHUNK):
+            self._sock.sendall(view[offset:offset + TCP_WRITE_CHUNK])
+
+    def tcp_diagnostics(self):
+        """Linux TCP_INFO snapshot; fields are optional on older kernels."""
+        import socket
+        import struct
+        import sys
+
+        if not sys.platform.startswith("linux") or not hasattr(socket, "TCP_INFO"):
+            return ""
+        try:
+            info = self._sock.getsockopt(socket.IPPROTO_TCP, socket.TCP_INFO, 256)
+        except OSError:
+            return ""
+        fields = []
+        # Linux UAPI struct tcp_info, native byte order, fixed-width members.
+        for name, offset, scale in (("rtt", 68, 1000), ("rttvar", 72, 1000),
+                                    ("unacked", 24, 1), ("retrans_total", 100, 1),
+                                    ("unsent", 144, 1), ("snd_wnd", 228, 1)):
+            if len(info) >= offset + 4:
+                value = struct.unpack_from("=I", info, offset)[0]
+                if scale == 1000:
+                    fields.append(f"{name} {value / scale:.1f} ms")
+                else:
+                    fields.append(f"{name} {value}")
+        return ", ".join(fields)
 
     def read_messages(self):
         """Whatever the board has said since the last call. Never blocks.
@@ -417,11 +447,20 @@ class _TcpEndpoint:
         return [body for kind, body in self.read_messages() if kind == "touch"]
 
     def close(self):
+        # Wake a writer still blocked in sendall before releasing the fd.
+        import socket
+
+        try:
+            self._sock.shutdown(socket.SHUT_RDWR)
+        except OSError:
+            pass
         self._sock.close()
 
 
 # The most a sender lets wait unsent in its own kernel. See connect_tcp.
 UNSENT_LIMIT = 64 * 1024
+TCP_WRITE_CHUNK = 16 * 1024
+TCP_IO_TIMEOUT_S = 5.0
 
 
 def connect_tcp(host, port):
@@ -432,7 +471,10 @@ def connect_tcp(host, port):
     while True:
         try:
             sock = socket.create_connection((host, port), timeout=5)
-            sock.settimeout(None)
+            # A stalled TCP stream must reconnect rather than block forever.
+            # The writer owns the stream; any partial message is abandoned
+            # with the connection, never retried on that same byte stream.
+            sock.settimeout(TCP_IO_TIMEOUT_S)
             sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
             # What may WAIT in this machine's kernel, not what may be in
             # flight. Linux grows a send buffer to megabytes when nothing
