@@ -92,6 +92,12 @@ configuration:
           kiosk_pin:
             name: Code PIN de sortie du kiosque
             description: 4 à 8 chiffres facultatifs. Maintenir le coin supérieur gauche cinq secondes pour déverrouiller temporairement. Vide, aucune sortie locale.
+          speedtest_key:
+            name: Clé du test réseau local
+            description: Clé hexadécimale de 64 caractères identique à celle du composant ESPHome portall_speedtest. Vide pour désactiver.
+          speedtest_port:
+            name: Port du test réseau local
+            description: Port TCP du service de test optionnel de l’écran (5201 par défaut).
           esphome_device:
             name: 📶 Nom ESPHome de l'écran (Wi-Fi, Bluetooth)
             description: 'Seulement si le journal dit qu''aucun appareil n''a l''adresse de l''écran :

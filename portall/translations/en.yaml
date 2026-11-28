@@ -90,6 +90,12 @@ configuration:
           kiosk_pin:
             name: Kiosk exit PIN
             description: Optional 4–8 digits. Hold the top-left corner for five seconds to unlock temporarily. Empty means no local exit.
+          speedtest_key:
+            name: Local network test key
+            description: Optional 64-digit hex key matching the ESPHome portall_speedtest component. Leave empty to disable.
+          speedtest_port:
+            name: Local network test port
+            description: TCP port of the optional panel test service (default 5201).
           esphome_device:
             name: 📶 The screen's ESPHome name (Wi-Fi, Bluetooth)
             description: 'Only if the log says no device has the screen''s address: the name in its YAML

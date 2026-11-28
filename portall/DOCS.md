@@ -3087,3 +3087,18 @@ protecting privileged tokens. External iframe cards, authentication redirects,
 other dashboards, local sign-in and camera overlays may not work in kiosk.
 The first experimental version must be tested with real HA frontend versions
 and custom cards. Kiosk is off by default.
+
+
+## Experimental local network test
+
+This test measures the path from the add-on to the actual ESP32-P4 and back, not the browser's internet speed. On a Wi-Fi Guition it includes C6/SDIO. Stop video and audio before comparing builds; the display stream stays connected. The reported latency is TCP request RTT, not ICMP ping. It does not measure JPEG decoding or display FPS.
+
+Use the experimental branch `experimental-portall-speedtest` for Portall and add `portall_speedtest` to the same ESPHome external component list (`components: [portall, portall_bt, portall_speedtest]`). Generate a separate random key with `openssl rand -hex 32`, store it as `portall_speedtest_key` in ESPHome secrets, and add:
+
+```yaml
+portall_speedtest:
+  port: 5201
+  key: !secret portall_speedtest_key
+```
+
+Set the same key and port in the add-on's selected panel under Advanced (`speedtest_key`, `speedtest_port`). In launcher Settings, choose Network test and tap the panel name. The configured panel host is used automatically. No arbitrary addresses are accepted from the page. No test runs automatically. Use only on a trusted LAN, never port-forward the TCP service; the key authenticates the test but is not encrypted on the wire. Remove the ESPHome component to close the listener. Keep the existing C6 firmware. Results are experimental; compare under the same application load and SDK settings.
