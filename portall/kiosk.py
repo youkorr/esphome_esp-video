@@ -6,12 +6,20 @@ import time
 from urllib.parse import urlsplit
 
 
+# HA built-in panels are not selectable dashboards. Custom dashboards use
+# a URL slug containing a hyphen. This is not an authorization check.
+RESERVED = {"developer-tools", "media-browser", "config", "profile",
+            "history", "logbook", "map", "energy", "auth", "api",
+            "my-home", "home-assistant"}
+
+
 def dashboard_scope(url):
     """Accept a Lovelace root or custom dashboard URL, not HA admin routes."""
     p = urlsplit(url)
     root = p.path.split("/")[1] if p.path.startswith("/") else ""
     if (p.scheme not in ("http", "https") or not p.hostname or
             p.username is not None or p.password is not None or
+            root in RESERVED or
             not (root == "lovelace" or re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)+", root))
             or "%" in p.path or "\\" in p.path or
             any(part in (".", "..") for part in p.path.split("/"))):
@@ -96,7 +104,7 @@ PIN_DIALOG = r"""() => {
     const host = document.createElement('div');
     host.id = 'portall-kiosk-pin';
     host.style.cssText = 'position:fixed;inset:0;z-index:2147483647;display:grid;place-items:center;background:#000b;';
-    const root = host.attachShadow({mode:'closed'});
+    const root = host.attachShadow({mode:'open'});
     root.innerHTML = '<style>:host{font:18px system-ui} section{background:#20242b;color:white;padding:24px;border-radius:18px;width:min(300px,80vw);text-align:center} output{display:block;height:42px;font-size:25px;letter-spacing:5px} .keys{display:grid;grid-template-columns:repeat(3,1fr);gap:8px} button{background:#414954;color:white;border:0;border-radius:10px;min-height:52px;font:inherit} p{font-size:14px;min-height:22px}</style><section><h2>Portall · PIN</h2><output></output><div class="keys"></div><p></p><button id="cancel">Cancel</button></section>';
     let value = '';
     const output = root.querySelector('output');

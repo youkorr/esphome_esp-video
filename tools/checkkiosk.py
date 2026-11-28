@@ -18,7 +18,8 @@ class KioskTest(unittest.TestCase):
                     "http://ha:8123/dashboard-wall/../config",
                     "http://ha:8123@evil/dashboard-wall"):
             self.assertFalse(permitted(url, scope), url)
-        for url in ("launcher", "http://ha:8123/config", "http://ha:8123/"):
+        for url in ("launcher", "http://ha:8123/config", "http://ha:8123/",
+                    "http://ha:8123/developer-tools/state", "http://ha:8123/media-browser"):
             with self.assertRaises(ValueError):
                 dashboard_scope(url)
 
@@ -46,6 +47,29 @@ class KioskTest(unittest.TestCase):
         self.assertTrue(kiosk._unlock(source, "123456"))
         kiosk.tick(False)
         self.assertTrue(kiosk.locked)
+
+    def test_sender_configuration(self):
+        import os
+        import run
+        from unittest.mock import patch
+        panel = {"name": "wall", "host": "panel", "url": "http://ha/lovelace/0",
+                 "kiosk_mode": True, "kiosk_pin": "123456",
+                 "token": "dedicated", "page_token": ["admin"], "keep_profile": True}
+        argv = run.command_for(panel)
+        self.assertIn("--kiosk-mode", argv)
+        self.assertNotIn("--profile", argv)
+        self.assertNotIn("--resume", argv)
+        self.assertNotIn("--page-token", argv)
+        self.assertNotIn("123456", argv)
+        with patch.dict(os.environ, {"HA_TOKEN": "shared"}):
+            env = run.sender_env(panel)
+            self.assertNotIn("HA_TOKEN", env)
+            self.assertEqual(env["PORTALL_KIOSK_PIN"], "123456")
+        ordinary = run.command_for({"name": "other", "host": "panel",
+                                    "url": "http://ha/config", "keep_profile": True})
+        self.assertNotIn("--kiosk-mode", ordinary)
+        self.assertIn("--profile", ordinary)
+        self.assertIn("--resume", ordinary)
 
     def test_no_pin(self):
         kiosk = Kiosk("http://ha/lovelace")

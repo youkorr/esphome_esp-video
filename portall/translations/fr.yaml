@@ -115,6 +115,9 @@ configuration:
               le coin en haut à gauche. bottom_edge : glisser vers le haut depuis le bas, comme une tablette.
               left_edge, right_edge, top_edge : glisser depuis ce bord vers le milieu. both : le coin
               ou le bord droit.'
+          audio_port:
+            name: Port TCP audio séparé
+            description: Connexion PCM audio facultative vers l’écran.
           stereo:
             name: 🔊 Son en stéréo
             description: 'Le double de données. Carte à jour obligatoire, et num_channels: 2 sur l''enceinte

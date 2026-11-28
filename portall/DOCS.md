@@ -3045,7 +3045,7 @@ or readings are added. Switch layouts in Appearance to return immediately.
 
 Portall in `main` now selects the block display API appropriate to the ESPHome version. On ESPHome 2026.11 and later, the old ColorOrder overload can draw into a software buffer without refreshing a display configured with `update_interval: never`. Rebuild the panel firmware; updating only the add-on cannot fix this.
 
-`panel_buffers: true` is optional, requires the synchronized three-buffer MIPI DSI driver, native RGB565 dimensions divisible by 16 and exclusive full-screen rendering. See [PANEL_BUFFERS.md](PANEL_BUFFERS.md). The ordinary copy path remains the default. The independent `audio_port` option remains available for either path.
+`panel_buffers: true` is optional, requires the synchronized three-buffer MIPI DSI driver, native RGB565 dimensions divisible by 16 and exclusive full-screen rendering. See the Panel Buffers documentation in the source repository. The ordinary copy path remains the default. The independent `audio_port` option remains available for either path.
 
 
 ## Experimental per-panel kiosk mode
@@ -3076,7 +3076,7 @@ and suppresses Portall's navigation bar, remote navigation and resume while
 locked. A fresh browser context avoids reusing the old signed-in profile.
 Hold the upper-left corner for five seconds to enter the PIN. A successful
 PIN temporarily restores the interface of the **same** account for five
-minutes, or until the screen sleeps or the gesture is used again. Blank PIN
+minutes, or until the screen sleeps, disconnects, or the gesture is used again. Blank PIN
 means no local unlock; disable kiosk in the add-on configuration to exit.
 No HACS add-on is required. Other HA sessions are unchanged.
 

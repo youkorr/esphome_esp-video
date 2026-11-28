@@ -8449,7 +8449,7 @@ def main():
     kiosk = None
     if args.kiosk_mode:
         from kiosk import Kiosk
-        if not args.token or args.no_token or args.not_home_assistant:
+        if not (args.token or "").strip() or args.no_token or args.not_home_assistant:
             parser.error("Kiosk requires a dedicated non-admin HA token for this panel")
         try:
             kiosk = Kiosk(args.url or "", os.environ.pop("PORTALL_KIOSK_PIN", ""))
@@ -8811,7 +8811,7 @@ def main():
         # own. Counted now so the log says whether there are any to show.
         shelf = Bookmarks(args.profile,
                           (args.locale or "").lower().startswith("fr"))
-        if shelf.start():
+        if kiosk is None and shelf.start():
             follow.bookmarks = shelf.origin
             try:
                 found = shelf.count()
@@ -10487,7 +10487,10 @@ def main():
                     gestured = injector is not None and injector.tick(now)
                     nav = injector.take_nav() if injector is not None else None
                     if kiosk is not None and gestured:
-                        kiosk.gesture()
+                        # Corner swipes are a shortcut in ordinary mode, but
+                        # unlocking/relocking needs an actual five-second hold.
+                        if injector.fired_by == 'hold' and injector.held_for >= 5.0:
+                            kiosk.gesture()
                         gestured = False
                         asked_home = False
                         asked_open = None
@@ -10803,6 +10806,8 @@ def main():
                         stats_at = now
             except OSError as err:
                 print(f"Lost the panel ({err}), waiting for it to come back")
+                if kiosk is not None:
+                    kiosk.lock()
                 if injector is not None:
                     injector.release()
             finally:

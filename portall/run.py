@@ -1293,7 +1293,11 @@ def load_panels():
                 #
                 # The key is READ rather than popped, because the links are
                 # handed out later and that step has to ask the same question.
-                for panel in merged:
+                for original, panel in zip(panels, merged):
+                    if kiosk_enabled(panel):
+                        # Never inherit the household's token or start URL.
+                        panel['token'] = original.get('token') or ''
+                        panel['url'] = original.get('url') or ''
                     if str(panel.get("home_assistant", True)).lower() in (
                         "false",
                         "no",
@@ -1956,6 +1960,14 @@ def kiosk_enabled(panel):
     return str(panel.get("kiosk_mode", False)).lower() in ("true", "yes", "1")
 
 
+def sender_env(panel):
+    env = dict(os.environ)
+    env["PORTALL_KIOSK_PIN"] = str(panel.get("kiosk_pin") or "")
+    if kiosk_enabled(panel):
+        env.pop("HA_TOKEN", None)  # Do not fall back to a shared credential.
+    return env
+
+
 def command_for(panel):
     """One panel's options, as the command line ha_send.py expects."""
     argv = [sys.executable, "-u", SENDER]
@@ -2378,7 +2390,7 @@ def serve(panel, name, stop, remote=None):
         try:
             process = subprocess.Popen(
                 command_for(panel),
-                env=dict(os.environ, PORTALL_KIOSK_PIN=str(panel.get("kiosk_pin") or "")),
+                env=sender_env(panel),
                 stdin=subprocess.PIPE if remote is not None else None,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,

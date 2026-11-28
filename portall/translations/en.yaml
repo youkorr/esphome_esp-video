@@ -112,6 +112,9 @@ configuration:
             description: 'Also set in Settings on the page of links. corner (when empty): hold the top-left
               corner. bottom_edge: swipe up from the bottom, as on a tablet. left_edge, right_edge, top_edge:
               swipe from that edge towards the middle. both: the corner or the right edge.'
+          audio_port:
+            name: Separate audio TCP port
+            description: Optional PCM audio connection to the display.
           stereo:
             name: 🔊 Stereo sound
             description: 'Twice the data. Needs the board updated, and num_channels: 2 on the Bluetooth
