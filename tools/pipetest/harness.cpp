@@ -64,6 +64,11 @@ void esp_log_printf_(int, const char *, int, const char *format, ...) {
   if (getenv("PIPETEST_LOG"))
     printf("    | %s\n", line);
 }
+// ESPHome now uses the literal-only logging entry point for messages without
+// formatting arguments. Capture these in the same test log.
+void esp_log_str_(int level, const char *tag, int line, const char *message) {
+  esp_log_printf_(level, tag, line, "%s", message);
+}
 }  // namespace esphome
 
 // ---------------------------------------------------------------------------
