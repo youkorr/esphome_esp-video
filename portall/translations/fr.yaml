@@ -86,6 +86,12 @@ configuration:
           home_assistant:
             name: Montre Home Assistant
             description: Éteint = cet écran ne reçoit aucun jeton (un site ordinaire, un horaire de train…).
+          kiosk_mode:
+            name: Mode kiosque du tableau de bord
+            description: Verrouille uniquement cet écran sur son tableau de bord HA. Nécessite un jeton non administrateur dédié à cet écran.
+          kiosk_pin:
+            name: Code PIN de sortie du kiosque
+            description: 4 à 8 chiffres facultatifs. Maintenir le coin supérieur gauche cinq secondes pour déverrouiller temporairement. Vide, aucune sortie locale.
           esphome_device:
             name: 📶 Nom ESPHome de l'écran (Wi-Fi, Bluetooth)
             description: 'Seulement si le journal dit qu''aucun appareil n''a l''adresse de l''écran :

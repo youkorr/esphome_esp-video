@@ -952,7 +952,8 @@ def launch_agent(path):
 
 
 def _launch(playwright, executable, profile, view, browser_args,
-            ignore=(), env=None, locale=None, touch=False, agent=None):
+            ignore=(), env=None, locale=None, touch=False, agent=None,
+             kiosk=False):
     """Start the browser, and fall back to Playwright's own if it will not.
 
     Preferring a system browser is only safe if being wrong about it costs
@@ -981,12 +982,14 @@ def _launch(playwright, executable, profile, view, browser_args,
                 has_touch=touch,
                 # Refused, and fetched by Downloads instead: see why there.
                 accept_downloads=False,
+                service_workers="block" if kiosk else "allow",
             )
         return playwright.chromium.launch(
             args=args, executable_path=path,
             ignore_default_args=list(ignore), env=env,
         ).new_context(viewport=view, device_scale_factor=1, locale=locale,
-                      has_touch=touch, accept_downloads=False)
+                      has_touch=touch, accept_downloads=False,
+                       service_workers="block" if kiosk else "allow")
 
     # A panel's only input is a finger, and the browser was telling every site
     # it had no touchscreen at all -- navigator.maxTouchPoints 0, measured. On
@@ -8440,7 +8443,26 @@ def main():
         help="with --stats, also name the busiest parts of the screen. Use it "
         "to find the card that never stops redrawing",
     )
+    parser.add_argument("--kiosk-mode", action="store_true",
+                        help="restrict this panel to its configured HA dashboard")
     args = parser.parse_args()
+    kiosk = None
+    if args.kiosk_mode:
+        from kiosk import Kiosk
+        if not args.token or args.no_token or args.not_home_assistant:
+            parser.error("Kiosk requires a dedicated non-admin HA token for this panel")
+        try:
+            kiosk = Kiosk(args.url or "", os.environ.pop("PORTALL_KIOSK_PIN", ""))
+        except ValueError as err:
+            parser.error(str(err))
+        args.profile = args.resume = args.saver = args.downloads = None
+        args.page_token = []
+        args.token_url = None
+        args.alerts = False
+        args.no_nav_bar = True
+        args.home_gesture = "corner"
+        args.home_hold = 5.0
+        args.home_corner = 8
 
     # Chromium rejects the whole startScreencast call for a quality outside
     # this, and the failure surfaces as a page that simply never sends a frame.
@@ -8755,11 +8777,14 @@ def main():
             context = _launch(
                 playwright, executable, args.profile, view, browser_args,
                 ignore, launch_env, args.locale, not args.no_touch, launch_as,
+                kiosk=kiosk is not None,
             )
         else:
             context = _launch(playwright, executable, None, view, browser_args,
                               ignore, launch_env, args.locale,
-                              not args.no_touch, launch_as)
+                              not args.no_touch, launch_as, kiosk=kiosk is not None)
+        if kiosk is not None:
+            kiosk.install(context)
         launched = launch_as or {}
         # Installed on the context so it is in every frame of every page,
         # including the ones a site makes for itself and the one that comes
@@ -8854,6 +8879,8 @@ def main():
             )
         # A persistent context opens a page itself; a fresh browser does not.
         page = context.pages[0] if context.pages else context.new_page()
+        if kiosk is not None:
+            kiosk.page = page
         # Every page, the panel's and any a link opens in a new window --
         # a download link often does.
         downloads = Downloads(args.downloads, context)
@@ -8957,6 +8984,8 @@ def main():
                 f"Warning: {args.url} would not open. Carrying on, so the "
                 f"panel shows what the browser has and a wake tries again."
             )
+        if kiosk is not None and not kiosk.allowed(page.url):
+            raise RuntimeError("Kiosk dashboard could not be opened; check URL and dedicated token")
         print(f"Ready {time.monotonic() - started:.1f}s after starting "
               f"({browser_ready:.1f}s of it the browser)")
         # Back to the page the panel was on, when the last run ended a moment
@@ -9269,7 +9298,7 @@ def main():
                   flush=True)
         # The panel's own limits, to return to when a page asks for nothing.
         base_interval, base_urgent = interval, urgent_interval
-        hint = (None if args.no_touch
+        hint = (None if args.no_touch or kiosk is not None
                 else HomeHint(page, page_w, page_h, corner_fraction,
                               space=tv_view, gesture=args.home_gesture))
         if injector is not None:
@@ -9541,6 +9570,23 @@ def main():
                                   f"after {WALL_WAIT_S:g}s, showing the "
                                   f"launcher anyway", flush=True)
                         wall_wait = None
+                    if kiosk is not None:
+                        kiosk.tick(awake)
+                        if (kiosk.reload_required or
+                                (not parked and not kiosk.allowed(page.url))):
+                            kiosk.reload_required = False
+                            if not open_page(page, args) or not kiosk.allowed(page.url):
+                                raise RuntimeError("Kiosk could not restore dashboard")
+                            parked = False
+                            previous = pending = image = None
+                            last_shot = composed_look = None
+                            refined_image = refined_payload = refined_for = None
+                            if keyboard is not None:
+                                keyboard.forget()
+                            if injector is not None:
+                                injector.release()
+                            capture.restart()
+                            continue
                     free = writer.ready()
                     frame = capture.take()
                     if frame is not None:
@@ -9901,6 +9947,14 @@ def main():
                         said = said + control.drain()
                     said = said + follow.drain() + windows.drain()
                     for kind, body in said:
+                        if kiosk is not None and kiosk.locked:
+                            if kind in ("open", "follow", "bookmark", "window", "share",
+                                        "gesture", "alert", "type", "search"):
+                                continue
+                            if kind == "key" and body not in (
+                                    "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight",
+                                    "Enter", "Escape", "Tab", "Space"):
+                                continue
                         if kind == "touch":
                             reports.append(body)
                             continue
@@ -10432,6 +10486,15 @@ def main():
                     # turn behind the board's own request.
                     gestured = injector is not None and injector.tick(now)
                     nav = injector.take_nav() if injector is not None else None
+                    if kiosk is not None and gestured:
+                        kiosk.gesture()
+                        gestured = False
+                        asked_home = False
+                        asked_open = None
+                        pending = None
+                        capture.request(discard=True)
+                    if kiosk is not None and asked_open and not kiosk.allowed(asked_open):
+                        asked_open = None
                     if nav is not None and not (gestured or asked_home):
                         # Back, reload and home, from the bar. At commit like
                         # a link, for the same reason: the loop is blocked

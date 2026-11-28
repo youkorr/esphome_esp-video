@@ -472,6 +472,8 @@ schema:
       advanced:
         token: password?
         home_assistant: bool?
+        kiosk_mode: bool?
+        kiosk_pin: password?
         # Experimental, off unless this panel explicitly asks for it.
         youtube_tv_hd: bool?
         esphome_device: str?

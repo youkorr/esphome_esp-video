@@ -225,6 +225,7 @@ ADD ${RAW}/ha_send.py /app/ha_send.py
 # "ModuleNotFoundError: No module named 'launcher'" before a single panel was
 # served. Anything run.py imports has to be listed here.
 COPY run.py /app/run.py
+COPY kiosk.py /app/kiosk.py
 COPY launcher.py /app/launcher.py
 COPY appearance.py /app/appearance.py
 COPY appearance_store.py /app/appearance_store.py

@@ -1952,16 +1952,24 @@ def downloads_for(panel):
     return os.path.join(DOWNLOADS, profile_name(panel))
 
 
+def kiosk_enabled(panel):
+    return str(panel.get("kiosk_mode", False)).lower() in ("true", "yes", "1")
+
+
 def command_for(panel):
     """One panel's options, as the command line ha_send.py expects."""
     argv = [sys.executable, "-u", SENDER]
-    profile = profile_for(panel)
+    kiosk = kiosk_enabled(panel)
+    if kiosk:
+        argv += ["--kiosk-mode"]
+    profile = None if kiosk else profile_for(panel)
     if profile:
         argv += ["--profile", profile]
     argv += ["--downloads", downloads_for(panel)]
     # Where the panel was, so a sender that stops unasked -- a browser that
     # closed under it -- comes back on that page rather than on its launcher.
-    argv += ["--resume", os.path.join(RESUME, profile_name(panel) + ".url")]
+    if not kiosk:
+        argv += ["--resume", os.path.join(RESUME, profile_name(panel) + ".url")]
     if given(panel.get("saver")) and panel.get("saver_after"):
         # Not form fields: route_to_launcher works them out from the
         # launcher's slideshow.
@@ -2026,7 +2034,7 @@ def command_for(panel):
         argv += ["--page-rate", link]
     # And the token of the Home Assistant a link opens. Not a panel setting:
     # a token belongs to an origin, and the link is what names one.
-    for link in panel.get("page_token") or []:
+    for link in ([] if kiosk else panel.get("page_token") or []):
         argv += ["--page-token", link]
     # And the links whose bar stays over a video, which is a link's own say.
     for link in panel.get("page_keep_bar") or []:
@@ -2357,7 +2365,8 @@ def release_panel(name):
 
 def serve(panel, name, stop, remote=None):
     """Run one panel's sender, restarting it until asked to stop."""
-    seed_profile(panel, name)
+    if not kiosk_enabled(panel):
+        seed_profile(panel, name)
     delay = RESTART_DELAY_S
     held = _held.setdefault(str(name), threading.Event())
     while not stop.is_set():
@@ -2369,6 +2378,7 @@ def serve(panel, name, stop, remote=None):
         try:
             process = subprocess.Popen(
                 command_for(panel),
+                env=dict(os.environ, PORTALL_KIOSK_PIN=str(panel.get("kiosk_pin") or "")),
                 stdin=subprocess.PIPE if remote is not None else None,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
@@ -2459,10 +2469,14 @@ def start_signin(panels):
         return None
     screens = {}
     for index, panel in enumerate(panels, start=1):
+        if kiosk_enabled(panel):
+            continue  # Never reuse an unrestricted sign-in session for a kiosk.
         name = str(panel.get("name") or panel.get("host") or f"panel {index}")
         screens[name] = {"profile": profile_for(panel),
                          "browser": panel.get("browser"),
                          "locale": panel.get("locale")}
+    if not screens:
+        return None
     page = signin.SignIn(screens, hold_panel, release_panel, say)
     try:
         page.serve(port)
@@ -2579,6 +2593,8 @@ def give_page_settings(panels, config):
     """
     house = config.get("links") or []
     for panel in panels:
+        if kiosk_enabled(panel):
+            continue  # A dedicated panel token is required; never inherit link tokens.
         mine = panel.get("launcher_links")
         links = {"links": mine if mine is not None else house}
         for key, values in (("page_quality", page_quality_from(links)),

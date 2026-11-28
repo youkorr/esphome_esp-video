@@ -3046,3 +3046,44 @@ or readings are added. Switch layouts in Appearance to return immediately.
 Portall in `main` now selects the block display API appropriate to the ESPHome version. On ESPHome 2026.11 and later, the old ColorOrder overload can draw into a software buffer without refreshing a display configured with `update_interval: never`. Rebuild the panel firmware; updating only the add-on cannot fix this.
 
 `panel_buffers: true` is optional, requires the synchronized three-buffer MIPI DSI driver, native RGB565 dimensions divisible by 16 and exclusive full-screen rendering. See [PANEL_BUFFERS.md](PANEL_BUFFERS.md). The ordinary copy path remains the default. The independent `audio_port` option remains available for either path.
+
+
+## Experimental per-panel kiosk mode
+
+Use an explicit Home Assistant dashboard URL (not `launcher`), and a dedicated
+non-administrator HA account with its own long-lived token in the panel's
+`advanced.token`. Do not reuse the household's administrator token.
+
+```yaml
+panels:
+  - name: wall
+    host: 192.168.1.50
+    url: http://homeassistant:8123/dashboard-wall/0
+    width: 800
+    height: 1280
+    rotate: "0"
+    touch:
+      rotate: "0"
+    advanced:
+      kiosk_mode: true
+      kiosk_pin: "593184" # example only; choose your own
+      token: "YOUR_DEDICATED_NON_ADMIN_TOKEN"
+```
+
+This locks navigation to the chosen dashboard root (including its views),
+hides HA navigation chrome in that browser, blocks other document navigation
+and suppresses Portall's navigation bar, remote navigation and resume while
+locked. A fresh browser context avoids reusing the old signed-in profile.
+Hold the upper-left corner for five seconds to enter the PIN. A successful
+PIN temporarily restores the interface of the **same** account for five
+minutes, or until the screen sleeps or the gesture is used again. Blank PIN
+means no local unlock; disable kiosk in the add-on configuration to exit.
+No HACS add-on is required. Other HA sessions are unchanged.
+
+This is a UI/navigation guard, **not a security boundary or entity permission
+system**. HA dashboard cards, custom JavaScript and HA API permissions still
+follow the account's rights. Do not rely on it for untrusted users or for
+protecting privileged tokens. External iframe cards, authentication redirects,
+other dashboards, local sign-in and camera overlays may not work in kiosk.
+The first experimental version must be tested with real HA frontend versions
+and custom cards. Kiosk is off by default.

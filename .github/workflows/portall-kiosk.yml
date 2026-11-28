@@ -1,0 +1,19 @@
+name: Portall experimental kiosk
+on:
+  push:
+    branches: [experimental-portall-kiosk]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  kiosk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install pyyaml
+      - run: python -m py_compile portall/kiosk.py portall/run.py components/portall/ha_send.py
+      - run: python tools/checkkiosk.py
+      - run: python tools/checkaddon.py portall/config.yaml

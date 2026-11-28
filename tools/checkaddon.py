@@ -228,7 +228,7 @@ def check_reaches_sender(folder):
 
     # The ones that are the add-on's own business rather than the sender's.
     ITS_OWN = {
-        "name", "token",
+        "name", "token", "kiosk_pin",  # passed only in the sender environment
         # Not a flag of its own: it decides whether there is a --profile at
         # all, and what directory it names.
         "keep_profile",
