@@ -26,6 +26,9 @@
 
 #include <cerrno>
 #include <cstring>
+#ifdef USE_PORTALL_C6_DIAGNOSTICS
+#include "esp_hosted_misc.h"
+#endif
 
 // Present only when the wifi component was built with the runtime controls
 // portall asks for from its schema whenever `port:` is set. Guarded on each
@@ -51,6 +54,36 @@ namespace esphome {
 namespace portall {
 
 static const char *const TAG = "portall.net";
+
+#ifdef USE_PORTALL_C6_DIAGNOSTICS
+// A separate low priority task: a slow RPC must not block video or audio.
+static constexpr uint32_t C6_DIAG_REQ = 0x50444701u;
+static constexpr uint32_t C6_DIAG_RESP = 0x50444702u;
+static std::atomic<uint32_t> c6_diag_responses{0};
+static void c6_diag_response(uint32_t, const uint8_t *data, size_t len, void *) {
+  if (data == nullptr || len == 0 || len > 511)
+    return;
+  ESP_LOGI("portall.c6", "%.*s", static_cast<int>(len), reinterpret_cast<const char *>(data));
+  c6_diag_responses.fetch_add(1, std::memory_order_relaxed);
+}
+static void c6_diag_task(void *) {
+  vTaskDelay(pdMS_TO_TICKS(15000));
+  const esp_err_t registration = esp_hosted_register_custom_callback(C6_DIAG_RESP, c6_diag_response, nullptr);
+  if (registration != ESP_OK) {
+    ESP_LOGW("portall.c6", "Diagnostic registration failed: %d", (int)registration);
+    vTaskDelete(nullptr);
+    return;
+  }
+  const uint8_t request = 1;
+  for (;;) {
+    const auto before = c6_diag_responses.load(std::memory_order_relaxed);
+    const esp_err_t err = esp_hosted_send_custom_data(C6_DIAG_REQ, &request, 1);
+    vTaskDelay(pdMS_TO_TICKS(10000));
+    if (err != ESP_OK || c6_diag_responses.load(std::memory_order_relaxed) == before)
+      ESP_LOGW("portall.c6", "No diagnostic response (RPC %d); verify diagnostic C6 firmware", (int)err);
+  }
+}
+#endif
 
 // OPTIMISATION : Augmentation de la taille de lecture (32 Ko) pour saturer le débit du C6/Wi-Fi
 static constexpr size_t NET_READ_SIZE = 32768;
@@ -380,6 +413,10 @@ void Portall::setup_network_() {
   // Utilisation de tskNO_AFFINITY pour répartir la charge réseau sur les deux cœurs RISC-V du P4
   xTaskCreatePinnedToCore(Portall::network_task, "udispnet", 4096, this, 4, nullptr, tskNO_AFFINITY);
   ESP_LOGCONFIG(TAG, "Listening on port %u for frames", (unsigned) this->port_);
+#ifdef USE_PORTALL_C6_DIAGNOSTICS
+  if (xTaskCreate(c6_diag_task, "portall_c6diag", 4096, nullptr, 1, nullptr) != pdPASS)
+    ESP_LOGW(TAG, "Could not start C6 diagnostics");
+#endif
 #ifdef USE_SPEAKER
   if (this->audio_port_ != 0 && this->speaker_ != nullptr) {
     if (xTaskCreatePinnedToCore(Portall::audio_network_task, "udispaudio", 4096, this, 5, nullptr,

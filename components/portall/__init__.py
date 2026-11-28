@@ -268,6 +268,7 @@ CONF_TOUCHSCREEN_ID = "touchscreen_id"
 CONF_SPEAKER_ID = "speaker_id"
 CONF_AUDIO_PORT = "audio_port"
 CONF_TCP_RX_WINDOW = "tcp_rx_window"
+CONF_C6_DIAGNOSTICS = "c6_diagnostics"
 CONF_SAMPLE_RATE = "sample_rate"
 # The rates sample_rate: allows. Each has a whole number of frames in the
 # board's 10 ms block, and none is above 48000, which is what the block buffer
@@ -926,6 +927,7 @@ CONFIG_SCHEMA = cv.All(
             cv.Optional(CONF_PORT): cv.port,
             cv.Optional(CONF_AUDIO_PORT): cv.port,
             cv.Optional(CONF_TCP_RX_WINDOW): cv.one_of(98304, 131072, int=True),
+            cv.Optional(CONF_C6_DIAGNOSTICS, default=False): cv.boolean,
             # Advertised to the host in the vendor interface string, which is
             # how a driver on the other end learns what to send. Espressif's
             # scale, not the usual one to ninety-five.
@@ -1061,13 +1063,21 @@ def _validate_panel_buffers(config):
 
 def _final_validate(config):
     config = _video_keeps_lvgl_paused(config)
-    return _validate_tcp_rx_profile(_validate_panel_buffers(_depth_fits(config)))
+    config = _validate_tcp_rx_profile(_validate_panel_buffers(_depth_fits(config)))
+    if config[CONF_C6_DIAGNOSTICS]:
+        hosted = fv.full_config.get().get("esp32_hosted") or {}
+        if CONF_PORT not in config or str(hosted.get("variant", "")).upper() != "ESP32C6":
+            raise cv.Invalid("c6_diagnostics requires an ESP32-C6 hosted network panel",
+                             path=[CONF_C6_DIAGNOSTICS])
+    return config
 
 
 FINAL_VALIDATE_SCHEMA = _final_validate
 
 
 async def to_code(config):
+    if config[CONF_C6_DIAGNOSTICS]:
+        cg.add_define("USE_PORTALL_C6_DIAGNOSTICS")
     var = cg.new_Pvariable(config[CONF_ID])
     await cg.register_component(var, config)
 
