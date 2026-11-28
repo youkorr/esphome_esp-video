@@ -207,6 +207,8 @@ class Kiosk:
         request = route.request
         if (self.locked and request.is_navigation_request()
                 and not permitted(request.url, self.scope)):
-            route.abort()
+            # HTTP 204 cancels a document navigation without replacing the
+            # dashboard with Chromium's chrome-error page.
+            route.fulfill(status=204, body="")
         else:
             route.continue_()

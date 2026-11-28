@@ -5,6 +5,7 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+  packages: write
 jobs:
   kiosk:
     runs-on: ubuntu-latest
@@ -19,3 +20,9 @@ jobs:
       - run: python tools/checkkiosk.py
       - run: python tools/checkkiosk_browser.py
       - run: python tools/checkaddon.py portall/config.yaml
+
+  image:
+    needs: kiosk
+    uses: ./.github/workflows/portall-image.yml
+    with:
+      ref: ${{ github.sha }}

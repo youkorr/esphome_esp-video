@@ -53,6 +53,7 @@ try:
             raise AssertionError("navigation should be blocked")
         except Error:
             pass
+        assert page.url.endswith('/dashboard-wall/sub'), page.url
         page.goto(kiosk.url)
         kiosk.gesture()
         for n in "123456":

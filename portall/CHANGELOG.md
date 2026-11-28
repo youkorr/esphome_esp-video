@@ -1,3 +1,11 @@
+## 4.64.0 — Experimental per-display kiosk mode
+
+- Optional dashboard navigation guard, scoped to a single Portall display; HA settings on other devices are unchanged.
+- Dedicated non-admin account token, no reuse of the ordinary browser profile or shared link tokens.
+- Optional PIN unlock via a five-second upper-left corner hold, automatic relock after five minutes, sleep or disconnect.
+- Kiosk is a navigation/UI guard, not a replacement for Home Assistant permissions. External iframe cards and custom frontend cards need testing. Off by default.
+- Corrected audio port translations and documentation link.
+
 # Changelog
 
 ## 4.63.0 (experimental)
