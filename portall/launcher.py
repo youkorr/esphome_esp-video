@@ -42,6 +42,11 @@ import logos
 import appearance
 
 try:
+    import speedtest as network_test
+except ImportError:
+    network_test = None
+
+try:
     import files as library
 except ImportError:  # an accessory: a build without it has no Files page
     library = None
@@ -2839,7 +2844,7 @@ def render(links, title="", subtitle="", theme="dark",
            tile_background="solid", tile_size=DEFAULT_SIZE,
            tile_text_color=FOLLOW_THEME, status=False,
            saver=False, saver_date=True, saver_clock=True, look=None,
-           layout="classic", settings=False):
+           layout="classic", settings=False, speedtest=False):
     """The page, as one string.
 
     `saver` draws the screen saver instead of the page of links: the
@@ -3102,6 +3107,10 @@ def render(links, title="", subtitle="", theme="dark",
         settings_dialog = (appearance.HTML +
                           '<script id="appearance-fields" type="application/json">' +
                           fields + '</script>')
+        if speedtest:
+            settings_dialog = settings_dialog.replace(
+                '<div id="appearance-tabs"',
+                '<a href="/network-test" style="display:block;padding:14px;color:inherit">Network test / Test réseau</a><div id="appearance-tabs"', 1)
 
     return PAGE % {
         "css": sheet,
@@ -3175,7 +3184,7 @@ def start(links, title="", subtitle="", theme="dark",
           layout="classic", appearance_file=None, voice_factory=None,
           appearance_commit=None, weather_visible=True, background_clear=False,
           background_override=False, home_gesture="corner",
-          entity_states=None):
+          entity_states=None, speedtest_panels=()):
     """Serve the page for as long as the add-on runs. Returns its address.
 
     One call is one launcher: its links, its look, its weather, its
@@ -3195,6 +3204,9 @@ def start(links, title="", subtitle="", theme="dark",
         avatar_file = os.fspath(avatar_file)
     if background_clear:
         background = ""
+    tester = network_test.Speedtest(speedtest_panels) if network_test else None
+    if tester and not tester.targets:
+        tester = None
     startup_look = {"layout": layout, "theme": "light" if str(theme).lower() == "light" else "dark",
          "columns": columns, "align": align, "tiles": tiles,
          "focus_color": focus_color, "tile_background": tile_background,
@@ -3423,7 +3435,8 @@ def start(links, title="", subtitle="", theme="dark",
                 tile_text_color=look_preferences["tile_text_color"],
                 status=status is not None,
                 saver=saver, saver_date=saver_date, saver_clock=saver_clock,
-                look=saver_layout, layout=look_preferences["layout"], settings=True).encode()
+                look=saver_layout, layout=look_preferences["layout"], settings=True,
+                speedtest=tester is not None).encode()
             held = cache[which] = (key, body)
         return held[1]
 
@@ -3607,6 +3620,12 @@ def start(links, title="", subtitle="", theme="dark",
             self._reply(json.dumps(result).encode(), "application/json")
 
         def do_GET(self):
+            if self.path == "/network-test":
+                if tester is None or self.headers.get("Host") != f"127.0.0.1:{self.server.server_address[1]}":
+                    self.send_error(404)
+                    return
+                self._reply(tester.page(), "text/html; charset=utf-8")
+                return
             if self.path.split("?")[0] == appearance.PATH:
                 self._reply(json.dumps(preferences.snapshot()).encode(),
                             "application/json",
@@ -3783,6 +3802,20 @@ def start(links, title="", subtitle="", theme="dark",
                 self.send_error(404)
 
         def do_POST(self):
+            if self.path == "/network-test":
+                expected = f"127.0.0.1:{self.server.server_address[1]}"
+                if tester is None or self.headers.get("Host") != expected or self.headers.get("Origin") != "http://" + expected:
+                    self.send_error(403)
+                    return
+                try:
+                    length = int(self.headers.get("Content-Length", "0"))
+                    if self.headers.get_content_type() != "application/json" or not 0 < length <= 1024:
+                        raise ValueError("Invalid request")
+                    result = tester.run(json.loads(self.rfile.read(length)))
+                except (OSError, ValueError, RuntimeError, UnicodeError) as err:
+                    result = {"error": str(err)[:200]}
+                self._reply(json.dumps(result).encode(), "application/json")
+                return
             if self.path == appearance.PATH:
                 self._appearance_post()
                 return

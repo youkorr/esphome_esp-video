@@ -1,0 +1,37 @@
+name: Portall local speedtest experimental
+on:
+  push:
+    branches: [experimental-portall-speedtest]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  protocol:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 -m pip install pyyaml
+      - run: python3 -m py_compile portall/speedtest.py portall/run.py portall/launcher.py components/portall_speedtest/__init__.py
+      - run: python3 tools/checkspeedtest.py
+      - run: python3 tools/checkaddon.py
+  firmware:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    container:
+      image: ghcr.io/esphome/esphome:dev
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile Guition with Portall, Ortho RX and speedtest
+        shell: bash
+        run: |
+          cat > yaml/secrets.yaml <<'YAML'
+          wifi_ssid: "compile-only"
+          wifi_password: "compile-only"
+          fallback_ap_password: "compile-only"
+          webdav_username: "compile-only"
+          webdav_password: "compile-only"
+          portall_speedtest_key: "1111111111111111111111111111111111111111111111111111111111111111"
+          YAML
+          python -c 'import base64,secrets; print("api_encryption_key: "+base64.b64encode(secrets.token_bytes(32)).decode())' >> yaml/secrets.yaml
+          esphome config yaml/portall-guit-10-p4-speedtest.yaml
+          esphome compile yaml/portall-guit-10-p4-speedtest.yaml

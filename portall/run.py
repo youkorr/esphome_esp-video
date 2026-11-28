@@ -1043,6 +1043,8 @@ def start_launcher(config, port=None, house_links=(), label="", panel_name=None,
         # wallpaper -- kept beside the avatar's spot, for the same reason.
         files_root=DOWNLOADS,
         status=STATUS,
+        speedtest_panels=tuple((key, _SCREENS[key.lower()]) for key in screens
+                               if key.lower() in _SCREENS),
         choice_file=avatar_file(label).replace(AVATAR_DIR, WALLPAPER_DIR),
         voice=follow_voice(config, list(links) + list(house_links), label),
         entity_states=follow_tiles(links, house_links, label),

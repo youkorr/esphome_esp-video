@@ -206,7 +206,7 @@ RUN (if /opt/google/chrome/chrome --version >/dev/null 2>&1 \
 # Bump this with the version in config.yaml. It sits AFTER the browsers and
 # BEFORE the senders: an update refetches the two senders below and copies the
 # add-on's own files, and reuses everything above -- see the note on the pin.
-ARG BUNDLE=4.64.0
+ARG BUNDLE=4.65.0
 RUN echo "${BUNDLE}" > /app/BUNDLE
 
 # Fetched rather than copied: the add-on builds with its own folder as the
@@ -227,6 +227,7 @@ ADD ${RAW}/ha_send.py /app/ha_send.py
 COPY run.py /app/run.py
 COPY kiosk.py /app/kiosk.py
 COPY launcher.py /app/launcher.py
+COPY speedtest.py /app/speedtest.py
 COPY appearance.py /app/appearance.py
 COPY appearance_store.py /app/appearance_store.py
 COPY appearance_ui.py /app/appearance_ui.py

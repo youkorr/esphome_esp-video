@@ -1,3 +1,8 @@
+## 4.65.0 — Experimental local network test
+
+- Optional authenticated TCP test between the add-on and the panel, accessible from launcher settings; reports download, upload and TCP request RTT. No internet service or C6 firmware change.
+- Requires the optional ESPHome `portall_speedtest` component and a matching per-panel key. Bounded tests, no background tests; display stream stays connected.
+
 ## 4.64.0 — Experimental per-display kiosk mode
 
 - Optional dashboard navigation guard, scoped to a single Portall display; HA settings on other devices are unchanged.
