@@ -64,6 +64,11 @@ void esp_log_printf_(int, const char *, int, const char *format, ...) {
   if (getenv("PIPETEST_LOG"))
     printf("    | %s\n", line);
 }
+// ESPHome uses a separate fast path for literal log messages. Preserve the
+// same captured-log semantics as the variadic host test implementation.
+void esp_log_str_(int level, const char *tag, int line, const char *message) {
+  esp_log_printf_(level, tag, line, "%s", message);
+}
 }  // namespace esphome
 
 // ---------------------------------------------------------------------------
