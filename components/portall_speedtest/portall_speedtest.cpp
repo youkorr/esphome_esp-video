@@ -2,6 +2,7 @@
 #include "portall_speedtest.h"
 #include "protocol.h"
 #include "esphome/core/log.h"
+#include "esphome/components/network/util.h"
 #include "esp_heap_caps.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -10,9 +11,20 @@
 
 namespace esphome::portall_speedtest {
 static const char *const TAG = "portall_speedtest";
-void SpeedTest::setup() {
-  if (xTaskCreatePinnedToCore(task, "portall_test", 4096, this, 3, nullptr, 1) != pdPASS)
+void SpeedTest::loop() {
+  // Dependencies order code generation, not setup. In particular, lwIP's
+  // TCP/IP mailbox and semaphores may not exist during component setup.
+  // Only start the socket worker after ESPHome reports a connected network.
+  if (started_ || !network::is_connected())
+    return;
+  if (xTaskCreatePinnedToCore(task, "portall_test", 4096, this, 3, nullptr, 1) != pdPASS) {
+    ESP_LOGE(TAG, "Could not create speedtest task");
     this->mark_failed();
+    return;
+  }
+  started_ = true;
+  ESP_LOGI(TAG, "Speedtest network task started on TCP %u", port_);
+  this->disable_loop();
 }
 void SpeedTest::dump_config() {
   ESP_LOGCONFIG(TAG, "Portall LAN speedtest: TCP %u (authenticated, opt-in)", port_);
