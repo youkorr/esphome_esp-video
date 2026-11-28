@@ -1,0 +1,38 @@
+name: Portall Guition Ortho RX example
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'yaml/portall-guit-10-p4-ortho-rx.yaml'
+      - '.github/workflows/portall-guition-ortho-rx.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  guition:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    container:
+      image: ghcr.io/esphome/esphome:dev
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile the public example with dummy credentials
+        shell: bash
+        run: |
+          cat > yaml/secrets.yaml <<'YAML'
+          wifi_ssid: "compile-only"
+          wifi_password: "compile-only"
+          api_encryption_key: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+          fallback_ap_password: "compile-only"
+          webdav_username: "compile-only"
+          webdav_password: "compile-only"
+          YAML
+          esphome version
+          esphome config yaml/portall-guit-10-p4-ortho-rx.yaml
+          esphome compile yaml/portall-guit-10-p4-ortho-rx.yaml
+          BUILD=yaml/.esphome/build/portall-guit-10-p4-ortho-rx
+          grep -Fx 'CONFIG_PORTALL_P4_RX_ENGINE=y' "$BUILD/sdkconfig.portall-guit-10-p4-ortho-rx"
+          grep -Fx 'CONFIG_PORTALL_P4_SDIO_AFFINITY=1' "$BUILD/sdkconfig.portall-guit-10-p4-ortho-rx"
+          grep -Fx 'CONFIG_PORTALL_P4_RX_SRAM=1' "$BUILD/sdkconfig.portall-guit-10-p4-ortho-rx"
+          grep -Fx 'CONFIG_ESP_HOSTED_HOST_SDIO_RX_STAGING_SLOTS=2' "$BUILD/sdkconfig.portall-guit-10-p4-ortho-rx"
+          grep -Fx '# CONFIG_ORTHO_RX_DIAGNOSTICS is not set' "$BUILD/sdkconfig.portall-guit-10-p4-ortho-rx"
