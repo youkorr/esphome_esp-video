@@ -2,7 +2,7 @@
 import re
 
 import esphome.codegen as cg
-from esphome.components import socket
+from esphome.components import esp32, socket
 import esphome.config_validation as cv
 import esphome.final_validate as fv
 from esphome.const import CONF_ID, CONF_PORT
@@ -33,7 +33,7 @@ CONFIG_SCHEMA = cv.All(
         cv.Optional(CONF_PORT, default=5201): cv.port,
         cv.Required("key"): key,
     }).extend(cv.COMPONENT_SCHEMA),
-    cv.only_on_esp32,
+    esp32.only_on_variant(supported="ESP32P4"),
     socket.consume_sockets(1, "portall_speedtest"),
     socket.consume_sockets(1, "portall_speedtest", socket.SocketType.TCP_LISTEN),
 )

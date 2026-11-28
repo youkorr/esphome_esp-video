@@ -54,11 +54,47 @@ class Test(unittest.TestCase):
                 self.assertGreater(result["tx"],0)
                 self.assertGreater(result["rtt"],0)
                 self.assertLessEqual(result["rx_bytes"],speedtest.LIMIT)
-                self.assertLessEqual(result["tx_bytes"],speedtest.LIMIT+16384)
+                self.assertLessEqual(result["tx_bytes"],speedtest.LIMIT)
             finally:
                 p.terminate()
                 p.wait(timeout=5)
                 p.stdout.close()
+
+    def test_truncated_upload_is_rejected(self):
+        class Fake:
+            def __init__(self, replies=()):
+                self.replies = iter(replies)
+            def __enter__(self):
+                return self
+            def __exit__(self, *args):
+                pass
+            def close(self):
+                pass
+            def settimeout(self, seconds):
+                pass
+            def sendall(self, block):
+                pass
+            def shutdown(self, how):
+                pass
+            def recv(self, size):
+                return next(self.replies, b"")
+        class Sink(Fake):
+            def __init__(self):
+                self.sent = 0
+                self.reply = None
+            def sendall(self, block):
+                self.sent += len(block)
+            def shutdown(self, how):
+                self.reply = iter(f"RX {self.sent} 1000\n".encode())
+            def recv(self, size):
+                return bytes([next(self.reply)])
+        sink = Sink()
+        upload = Fake([b"a" * 65536, b"a" * 65536, b""])
+        with patch.object(speedtest, "LIMIT", 65536 * 2), patch.object(
+            speedtest, "connect", side_effect=[(Fake(), 1)] * 5 + [(sink, 1), (upload, 1)]
+        ):
+            with self.assertRaisesRegex(OSError, "Incomplete upload"):
+                speedtest.measure("localhost", 5201, KEY)
 
     def test_targets(self):
         test=speedtest.Speedtest([("Good",{"host":"panel.local","speedtest_key":KEY}),

@@ -23,7 +23,7 @@ void SpeedTest::task(void *arg) {
 }
 void SpeedTest::serve() {
   for (;;) {
-    int listener = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    int listener = ::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     if (listener >= 0) {
       int yes = 1;
       setsockopt(listener, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes));

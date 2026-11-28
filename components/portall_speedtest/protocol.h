@@ -73,10 +73,16 @@ inline void serve_client(int fd, const char *key, char *buffer) {
     memset(buffer, 0xA5, CHUNK);
     const auto end = start + 5 * SECOND;
     while (bytes < LIMIT && micros_now() < end) {
-      auto n = send(fd, buffer, CHUNK, 0);
+      const size_t count = LIMIT - bytes < CHUNK ? size_t(LIMIT - bytes) : CHUNK;
+      auto n = send(fd, buffer, count, 0);
       if (n <= 0) return;
       bytes += n;
     }
+    // A completion marker distinguishes a successful test from a reset or
+    // a socket timeout after a partial stream. No payload byte equals 'E'.
+    char footer[24];
+    const int len = snprintf(footer, sizeof(footer), "END %016llx\n", (unsigned long long)bytes);
+    if (len == 21) send_all(fd, footer, len, micros_now() + SECOND);
   }
 }
 }  // namespace esphome::portall_speedtest

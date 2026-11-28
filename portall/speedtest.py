@@ -72,6 +72,7 @@ def measure(host, port, key):
     with sock:
         got = 0
         first = last = None
+        tail = b""
         end = time.monotonic() + 9
         while time.monotonic() < end:
             sock.settimeout(2)
@@ -79,15 +80,21 @@ def measure(host, port, key):
             if not chunk:
                 break
             now = time.perf_counter()
-            if first is None:
-                first = now
-            last = now
-            got += len(chunk)
-            if got > LIMIT + 16384:
+            tail += chunk
+            if len(tail) > 21:
+                count = len(tail) - 21
+                if first is None:
+                    first = now
+                last = now
+                got += count
+                tail = tail[-21:]
+            if got > LIMIT:
                 raise OSError("Panel exceeded the byte limit")
         else:
             raise TimeoutError("Upload exceeded the time limit")
-        if got < 65536 or first is None or last <= first:
+        footer = re.fullmatch(rb"END ([0-9a-f]{16})\n", tail)
+        if (not footer or int(footer.group(1), 16) != got or got < 65536
+                or first is None or last <= first):
             raise OSError("Incomplete upload measurement")
         tx = round(got * 8 / (last - first) / 1e6, 2)
     return {"rx": rx, "tx": tx, "rtt": round(statistics.median(samples), 2),
