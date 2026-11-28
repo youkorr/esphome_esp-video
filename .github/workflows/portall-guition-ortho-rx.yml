@@ -22,11 +22,11 @@ jobs:
           cat > yaml/secrets.yaml <<'YAML'
           wifi_ssid: "compile-only"
           wifi_password: "compile-only"
-          api_encryption_key: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
           fallback_ap_password: "compile-only"
           webdav_username: "compile-only"
           webdav_password: "compile-only"
           YAML
+          python -c 'import base64, secrets; print("api_encryption_key: " + base64.b64encode(secrets.token_bytes(32)).decode())' >> yaml/secrets.yaml
           esphome version
           esphome config yaml/portall-guit-10-p4-ortho-rx.yaml
           esphome compile yaml/portall-guit-10-p4-ortho-rx.yaml
