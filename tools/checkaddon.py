@@ -229,6 +229,9 @@ def check_reaches_sender(folder):
     # The ones that are the add-on's own business rather than the sender's.
     ITS_OWN = {
         "name", "token", "kiosk_pin",  # passed only in the sender environment
+        # Consumed by the local launcher speedtest service, never a sender flag.
+        # tools/checkspeedtest.py checks target selection and HTTP request handling.
+        "speedtest_key", "speedtest_port",
         # Not a flag of its own: it decides whether there is a --profile at
         # all, and what directory it names.
         "keep_profile",

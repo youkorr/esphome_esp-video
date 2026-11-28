@@ -96,6 +96,38 @@ class Test(unittest.TestCase):
             with self.assertRaisesRegex(OSError, "Incomplete upload"):
                 speedtest.measure("localhost", 5201, KEY)
 
+    def test_launcher_http(self):
+        import json
+        import urllib.request
+        import urllib.error
+        import launcher
+        import run
+
+        cfg = run.regroup({"panels":[{"name":"Panel","host":"panel.local",
+                          "advanced":{"speedtest_key":KEY,"speedtest_port":5202}}]})
+        panel = cfg["panels"][0]
+        address = launcher.start([{"name":"Home","url":"https://example.com"}],
+            port=0, speedtest_panels=(("Panel",panel),))
+        self.assertTrue(address)
+        with urllib.request.urlopen(address, timeout=3) as r:
+            self.assertIn(b'href="/network-test"',r.read())
+        with urllib.request.urlopen(address+"network-test", timeout=3) as r:
+            page=r.read().decode()
+        import re
+        nonce=json.loads(re.search(r'const nonce=("[^"]+")',page).group(1))
+        self.assertNotIn(KEY,page)
+        payload=json.dumps({"panel":"Panel","nonce":nonce}).encode()
+        def post(origin):
+            return urllib.request.urlopen(urllib.request.Request(address+"network-test",
+                data=payload,headers={"Origin":origin,"Content-Type":"application/json"}),timeout=3)
+        with self.assertRaises(urllib.error.HTTPError) as err:
+            post("https://outside.example")
+        self.assertEqual(err.exception.code,403)
+        with patch.object(speedtest,"measure",return_value={"rx":42}) as m:
+            with post(address.rstrip("/")) as r:
+                self.assertEqual(json.load(r),{"rx":42})
+            m.assert_called_once_with("panel.local",5202,KEY)
+
     def test_targets(self):
         test=speedtest.Speedtest([("Good",{"host":"panel.local","speedtest_key":KEY}),
                                    ("Off",{"host":"other.local"})])
